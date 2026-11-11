@@ -41,24 +41,6 @@ use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
 /**
  * Abstract base for the package's stateless contextual guards.
  *
- * Owns the contextual authentication lifecycle, standard and custom event
- * firing, timing-safe credential validation, and Laravel `Guard` contract
- * conformance. Concrete subclasses provide payload extraction and call
- * `attempt()`/`login()` to bind the resolved context.
- *
- * Contextual binding is composed via `BindsContextualState`, and the
- * authentication context of what it binds via `HoldsAuthenticationContext`;
- * the credential event helpers via `ValidatesGuardCredentials`; the sign-in
- * policy checks behind `attempt()` via `SignsInWithCredentials`; ownership
- * checks for principal hints and pinned context via `VerifiesPinnedContext`;
- * read access to the guard's collaborators via `ExposesCollaborators`, and
- * their rebinding via `RebindsCollaborators`.
- *
- * The collaborators the constructor takes live in the guard's `GuardContext`
- * (`$this->context`, built here), the one copy every flow of the guard reads
- * and every rebind updates. What a session flow may do to the bound state is
- * the `GuardBinding` port the guard implements.
- *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
@@ -144,15 +126,6 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
      * Return the authenticated identity, resolving it from the current request
      * on first access.
      *
-     * Resolution runs at most once per request, whether it succeeds or fails,
-     * so a bad credential is not re-parsed, re-queried, or re-reported on every
-     * call. After `logout()` the guard stays signed out for the rest of the
-     * request, as Laravel's session guard does. An explicit `login()`,
-     * `attempt()`, or `setUser()` still binds an identity, and a successful
-     * `login()` or `attempt()` settles the request as well, so the request's
-     * own credential is never resolved in the middle of that sign-in.
-     * `setRequest()` starts over for the next request.
-     *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
      *
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
@@ -194,12 +167,6 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
     /**
      * Validate credentials without mutating guard state, firing `Validated`
      * when they are accepted.
-     *
-     * Runs the password sign-in method's credential check inside a single
-     * `Timebox::call()`, so elapsed time is uniform whether or not the
-     * identifier resolves. Only the credentials are checked: no attempt limit,
-     * application policy or activity check applies, and the password is never
-     * rehashed, as with Laravel's own guards.
      *
      * @param  array<array-key, mixed>  $credentials
      * @return bool
@@ -245,16 +212,6 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
     /**
      * Bind an authenticated identity to the guard with its default principal.
      *
-     * The trusted bind behind Laravel's `actingAs()`. The previous identity's
-     * principal and session are cleared and the resolver's default principal
-     * for the new identity is bound, so the guard never pairs one identity with
-     * another's principal or session. Use `login()` to bind a specific
-     * principal or a session.
-     *
-     * Throws an `InvalidArgumentException` when the identity has no default
-     * principal. An `UnresolvableIdentityException` from the resolver, for a
-     * misconfigured identity model, propagates.
-     *
      * @param  \Illuminate\Contracts\Auth\Authenticatable  $user
      * @return $this
      *
@@ -285,34 +242,6 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
     /**
      * Sign in with credentials through the password sign-in method, optionally
      * pinning a specific principal and session on success.
-     *
-     * The application policy must allow the `password` method, and the attempt
-     * takes one slot from the identifier's and the IP address's sign-in limits
-     * before the credentials are checked; a successful sign-in gives its slots
-     * back. The credentials keep their full provider semantics, closures
-     * included, but the identifier the limits count and the verified-identifier
-     * requirement checks is always the guard's password identifier key (its own
-     * `sign_in.password_identifier`, or the package's), however the lookup was
-     * written. A value under that key that is not a string, a `Stringable`, an
-     * integer or a query closure fails as invalid credentials before any
-     * lookup, and the password check is counted against the account it is made
-     * for. Once the password is accepted, the identity, the principal and its
-     * tenant must be active, the pins must hold, the application policy must
-     * admit the identity as the principal, and the additional-factor policy
-     * must not ask for a further factor: `attempt()` cannot hand out a pending
-     * sign-in, so a required factor fails it (use the session service's
-     * `signIn()`). No session is created.
-     *
-     * Pins are verified, not trusted, because callers may take them from
-     * request input: the principal must resolve through the resolver's hinted
-     * path to the same principal of the same class, and the session must be one
-     * of the identity's own sessions of this guard that is not revoked and has
-     * not ended (a session of another guard, or of none, counts as missing).
-     * The resolved instances are bound, and a pin that fails either check fails
-     * the attempt.
-     *
-     * A failure fires Laravel's `Failed`, carrying the account the credentials
-     * named when there is one, and then `AuthenticationFailed` with the reason.
      *
      * @param  array<string, mixed>  $credentials
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -361,25 +290,7 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
      * Bind a fully resolved identity, principal, and optional session, firing
      * `Validated` and `Login` around the bind.
      *
-     * Public, trusted entry point for callers that validated the identity
-     * out-of-band (refresh, OAuth, SSO): the principal and session are bound as
-     * given, without the ownership checks `attempt()` applies to its pins.
-     * Paths that already fired `Validated` (as `attempt()` does once the
-     * password sign-in method accepts the credentials) call
-     * `bindVerifiedContext()` directly to avoid firing it twice.
-     *
-     * Previously bound state is cleared first so callers cannot inherit a stale
-     * session from a prior login on the same instance. With a session, the
-     * active tenant is the one the session records; without one, the
-     * principal's own; either unchecked, as for `authenticateAs()` (see
-     * `tenant()`). The events carry it and, with a session, the sign-in method
-     * the session records.
-     *
-     * `PrincipalAssigned` and `SessionAuthenticated` (and so the session's last
-     * use) describe the client given, for a flow acting for a client it was
-     * given as plain values, or the guard's request without one; for this bind
-     * only, as the guard keeps no client and its later events describe its
-     * request.
+     * A trusted bind: nothing given is checked against the identity.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -398,23 +309,10 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
     }
 
     /**
-     * Bind a fully resolved identity, principal, and optional session as the
-     * request's authentication rather than as a sign-in: only `Authenticated`,
-     * `PrincipalAssigned` and, with a session, `SessionAuthenticated` fire,
-     * with no `Validated` and no `Login`.
+     * Bind a fully resolved identity, principal and optional session as the
+     * request's authentication, firing neither `Validated` nor `Login`.
      *
-     * A trusted entry point, like `login()`: the principal and session are
-     * bound as given, without ownership, activity or revocation checks, so the
-     * caller must have proven them. Previously bound state is cleared first,
-     * and the request is settled, so its own credential is not resolved
-     * afterwards. A non-human identity (`MachineIdentity`) is limited to the
-     * scopes given, as if a credential granted them (`[]`, none, when no list
-     * is given); only a machine identity takes scopes. The active tenant is the
-     * one given, as given; with none given, the one the session records, or the
-     * principal's own without a session, unchecked, as for `login()` (see
-     * `tenant()`). `PrincipalAssigned` and `SessionAuthenticated` (and so the
-     * session's last use) describe the client given, as for `login()`, or the
-     * guard's request without one.
+     * A trusted bind: nothing given is checked against the identity.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -453,10 +351,8 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
     }
 
     /**
-     * Sign the request out: fire the standard Laravel `Logout` event when the
-     * request is authenticated, resolving it first as Laravel's session guard
-     * does, then clear all bound state. The guard stays signed out for the rest
-     * of the request instead of resolving the request's credential again.
+     * Sign the request out, firing Laravel's `Logout` when it is authenticated,
+     * and keep it signed out for the rest of the request.
      *
      * @return void
      *
@@ -476,10 +372,8 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
     }
 
     /**
-     * Forget the identity, principal and session bound to the guard, with no
-     * event, and keep the guard signed out for the rest of the request instead
-     * of resolving the request's credential again, as Laravel's
-     * `GuardHelpers::forgetUser()` does for its guards.
+     * Forget the bound identity, principal and session without an event,
+     * keeping the guard signed out for the rest of the request.
      *
      * @return static
      */
@@ -504,8 +398,7 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
     }
 
     /**
-     * Return the context the guard's flows run with: its collaborators, which
-     * `setRequest()`, `setDispatcher()` and `setPrincipalResolver()` rebind.
+     * Return the context the guard's flows run with.
      *
      * @return \SineMacula\Laravel\Authentication\Runtime\GuardContext
      */
@@ -516,12 +409,7 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
     }
 
     /**
-     * Bind an identity to the guard and fire the standard Laravel
-     * `Authenticated` event: the hook for a subclass that binds an identity on
-     * its own. The authentication context held for the previous binding and the
-     * kind of credential it was made with are forgotten, so the next ask is
-     * built for this identity. The package's binds set the whole context before
-     * any event instead, so a listener reads all of it.
+     * Bind an identity to the guard and fire Laravel's `Authenticated` event.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @return void
@@ -537,11 +425,6 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
 
     /**
      * Resolve a principal for the identity through the bound resolver.
-     *
-     * An `UnresolvableIdentityException` (an identity model that is neither a
-     * `Principal` nor `HasPrincipals`) is a misconfiguration, not a failed
-     * authentication, so it propagates as a server error rather than being
-     * reported as a `Failed` attempt.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  mixed  $hint
@@ -559,9 +442,6 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
     /**
      * Resolve the identity carried by the current request and bind its context,
      * returning `null` when the request carries no valid credential.
-     *
-     * Called by `user()` at most once per request. The base guard reads no
-     * request credential; request-authenticating guards override this.
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
      *
@@ -591,19 +471,8 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
     }
 
     /**
-     * Bind a context the guard verified itself, in the active tenant its
-     * admission found, with the sign-in method to report and, for a context a
-     * credential the request presented authenticated, its identifier, the
-     * scopes it grants and its kind: clear prior state and settle the request,
-     * dispatch `Login` when it is a sign-in, then bind the triple and dispatch
-     * its events.
-     *
-     * Login-before-Authenticated mirrors Laravel's `SessionGuard::login()`.
-     *
-     * An explicit bind settles the request: a `Login` listener that reads the
-     * guard before the identity is set gets no identity rather than resolving
-     * the request's own credential, whose session would otherwise stay bound to
-     * the identity signing in.
+     * Bind a context the guard verified itself, dispatching `Login` for a
+     * sign-in before the bind's own events.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal

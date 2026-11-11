@@ -49,55 +49,10 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
 
 /**
  * Switches a session to another principal of the same identity, another active
- * tenant, or both, proven by the session's refresh token (never by an access
- * token: a stolen short-lived access token must not mint a refresh credential).
+ * tenant, or both, proven by the session's refresh token.
  *
- * The token is judged as a refresh judges it, counted against the same refresh
- * limits, and a replayed one revokes the session. Every live check runs on
- * every path: the owner, reloaded through the guard's provider and active; the
- * destination principal (the target, or for a tenant-only switch the one the
- * session records), resolved through the hinted path as the very principal
- * named, owned, active, in an active tenant of its own, allowed the application
- * by `ApplicationAccess`, and admitted by the application policy with the type
- * of identifier the session's sign-in used; the session's sign-in method still
- * allowed; the destination tenant (the one selected, or the principal's
- * default) one `TenantAccess` lets the principal act in, and active; then the
- * destination tenant's authentication policy, judged against the session's own
- * proofs and provenance. A policy that requires connections the session was not
- * established through refuses the switch (`sso_required`); one that asks for a
- * further factor the session lacks returns the session to pending with the
- * destination recorded, instead of re-issuing its pair.
- *
- * A switch keeps the session's key, so its proofs and provenance carry over
- * unchanged, and its absolute clock (it never extends the absolute deadline: it
- * keeps it, or lowers it to the guard's absolute lifetime counted from the
- * sign-in, which also gives a session that had none a deadline once the guard
- * sets a limit), restarts the idle one, and writes in one compare-and-swap.
- * When the principal or the tenant changes, that write also moves the session's
- * `switched_at`, so every access token issued before it is refused at once.
- *
- * The switch of a session it finds runs in one transaction on the session's
- * connection (a savepoint inside one of the caller's), which first writes the
- * session's issuance guard (`IssuanceGuard`) and only then takes the time the
- * switch is judged and issued at: a switch that overlaps another issuance of
- * the session, or a change of its proofs, waits for it and then reads what it
- * committed, or, where its transaction reads a snapshot taken before (on
- * PostgreSQL's REPEATABLE READ), fails to serialise, for the caller to retry.
- * The session is read again with a lock once the guard is written, and only
- * that row is judged, so a grace retry, which writes no compare-and-swap, never
- * hands out a pair for a session revoked, returned to pending or switched
- * before the switch held it. The destination's policy is judged on the
- * session's proofs and provenance read current (`SessionProofs`), so the
- * judgement, like the token, counts every proof committed before it and none
- * voided by then.
- *
- * A switch that moved the session to another principal or tenant has the call's
- * check (`AdmissionRecheck`) read that principal or tenant again once the
- * switch commits, so one deactivated or deleted after the switch admitted it
- * ends the session instead.
- *
- * One switch is one instance, built with the guard's context, the client, the
- * target and the call's check when the switch runs.
+ * Never by an access token: a stolen short-lived one must not mint a refresh
+ * credential.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -150,12 +105,7 @@ final readonly class SessionSwitch
     ) {}
 
     /**
-     * Switch the session the refresh token proves to the target. Returns the
-     * switched session, the session returned to pending, or the
-     * `AuthenticationFailed` event that reports why it was refused,
-     * undispatched. A failure is counted against the token's session and the
-     * client's IP address; once either count is full the switch is refused as
-     * `rate_limited` before the session is looked up.
+     * Switch the session the refresh token proves to the target.
      *
      * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $refreshToken
      * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Sessions\ReturnedToPending|\SineMacula\Laravel\Authentication\Sessions\SwitchedPrincipal
@@ -184,12 +134,8 @@ final readonly class SessionSwitch
     }
 
     /**
-     * Run the switch for the parsed claims on the session they name: a session
-     * of another guard (or of none) fails as `session_guard_mismatch` before
-     * anything is written to it, and a session of this guard is switched in one
-     * transaction on its connection that first writes its issuance guard and
-     * then reads the session again with a lock, judging only the row read
-     * there; one whose row is gone by then fails as `session_unknown`.
+     * Run the switch for the parsed claims on the session they name, in one
+     * transaction on its connection.
      *
      * @param  ?array<string, mixed>  $claims
      * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Sessions\ReturnedToPending|\SineMacula\Laravel\Authentication\Sessions\SwitchedPrincipal
@@ -228,9 +174,7 @@ final readonly class SessionSwitch
     }
 
     /**
-     * Run the switch on the session of this guard the token names: the rotation
-     * id against it, the session against the one expected, if any, the
-     * destination's admission, then the switch or the retry.
+     * Run the switch on the session of this guard the token names.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  array{0: string, 1: mixed}  $presented
@@ -261,12 +205,8 @@ final readonly class SessionSwitch
     }
 
     /**
-     * Admit the destination for the session: the session's owner, active, as
-     * the destination principal resolved through the hinted path (the very
-     * principal named, owned, active, in an active tenant of its own, allowed
-     * the application), with the session's sign-in method still allowed, then
-     * as the destination the session's sign-in could have chosen, in the
-     * destination tenant.
+     * Admit the destination for the session: its owner, as the destination
+     * principal, in the destination tenant.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @return \SineMacula\Laravel\Authentication\Admission\Admitted|\SineMacula\Laravel\Authentication\Events\AuthenticationFailed
@@ -292,15 +232,7 @@ final readonly class SessionSwitch
 
     /**
      * Hold the admitted principal to what makes it the destination the session
-     * may switch to, in the destination tenant: it must be the very principal
-     * the switch names (`principal_mismatch`); the application policy must
-     * admit the identity with the type of identifier the session's sign-in
-     * used, as that sign-in was admitted, so a policy that refuses such an
-     * identifier (an unverified one, say) refuses the switch for its reason;
-     * and the tenant selected, or the principal's default, must be one
-     * `TenantAccess` lets it act in, and active (`tenant_ineligible`,
-     * `tenant_inactive`). A session whose sign-in used no identifier is not
-     * held to an identifier type. The type is read on the write connection.
+     * may switch to, in the destination tenant.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
@@ -325,11 +257,8 @@ final readonly class SessionSwitch
     }
 
     /**
-     * Whether the principal the hinted path resolved (whose identifier the
-     * admission already matched to the hint) is the very destination: of the
-     * target's class, or for a tenant-only switch the principal the session
-     * records, and owned by the session's owner, read from the principal's own
-     * stored key rather than trusted to the resolver.
+     * Whether the principal the hinted path resolved is the very destination,
+     * owned by the session's owner.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
@@ -345,9 +274,7 @@ final readonly class SessionSwitch
     }
 
     /**
-     * Switch the session presenting its current rotation id: the token's
-     * principal must be the one the session records, and the session must still
-     * be live under the guard's lifetimes.
+     * Switch the session presenting its current rotation id.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
@@ -379,12 +306,7 @@ final readonly class SessionSwitch
 
     /**
      * Judge the session against the destination tenant's authentication policy,
-     * with its own proofs and provenance: one that requires connections the
-     * session was not established through refuses the switch (`sso_required`),
-     * leaving the session as it was; one that asks for a further factor the
-     * session lacks returns the session to pending with the destination
-     * recorded, a lost compare-and-swap judged again as after a lost switch;
-     * one the session meets lets the switch rotate.
+     * refusing, returning it to pending, or letting the switch rotate.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $destination
@@ -414,15 +336,8 @@ final readonly class SessionSwitch
     }
 
     /**
-     * Return the session to pending with the destination and the version its
-     * policy answered recorded, waiting on the further factor the policy
-     * requires, instead of re-issuing its pair, or, when the compare-and-swap
-     * missed, answer as the caller has it answered: a switch judges the
-     * presented rotation id again as after a lost switch, while a retry is a
-     * conflict and is never judged again. The return's
-     * `SessionReturnedToPending` waits for the switch's check, registered once
-     * the return applied, and is never reported once the check ends the
-     * session.
+     * Return the session to pending with the destination recorded, or answer a
+     * missed compare-and-swap as the caller has it answered.
      *
      * @formatter:off
      *
@@ -462,7 +377,7 @@ final readonly class SessionSwitch
 
     /**
      * Issue the pair for the destination before the one compare-and-swap that
-     * records the switch, the rotation, the deadlines and the policy version.
+     * records the switch.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $destination
@@ -492,8 +407,7 @@ final readonly class SessionSwitch
 
         $next = RefreshTokenHasher::successor($presented[0]);
 
-        // Both tokens end with the session, now at its restarted idle deadline,
-        // which is never after the absolute one when there is one, and name the
+        // Both tokens end at the session's restarted idle deadline and name the
         // tenant it is to act in.
         $session->setAttribute($session->getIdleExpiresAtName(), $deadlines[0]);
         $session->setAttribute($session->getTenantIdName(), IdentifierCoercion::stringify($destination->tenant?->getTenantIdentifier()));
@@ -511,17 +425,7 @@ final readonly class SessionSwitch
 
     /**
      * Answer a switch presenting the rotation id the session's current one
-     * replaced, inside the grace window: hand back the current credential for
-     * the destination, writing nothing, only when the session records the
-     * destination principal and tenant and either its last rotation was a
-     * switch (a lost switch response retried) or the token's own principal is
-     * the destination; anything else is a conflict the client can retry, not a
-     * replay. The destination tenant's policy is asked again, as a refresh
-     * presenting the same token asks it, since the rotation that opened the
-     * window may have been a refresh, or the policy may have changed since:
-     * `sso_required` refuses the retry, leaving the session as it was; a
-     * further factor the session lacks returns it to pending, and a return that
-     * loses its compare-and-swap is a conflict, never judged again.
+     * replaced, inside the grace window.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
@@ -558,13 +462,8 @@ final readonly class SessionSwitch
     }
 
     /**
-     * Judge the presented rotation id again against the row as it now is, after
-     * the compare-and-swap missed, read with a lock, by the rules the first
-     * judgement used: a retry is answered as `retry()` answers it, a
-     * still-current id is a conflict, and anything else fails for its reason, a
-     * replay revoking the session. The switch is never swapped again: at most
-     * one return to pending follows, from `retry()`, and a return that loses
-     * its compare-and-swap is never judged again.
+     * Judge the presented rotation id again against the locked row after the
+     * compare-and-swap missed.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
@@ -608,12 +507,8 @@ final readonly class SessionSwitch
     }
 
     /**
-     * The session's deadlines after the switch, idle then absolute: the
-     * absolute one the earlier of the stored one and the guard's absolute
-     * lifetime counted from the sign-in, either alone when the other is absent
-     * (so a lifetime set or shortened since then applies, and a switch never
-     * extends the session), `null` for neither; and the idle one restarted from
-     * `$now` within it.
+     * The session's deadlines after the switch, idle then absolute; a switch
+     * never extends the absolute one.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \Carbon\CarbonImmutable  $now
@@ -651,8 +546,8 @@ final readonly class SessionSwitch
     }
 
     /**
-     * The failure of a switch on the session, first revoking the session when
-     * the failure proves its refresh token was replayed.
+     * The failure of a switch on the session, first revoking it when the
+     * failure proves a replay.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
@@ -669,13 +564,8 @@ final readonly class SessionSwitch
     }
 
     /**
-     * The context of a switch on the session: the guard, the client, the
-     * session and the method it records, and whatever of the identity,
-     * principal and tenant the switch resolved. A failure before the owner was
-     * read (the row's own state, an owner that no longer loads) is about the
-     * row, so it names the owner, principal and tenant the row records; a
-     * refusal of the destination names the principal and tenant resolved for
-     * it, if any, never the ones the session acts as.
+     * The context of a switch on the session, naming whatever of the identity,
+     * principal and tenant the switch resolved.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted|\SineMacula\Laravel\Authentication\Admission\Refused|null  $outcome
@@ -697,12 +587,10 @@ final readonly class SessionSwitch
 
     /**
      * Whether the session's last rotation was a switch that changed its
-     * principal or active tenant: its context floor is not before the rotation.
-     * A switch writes the floor at the rotation's second, or past it when the
-     * floor already reached that second (`SwitchFloor`), so the two are
-     * compared by order, not equality. A refresh in a later second leaves the
-     * floor behind; one within the second a bumped floor reaches presents a
-     * token of the principal the session records, so it is honoured either way.
+     * principal or active tenant.
+     *
+     * `SwitchFloor` may push the floor past the rotation's second, so the two
+     * are compared by order.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @return bool

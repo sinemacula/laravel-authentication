@@ -13,10 +13,6 @@ use SineMacula\Laravel\Authentication\Contracts\Tenant;
 /**
  * Immutable result of a successful refresh-token exchange.
  *
- * Carries the resolved contextual triple, the session's active tenant, the
- * sign-in method the session records, and the newly issued access + refresh
- * token pair.
- *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */

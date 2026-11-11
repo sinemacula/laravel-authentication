@@ -29,8 +29,7 @@ final class IssuedCodeTest extends TestCase
 
     /**
      * The code is read in clear through `code()` and as a secret through
-     * `secret()`, with the issuance, the expiry, the challenge and the resend
-     * time beside it.
+     * `secret()`.
      *
      * @return void
      */
@@ -47,9 +46,7 @@ final class IssuedCodeTest extends TestCase
     }
 
     /**
-     * No dump shows the code (Laravel's VarDumper, `print_r`, `var_export`),
-     * the debug information shows the placeholder beside the issuance, and the
-     * constructor's parameter is sensitive.
+     * No dump shows the code, and the constructor's parameter is sensitive.
      *
      * @return void
      */
@@ -78,9 +75,7 @@ final class IssuedCodeTest extends TestCase
     }
 
     /**
-     * Serialising, which only the encrypted delivery job's payload does, writes
-     * the code in clear and reads it back whole: the job delivers the code it
-     * was queued with.
+     * Serialising for the encrypted delivery job round-trips the code in clear.
      *
      * @return void
      */

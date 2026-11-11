@@ -16,11 +16,7 @@ use SineMacula\Laravel\Authentication\Secrets\Secret;
 use Tests\Unit\Stubs\StubSession;
 
 /**
- * Unit tests for the `ExchangedRefresh` immutable result DTO.
- *
- * Asserts the constructor's promoted parameter wiring round-trips unchanged so
- * a mutation that swaps the order or types of the four fields is killed by the
- * suite.
+ * Unit tests for the `ExchangedRefresh` result.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -33,8 +29,8 @@ final class ExchangedRefreshTest extends TestCase
     use MockeryPHPUnitIntegration;
 
     /**
-     * The constructor exposes the supplied identity, principal, session, and
-     * token result via public readonly fields.
+     * The constructor exposes the identity, principal, session and token result
+     * it is given.
      *
      * @return void
      */

@@ -23,13 +23,7 @@ use Tests\Integration\Fixtures\SavePasswordJob;
 use Tests\TestCase;
 
 /**
- * End-to-end tests for the rehash mark across queued jobs run by one worker in
- * one application. A worker forgets only scoped instances between jobs, so the
- * mark's scoped binding gives each job a mark of its own, and whatever an
- * attempt one job abandoned left behind is gone for the next. A later job's
- * save of a fresh hash of the same password, or its `logoutOtherDevices()`,
- * revokes even with the mark shared, since it saves an instance of its own, not
- * the one the abandoned attempt validated.
+ * End-to-end tests of the rehash mark across queued jobs one worker runs.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -81,9 +75,8 @@ final class QueueWorkerRehashingTest extends TestCase
     }
 
     /**
-     * Even with the mark shared for the life of the worker, the second job's
-     * save of a fresh hash of the password revokes: the attempt the first job
-     * abandoned validated an instance no later job saves.
+     * With the mark shared across jobs, a later job's save of a fresh hash
+     * still revokes.
      *
      * @return void
      *
@@ -100,9 +93,7 @@ final class QueueWorkerRehashingTest extends TestCase
     }
 
     /**
-     * With the package's scoped binding, the second job starts with a mark of
-     * its own, not the one the first job's abandoned attempt left behind, and
-     * its save is answered as the change it is.
+     * With the scoped binding, each job starts with a mark of its own.
      *
      * @return void
      *
@@ -117,8 +108,7 @@ final class QueueWorkerRehashingTest extends TestCase
     }
 
     /**
-     * A second job's `logoutOtherDevices()` is answered as the sign-out it is,
-     * even with the mark shared.
+     * A later job's `logoutOtherDevices()` revokes even with the mark shared.
      *
      * @return void
      *
@@ -134,8 +124,8 @@ final class QueueWorkerRehashingTest extends TestCase
     }
 
     /**
-     * Configure the guards, Laravel's session guards over an Eloquent user
-     * provider of the identity model, and a database queue.
+     * Configure the guards, Laravel's session guards over the identity model,
+     * and a database queue.
      *
      * @param  mixed  $app
      * @return void
@@ -164,8 +154,7 @@ final class QueueWorkerRehashingTest extends TestCase
     }
 
     /**
-     * Share one mark for the life of the worker instead of the package's scoped
-     * binding.
+     * Share one mark for the life of the worker instead of the scoped binding.
      *
      * @return void
      */
@@ -177,12 +166,10 @@ final class QueueWorkerRehashingTest extends TestCase
     }
 
     /**
-     * Sign an observed identity in, then queue a job that abandons a `web`
-     * attempt for it and the given job, which saves a fresh hash of its current
-     * password, and run both through one worker's loop, which forgets scoped
-     * instances before each job. The worker has no memory limit: the suite's
-     * own process may already use more than a worker's default, which would
-     * stop the loop before the first job.
+     * Run a job that abandons a `web` attempt and then the given job through
+     * one worker's loop.
+     *
+     * No memory limit, as the suite's process may already exceed the default.
      *
      * @param  class-string<\Tests\Integration\Fixtures\LogoutOtherDevicesJob|\Tests\Integration\Fixtures\SavePasswordJob>  $second
      * @return void
@@ -216,7 +203,7 @@ final class QueueWorkerRehashingTest extends TestCase
 
     /**
      * Run the callback, then restore the signal handlers a worker's loop
-     * installs, so the test process still stops on an interrupt.
+     * installs.
      *
      * @param  \Closure(): mixed  $callback
      * @return mixed

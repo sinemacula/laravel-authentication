@@ -37,18 +37,8 @@ use Tests\Integration\Fixtures\StoredIdentity;
 use Tests\TestCase;
 
 /**
- * End-to-end tests of the flows that spend a proof with a change to the
- * identity, with the identities on the storage connection beside the package's
- * tables and neither on the default one, as the shared connection rule
- * requires: an identifier change confirmed by its code and a password reset by
- * its link each write the identity, use the proof up and end what they end
- * where the shipped migrations created the tables, and a failure once the
- * identity is written rolls every one of those writes back, so the same proof
- * still works, once.
- *
- * The storage connection is a second connection to the test database with a
- * table prefix of its own: a database of its own on SQLite, and prefixed tables
- * beside the default connection's on PostgreSQL and MySQL.
+ * Integration tests of the flows that spend a proof with a change to the
+ * identity, on the storage connection.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -90,8 +80,7 @@ final class StorageConnectionProofSpendingTest extends TestCase
 
     /**
      * Freeze the clock, create the identities on the storage connection, fake
-     * the senders and the notifier, and fail a write once it has run when a
-     * test asks for it.
+     * the senders and arm the injected failure.
      *
      * @return void
      */
@@ -143,9 +132,8 @@ final class StorageConnectionProofSpendingTest extends TestCase
     }
 
     /**
-     * A change requested by code waits on the storage connection; confirming it
-     * with the code delivered moves the identity's address there, deletes the
-     * pending change and uses the code up.
+     * An identifier change is requested and confirmed on the storage
+     * connection.
      *
      * @return void
      *
@@ -166,10 +154,7 @@ final class StorageConnectionProofSpendingTest extends TestCase
     }
 
     /**
-     * A failure once the new address is written rolls the confirmation back
-     * whole on the storage connection: the address, the pending change and the
-     * unspent code are as they were, and the same code then makes the change,
-     * once.
+     * A failed identifier change rolls back whole and leaves its code unspent.
      *
      * @return void
      *
@@ -202,9 +187,8 @@ final class StorageConnectionProofSpendingTest extends TestCase
     }
 
     /**
-     * A reset by the link delivered sets the new password on the storage
-     * connection, moves the identity's cutoff, revokes its session there and
-     * uses the link's token up.
+     * A password reset writes the identity, revokes its session and spends its
+     * token on the storage connection.
      *
      * @return void
      *
@@ -227,10 +211,7 @@ final class StorageConnectionProofSpendingTest extends TestCase
     }
 
     /**
-     * A failure once the session is revoked, after the password and the cutoff
-     * are written, rolls the reset back whole on the storage connection: the
-     * old password, no cutoff, a live session and an unspent token; the same
-     * token then resets the password, once.
+     * A failed password reset rolls back whole and leaves its token unspent.
      *
      * @return void
      *
@@ -261,8 +242,8 @@ final class StorageConnectionProofSpendingTest extends TestCase
     }
 
     /**
-     * Put the package's tables on a prefixed connection to the test database,
-     * and register a guard over the identities kept there.
+     * Put the package's tables on a prefixed connection and register a guard
+     * over the identities there.
      *
      * @param  mixed  $app
      * @return void
@@ -319,8 +300,8 @@ final class StorageConnectionProofSpendingTest extends TestCase
     }
 
     /**
-     * Request a change of the identity's address, proven by code, and return
-     * the code delivered to the new address.
+     * Request a change of the identity's address by code and return the code
+     * delivered.
      *
      * @param  \Tests\Integration\Fixtures\StoredIdentity  $identity
      * @return string

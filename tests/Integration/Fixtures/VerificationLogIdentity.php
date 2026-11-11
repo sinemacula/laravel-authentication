@@ -12,10 +12,8 @@ use SineMacula\Laravel\Authentication\Contracts\HasVerifiableIdentifiers;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 
 /**
- * Identity fixture over the `verifiable_identities` table whose email address
- * also counts as verified while a row in `identifier_verifications` names the
- * identity, as an application might record verifications outside the identity
- * row: its `email_verified_at` accessor falls back to that table.
+ * Identity whose email address also counts as verified while an
+ * `identifier_verifications` row names it.
  *
  * @property int $id
  *

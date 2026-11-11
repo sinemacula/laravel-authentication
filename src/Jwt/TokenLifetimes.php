@@ -9,26 +9,7 @@ use Carbon\CarbonInterface;
 
 /**
  * A guard's token and session lifetimes, and the deadline arithmetic every
- * token and session follows.
- *
- * An access token lives for the access lifetime, never past the end of its
- * session. A session ends at its idle deadline unless a refresh moves that
- * deadline forward, and at its absolute deadline, when it has one, however
- * often it is refreshed: each refresh sets the idle deadline to the idle
- * lifetime from now, never past the absolute deadline, which is fixed when the
- * session starts. The absolute deadline is the earlier of the absolute lifetime
- * from the sign-in and a deadline the sign-in supplied (a provider's session
- * deadline, say), either alone when the other is absent; with neither, the
- * session has no absolute deadline and ends only when it goes idle.
- *
- * A refresh token that was just rotated stays usable for a short grace window,
- * so a client that lost the response, or a second tab refreshing at the same
- * moment, gets the session's current credential instead of being treated as a
- * replay.
- *
- * All arithmetic is on whole seconds, the precision the deadlines are stored
- * at, and a deadline has passed from the second it names: a session whose
- * deadline is `12:00:00` has ended at `12:00:00`.
+ * token and session follows, on whole seconds.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -82,11 +63,8 @@ final readonly class TokenLifetimes
     }
 
     /**
-     * The absolute deadline of a session that starts at the given time: the
-     * earlier of the absolute lifetime from then and `$notAfter`, the deadline
-     * the sign-in supplied, either alone when the other is absent, in the
-     * start's timezone; `null` when the guard sets no absolute lifetime and the
-     * sign-in supplied none.
+     * The absolute deadline of a session that starts at the given time, capped
+     * at `$notAfter`; `null` when neither bounds it.
      *
      * @param  \Carbon\CarbonInterface  $signedInAt
      * @param  ?\Carbon\CarbonInterface  $notAfter
@@ -106,9 +84,8 @@ final readonly class TokenLifetimes
     }
 
     /**
-     * The idle deadline a session gets at the given time: the idle lifetime
-     * from then, but never past the session's absolute deadline when it has
-     * one.
+     * The idle deadline a session gets at the given time, never past its
+     * absolute deadline.
      *
      * @param  \Carbon\CarbonInterface  $now
      * @param  ?\Carbon\CarbonInterface  $absolute
@@ -153,10 +130,8 @@ final readonly class TokenLifetimes
     }
 
     /**
-     * When an access token issued at the given time expires: the access
-     * lifetime from then, but never past the end of the session it belongs to,
-     * when it belongs to one (the earlier of the session's idle and absolute
-     * deadlines).
+     * When an access token issued at the given time expires, never past the end
+     * of its session.
      *
      * @param  \Carbon\CarbonInterface  $issuedAt
      * @param  ?\Carbon\CarbonInterface  $sessionEnd
@@ -171,10 +146,7 @@ final readonly class TokenLifetimes
 
     /**
      * Whether a refresh token whose rotation id was replaced at `$rotatedAt` is
-     * still inside the grace window at `$now`. The window is anchored at the
-     * rotation itself, so retries cannot extend it, and a window of 0 never
-     * applies, even to a rotation another server stamped ahead of this one's
-     * clock.
+     * still inside the grace window at `$now`.
      *
      * @param  \Carbon\CarbonInterface  $rotatedAt
      * @param  \Carbon\CarbonInterface  $now
@@ -187,8 +159,7 @@ final readonly class TokenLifetimes
 
     /**
      * The whole second the given number of minutes after a time, in that time's
-     * timezone. Counted in elapsed seconds, so a daylight saving change neither
-     * stretches nor shortens a lifetime.
+     * timezone.
      *
      * @param  \Carbon\CarbonInterface  $time
      * @param  int  $minutes

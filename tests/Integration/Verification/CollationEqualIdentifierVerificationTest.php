@@ -21,10 +21,7 @@ use Tests\TestCase;
 
 /**
  * Integration tests for an address replaced, after the identity was read, by a
- * distinct one its column's collation counts as equal: MySQL's default
- * `utf8mb4_unicode_ci`, a PostgreSQL ICU collation that ignores case and
- * accents, and SQLite's `NOCASE`. A proof of the old address must not verify
- * the new one.
+ * distinct one its column's collation counts as equal.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -98,8 +95,7 @@ final class CollationEqualIdentifierVerificationTest extends TestCase
     }
 
     /**
-     * Marking the proven address refuses a row that now holds a variant, and
-     * records nothing.
+     * Marking the proven address refuses a row that now holds a variant.
      *
      * @param  string  $variant
      * @return void
@@ -117,9 +113,8 @@ final class CollationEqualIdentifierVerificationTest extends TestCase
     }
 
     /**
-     * Verifying the address the identity was read with reports a mismatch once
-     * the row holds a variant, and neither records the verification nor reports
-     * it.
+     * Verifying the proven address reports a mismatch once the row holds a
+     * variant.
      *
      * @param  string  $variant
      * @return void
@@ -141,8 +136,7 @@ final class CollationEqualIdentifierVerificationTest extends TestCase
 
     /**
      * Replace the stored address with the variant behind the model's back, and
-     * check the column's collation still finds the row by the proven address,
-     * which is what made a collation-bound condition match it.
+     * check the collation still finds the row by the proven address.
      *
      * @param  string  $variant
      * @return void

@@ -38,17 +38,8 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
 /**
- * Races two `satisfy()` calls with one pending credential on PostgreSQL and
- * MySQL, each in a process with a database connection of its own: one satisfies
- * the session inside a transaction it holds open, and the other, started
- * meanwhile, waits on the session's row lock. Whichever transaction commits the
- * activation wins; the other call finds the session active and fails as
- * `pending_invalid`, storing no proof, so exactly one session activates, one
- * further factor is recorded, one set of slots is given back, and one set of
- * events is dispatched.
- *
- * Skipped on SQLite, whose in-memory database each process would have to
- * itself, and where `pcntl` is not available.
+ * Races two satisfactions of one pending credential, each in its own process,
+ * so exactly one activates the session.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -75,9 +66,8 @@ final class ConcurrentPendingSatisfactionTest extends TestCase
     private string $outcomes;
 
     /**
-     * Skip where processes cannot share the database, freeze the clocks so both
-     * processes see one moment, create the tables, and require a further factor
-     * of every sign-in.
+     * Skip where processes cannot share the database, freeze the clocks, create
+     * the tables and require a further factor.
      *
      * @return void
      *
@@ -148,9 +138,8 @@ final class ConcurrentPendingSatisfactionTest extends TestCase
     }
 
     /**
-     * The call that commits first activates the session; the one that waited on
-     * its lock then finds it active and fails as `pending_invalid`, without a
-     * proof stored, a slot given back, or a sign-in event.
+     * Only the first of two concurrent satisfactions to commit activates the
+     * session.
      *
      * @return void
      *
@@ -174,10 +163,7 @@ final class ConcurrentPendingSatisfactionTest extends TestCase
     }
 
     /**
-     * When the first call's transaction rolls back, the call that waited on its
-     * lock activates the session instead: it stores the one further factor,
-     * gives the slots back and dispatches the events, while the rolled-back
-     * call leaves nothing behind.
+     * A satisfaction waiting on one that rolls back activates the session.
      *
      * @return void
      *
@@ -220,7 +206,7 @@ final class ConcurrentPendingSatisfactionTest extends TestCase
 
     /**
      * Persist an identity whose identifier and account each have a failed
-     * attempt counted, so a slot given back twice would show.
+     * attempt counted.
      *
      * @return \Tests\Integration\Fixtures\IntegrationIdentity
      *
@@ -238,9 +224,8 @@ final class ConcurrentPendingSatisfactionTest extends TestCase
     }
 
     /**
-     * Sign in and return the credential of the pending session the factor
-     * policy asked for, which holds a second slot on the identifier and the
-     * account, with an accepted further factor's proof bound to it.
+     * Sign in and return the pending credential with a further factor's proof
+     * bound to it.
      *
      * @return array{0: string, 1: \SineMacula\Laravel\Authentication\Proofs\ProofResult}
      *
@@ -258,10 +243,8 @@ final class ConcurrentPendingSatisfactionTest extends TestCase
     }
 
     /**
-     * Satisfy the pending session here inside a transaction, start a second
-     * call with the same credential in another process once this one has
-     * activated the row, hold the transaction open while the second waits on
-     * its lock, then commit or roll back, and return both outcomes.
+     * Satisfy the session in an open transaction, race a second call in another
+     * process, then commit or roll back.
      *
      * @param  array{0: string, 1: \SineMacula\Laravel\Authentication\Proofs\ProofResult}  $pending
      * @param  bool  $commitFirst
@@ -301,9 +284,8 @@ final class ConcurrentPendingSatisfactionTest extends TestCase
     }
 
     /**
-     * In the forked process: wait to be started, satisfy the pending session on
-     * a connection of its own, report the outcome, and end without running the
-     * parent's shutdown.
+     * Satisfy the pending session in the forked process, report the outcome and
+     * exit without the parent's shutdown.
      *
      * @param  string  $credential
      * @param  \SineMacula\Laravel\Authentication\Proofs\ProofResult  $proof
@@ -340,9 +322,8 @@ final class ConcurrentPendingSatisfactionTest extends TestCase
     }
 
     /**
-     * Assert the race left one active session with its first factor and one
-     * further factor, and the identifier's and the account's held slots given
-     * back once each.
+     * Assert one active session with one further factor, and each held slot
+     * given back once.
      *
      * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
      * @return void

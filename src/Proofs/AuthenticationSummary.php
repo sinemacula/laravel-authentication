@@ -7,9 +7,7 @@ namespace SineMacula\Laravel\Authentication\Proofs;
 use Carbon\CarbonImmutable;
 
 /**
- * What an access token says about its session's authentication: when it last
- * authenticated (`auth_time`) and how (`amr`), both derived from the session's
- * proofs when the token is issued.
+ * When a session last authenticated (`auth_time`) and how (`amr`).
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

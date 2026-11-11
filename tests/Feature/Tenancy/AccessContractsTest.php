@@ -23,10 +23,8 @@ use Tests\Fixtures\Sessions\RefusingApplicationAccess;
 use Tests\TestCase;
 
 /**
- * Feature tests for the access contracts through the package's own flows: the
- * defaults admit any principal to any application in its own tenant, and an
- * application's own answers are heard at sign-in, by `attempt()`, when listing
- * principals and on refresh, without the package interpreting them further.
+ * Feature tests for the access contracts through the package's sign-in, listing
+ * and refresh flows.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -88,10 +86,8 @@ final class AccessContractsTest extends TestCase
     }
 
     /**
-     * An application access asked about the guard by name keeps its principals
-     * out of the sign-in, `attempt()` and the list, refusing as
-     * `principal_ineligible` with nothing written, while another guard is not
-     * affected.
+     * An application access refusal keeps the principal out as
+     * `principal_ineligible`, writing nothing.
      *
      * @return void
      *
@@ -120,9 +116,8 @@ final class AccessContractsTest extends TestCase
     }
 
     /**
-     * A session whose principal the application access stops letting in no
-     * longer refreshes, as `principal_ineligible`, and is not revoked; let in
-     * again, it refreshes.
+     * A refresh is refused as `principal_ineligible` while the application
+     * access refuses the principal.
      *
      * @return void
      *
@@ -154,10 +149,8 @@ final class AccessContractsTest extends TestCase
     }
 
     /**
-     * A tenant access that refuses the principal its own tenant refuses the
-     * sign-in as `tenant_ineligible`, after the application access let the
-     * principal in, and writes nothing; the access is asked with the very
-     * principal and tenant.
+     * A tenant access refusal of the principal's own tenant refuses the sign-in
+     * as `tenant_ineligible`.
      *
      * @return void
      *

@@ -22,14 +22,7 @@ use Tests\Integration\Fixtures\ChangeableMachine;
 use Tests\Integration\Fixtures\VerifiableIdentity;
 
 /**
- * Shared set-up for tests that change identifiers through the package's guards:
- * the `changeable_identities` table and its identities, their sessions, and
- * guards over them, built on the session and code tests' helpers.
- *
- * Guards: `web` and `admin` are two jwt guards over `ChangeableIdentity` (each
- * allowing `password`, `email_code` and `phone_code`), `machines` one over
- * `ChangeableMachine`, and `verifiable` one over `VerifiableIdentity`, whose
- * identifiers can be verified but not changed.
+ * Shared set-up for tests that change identifiers through the package's guards.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -56,9 +49,8 @@ trait InteractsWithChangeableIdentities
     protected const string CODE = '135790';
 
     /**
-     * Create the `changeable_identities` table on the given connection, or the
-     * default one, with a unique index on each identifier unless told not to,
-     * and an `is_active` column for the identities that can be deactivated.
+     * Create the `changeable_identities` table on the given or default
+     * connection.
      *
      * @param  ?string  $connection
      * @param  bool  $unique
@@ -86,8 +78,8 @@ trait InteractsWithChangeableIdentities
     }
 
     /**
-     * Drop the `changeable_identities` table from the given connection, or the
-     * default one.
+     * Drop the `changeable_identities` table from the given or default
+     * connection.
      *
      * @param  ?string  $connection
      * @return void
@@ -98,8 +90,8 @@ trait InteractsWithChangeableIdentities
     }
 
     /**
-     * Register the providers and guards, a sync queue for deliveries, a cheap
-     * password hash and a timebox short enough not to slow the suite.
+     * Register the providers and guards, a sync queue, a cheap password hash
+     * and a short timebox.
      *
      * @param  \Illuminate\Config\Repository  $config
      * @return void
@@ -123,8 +115,8 @@ trait InteractsWithChangeableIdentities
     }
 
     /**
-     * Persist an identity with the email address and phone number, each
-     * verified, and the shared password.
+     * Persist an identity with the verified email and phone and the shared
+     * password.
      *
      * @param  ?string  $email
      * @param  ?string  $phone
@@ -142,8 +134,7 @@ trait InteractsWithChangeableIdentities
     }
 
     /**
-     * Persist a live session of the identity for the guard, signed in at the
-     * time given (now by default).
+     * Persist a live session of the identity for the guard.
      *
      * @param  \Tests\Integration\Fixtures\ChangeableIdentity  $identity
      * @param  string  $guard
@@ -165,8 +156,7 @@ trait InteractsWithChangeableIdentities
     }
 
     /**
-     * Start a request from the test client and return the named guard's
-     * identifier change service, on a guard resolved afresh for that request.
+     * Return the identifier change service of a freshly resolved guard.
      *
      * @param  string  $guard
      * @return \SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeService
@@ -179,9 +169,8 @@ trait InteractsWithChangeableIdentities
     }
 
     /**
-     * Proof of a recent authentication by a session of the guard, for the
-     * identity, that signed in just now: a live session row whose first factor
-     * is fresh for an identifier change under the default freshness.
+     * Proof of a recent authentication by a session of the identity that signed
+     * in just now.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $guard

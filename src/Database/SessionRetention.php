@@ -8,9 +8,7 @@ use Illuminate\Support\Facades\Config;
 use SineMacula\Laravel\Authentication\Config\IntegerSetting;
 
 /**
- * How long a session is kept once it ended, before pruning deletes it:
- * `authentication.session.prune_after_days`, read when it is needed, so pruning
- * and `authentication:check` judge it the same way.
+ * How long a session is kept once it ended, before pruning deletes it.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -28,8 +26,7 @@ final class SessionRetention
     private function __construct() {}
 
     /**
-     * The configured retention, in days: an integer, or a digit string as
-     * `env()` returns one, from 0 to 3650.
+     * The configured retention, in days, from 0 to 3650.
      *
      * @return int
      *

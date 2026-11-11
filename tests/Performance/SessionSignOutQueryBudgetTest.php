@@ -27,13 +27,8 @@ use SineMacula\Laravel\Authentication\Sessions\SessionSignOut;
 use Tests\Concerns\InteractsWithSessions;
 
 /**
- * Query-budget contracts for the paths that prove a session by its refresh
- * token without rotating it: a sign-out by refresh token reads the session and
- * its owner and writes the one conditional revocation; reading the refresh
- * credential reads the same two rows and writes nothing, and reading the caller
- * from a member's refresh credential with an active tenant adds no query for
- * the tenant's policy; and a refusal the transport makes, or a token that does
- * not parse, costs no query at all.
+ * Query-budget contracts for proving a session by its refresh token without
+ * rotating it.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -114,10 +109,8 @@ final class SessionSignOutQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Signing out from plain values costs what signing out by the request's
-     * refresh token costs, on a body application and a cookie one; a token the
-     * judgement refuses, a reason handed in and nothing presented cost no
-     * query.
+     * Signing out from plain values costs what a sign-out costs; a refusal
+     * costs no query.
      *
      * @return void
      *
@@ -172,10 +165,8 @@ final class SessionSignOutQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Reading the caller from a member's refresh credential, on a session with
-     * an active tenant, reads the session, the member, its membership and the
-     * tenant, and writes nothing: the default tenant policy adds no query.
-     * Asked again, the request's caller costs no query.
+     * Reading the caller from a member's refresh credential is four reads and
+     * no write, and nothing when asked again.
      *
      * @return void
      *

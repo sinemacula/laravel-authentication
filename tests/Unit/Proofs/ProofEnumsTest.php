@@ -12,9 +12,7 @@ use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 
 /**
- * Unit tests for the proof enums: their values, which the further-factor
- * package shares (the first four kinds, every purpose, channel and key
- * protection), and how the proof kinds are grouped.
+ * Unit tests for the proof enum values and how the proof kinds are grouped.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -41,8 +39,7 @@ final class ProofEnumsTest extends TestCase
     }
 
     /**
-     * Only a further factor and a recovery code are additional, and only the
-     * two reauthentications are reauthentications.
+     * Only a further factor and a recovery code are additional.
      *
      * @return void
      */

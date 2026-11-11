@@ -27,9 +27,8 @@ use Tests\Unit\Stubs\StubIdentity;
 use Tests\Unit\Stubs\StubRequestResolvingGuard;
 
 /**
- * Feature tests proving every contextual accessor resolves the request on first
- * access, through the guard's `user()`, rather than reading state that only an
- * earlier `user()` call would have bound.
+ * Feature tests showing every contextual accessor resolves the request on first
+ * access.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -248,10 +247,8 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
     }
 
     /**
-     * A principal whose tenant cannot be loaded is bound, and reported with no
-     * tenant, rather than failing the bind; `tenant()` then throws the reason
-     * instead of answering as for a principal acting in no tenant, until the
-     * guard is forgotten.
+     * A principal whose tenant cannot be loaded is bound with no tenant, and
+     * `tenant()` throws the reason until the guard is forgotten.
      *
      * @return void
      */
@@ -277,9 +274,8 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
     }
 
     /**
-     * A bind the guard verified holds the tenant its admission found as the
-     * active tenant, whatever tenant the principal belongs to, until the guard
-     * is bound again or forgotten.
+     * A verified bind holds the tenant its admission found until the guard is
+     * bound again or forgotten.
      *
      * @return void
      */
@@ -300,11 +296,8 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
     }
 
     /**
-     * A trusted bind of a session acts in the tenant the session records: the
-     * principal's own when the identifiers match, and none when it records
-     * none; a session acting in a tenant that no longer resolves (the shipped
-     * resolver finds none) makes `tenant()` throw rather than answer none; a
-     * trusted bind without a session acts in the principal's own.
+     * A trusted bind of a session acts in the tenant the session records, or
+     * the principal's own without a session.
      *
      * @return void
      */
@@ -333,9 +326,7 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
     }
 
     /**
-     * A trusted bind checks no activity: the inactive tenant a session records
-     * is bound as the active tenant, as a principal's inactive tenant is
-     * without a session.
+     * A trusted bind keeps an inactive tenant as the active tenant.
      *
      * @return void
      */
@@ -401,8 +392,7 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
 
     /**
      * `setPrincipal()` and `setSession()` move the active tenant to the one the
-     * bound session records for the principal bound, or the principal's own
-     * without a session.
+     * bound session records, or the principal's own.
      *
      * @return void
      */
@@ -479,10 +469,8 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
     }
 
     /**
-     * `authenticateAs()` limits a machine identity to the scopes it is given,
-     * as a credential granting them would, and its events carry them; given
-     * scopes for a human identity, which no credential limits, it binds nothing
-     * and throws.
+     * `authenticateAs()` limits a machine identity to the scopes given, and
+     * throws when given scopes for a human identity.
      *
      * @return void
      */
@@ -508,9 +496,7 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
     }
 
     /**
-     * A machine identity bound through any trusted bind, with no credential, is
-     * limited to no scope: a trusted bind never gives a machine access without
-     * a ceiling.
+     * A machine identity bound through any trusted bind is limited to no scope.
      *
      * @return void
      */
@@ -543,10 +529,8 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
     }
 
     /**
-     * A context a credential authenticated is limited to the scopes it grants,
-     * and every event describing it, a later principal or session bind's
-     * included, carries the credential and its scopes; clearing the state,
-     * signing out or forgetting the user clears them.
+     * A credential's scopes are bound and reported by every event describing
+     * the context, until the state is cleared.
      *
      * @return void
      */
@@ -597,10 +581,8 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
     }
 
     /**
-     * `loginVerified()` binds as a sign-in, `Validated` and then `Login` before
-     * the bind events, which carry the tenant and the method it is given rather
-     * than the principal's tenant and the session's method, and it clears what
-     * was bound before.
+     * `loginVerified()` binds as a sign-in, reporting the tenant and method it
+     * is given.
      *
      * @return void
      */
@@ -643,11 +625,8 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
     }
 
     /**
-     * `loginVerified()` given a client: the bind events (`PrincipalAssigned`
-     * and `SessionAuthenticated`) describe that client rather than the guard's
-     * request, Laravel's events are the same as without one, and the guard
-     * keeps no client: a later `setSession()` and `setPrincipal()` in the same
-     * request describe the request again, as a bind without one does.
+     * `loginVerified()` given a client describes that client in its bind events
+     * for that bind only.
      *
      * @return void
      */
@@ -695,10 +674,8 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
     }
 
     /**
-     * `forgetSession()` resolves nothing and leaves a request not yet resolved
-     * alone; it leaves a binding to another session as it is, and forgets one
-     * to the session given, whichever instance names it, with no event, keeping
-     * the guard signed out for the rest of the request.
+     * `forgetSession()` silently forgets only a binding to the session given,
+     * resolving nothing.
      *
      * @return void
      *
@@ -740,11 +717,8 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
     }
 
     /**
-     * `forgetIdentity()` resolves nothing and leaves a request not yet resolved
-     * alone; it leaves a binding to another identity (another identifier, or
-     * the same identifier of another class) as it is, and forgets one to the
-     * identity given, whichever instance names it, with no event, keeping the
-     * guard signed out for the rest of the request.
+     * `forgetIdentity()` silently forgets only a binding to the identity given,
+     * resolving nothing.
      *
      * @return void
      *

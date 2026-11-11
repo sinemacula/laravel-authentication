@@ -47,8 +47,7 @@ final class IdentifierTypeTest extends TestCase
 
     /**
      * A type is a lower-case letter followed by lower-case letters, digits and
-     * underscores, so it is safe as a column name; a trailing newline is not
-     * let through by the end anchor.
+     * underscores.
      *
      * @param  string  $name
      * @param  bool  $valid
@@ -68,9 +67,7 @@ final class IdentifierTypeTest extends TestCase
     }
 
     /**
-     * `IdentifierType` is a static utility; instantiation is disallowed via the
-     * private constructor. Reflection invokes the private constructor so the
-     * line is covered while still documenting the access modifier.
+     * The constructor is private; reflection invokes it for coverage.
      *
      * @return void
      *

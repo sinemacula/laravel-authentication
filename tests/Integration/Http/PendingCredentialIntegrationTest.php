@@ -46,14 +46,7 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
 /**
- * End-to-end tests of the documented pending-session routes on the engine the
- * suite runs on: a controller reads the pending credential with
- * `PendingCredential::extract()` and the client with
- * `ClientContext::fromRequest()`, answers a request that presents none without
- * calling the action, and hands anything else to `satisfy()` or `choose()`, so
- * a malformed or unknown credential is reported once as `pending_invalid`, also
- * on a route that reads `Auth::caller()` first and answers its `null`, and a
- * live one activates its session.
+ * End-to-end tests of the documented pending-session routes.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -81,10 +74,7 @@ final class PendingCredentialIntegrationTest extends TestCase
     private string $pendingId = '';
 
     /**
-     * Create the tables and register the routes: a further factor and a choice
-     * of membership through the documented controllers, and a choice behind
-     * `authentication.pending:choose_principal` that reads `Auth::caller()`
-     * first.
+     * Create the tables and register the pending-session routes.
      *
      * @return void
      */
@@ -115,9 +105,8 @@ final class PendingCredentialIntegrationTest extends TestCase
     }
 
     /**
-     * Rows of `[the route, the pending credential sent: none, malformed,
-     * unknown or live, how many failures it reports, the status it answers,
-     * the session's status after it]`.
+     * Rows of `[route, credential sent, failures reported, status, session
+     * status after]`.
      *
      * @return iterable<string, array{0: string, 1: string, 2: int, 3: int, 4: string}>
      */
@@ -132,10 +121,7 @@ final class PendingCredentialIntegrationTest extends TestCase
     }
 
     /**
-     * Each route answers a request that presents no pending credential 401
-     * without reporting anything, reports a malformed or an unknown one once as
-     * `pending_invalid` on the `sign_in` flow with the request's client, the
-     * session left pending, and activates the session a live one names.
+     * Each route reports a bad credential once and activates a live one.
      *
      * @param  string  $route
      * @param  string  $sent
@@ -202,9 +188,7 @@ final class PendingCredentialIntegrationTest extends TestCase
     }
 
     /**
-     * The documented choice route: answer a request that presents no pending
-     * credential without calling the action, and hand anything else, with the
-     * membership named and the request's client, to `choose()`.
+     * The documented choice route.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\JsonResponse
@@ -221,9 +205,7 @@ final class PendingCredentialIntegrationTest extends TestCase
     }
 
     /**
-     * A choice route that reads the request's caller first: answer its `null`,
-     * already reported when a credential was presented, without calling the
-     * action, and hand the credential to `choose()` otherwise.
+     * A choice route that reads the request's caller first.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\JsonResponse
@@ -266,10 +248,7 @@ final class PendingCredentialIntegrationTest extends TestCase
     }
 
     /**
-     * The documented further-factor route: answer a request that presents no
-     * pending credential without calling the action, and hand anything else,
-     * with the factor the adapter verified for the pending session and the
-     * request's client, to `satisfy()`.
+     * The documented further-factor route.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\JsonResponse

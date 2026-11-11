@@ -11,15 +11,8 @@ use SineMacula\Laravel\Authentication\Codes\OneTimeCodeMessage;
 use SineMacula\Laravel\Authentication\Contracts\OneTimeCodeSender;
 
 /**
- * A one-time code sender for tests: keeps every message it is given instead of
- * delivering it, so a test can read the code a request sent and sign in with
- * it.
- *
- * `FakeOneTimeCodeSender::fake()` binds a fresh instance as the application's
- * sender and returns it. Delivery runs in the queued job, so the message
- * arrives when the job runs: on a `sync` connection, once the response is sent
- * (`$this->app->terminate()` in a test), or when the test runs the queued job.
- * Assert on what it holds with the test framework's own assertions.
+ * A one-time code sender for tests that keeps every message instead of
+ * delivering it.
  *
  * @api
  *
@@ -32,8 +25,7 @@ final class FakeOneTimeCodeSender implements OneTimeCodeSender
     private array $messages = [];
 
     /**
-     * Bind a fresh fake as the sender in the container (the application's, when
-     * none is given) and return it.
+     * Bind a fresh fake as the sender in the container and return it.
      *
      * @param  ?\Illuminate\Contracts\Container\Container  $container
      * @return self
@@ -71,8 +63,7 @@ final class FakeOneTimeCodeSender implements OneTimeCodeSender
     }
 
     /**
-     * The code last sent to the identifier, as delivered (in its normal form),
-     * for the purpose when one is given, revealed for the test to submit;
+     * The code last sent to the identifier, optionally for the purpose, or
      * `null` when none was.
      *
      * @param  string  $identifier

@@ -17,10 +17,6 @@ use SineMacula\Laravel\Authentication\SessionRecords\SessionKeyShape;
 /**
  * Unit tests for the `SessionKeyShape` `sid` pre-check.
  *
- * Each row pairs a session model with a candidate key and the expected verdict,
- * covering every key format (model-provided rule, ULID, UUID, integer, plain
- * string) and the values on either side of each rule.
- *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
@@ -78,7 +74,7 @@ final class SessionKeyShapeTest extends TestCase
     }
 
     /**
-     * Asserts the verdict for one model and candidate key.
+     * A value matches only when it can be the model's key.
      *
      * @param  \Illuminate\Database\Eloquent\Model  $model
      * @param  mixed  $key
@@ -92,10 +88,7 @@ final class SessionKeyShapeTest extends TestCase
     }
 
     /**
-     * `SessionKeyShape` is a static utility; instantiation is disallowed via
-     * the private constructor so consumers cannot create a stateful session-key
-     * shape check. Reflection invokes the private constructor so the line is
-     * covered while still documenting the access modifier.
+     * The constructor is private.
      *
      * @return void
      *

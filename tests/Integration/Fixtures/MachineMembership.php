@@ -13,9 +13,8 @@ use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 
 /**
- * A service account's membership of a tenant, an activatable tenant unless its
- * `tenant_type` names another: the principal a machine credential acts as, with
- * a `type` column of the application's own, stored in `machine_memberships`.
+ * Service account's membership of a tenant, activatable unless `tenant_type`
+ * names another, with a `type` of its own.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

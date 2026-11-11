@@ -42,11 +42,8 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\PlainIdentityFixture;
 
 /**
- * Feature tests for changing a signed-in identity's password with its current
- * one, and establishing a first one for an identity that has none on the
- * strength of a recent authentication, through `Auth::passwords()`: the session
- * each keeps and the sessions it ends, what is counted, checked and reported,
- * every refusal, and what a change racing another write finds under its locks.
+ * Feature tests for changing or establishing a signed-in identity's password
+ * through `Auth::passwords()`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -100,10 +97,7 @@ final class PasswordChangesTest extends TestCase
     }
 
     /**
-     * The right current password changes the password, keeps the session it was
-     * made from, ends every other session of the identity through every guard,
-     * pending ones included, moves its cutoff, gives the sign-in slot back, and
-     * reports `PasswordSet` for a change with the session kept.
+     * A change keeps only the session it was made from and ends the rest.
      *
      * @return void
      *
@@ -137,10 +131,8 @@ final class PasswordChangesTest extends TestCase
     }
 
     /**
-     * A wrong current password writes nothing and keeps its sign-in slot,
-     * counted against the account, and is reported as `invalid_credentials` on
-     * the `password_change` flow; once the account's slots are used up the
-     * change is `rate_limited`, with the wait, before the password is checked.
+     * A wrong current password is counted and refused, and rate limited once
+     * the slots are used.
      *
      * @return void
      *
@@ -181,9 +173,7 @@ final class PasswordChangesTest extends TestCase
     }
 
     /**
-     * A new password the policy rejects writes nothing and is reported by no
-     * event, once the current one was checked; an identity with no password
-     * changes nothing (`password_not_set`), its password never checked.
+     * A change needs a password to change and a new one the policy accepts.
      *
      * @return void
      *
@@ -211,9 +201,8 @@ final class PasswordChangesTest extends TestCase
     }
 
     /**
-     * Rows of `[what happens to the session, the reason]`: a session that is no
-     * longer the one given, revoked, pending, ended, another guard's, a machine
-     * identity's, or one whose owner is gone, changes nothing.
+     * Rows of `[what happens to the session, the reason]`: sessions a change
+     * cannot act on.
      *
      * @return iterable<string, array{0: \Closure(\SineMacula\Laravel\Authentication\Models\Session): ?string, 1: \SineMacula\Laravel\Authentication\Events\Enums\FailureReason}>
      */
@@ -272,10 +261,8 @@ final class PasswordChangesTest extends TestCase
     }
 
     /**
-     * A password written between the check of the current one and the change's
-     * lock (another change, a reset) makes the current password the change was
-     * proven with stale: `invalid_credentials`, and nothing more is written or
-     * revoked.
+     * A password written after the check and before the lock refuses the
+     * change.
      *
      * @return void
      *
@@ -295,10 +282,8 @@ final class PasswordChangesTest extends TestCase
     }
 
     /**
-     * A session revoked between the checks and the change's lock is found
-     * revoked under the lock: `session_revoked`, nothing written. The session
-     * is judged before the password the change was proven with, so a password
-     * written meanwhile as well still answers `session_revoked`.
+     * A session revoked before the change's lock refuses it as
+     * `session_revoked`.
      *
      * @return void
      *
@@ -340,11 +325,7 @@ final class PasswordChangesTest extends TestCase
     }
 
     /**
-     * An identity or a session deleted between the checks and the change's lock
-     * is not found under the lock: the identity's absence is
-     * `identity_unknown`, as the checks answer it, whatever became of the
-     * session, the session's `session_unknown`; the refusal is reported, and
-     * nothing is written or revoked.
+     * An identity or session deleted before the change's lock refuses it.
      *
      * @param  list<string>  $tables
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
@@ -374,10 +355,8 @@ final class PasswordChangesTest extends TestCase
     }
 
     /**
-     * A passwordless identity establishes a first password from a session it
-     * signed in with moments ago: the session is kept, every other session of
-     * the identity ends (`password_established`), its cutoff moves, and
-     * `PasswordSet` reports the flow `establishment`.
+     * A fresh session establishes a first password and ends the identity's
+     * other sessions.
      *
      * @return void
      *
@@ -402,13 +381,8 @@ final class PasswordChangesTest extends TestCase
     }
 
     /**
-     * An establishment judges its freshness under the session's lock on the
-     * session's proofs as committed: after the plain read before the
-     * transaction, the session's row is read with a lock held until the
-     * transaction ends, once by the establishment and once more by the
-     * freshness policy, and its proofs with a shared lock (on MySQL and
-     * MariaDB, the marked SQLite included); a change locks the row once, asks
-     * no freshness and reads no proof.
+     * An establishment judges freshness on the session's proofs as committed,
+     * under its lock.
      *
      * @return void
      *
@@ -440,11 +414,8 @@ final class PasswordChangesTest extends TestCase
     }
 
     /**
-     * A freshness policy the application binds is asked current under the
-     * session's lock, and its current answer decides: one that finds a fresh
-     * proof plainly but none current refuses the establishment
-     * (`reauthentication_required`) with nothing written, and one that finds
-     * none plainly but one current establishes.
+     * A bound freshness policy is asked under the session's lock, and its
+     * current answer decides.
      *
      * @return void
      *
@@ -477,9 +448,8 @@ final class PasswordChangesTest extends TestCase
     }
 
     /**
-     * A session whose last authentication is older than the
-     * `password_establishment` freshness establishes nothing:
-     * `reauthentication_required`, reported, nothing written.
+     * A session older than the `password_establishment` freshness establishes
+     * nothing.
      *
      * @return void
      *
@@ -500,13 +470,8 @@ final class PasswordChangesTest extends TestCase
     }
 
     /**
-     * An identity that has a password establishes nothing
-     * (`password_already_set`), whether it had one from the start, one was
-     * written before the establishment locked its row, or one was written after
-     * the lock's check and before the write, which writes only while the row
-     * has none (its transaction rolls back whole, the write that raced it
-     * included, as a caller's would on a real database), before the new
-     * password is judged; and a password the policy rejects is `rejected`.
+     * An identity with a password establishes nothing, even one written during
+     * the establishment.
      *
      * @return void
      *
@@ -542,8 +507,8 @@ final class PasswordChangesTest extends TestCase
     }
 
     /**
-     * A client the caller hands in, not the request's, is the one a change and
-     * an establishment count against and report.
+     * A client the caller hands in is the one a change and an establishment
+     * count and report.
      *
      * @return void
      *
@@ -576,9 +541,7 @@ final class PasswordChangesTest extends TestCase
     }
 
     /**
-     * A change that goes through reports the client handed in on every event,
-     * the session it ends and the `SignedOutEverywhere` as well as
-     * `PasswordSet`, while the guard serves a request from another address.
+     * A change reports the client handed in on every event.
      *
      * @return void
      *
@@ -603,9 +566,7 @@ final class PasswordChangesTest extends TestCase
     }
 
     /**
-     * An establishment that goes through reports the client handed in on every
-     * event, the session it ends and the `SignedOutEverywhere` as well as
-     * `PasswordSet`, while the guard serves a request from another address.
+     * An establishment reports the client handed in on every event.
      *
      * @return void
      *
@@ -644,9 +605,7 @@ final class PasswordChangesTest extends TestCase
     }
 
     /**
-     * A malformed setting a change reads fails it closed before any statement
-     * runs, so before the session is read or anything is counted, even for a
-     * session that would be refused.
+     * A malformed setting fails a change closed before any statement runs.
      *
      * @param  string  $key
      * @param  mixed  $value
@@ -681,8 +640,7 @@ final class PasswordChangesTest extends TestCase
     }
 
     /**
-     * An owner the guard's provider returns that is not an Eloquent model has
-     * no row to lock or write, so its password is not changed:
+     * An owner that is not an Eloquent model changes nothing:
      * `identity_unknown`.
      *
      * @return void

@@ -39,14 +39,8 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
 /**
- * Activates pending sessions inside a caller's transaction while the attempt
- * counters live on a connection of their own, as the rate limit documentation
- * advises for callers who may roll back: an activation gives its sign-in's
- * slots back only once it commits, so rolling it back, which leaves the session
- * pending, gives nothing back, and satisfying it again gives the slots back
- * once. A release that fails after the commit is reported, not thrown, so it
- * keeps no committed session, nor any other callback of the commit, from being
- * reported.
+ * Integration tests of pending session activation with the attempt counters on
+ * their own connection.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -117,10 +111,8 @@ final class SeparateCounterConnectionActivationTest extends TestCase
     }
 
     /**
-     * An activation rolled back by its caller gives no slot back and leaves the
-     * session pending, to be satisfied again; satisfying it again gives each
-     * slot back once, so the failed attempt before it stays counted, and the
-     * credential then names nothing.
+     * A rolled-back activation gives no slot back, and satisfying it again
+     * gives each back once.
      *
      * @return void
      *
@@ -150,8 +142,7 @@ final class SeparateCounterConnectionActivationTest extends TestCase
     }
 
     /**
-     * An activation inside a caller's transaction gives its slots back when the
-     * transaction commits, not before.
+     * An activation gives its slots back when its transaction commits.
      *
      * @return void
      *
@@ -173,15 +164,14 @@ final class SeparateCounterConnectionActivationTest extends TestCase
     }
 
     /**
-     * An activation whose slots cannot be given back once its transaction
-     * commits reports the counters' error instead of throwing it: its session
-     * stands and is reported, and the slots stay counted.
+     * An activation whose slots cannot be given back reports the error and its
+     * session.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAnActivationWhoseSlotsCannotBeGivenBackReportsTheErrorAndItsSession(): void
+    public function testAFailedSlotReleaseReportsTheErrorAndTheSession(): void
     {
         $identity             = $this->seedHeldSignIn();
         [$credential, $proof] = $this->pendingSession($identity);
@@ -204,10 +194,7 @@ final class SeparateCounterConnectionActivationTest extends TestCase
     }
 
     /**
-     * Two activations in one transaction, the first of which cannot give its
-     * slots back once it is bound: the second session is still reported, bound,
-     * and gives its own slots back, and a callback the caller queued after both
-     * still runs.
+     * A failed release lets the callbacks queued after it run.
      *
      * @return void
      *
@@ -255,11 +242,8 @@ final class SeparateCounterConnectionActivationTest extends TestCase
     }
 
     /**
-     * An activation inside a savepoint whose slots cannot be given back, whose
-     * callbacks Laravel runs before those of the transaction around it, keeps
-     * neither the earlier activation's session nor the caller's own callback
-     * from being reported; each failed release is reported and its slots stay
-     * counted.
+     * A failed release in a savepoint lets the outer transaction's callbacks
+     * run.
      *
      * @return void
      *
@@ -299,9 +283,8 @@ final class SeparateCounterConnectionActivationTest extends TestCase
     }
 
     /**
-     * Configure the guards, and the counters on a second connection to the test
-     * database (a database of its own on SQLite, where each in-memory
-     * connection has one).
+     * Configure the guards, with the counters on a second connection to the
+     * test database (its own database on in-memory SQLite).
      *
      * @param  mixed  $app
      * @return void
@@ -324,9 +307,7 @@ final class SeparateCounterConnectionActivationTest extends TestCase
     }
 
     /**
-     * Persist an identity with a failed sign-in counted on its identifier, the
-     * client's IP address and its account, so a slot given back twice would
-     * show.
+     * Persist an identity with one failed sign-in counted on each counter.
      *
      * @return \Tests\Integration\Fixtures\IntegrationIdentity
      *
@@ -346,9 +327,8 @@ final class SeparateCounterConnectionActivationTest extends TestCase
     }
 
     /**
-     * Sign in and return the credential of the pending session the factor
-     * policy asked for, which holds one more slot on each counter, so each then
-     * holds the given number, with a proof that satisfies it.
+     * Sign in and return the pending session's credential and a proof that
+     * satisfies it.
      *
      * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
      * @param  int  $held
@@ -388,8 +368,7 @@ final class SeparateCounterConnectionActivationTest extends TestCase
     }
 
     /**
-     * The hits on the identifier's, the client IP address's and the account's
-     * sign-in counters, read on the counters' connection.
+     * The hits on the identifier, IP address and account sign-in counters.
      *
      * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
      * @return list<int>

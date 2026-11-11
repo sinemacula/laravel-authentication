@@ -11,14 +11,8 @@ use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use SineMacula\Laravel\Authentication\Proofs\ProofHistory;
 
 /**
- * Unit tests for what a session's summary rows say about its authentication:
- * the newest time of any kind as `auth_time`; the first factor's, further
- * factors' and recovery codes' values as `amr`, once each, in a fixed order, a
- * stored `mfa` dropped and `mfa` added only from an accepted evaluation that
- * reports multifactor; nothing from a reauthentication unless it carries an
- * accepted evaluation (an external one whose evidence was accepted); and an
- * additional verification, a recovery code, multifactor authentication and the
- * newest step-up only from accepted evaluations, never from the values.
+ * Unit tests for what a session's proof summary rows say about its
+ * authentication.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -29,8 +23,7 @@ use SineMacula\Laravel\Authentication\Proofs\ProofHistory;
 final class ProofHistoryTest extends TestCase
 {
     /**
-     * With no rows there is no authentication time, no first factor and no
-     * value.
+     * With no rows there is no authentication time, first factor or value.
      *
      * @return void
      */
@@ -44,9 +37,7 @@ final class ProofHistoryTest extends TestCase
     }
 
     /**
-     * The authentication time is the newest of every kind's, a
-     * reauthentication's and a step-up's included, whatever order the rows come
-     * in.
+     * The authentication time is the newest of every kind's.
      *
      * @return void
      */
@@ -65,9 +56,7 @@ final class ProofHistoryTest extends TestCase
     }
 
     /**
-     * The values are the first factor's, the further factors' and the recovery
-     * codes', once each, in the order of their rows' times and then of their
-     * values, whatever order the rows come in; a reauthentication adds none.
+     * The values are the factors', once each, in a fixed order.
      *
      * @return void
      */
@@ -87,11 +76,7 @@ final class ProofHistoryTest extends TestCase
     }
 
     /**
-     * `mfa` is added only when an accepted evaluation (a further factor's or a
-     * recovery code's) reported multifactor authentication, after the other
-     * values; a stored `mfa` is dropped, and a first factor or a
-     * reauthentication that claims multifactor with no accepted evaluation adds
-     * nothing.
+     * `mfa` is added only from an accepted multifactor evaluation.
      *
      * @return void
      */
@@ -106,11 +91,7 @@ final class ProofHistoryTest extends TestCase
     }
 
     /**
-     * An external proof counts toward `amr` like any other once its evidence
-     * was accepted: a first factor at the provider whose acceptance reports
-     * multifactor adds `mfa`, and a reauthentication at the provider with an
-     * accepted evaluation adds its values, and `mfa` when it reports
-     * multifactor. One with no accepted evaluation adds nothing but its time.
+     * An external proof counts toward `amr` once its evidence was accepted.
      *
      * @return void
      */
@@ -135,8 +116,8 @@ final class ProofHistoryTest extends TestCase
     }
 
     /**
-     * With no rows nothing is an additional verification, a recovery code or
-     * multifactor, and there is no step-up.
+     * With no rows nothing is an additional verification, and there is no
+     * step-up.
      *
      * @return void
      */
@@ -151,10 +132,8 @@ final class ProofHistoryTest extends TestCase
     }
 
     /**
-     * An accepted further factor is an additional verification whatever its
-     * evaluation's flag says, and a recovery code is not one: it is a recovery
-     * code, and steps up as one. Neither is anything without an accepted
-     * evaluation.
+     * An accepted further factor is an additional verification; a recovery code
+     * is not.
      *
      * @return void
      */
@@ -186,14 +165,12 @@ final class ProofHistoryTest extends TestCase
     }
 
     /**
-     * An external proof is an additional verification only when its accepted
-     * evaluation says so, never for evidence accepted only for phishing
-     * resistance or a level, and a first factor or reauthentication with the
-     * first factor never is: they hold no accepted evaluation.
+     * An external proof is an additional verification only when its evaluation
+     * says so.
      *
      * @return void
      */
-    public function testAnExternalProofIsAnAdditionalVerificationOnlyWhenItsEvaluationSaysSo(): void
+    public function testAnExternalProofIsAdditionalOnlyWhenItsEvaluationSaysSo(): void
     {
         $external = 'urn:sinemacula:amr:external_provider';
 
@@ -229,8 +206,7 @@ final class ProofHistoryTest extends TestCase
     }
 
     /**
-     * Multifactor is reported exactly when an accepted evaluation reported it,
-     * as `mfa` in the values is.
+     * Multifactor is reported exactly when an accepted evaluation reported it.
      *
      * @return void
      */
@@ -248,9 +224,7 @@ final class ProofHistoryTest extends TestCase
     }
 
     /**
-     * The step-up time is the newest of the proofs that are an additional
-     * verification or a recovery code, at sign-in or later, whatever order the
-     * rows come in, and never a later proof of another kind's.
+     * The step-up time is the newest additional verification or recovery code.
      *
      * @return void
      */

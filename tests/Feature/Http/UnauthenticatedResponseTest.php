@@ -23,8 +23,7 @@ use Tests\Unit\Stubs\StubPrincipal;
 final class UnauthenticatedResponseTest extends TestCase
 {
     /**
-     * An exception raised for package guards renders as `401` with the
-     * exception's message.
+     * An exception raised for package guards renders as `401` with its message.
      *
      * @return void
      */
@@ -38,8 +37,8 @@ final class UnauthenticatedResponseTest extends TestCase
     }
 
     /**
-     * The exception's message is translated by the application's JSON line for
-     * it in the current locale, and kept as it is without one.
+     * The message is translated by the application's JSON line in the current
+     * locale.
      *
      * @return void
      */
@@ -54,8 +53,7 @@ final class UnauthenticatedResponseTest extends TestCase
     }
 
     /**
-     * A message naming one of Laravel's translation files is rendered as it is,
-     * not as the file's lines.
+     * A message naming one of Laravel's translation files is rendered as it is.
      *
      * @return void
      */
@@ -65,8 +63,7 @@ final class UnauthenticatedResponseTest extends TestCase
     }
 
     /**
-     * An exception raised for any non-package guard, alone or alongside a
-     * package guard, defers to Laravel.
+     * Any non-package guard among those named defers to Laravel.
      *
      * @return void
      */

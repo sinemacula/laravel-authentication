@@ -17,8 +17,7 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\StubIdentity;
 
 /**
- * Feature tests of finding one of an identity's sessions by its identifier, on
- * the write connection, through the identity's own relation.
+ * Feature tests of finding one of an identity's sessions by its identifier.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -79,8 +78,7 @@ final class IdentitySessionsTest extends TestCase
     }
 
     /**
-     * An identifier that cannot be a key of the session model is not found,
-     * without a query, and an identity that holds no sessions has none.
+     * An identifier that cannot be a key of the session model is not looked up.
      *
      * @return void
      *

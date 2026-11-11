@@ -28,12 +28,7 @@ use Tests\Concerns\InteractsWithSessions;
 use Tests\TestCase;
 
 /**
- * End-to-end tests for refreshing with the token a request carries, through a
- * route on a real database: each application reads its token by its own
- * transport, a token carried twice, carried by another transport or in a cookie
- * sent cross-site is refused without touching the session, a cookie
- * application's refresh answers with the cookie and never the token, and the
- * result says where the token came from.
+ * End-to-end tests for refreshing with the token a request carries.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -110,9 +105,8 @@ final class RefreshTokenTransportIntegrationTest extends TestCase
     }
 
     /**
-     * Rows of `[the guard, the request's query string, and the guard whose
-     * cookie it carries]` that carry the token only where no application reads
-     * it: the query string, or another application's cookie.
+     * Rows of `[guard, token in the query string, guard whose cookie carries
+     * it]` that no application reads.
      *
      * @return iterable<string, array{0: string, 1: bool, 2: ?string}>
      */
@@ -177,9 +171,7 @@ final class RefreshTokenTransportIntegrationTest extends TestCase
     }
 
     /**
-     * A request the transport refuses is answered with its reason and reported
-     * as a failed refresh, and leaves the session as it was: its token still
-     * refreshes once sent the one allowed way.
+     * A request the transport refuses leaves the session as it was.
      *
      * @param  string  $guard
      * @param  bool  $body
@@ -232,10 +224,7 @@ final class RefreshTokenTransportIntegrationTest extends TestCase
     }
 
     /**
-     * A browser that sends a cookie another host of the site planted before its
-     * own, as it does for a planted cookie with a longer path, is refused as a
-     * conflict rather than refreshed with the cookie PHP kept, and its own
-     * token still refreshes once the planted cookie is gone.
+     * A cookie planted beside the browser's own is refused as a conflict.
      *
      * @param  string  $planted
      * @return void
@@ -265,9 +254,7 @@ final class RefreshTokenTransportIntegrationTest extends TestCase
     }
 
     /**
-     * A package-wide `__Host-` cookie name binds only the application whose
-     * transport is the cookie: it refreshes from it on the root path, and a
-     * body application refreshes as before.
+     * A package-wide `__Host-` cookie name binds only the cookie application.
      *
      * @return void
      *
@@ -326,10 +313,8 @@ final class RefreshTokenTransportIntegrationTest extends TestCase
     }
 
     /**
-     * A cookie refresh from the request's own origin with the custom header is
-     * exchanged and the result says it came from the cookie; the response
-     * carries the rotated token only in the application's cookie, never in the
-     * body, and is not stored.
+     * A same-origin cookie refresh is exchanged and answered with the cookie
+     * only.
      *
      * @return void
      *
@@ -354,11 +339,7 @@ final class RefreshTokenTransportIntegrationTest extends TestCase
     }
 
     /**
-     * A cookie refresh sent as a form from an allowed origin carries only
-     * headers a browser sends on its own, so it is refused as cross-site; and a
-     * guard told to take `Content-Type` for its custom header, or
-     * `Content_Type`, which Symfony reads as the same header, fails closed
-     * before the token is read, leaving the session as it was.
+     * A form request cannot stand in for the custom header.
      *
      * @return void
      *
@@ -409,9 +390,7 @@ final class RefreshTokenTransportIntegrationTest extends TestCase
     }
 
     /**
-     * Sign the seeded identity in on the guard and return the refresh token:
-     * the body application's from its pair, the cookie application's from the
-     * cookie its pair carries.
+     * Sign the seeded identity in on the guard and return the refresh token.
      *
      * @param  string  $guard
      * @return string
@@ -434,9 +413,7 @@ final class RefreshTokenTransportIntegrationTest extends TestCase
     }
 
     /**
-     * Send a refresh request to the guard's route with the query string, form
-     * body, headers and, when given, the cookie, sent as the browser sends it
-     * (the route does not encrypt cookies).
+     * Send a refresh request to the guard's route.
      *
      * @param  string  $guard
      * @param  string  $query
@@ -455,10 +432,7 @@ final class RefreshTokenTransportIntegrationTest extends TestCase
     }
 
     /**
-     * Refresh the guard's session with the token the request carries, and
-     * answer with where it was read from and the rotated token, in the cookie
-     * or the body as the application's transport says, or with the refusal's
-     * reason; a request without a token is a bad request.
+     * Refresh the guard's session with the token the request carries.
      *
      * @param  string  $guard
      * @return \Illuminate\Http\JsonResponse

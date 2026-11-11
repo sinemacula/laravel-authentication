@@ -17,23 +17,8 @@ use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
- * Records when, from which IP address, and with which user agent a session was
- * last used, on every authentication that binds it, debounced by a configurable
- * throttle. Only persisted `EloquentSession` models participate.
- *
- * The event names the session by its identifier only. On the path every request
- * takes, the guard that dispatched it is already bound to that very session,
- * which is the one written to, so nothing more is read; a guard not resolved,
- * or bound to another session, has the session read by its identifier on the
- * write connection, and one that is gone records nothing. A session bound that
- * is not an Eloquent session records nothing either.
- *
- * The client is the one the event carries: the client the bind was given (a
- * sign-in, a pending action, a refresh and a switch each hand in their own), or
- * the guard's request's for a bind given none (a request authenticating with
- * its own credential, or `login()` or `authenticateAs()` called without one),
- * so a long-running worker records that client, not one the listener saw
- * before.
+ * Records when, from which IP address and with which user agent a persisted
+ * Eloquent session was last used, debounced by a configurable throttle.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -82,10 +67,7 @@ final readonly class RecordSessionUsage
     }
 
     /**
-     * The session the event names: the one the event's guard has bound, when
-     * that guard is resolved already and bound to a session of the event's
-     * identifier, so the bind that dispatched the event reads nothing more;
-     * otherwise the session of that identifier read on the write connection, or
+     * The session the event names, reusing the one its guard has bound, or
      * `null` for none.
      *
      * @param  \SineMacula\Laravel\Authentication\Events\EventContext  $context
@@ -112,10 +94,7 @@ final readonly class RecordSessionUsage
 
     /**
      * Whether the use should be recorded now: on first use, or once the
-     * configured throttle window has elapsed since the last recorded use. A
-     * window of zero or less records every use, and a last use recorded in the
-     * future (a clock that ran ahead) counts by its distance from now, so it is
-     * corrected rather than blocking every write until it is reached.
+     * throttle window has elapsed since the last recorded use.
      *
      * @param  ?\Carbon\CarbonInterface  $lastUsedAt
      * @param  \Carbon\CarbonInterface  $now

@@ -12,11 +12,8 @@ use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 
 /**
- * Stub guard that extends `AbstractGuard` the way a consumer-defined guard type
- * would, calling the protected credential and lifecycle hooks from a subclass.
- *
- * Pins those hooks as the extension surface: each public method forwards to
- * exactly one protected hook.
+ * Guard extending `AbstractGuard`, each public method forwarding to exactly one
+ * protected hook.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -40,9 +37,8 @@ final class StubCredentialGuard extends AbstractGuard
     }
 
     /**
-     * Bind a context a credential authenticated, with the credential's id and
-     * the scopes it grants, through the inherited `bindVerifiedContext()` hook,
-     * as a request rather than a sign-in.
+     * Bind a context a credential authenticated, as a request, through the
+     * inherited `bindVerifiedContext()` hook.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal

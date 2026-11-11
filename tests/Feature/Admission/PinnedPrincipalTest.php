@@ -19,8 +19,7 @@ use Tests\Unit\Stubs\Stub3dPrincipal;
 
 /**
  * Feature tests for proving that a principal someone else named belongs to an
- * identity: the resolver's hinted path must return a principal of the same
- * class and identifier, owned by the identity as its own stored key says.
+ * identity.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -70,8 +69,7 @@ final class PinnedPrincipalTest extends TestCase
     }
 
     /**
-     * Nothing resolved, another principal (the resolver's fallback), or one of
-     * another class with the same identifier, does not prove the pin.
+     * Anything but the pinned principal itself does not prove the pin.
      *
      * @return void
      */
@@ -89,8 +87,7 @@ final class PinnedPrincipalTest extends TestCase
     }
 
     /**
-     * A pin without an identifier (unsaved) is asked of the resolver without a
-     * hint and can never match.
+     * An unsaved pin can never match.
      *
      * @return void
      */
@@ -105,7 +102,7 @@ final class PinnedPrincipalTest extends TestCase
 
     /**
      * A principal is owned only by the same class of identity with the same
-     * identifier; one whose owner cannot be read is not owned.
+     * identifier.
      *
      * @return void
      */
@@ -127,9 +124,8 @@ final class PinnedPrincipalTest extends TestCase
     }
 
     /**
-     * An Eloquent principal's owner is read from its own stored key, even when
-     * lazy loading is prevented, and an identity relation already set on it
-     * does not vouch for it.
+     * An Eloquent principal's owner is read from its own stored key, never from
+     * a relation already set on it.
      *
      * @return void
      */
@@ -156,9 +152,7 @@ final class PinnedPrincipalTest extends TestCase
     }
 
     /**
-     * `PinnedPrincipal` is a static utility; instantiation is disallowed
-     * through the private constructor. Reflection invokes it so the line is
-     * covered while still documenting the access modifier.
+     * `PinnedPrincipal` is a static utility that cannot be instantiated.
      *
      * @return void
      *

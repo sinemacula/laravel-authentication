@@ -15,8 +15,7 @@ use Symfony\Component\VarDumper\Dumper\CliDumper;
 use Tests\Unit\Stubs\PlainIdentityFixture;
 
 /**
- * Unit tests for the password reset link a sender is given: it hands the token
- * to the sender and to nothing else.
+ * Unit tests for the password reset link a sender is given.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -27,10 +26,7 @@ use Tests\Unit\Stubs\PlainIdentityFixture;
 final class PasswordResetLinkTest extends TestCase
 {
     /**
-     * The link carries its guard, type, destination, expiry and identity, and
-     * the token through `token()`, as a secret; no dump shows the token
-     * (Laravel's VarDumper, `print_r`, `var_export`), `json_encode()` leaves it
-     * out, serialising throws, and the destination is a sensitive parameter.
+     * The link hands out its token only through `token()`; no dump shows it.
      *
      * @return void
      */

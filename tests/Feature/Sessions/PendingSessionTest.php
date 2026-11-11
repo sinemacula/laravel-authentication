@@ -25,9 +25,7 @@ use Tests\Fixtures\Factors\AlwaysRequireAdditionalFactor;
 use Tests\TestCase;
 
 /**
- * Feature tests of a pending session's proofs read against a real database: the
- * page a factor package asks for, at the smallest and the largest size a
- * requirement check's subject allows.
+ * Feature tests of reading a pending session's proofs against a real database.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

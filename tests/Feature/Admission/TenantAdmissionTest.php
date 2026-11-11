@@ -22,10 +22,8 @@ use Tests\Unit\Stubs\PlainPrincipalFixture;
 use Tests\Unit\Stubs\PlainTenantFixture;
 
 /**
- * Feature tests for the tenant a principal is to act in: the one a selection
- * asks for and the one a session records, resolved (the principal's own from
- * the principal, any other through the bound resolver), held to the bound
- * `TenantAccess`, and checked active, each refusal with its own reason.
+ * Feature tests for the tenant a principal is to act in, as a selection asks
+ * for it or a session records it.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -61,9 +59,8 @@ final class TenantAdmissionTest extends TestCase
     }
 
     /**
-     * The principal's default is its own tenant, never asked of the resolver,
-     * once the access lets it act there; a platform principal's default is
-     * none, asked of the access as none.
+     * The principal's default is its own tenant, or none for a platform
+     * principal.
      *
      * @return void
      */
@@ -82,8 +79,8 @@ final class TenantAdmissionTest extends TestCase
     }
 
     /**
-     * A selection that names the principal's own tenant by its identifier is
-     * that tenant, without the resolver; one that names none is none.
+     * A selection of the principal's own tenant is that tenant, without the
+     * resolver.
      *
      * @return void
      */
@@ -118,8 +115,7 @@ final class TenantAdmissionTest extends TestCase
     }
 
     /**
-     * A named tenant the resolver does not find, or finds under another
-     * identifier, is `tenant_ineligible`, the access never asked.
+     * A named tenant the resolver does not find is `tenant_ineligible`.
      *
      * @return void
      */
@@ -137,8 +133,7 @@ final class TenantAdmissionTest extends TestCase
 
     /**
      * A tenant the access refuses is `tenant_ineligible` before its activity is
-     * read, so the answer says nothing of the state of a tenant the principal
-     * may not act in; an allowed tenant that is inactive is `tenant_inactive`.
+     * read.
      *
      * @return void
      */
@@ -176,9 +171,7 @@ final class TenantAdmissionTest extends TestCase
     }
 
     /**
-     * A principal whose own tenant cannot be loaded may act in no tenant: any
-     * selection is `tenant_inactive`, as its own tenant's activity check
-     * answers, without asking the resolver or the access.
+     * A principal whose own tenant cannot be loaded may act in no tenant.
      *
      * @return void
      */
@@ -198,8 +191,7 @@ final class TenantAdmissionTest extends TestCase
     }
 
     /**
-     * A session that records no tenant acts in none: the access is asked about
-     * none only when asked to check it.
+     * A session that records no tenant acts in none.
      *
      * @return void
      */
@@ -214,9 +206,7 @@ final class TenantAdmissionTest extends TestCase
     }
 
     /**
-     * A recorded tenant that is the principal's own is that tenant, without the
-     * resolver; another is resolved; and the access is asked only when asked to
-     * check it.
+     * A recorded tenant is the principal's own or one the resolver finds.
      *
      * @return void
      */
@@ -235,9 +225,8 @@ final class TenantAdmissionTest extends TestCase
     }
 
     /**
-     * A recorded tenant that no longer resolves, or resolves inactive, is
-     * `tenant_inactive`; one the access no longer allows is
-     * `tenant_ineligible`.
+     * A recorded tenant that no longer resolves or is no longer allowed is
+     * refused.
      *
      * @return void
      */
@@ -259,10 +248,7 @@ final class TenantAdmissionTest extends TestCase
     }
 
     /**
-     * A trusted bind names a tenant with no access or activity check: the own
-     * tenant when its identifier matches, else the resolver's answer when it
-     * has the identifier asked for, and nothing for one it does not find or
-     * finds under another identifier.
+     * A trusted bind names a tenant with no access or activity check.
      *
      * @return void
      */

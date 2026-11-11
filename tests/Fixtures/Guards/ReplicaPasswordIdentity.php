@@ -7,9 +7,7 @@ namespace Tests\Fixtures\Guards;
 use Illuminate\Database\Eloquent\Model;
 
 /**
- * A model over the `password_identities` table on a `replica` connection: a
- * provider configured with it reads the same table as `PasswordIdentity`, but
- * on another connection.
+ * A model over the `password_identities` table on the `replica` connection.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

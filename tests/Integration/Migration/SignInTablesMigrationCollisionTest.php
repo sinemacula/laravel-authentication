@@ -15,12 +15,7 @@ use Tests\Concerns\RunsMigrationSteps;
 use Tests\TestCase;
 
 /**
- * Integration tests for the collision guard of the shipped rate limits,
- * one-time codes, passkeys, passkey challenges and API keys migrations: each
- * refuses to run over an existing table of its configured name, before changing
- * the schema, and names the configuration key that renames the table; under
- * another name it runs. The package test case has already run the shipped
- * migrations, so the default tables exist.
+ * Integration tests for the collision guard of the sign-in table migrations.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -39,9 +34,8 @@ final class SignInTablesMigrationCollisionTest extends TestCase
     private const string RENAMED = 'renamed_sign_in_table';
 
     /**
-     * Drop the renamed table and the default ones, whichever name the
-     * configuration ends with, so a persistent database starts the next test
-     * without them.
+     * Drop the renamed and default tables so a persistent database starts
+     * clean.
      *
      * @return void
      */

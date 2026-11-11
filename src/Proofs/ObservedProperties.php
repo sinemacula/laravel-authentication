@@ -7,12 +7,8 @@ namespace SineMacula\Laravel\Authentication\Proofs;
 use SineMacula\Laravel\Authentication\Proofs\Enums\KeyProtection;
 
 /**
- * What was observed about the authenticator behind a proof: user presence, user
- * verification, whether the credential may be backed up and is, whether the
- * proof resists phishing, and how its key is protected.
- *
- * Each is `null` when it was not observed, and `null` is never read as `true`:
- * a requirement that asks for one is met only by an observed `true`.
+ * What was observed about the authenticator behind a proof; `null` means not
+ * observed.
  *
  * @api
  *

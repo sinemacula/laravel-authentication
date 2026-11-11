@@ -98,9 +98,7 @@ use Tests\Integration\Fixtures\NormalizedEmailIdentity;
 use Tests\TestCase;
 
 /**
- * Feature tests for the session service's sign-in pipeline: what `signIn()` and
- * `start()` check, in which order, what each failure reports, what a success
- * writes, binds and dispatches, and what the sign-in policies are asked.
+ * Feature tests for the session service's sign-in pipeline.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -174,11 +172,7 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A password sign-in starts a new session: the result carries the identity,
-     * principal, session, method and first pair; the session records who, as
-     * whom, through which guard and method, from which client, the sign-in as
-     * its last use, the digest of the refresh token's rotation id, and the
-     * guard's deadlines; and the guard is bound to it.
+     * A password sign-in starts a new session and binds the guard to it.
      *
      * @return void
      *
@@ -236,9 +230,8 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A successful sign-in announces itself in a fixed order: `Attempting`,
-     * then `SessionCreated` and `SignedIn`, reported before the bind, then the
-     * bind events, each lifecycle event carrying the sign-in's context.
+     * A successful sign-in dispatches `SessionCreated` and `SignedIn` before
+     * the bind events.
      *
      * @return void
      *
@@ -298,8 +291,7 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * The events never see the input: `Attempting` and `Failed` carry only the
-     * identifier the method names, and `AuthenticationFailed` no secret at all.
+     * Events carry only the identifier the method names, never the input.
      *
      * @return void
      *
@@ -328,11 +320,8 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * The credential timebox is cut short only for a sign-in whose method
-     * verified the input and whose identity was admitted: a wrong password
-     * waits it out. What follows the identity's admission (here a required
-     * factor, which leaves the session pending) runs after the timebox, once
-     * the input is known to be right.
+     * The credential timebox is cut short only for a verified sign-in whose
+     * identity was admitted.
      *
      * @return void
      *
@@ -386,8 +375,7 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * An unknown sign-in method is a misconfiguration: it throws before
-     * anything is dispatched.
+     * An unknown sign-in method throws before anything is dispatched.
      *
      * @return void
      *
@@ -429,9 +417,8 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A failed sign-in names the challenge its input answered once the guard
-     * allows the method; a method it does not allow fails with none, since
-     * nothing was checked, as a reauthentication does.
+     * A failed sign-in names its challenge only once the guard allows the
+     * method.
      *
      * @return void
      *
@@ -457,11 +444,8 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * An attempt over its limit fails with the wait, without checking the
-     * input; one under it takes a slot for the identifier as given, its type
-     * and the client's IP address, then one on the account its password is
-     * checked against, which a wrong password keeps; a success gives both back
-     * once its session started.
+     * The attempt limits are reserved before the check and given back only on
+     * success.
      *
      * @return void
      *
@@ -538,10 +522,8 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A 3D sign-in acts as the identity's default membership, or as the
-     * membership the context pins once it is proven to be the identity's own;
-     * one of another member fails as a mismatch, and a member with no
-     * membership as unresolved.
+     * A sign-in's principal is resolved by default or pinned by the context and
+     * proven.
      *
      * @return void
      *
@@ -581,10 +563,8 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A member whose only membership acts within an inactive tenant has no
-     * principal left once its password is verified: the sign-in fails with the
-     * reason that membership was left out for, naming the member and no
-     * principal, since none was selected.
+     * A member whose only membership acts within an inactive tenant fails to
+     * sign in.
      *
      * @return void
      *
@@ -605,11 +585,8 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * `ApplicationAccess` decides whether the principal may use the
-     * application: refused for the member's only principal, none is left, so
-     * the sign-in fails as `principal_ineligible` once the password is
-     * verified, naming the member and no principal or tenant, since none was
-     * selected.
+     * An `ApplicationAccess` refusal of the only principal fails the sign-in as
+     * `principal_ineligible`.
      *
      * @return void
      *
@@ -643,10 +620,8 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * An account with no attempts left is refused without its password being
-     * checked: the client is answered `invalid_credentials` with no wait, as
-     * for a wrong password, while `AuthenticationFailed` reports the account's
-     * own limit and its wait, with no identity, since none was verified.
+     * A refusal by the account's limit reaches only listeners; the client is
+     * told `invalid_credentials`.
      *
      * @return void
      *
@@ -679,10 +654,7 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A method that checks a secret although the account refused it the attempt
-     * is not trusted with the identity it returns: the sign-in fails as refused
-     * by the account's limit, starts no session, writes nothing, and gives no
-     * slot back.
+     * A method that ignores the account's refusal signs nobody in.
      *
      * @return void
      *
@@ -715,13 +687,8 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * The additional-factor policy is asked about every admitted sign-in, about
-     * the identity alone (no principal or tenant), with the client's
-     * description and no proven session; a sign-in it asks a factor of issues
-     * no token: its session is pending, waiting on `mfa`, for the identity and
-     * its principal, which does not fail the sign-in and keeps every slot the
-     * sign-in took, the account's included, recording their windows on the
-     * session.
+     * The factor policy is asked about every admitted sign-in, and a required
+     * factor leaves it pending.
      *
      * @return void
      *
@@ -786,11 +753,8 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A sign-in acting within a tenant carries that tenant on, though the
-     * identity-level factor policy is not told of it: `SessionCreated` and
-     * `SignedIn` carry it when the session starts (the first sign-in), and the
-     * pending session, its record and `SessionPending` when a further factor is
-     * required (the second).
+     * A sign-in within a tenant carries the tenant on to its session and
+     * events.
      *
      * @return void
      *
@@ -850,8 +814,7 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A password sign-in rehashes an outdated hash once admitted; a sign-in
-     * through another method never touches the password.
+     * Only the password method rehashes an outdated hash.
      *
      * @return void
      *
@@ -901,10 +864,8 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A sign-in method may refuse only with `invalid_credentials`: any other
-     * reason is the session service's to give, so a method that answers with
-     * one is misconfigured and fails loudly instead of reporting a reason it
-     * cannot know.
+     * A method that refuses with a reason other than `invalid_credentials` is a
+     * misconfiguration.
      *
      * @return void
      *
@@ -927,9 +888,7 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * `start()` begins a session for an identity verified elsewhere: it is
-     * reloaded through the guard's provider, the method is recorded, and no
-     * `Attempting`, limit or rehash applies.
+     * `start()` begins a session for an identity verified elsewhere.
      *
      * @return void
      *
@@ -958,10 +917,8 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * `start()` refuses an identity the guard's provider does not return as
-     * that very identity and a method the guard does not allow, and hands out a
-     * pending session when the factor policy asks a factor of it, so a sign-in
-     * verified elsewhere cannot skip the factor.
+     * `start()` refuses what a sign-in would refuse and leaves a required
+     * factor pending.
      *
      * @return void
      *
@@ -997,8 +954,7 @@ final class SessionServiceTest extends TestCase
 
     /**
      * `start()` records the first factor it is given as the session's first
-     * proof: its channel and reference, observed properties and `amr` values,
-     * timed by the server and never multifactor, and the access token says so.
+     * proof.
      *
      * @return void
      *
@@ -1030,8 +986,8 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * The application's own recovery is recorded as the first factor over the
-     * recovery channel: still a first factor, and never multifactor.
+     * `start()` records the application's own recovery as a first factor over
+     * the recovery channel.
      *
      * @return void
      *
@@ -1060,16 +1016,14 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A session `start()` began after a password the application checked itself
-     * is judged as a password sign-in is: the further-factor policy is asked
-     * about the password channel and its `amr`, and a further factor it waits
-     * on is then accepted.
+     * A session started after a password check is judged as a password sign-in
+     * and takes a further factor.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAStartedPasswordSessionIsJudgedAsAPasswordSignInIsAndTakesAFurtherFactor(): void
+    public function testAStartedPasswordSessionIsJudgedAsAPasswordSignIn(): void
     {
         $identity = $this->seedIdentity();
         $asked    = null;
@@ -1141,8 +1095,7 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A first factor whose `amr` names `mfa` cannot be made, so `start()` is
-     * never handed one: a channel never implies multifactor authentication.
+     * A first factor whose `amr` names `mfa` cannot be made.
      *
      * @return void
      *
@@ -1157,8 +1110,7 @@ final class SessionServiceTest extends TestCase
 
     /**
      * A further factor over the recovery channel does not satisfy a pending
-     * session: it is refused as `proof_invalid`, nothing is recorded, and the
-     * session still waits.
+     * session.
      *
      * @return void
      *
@@ -1180,8 +1132,8 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * Rows of `[credential kind]`: what an application may list that is not a
-     * sign-in method.
+     * Rows of `[credential kind]`: kinds an application may list that are not
+     * sign-in methods.
      *
      * @return iterable<string, array{0: string}>
      */
@@ -1194,9 +1146,7 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * `start()` refuses a machine credential kind as the method, even on a
-     * guard whose application lists it: no session is recorded under it, so
-     * none passes for a machine credential.
+     * `start()` refuses a machine credential kind as the method.
      *
      * @param  string  $kind
      * @return void
@@ -1222,9 +1172,7 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * `start()` refuses `external_provider` as the method, even on a guard
-     * whose application allows external sign-in: a session is recorded under it
-     * only from an external result the link contract maps to its identity.
+     * `start()` refuses `external_provider` as the method.
      *
      * @return void
      *
@@ -1246,8 +1194,7 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * `start()` checks the identity's provider: an identity of another model
-     * that shares the key is not the guard's.
+     * `start()` refuses an identity of another model that shares the key.
      *
      * @return void
      *
@@ -1330,10 +1277,8 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * Whatever limiter is bound, one that throws when a pending session's first
-     * activation gives its sign-in's slots back has its error reported, not
-     * thrown: `satisfy()` returns the activated session, the guard is bound,
-     * and the slots after the one that failed are not given back either.
+     * An activation reports, not throws, a limiter that cannot give the slots
+     * back.
      *
      * @return void
      *
@@ -1375,10 +1320,8 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A listener that throws on any bind event fails the sign-in after its
-     * session committed, but cannot withhold the session's report:
-     * `SessionCreated` and `SignedIn` were dispatched, once, before the bind,
-     * and the listener's exception reaches the caller.
+     * A sign-in whose bind listener throws is still reported, once, before the
+     * exception reaches the caller.
      *
      * @param  class-string  $bindEvent
      * @return void
@@ -1427,9 +1370,8 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * An activation whose bind listener throws is reported, its report being
-     * scheduled before the bind, but keeps the slots its sign-in took counted:
-     * they are given back only once the bind returned.
+     * An activation whose bind listener throws is still reported and keeps its
+     * slots counted.
      *
      * @return void
      *
@@ -1457,9 +1399,7 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * An activation gives back, once it has bound the session, exactly the
-     * slots its sign-in held while pending: one for each window the session
-     * kept.
+     * An activation gives back exactly the slots its sign-in held, once bound.
      *
      * @return void
      *
@@ -1488,12 +1428,8 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * Inside a caller's transaction, an activation binds nothing until the
-     * caller commits: a rollback withdraws its report and its bind with the
-     * activation and leaves the session pending, so its credential can satisfy
-     * it again; a commit reports the session, then binds it, and the bind
-     * listener's exception reaches the caller's commit, leaving the slots
-     * counted.
+     * An activation inside a caller's transaction binds and reports only once
+     * the caller commits.
      *
      * @return void
      *
@@ -1546,10 +1482,8 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A satisfaction inside a caller's transaction binds the guard only when it
-     * commits: one that rolls back binds nothing, dispatches no `Login` and
-     * keeps the slots counted; one that commits binds once, with one `Login`,
-     * then gives the slots back.
+     * A satisfaction binds the guard only once the caller's transaction
+     * commits.
      *
      * @return void
      *
@@ -1603,10 +1537,8 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A bind that waited for the commit reads the session again first: one the
-     * same transaction revoked, returned to pending, replaced or switched to
-     * another principal or tenant is never bound, though its sign-in is
-     * reported and its slots given back.
+     * A bind that waited for the commit is not made for a session changed
+     * before it.
      *
      * @param  array<string, mixed>  $change
      * @return void
@@ -1638,8 +1570,7 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A transaction open on another connection neither delays nor withdraws the
-     * bind: the session's writes were not made in it.
+     * A transaction on another connection does not delay the bind.
      *
      * @return void
      *
@@ -1662,9 +1593,7 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A lifecycle listener that throws propagates as any listener does: with no
-     * transaction open it runs before the bind, so the session stands but the
-     * guard is not bound to it.
+     * A lifecycle listener that throws outside a transaction stops the bind.
      *
      * @return void
      *
@@ -1692,10 +1621,8 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A password sign-in or a started session for an identity the application
-     * admits as several principals waits for the identity to choose one, with
-     * the principals listed, and binds nothing; with only one, that one is
-     * selected and the session starts, whatever the resolver's default.
+     * A sign-in or start for an identity with several principals waits for a
+     * choice.
      *
      * @return void
      *
@@ -1749,12 +1676,8 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A cookie application's sign-in that does not come from a page of its own
-     * site is refused as `cross_site_request` before the method policy is asked
-     * or an attempt counted, so the input is never checked: it writes no
-     * session or proof, binds nothing, and is reported after `Attempting` by
-     * `Failed` and `AuthenticationFailed` (flow `sign_in`, with the identifier
-     * and the request's client, no identity).
+     * A cookie application refuses a cross-site sign-in as `cross_site_request`
+     * before anything is checked.
      *
      * @param  array<string, string>  $headers
      * @return void
@@ -1788,8 +1711,7 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * Rows of the headers a page of a cookie application's own site sends: the
-     * request's own origin or an allowed one, with the custom header.
+     * Rows of the headers a page of a cookie application's own site sends.
      *
      * @return iterable<string, array{0: array<string, string>}>
      */
@@ -1800,9 +1722,8 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A cookie application's sign-in from the request's own origin or an
-     * allowed one, with the custom header, signs in and hands the refresh token
-     * over only in its cookie.
+     * A cookie application signs in from its own site and hands the refresh
+     * token over in its cookie.
      *
      * @param  array<string, string>  $headers
      * @return void
@@ -1821,9 +1742,7 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A cross-site sign-in fails with no challenge named, since the input was
-     * never checked, while a same-site one the method refuses names the
-     * challenge its input answered.
+     * A cross-site sign-in names no challenge.
      *
      * @return void
      *
@@ -1852,9 +1771,7 @@ final class SessionServiceTest extends TestCase
 
     /**
      * `signIn()` judges the client of the context it is given, not the
-     * request's: one built from plain values without the same-site facts is
-     * refused on a same-site request, and one built with them passes on a
-     * cross-site request.
+     * request's.
      *
      * @return void
      *
@@ -1874,10 +1791,7 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * One guard judges each context it is given on its own, keeping nothing
-     * from the last: after signing a same-site context in, it refuses a
-     * cross-site context it is handed next, and signs the same-site one in
-     * again, while it serves the same request throughout.
+     * One guard judges each context it is given on its own.
      *
      * @return void
      *
@@ -1900,11 +1814,8 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A cookie application's `start()` that does not come from a page of its
-     * own site is refused as `cross_site_request` before anything is read,
-     * reported by `Failed` and `AuthenticationFailed` with no `Attempting`, and
-     * writes nothing; one built from plain values is refused too, and a
-     * same-site one starts the session with the cookie.
+     * A cookie application refuses a cross-site `start()` as
+     * `cross_site_request`.
      *
      * @param  array<string, string>  $headers
      * @return void
@@ -1939,11 +1850,8 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A cookie application's satisfaction that does not come from a page of its
-     * own site is refused as `cross_site_request` before the pending session is
-     * read: the session stays pending, the proof unstored and the credential
-     * unconsumed, so the same satisfaction from the application's own site then
-     * activates it with the cookie.
+     * A cookie application refuses a cross-site satisfaction before the pending
+     * session is read.
      *
      * @param  array<string, string>  $headers
      * @return void
@@ -1975,11 +1883,8 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A cookie application's choice of principal that does not come from a page
-     * of its own site is refused as `cross_site_request` before the pending
-     * session is read: no principal is recorded and the session stays pending,
-     * so the same choice from the application's own site then activates it with
-     * the cookie.
+     * A cookie application refuses a cross-site choice before the pending
+     * session is read.
      *
      * @param  array<string, string>  $headers
      * @return void
@@ -2005,11 +1910,8 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A cookie application's satisfaction given a same-site client, as a
-     * service layer that keeps HTTP out gives it, is judged on that client
-     * alone: it activates the session with the cookie though the guard's own
-     * request comes from another site, the client written as its last use and
-     * carried by the events that report it.
+     * A cookie application's satisfaction is judged on the same-site client
+     * given alone.
      *
      * @return void
      *
@@ -2033,11 +1935,7 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * The guard's bind after an activation given a client describes that
-     * client, not the guard's own request: with a last-use throttle that
-     * records every use, its `PrincipalAssigned` and `SessionAuthenticated`
-     * carry the client given and the session's last use stays the one the
-     * activation wrote.
+     * The guard's bind after a satisfaction describes the client given.
      *
      * @return void
      *
@@ -2064,10 +1962,7 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * The guard's bind after a choice given a client describes that client, as
-     * a satisfaction's does: its bind events carry it, and with a last-use
-     * throttle that records every use the session's last use stays that
-     * client's.
+     * The guard's bind after a choice describes the client given.
      *
      * @return void
      *
@@ -2092,8 +1987,8 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * Rows of `[a sign-in of the seeded identity through the service]`: by
-     * password, and started for the identity verified outside the guard.
+     * Rows of `[sign-in of the seeded identity]`: by password, and started for
+     * an identity verified elsewhere.
      *
      * @formatter:off
      *
@@ -2119,12 +2014,8 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A sign-in whose identity is deactivated after its admission, before its
-     * session is written, is refused once the session commits: the session is
-     * revoked as `identity_deactivated` without a `SessionRevoked` (it was
-     * never handed out), the refusal is reported as every refused sign-in is,
-     * nothing reports the session, the guard is not bound to it, and the
-     * attempt-limit slots the sign-in took stay counted.
+     * A sign-in whose identity is deactivated before its write is refused and
+     * its session ended.
      *
      * @formatter:off
      *
@@ -2164,9 +2055,8 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A pending sign-in whose identity is deactivated after its admission is
-     * refused the same way: its pending session is revoked and its credential
-     * never handed out.
+     * A pending sign-in whose identity is deactivated before its write is
+     * refused.
      *
      * @return void
      *
@@ -2192,10 +2082,8 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A sign-in whose check fails with a database error, outside a transaction,
-     * throws it from the call: the session is committed and left unrevoked, but
-     * never handed out, so nothing reports it, the guard is not bound to it,
-     * and the attempt-limit slots the sign-in took are not given back.
+     * A sign-in whose check fails with a database error throws without handing
+     * the session out.
      *
      * @return void
      *
@@ -2241,13 +2129,8 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * Inside a caller's transaction a sign-in whose identity is deactivated
-     * after its admission is answered with its session, which the check, at the
-     * commit, then revokes and reports as revoked: nothing reports the sign-in,
-     * the bind that waited for the commit binds nothing, and the attempt-limit
-     * slots the sign-in took stay counted, as they do for a sign-in refused
-     * before it answered; one whose session stands gives them back at the
-     * commit.
+     * Inside a caller's transaction, a sign-in whose identity was deactivated
+     * is ended at the commit.
      *
      * @return void
      *
@@ -2291,12 +2174,8 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A password change that keeps the session a sign-in wrote earlier in the
-     * same transaction, made a second after that sign-in began, leaves the
-     * session standing at the commit: the change saw the session and kept it,
-     * so the cutoff it moved is no trace of a revocation that could not. Only
-     * the identity's other session ends, the sign-in is reported, and the guard
-     * stays bound to its session.
+     * A session a password change keeps in the same transaction stands at the
+     * commit.
      *
      * @return void
      *
@@ -2338,13 +2217,8 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A sign-in given a `SignInContext` built from plain values binds the guard
-     * with that context's client: `signIn()` and `start()` alike, their bind's
-     * `PrincipalAssigned` and `SessionAuthenticated` carry it, and with a
-     * last-use throttle that records every use the session's last use is that
-     * client's, not the guard's own request's. A context built from the request
-     * being served (`SignInContext::fromRequest()`) binds with that request's
-     * client, as any context given does.
+     * A sign-in given a `SignInContext` binds the guard with that context's
+     * client.
      *
      * @return void
      *
@@ -2381,11 +2255,7 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A cookie application refuses a satisfaction given a client the same-site
-     * check refuses, as `cross_site_request`, though the guard's own request is
-     * same-site: before the pending session is read, reported with the client
-     * given, the session left pending and the proof unstored, so the same
-     * satisfaction given the same-site request's client then activates it.
+     * A cookie application refuses a satisfaction given a cross-site client.
      *
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return void
@@ -2413,11 +2283,7 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A cookie application's choice given a same-site client activates the
-     * session with the cookie though the guard's own request comes from another
-     * site; one given a client the same-site check refuses is refused as
-     * `cross_site_request` on a same-site request, reported with that client,
-     * recording no principal.
+     * A cookie application's choice is judged on the client given.
      *
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return void
@@ -2445,9 +2311,7 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A refusal of a pending action given a client, after the same-site check,
-     * is reported with that client: a credential that names no pending session,
-     * on a cookie application and a body one.
+     * A refused pending action is reported with the client given.
      *
      * @return void
      *
@@ -2474,11 +2338,8 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A pending credential `PendingCredential::extract()` refused as
-     * `pending_invalid`, handed in, is reported as a credential that names no
-     * pending session is, with `Failed` and `AuthenticationFailed` carrying the
-     * client given and no query, and only after the same-site check, which
-     * refuses a cross-site client first.
+     * A `pending_invalid` reason handed in is reported as a credential that
+     * names no pending session.
      *
      * @return void
      *
@@ -2520,9 +2381,8 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A reason `PendingCredential::extract()` never answers, handed in to a
-     * pending action, is the caller's error: it throws before anything is
-     * dispatched.
+     * A reason `PendingCredential::extract()` never answers, handed in, throws
+     * before anything is dispatched.
      *
      * @return void
      *
@@ -2555,9 +2415,7 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A body application is never held to the check, whatever the request
-     * carried: its sign-in, start, satisfaction and choice from another site
-     * each go ahead, since its tokens travel only in the response body.
+     * A body application is never held to the same-site check.
      *
      * @return void
      *
@@ -2624,9 +2482,8 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * Sign in with a further factor required of every sign-in, and return the
-     * pending session's credential with an accepted further factor's proof
-     * bound to it.
+     * Sign in with a further factor required and return the pending credential
+     * with a proof bound to it.
      *
      * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
      * @param  string  $guard
@@ -2651,9 +2508,8 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * Sign a member with two memberships in on the guard, from the
-     * application's own site, and return the pending session's credential and
-     * the second membership to choose.
+     * Sign a member with two memberships in and return the pending credential
+     * and the membership to choose.
      *
      * @param  string  $guard
      * @return array{0: string, 1: \Tests\Integration\Fixtures\ChoosingMembership}
@@ -2859,9 +2715,8 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * Register a `trusted` sign-in method that vouches for the given identity
-     * (or for no one, or refuses with the given reason), naming the given
-     * identifier.
+     * Register a `trusted` sign-in method that vouches for the identity given,
+     * or refuses with the reason.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity|\SineMacula\Laravel\Authentication\Events\Enums\FailureReason|null  $identity
      * @param  ?string  $identifier

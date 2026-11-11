@@ -49,12 +49,8 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
 /**
- * Feature tests of the documented sign-in and further-factor routes, registered
- * as an application would and driven over HTTP: `Auth::sessions('api')` signs
- * in, a pending session is looked up, discarded on a wrong code and satisfied
- * on the right one, and the access tokens the routes return authenticate
- * through `auth:api`, against the shipped application policy and attempt
- * limiter.
+ * Feature tests of the documented sign-in and further-factor routes, driven
+ * over HTTP.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -132,8 +128,8 @@ final class SessionRoutesTest extends TestCase
     }
 
     /**
-     * Rows of `[path, body, field]`: requests whose validation fails, with the
-     * field it fails on.
+     * Rows of `[path, body, field]`: requests that fail validation on the
+     * field.
      *
      * @return iterable<string, array{0: string, 1: array<string, mixed>, 2: string}>
      */
@@ -166,9 +162,8 @@ final class SessionRoutesTest extends TestCase
     }
 
     /**
-     * A wrong password is answered with a 401; once the identifier has used up
-     * its attempts, the route answers 429 with the wait in `Retry-After`, even
-     * for the right password.
+     * A sign-in throttled after five wrong passwords is answered 429 with the
+     * wait in `Retry-After`.
      *
      * @return void
      */
@@ -189,12 +184,8 @@ final class SessionRoutesTest extends TestCase
     }
 
     /**
-     * A sign-in that needs a further factor answers with its pending session's
-     * id, what it waits on and its pending credential, in the body, which
-     * authenticates nothing; a wrong code discards the session, so the right
-     * code on it then satisfies nothing; a new sign-in with the right code
-     * activates, keeping its id, and its access token authenticates; the
-     * consumed credential is spent.
+     * A pending sign-in is discarded on a wrong code and activated, keeping its
+     * id, on the right one.
      *
      * @return void
      */
@@ -240,10 +231,8 @@ final class SessionRoutesTest extends TestCase
     }
 
     /**
-     * A further factor satisfied while its slots cannot be given back still
-     * answers with a token pair whose access token authenticates: the counters'
-     * error is reported, not thrown, since the session already stands, and the
-     * slots stay counted.
+     * An activation whose slots cannot be given back reports the error and
+     * still answers with its tokens.
      *
      * @return void
      */
@@ -298,10 +287,7 @@ final class SessionRoutesTest extends TestCase
     }
 
     /**
-     * The documented sign-in route: validate, sign in through the session
-     * service, answer a throttled sign-in 429 with the wait and any other
-     * failure 401, and hand out the pending session's id, what it waits on and
-     * its pending credential, in the body, or the token pair, never stored.
+     * The documented sign-in route.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\JsonResponse
@@ -349,8 +335,7 @@ final class SessionRoutesTest extends TestCase
     }
 
     /**
-     * The body a pending sign-in answers with: the session's id, what it waits
-     * on, and its pending credential.
+     * The body a pending sign-in answers with.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\PendingSession  $pending
      * @param  ?\SineMacula\Laravel\Authentication\Secrets\Secret  $credential
@@ -368,11 +353,7 @@ final class SessionRoutesTest extends TestCase
 
     /**
      * The documented further-factor route, as an adapter for the factor package
-     * runs it: validate, check the pending credential allows verifying a
-     * factor, verify the code for the session's identity, discard the session
-     * on a wrong code, and on the right one hand the verification's proof,
-     * bound to the session, to `satisfy()`, and answer with the new access
-     * token, never stored.
+     * runs it.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\JsonResponse

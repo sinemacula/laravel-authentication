@@ -22,21 +22,8 @@ use SineMacula\Laravel\Authentication\Contracts\OneTimeCodeSender;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 
 /**
- * Delivers the code that proves the new identifier of a change request through
- * the application's `OneTimeCodeSender`, to that new identifier, outside the
- * request that asked for it.
- *
- * The payload carries the code and the identifier, so it is encrypted with the
- * application key on the queue. When the job runs it first checks, on the write
- * connection, that the code is still its binding's live issuance and that the
- * identity's pending change of the type is still this request, of this guard,
- * and sends nothing otherwise; a retry checks again, so the code of a change
- * that was confirmed, cancelled or replaced is never sent. It goes to the
- * identity it was issued for, read again from the write connection (the service
- * never changes a machine identity's identifiers), with the purpose
- * `change_identifier`. An exception from the sender fails the job, and the
- * application's retry policy applies. A job whose identity was deleted before
- * it ran is dropped, not failed.
+ * Delivers the code that proves a change request's new identifier through the
+ * application's `OneTimeCodeSender`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

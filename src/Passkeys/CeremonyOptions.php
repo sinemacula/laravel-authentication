@@ -8,14 +8,8 @@ use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Support\Arrayable;
 
 /**
- * What a client is handed to run a passkey ceremony: the id of the challenge,
- * which it sends back with its response, the options to pass to the browser
- * (`PublicKeyCredentialCreationOptions` or `PublicKeyCredentialRequestOptions`
- * in their WebAuthn JSON form, binary members in base64url, as the browser's
- * `PublicKeyCredential.parseCreationOptionsFromJSON()` and
- * `parseRequestOptionsFromJSON()` take them), and when the challenge expires.
- *
- * `toArray()` and JSON give `challenge`, `options` and `expires_at` (ISO-8601).
+ * What a client is handed to run a passkey ceremony: the challenge id, the
+ * browser options in WebAuthn JSON form and the challenge's expiry.
  *
  * @api
  *

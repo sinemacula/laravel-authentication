@@ -49,12 +49,8 @@ use Tests\Unit\Stubs\PlainPrincipalFixture;
 use Tests\Unit\Stubs\StubPrincipal;
 
 /**
- * Feature tests for the check a session written by a sign-in, a choice or a
- * switch is held to once committed: what it newly acts as is read again,
- * afresh, and judged on its standing alone; a session that fails is revoked
- * with the matching reason, the call answers the refusal when it has not
- * answered yet, and the reports the call scheduled run only once the check
- * passed.
+ * Feature tests of the check a committed sign-in, choice or switch session is
+ * held to.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -109,8 +105,7 @@ final class AdmissionRecheckTest extends TestCase
     }
 
     /**
-     * Rows of `[what changes after the sign-in admitted the member, the
-     * refusal, the revocation reason]`.
+     * Rows of `[change after admission, refusal, revocation reason]`.
      *
      * @formatter:off
      *
@@ -164,12 +159,8 @@ final class AdmissionRecheckTest extends TestCase
     }
 
     /**
-     * A sign-in's session whose identity, principal or tenant stopped standing
-     * after the sign-in admitted it is revoked with the matching reason once
-     * checked, the call is left the refusal to answer with (naming what the
-     * session acted as, never the session), the reports it scheduled never run
-     * but one that stands whatever the check finds, and no `SessionRevoked` is
-     * reported for a session the call never handed out.
+     * A sign-in's session that no longer stands is revoked and refused, and its
+     * reports never run.
      *
      * @formatter:off
      *
@@ -220,9 +211,7 @@ final class AdmissionRecheckTest extends TestCase
     }
 
     /**
-     * A session whose identity, principal and tenant all still stand passes:
-     * nothing is revoked, the call has no refusal, and the reports run, at once
-     * with no transaction open, in the order they were scheduled.
+     * A session that still stands passes and its reports run in order.
      *
      * @return void
      *
@@ -250,8 +239,8 @@ final class AdmissionRecheckTest extends TestCase
     }
 
     /**
-     * Rows of `[the cutoff relative to the second the call began, whether the
-     * session passes]`.
+     * Rows of `[cutoff relative to the call's start, whether the session
+     * passes]`.
      *
      * @return iterable<string, array{0: int, 1: bool}>
      */
@@ -263,9 +252,7 @@ final class AdmissionRecheckTest extends TestCase
     }
 
     /**
-     * Only a cutoff strictly after the second the call began ends the session:
-     * one moved in that second, or before, is the trace of a revocation the
-     * session's call does not postdate.
+     * Only a cutoff strictly after the second the call began ends the session.
      *
      * @param  int  $offset
      * @param  bool  $passes
@@ -320,8 +307,7 @@ final class AdmissionRecheckTest extends TestCase
     }
 
     /**
-     * A 2D identity, its own principal, is read once and judged as the identity
-     * and as the principal.
+     * An identity that is its own principal is read once.
      *
      * @return void
      *
@@ -349,11 +335,8 @@ final class AdmissionRecheckTest extends TestCase
     }
 
     /**
-     * A choice is checked for the principal chosen and the tenant it acts in,
-     * never for the identity, which the pending session already records; a
-     * failed choice ends a session the client holds, so its revocation is
-     * reported, though the call has not answered, the refusal names it, and a
-     * guard bound to it forgets it.
+     * A choice is checked for its principal and tenant, and a failed one
+     * reports its revocation.
      *
      * @return void
      *
@@ -395,11 +378,7 @@ final class AdmissionRecheckTest extends TestCase
     }
 
     /**
-     * A switch is checked for what it changed: a switch of tenant alone reads
-     * the active tenant again and not the principal's own standing, a switch
-     * that changed nothing is checked for nothing and its reports run as
-     * `AfterCommit` runs them, and a failed switch reports the revocation of
-     * the session the client held.
+     * A switch is checked only for what it changed.
      *
      * @return void
      *
@@ -445,10 +424,7 @@ final class AdmissionRecheckTest extends TestCase
     }
 
     /**
-     * No access contract is asked again: an `ApplicationAccess` or a
-     * `TenantAccess` that would now refuse the principal, or a factor policy
-     * that would now ask for a factor, does not end a session whose identity,
-     * principal and tenant still stand.
+     * No access contract or factor policy is asked again.
      *
      * @return void
      *
@@ -472,10 +448,7 @@ final class AdmissionRecheckTest extends TestCase
     }
 
     /**
-     * Inside a transaction on the session's connection the check waits for its
-     * commit, the reports with it, and a rollback runs neither; a check that
-     * fails after the call answered reports the revocation, makes no refusal,
-     * and forgets a binding to the session.
+     * Inside a transaction the check and its reports wait for the commit.
      *
      * @return void
      *
@@ -535,9 +508,7 @@ final class AdmissionRecheckTest extends TestCase
     }
 
     /**
-     * A transaction open on the connection a subject lives on, though none is
-     * on the session's, holds the check until it commits too, since the subject
-     * read through it would be read as that transaction sees it.
+     * A transaction on a subject's connection holds the check until it commits.
      *
      * @return void
      *
@@ -569,12 +540,8 @@ final class AdmissionRecheckTest extends TestCase
     }
 
     /**
-     * A transaction on a subject's connection that rolls back lets the check
-     * run as one that commits does, since the session is committed on its own
-     * connection either way: a session that still stands runs its reports, and
-     * one whose identity was deactivated meanwhile is revoked, its revocation
-     * reported (the call had answered), its reports dropped, and a guard bound
-     * to it forgets it.
+     * A rolled back transaction on a subject's connection still lets the check
+     * run.
      *
      * @return void
      *
@@ -632,10 +599,7 @@ final class AdmissionRecheckTest extends TestCase
     }
 
     /**
-     * A report that stands whatever the check finds (a revocation of another
-     * session the call made) runs after the check, in order with the reports
-     * waiting for it, and a listener that throws on it cannot keep the check
-     * from running, since the check runs first.
+     * A report that stands whatever the check finds runs after the check.
      *
      * @return void
      *
@@ -694,11 +658,7 @@ final class AdmissionRecheckTest extends TestCase
     }
 
     /**
-     * The principal recorded must be the very one the resolver answers again:
-     * when it was soft-deleted and the resolver falls back to the identity's
-     * other principal, the session acted as a principal that is gone, and a
-     * sign-in and a choice are refused as `principal_unresolved` and revoked as
-     * `principal_deleted`.
+     * A principal other than the one recorded counts as unresolved.
      *
      * @return void
      *
@@ -733,8 +693,8 @@ final class AdmissionRecheckTest extends TestCase
     }
 
     /**
-     * Rows of `[what the guard's resolver answers for the principal, the
-     * refusal, or `null` when the session passes]`.
+     * Rows of `[resolver answer for the principal, refusal or null when it
+     * passes]`.
      *
      * @formatter:off
      *
@@ -759,9 +719,8 @@ final class AdmissionRecheckTest extends TestCase
     }
 
     /**
-     * A principal that is no Eloquent model is resolved again through the
-     * guard's resolver, with the identifier recorded as the hint, and judged on
-     * what it answers: still that principal and active, or the session ends.
+     * A principal that is no model is resolved again through the guard's
+     * resolver.
      *
      * @param  \Closure(\SineMacula\Laravel\Authentication\Contracts\Identity): ?\SineMacula\Laravel\Authentication\Contracts\Principal  $answer
      * @param  ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $refusal
@@ -790,11 +749,7 @@ final class AdmissionRecheckTest extends TestCase
     }
 
     /**
-     * A switch of tenant alone reads the principal again, though it does not
-     * judge the principal's own standing: the active tenant is resolved through
-     * it, and the instance the switch admitted holds its tenant as it was
-     * loaded before the tenant was deactivated. A switch to no tenant leaves
-     * nothing to check, reads nothing and runs its reports at once.
+     * A tenant switch reads the principal again to resolve its tenant.
      *
      * @return void
      *
@@ -830,8 +785,7 @@ final class AdmissionRecheckTest extends TestCase
     }
 
     /**
-     * Rows of `[what changes after the sign-in admitted the member, in the
-     * tenant other than its own the session records]`.
+     * Rows of a change to an active tenant other than the principal's own.
      *
      * @return iterable<string, array{0: \Closure(\Tests\Integration\Fixtures\ActivatableTenant): mixed}>
      */
@@ -842,10 +796,7 @@ final class AdmissionRecheckTest extends TestCase
     }
 
     /**
-     * The active tenant a sign-in or a choice records is judged on its own,
-     * apart from the principal's: one that is not the principal's own, and that
-     * is deactivated or deleted while the principal's own still stands, ends
-     * the session as `tenant_inactive`, revoked as `tenant_deactivated`.
+     * An active tenant other than the principal's own is judged on its own.
      *
      * @param  \Closure(\Tests\Integration\Fixtures\ActivatableTenant): mixed  $change
      * @return void
@@ -885,10 +836,7 @@ final class AdmissionRecheckTest extends TestCase
     }
 
     /**
-     * A principal's own tenant is judged with the principal, whatever active
-     * tenant the session records: deactivated while a sign-in's session records
-     * none, or while a choice's records another that still stands, it ends the
-     * session as `tenant_inactive`, revoked as `tenant_deactivated`.
+     * A principal's own tenant is judged with the principal.
      *
      * @return void
      *
@@ -920,11 +868,7 @@ final class AdmissionRecheckTest extends TestCase
     }
 
     /**
-     * A switch of tenant alone whose principal is gone (soft-deleted since the
-     * switch admitted it) ends the session as `principal_unresolved`, revoked
-     * as `principal_deleted`, though the tenant switched to still stands: there
-     * is no current principal to resolve the tenant through, and the instance
-     * the switch admitted holds its tenant as it was loaded before.
+     * A tenant switch whose principal is gone ends the session.
      *
      * @return void
      *
@@ -949,9 +893,8 @@ final class AdmissionRecheckTest extends TestCase
     }
 
     /**
-     * Rows of `[what moves a cutoff after a revocation that kept the session
-     * moved the identity's, a second after the call began, whether the session
-     * passes]`.
+     * Rows of `[cutoff move after a revocation that kept the session, whether
+     * it passes]`.
      *
      * @formatter:off
      *
@@ -977,10 +920,7 @@ final class AdmissionRecheckTest extends TestCase
     }
 
     /**
-     * A revocation that keeps the session, made while its check waits for the
-     * caller's commit and a second after the call began, saw the session, so
-     * the cutoff it moves does not end it; a cutoff moved to a later second, or
-     * another holder's moved by a revocation that did not keep it, still does.
+     * A cutoff moved by a revocation that kept the session does not end it.
      *
      * @formatter:off
      *
@@ -1024,8 +964,7 @@ final class AdmissionRecheckTest extends TestCase
     }
 
     /**
-     * A revocation that keeps the session while its check waits for a
-     * transaction on a subject's connection does not end it either.
+     * A kept session whose check waits on a subject's connection stands.
      *
      * @return void
      *
@@ -1057,9 +996,8 @@ final class AdmissionRecheckTest extends TestCase
     }
 
     /**
-     * Rows of `[what changes once a later switch moved the session on to
-     * another principal in the same active tenant, the reason the session is
-     * revoked with, or `null` when it stands]`.
+     * Rows of `[change after a later principal switch, revocation reason or
+     * null]`.
      *
      * @formatter:off
      *
@@ -1092,11 +1030,7 @@ final class AdmissionRecheckTest extends TestCase
     }
 
     /**
-     * A check still waiting for the commit judges only what the session acts as
-     * then: once a later switch moved the session to another principal in the
-     * same active tenant, the principal it left no longer ends it, while its
-     * identity still does, and the active tenant it kept is judged by the
-     * switch's check, through the principal it now acts as.
+     * A waiting check judges only the principal the session still acts as.
      *
      * @formatter:off
      *
@@ -1141,9 +1075,8 @@ final class AdmissionRecheckTest extends TestCase
     }
 
     /**
-     * Rows of `[what changes once a later switch moved the session on to
-     * another active tenant as the same principal, the reason the session is
-     * revoked with, or `null` when it stands]`.
+     * Rows of `[change after a later tenant switch, revocation reason or
+     * null]`.
      *
      * @formatter:off
      *
@@ -1168,9 +1101,7 @@ final class AdmissionRecheckTest extends TestCase
     }
 
     /**
-     * Once a later switch moved the session to another active tenant as the
-     * same principal, a check still waiting no longer judges the tenant the
-     * session left, and still judges the principal it kept.
+     * A waiting check judges only the tenant the session still acts in.
      *
      * @formatter:off
      *
@@ -1214,8 +1145,7 @@ final class AdmissionRecheckTest extends TestCase
     }
 
     /**
-     * A later switch whose write rolls back gives a check still waiting back
-     * what it took out of it: the principal the session acts as again ends it.
+     * A rolled back switch leaves the waiting check as it was.
      *
      * @return void
      *
@@ -1250,9 +1180,7 @@ final class AdmissionRecheckTest extends TestCase
     }
 
     /**
-     * A report of one call that throws at the commit cannot keep the check of
-     * another call committed with it from running: the check still ends its
-     * session, reports the revocation, and the report's exception is thrown.
+     * A report of another call that throws cannot skip the check.
      *
      * @return void
      *
@@ -1294,10 +1222,7 @@ final class AdmissionRecheckTest extends TestCase
     }
 
     /**
-     * A guard bound to a session that fails its check after the call answered
-     * forgets it even when a listener of the revocation throws, so a caller
-     * that catches the exception is left with no identity, principal or session
-     * bound.
+     * A guard forgets the session even when a revocation listener throws.
      *
      * @return void
      *
@@ -1341,10 +1266,7 @@ final class AdmissionRecheckTest extends TestCase
     }
 
     /**
-     * A revocation that kept the session inside a nested transaction that rolls
-     * back keeps nothing: its cutoff is back where a revocation that could not
-     * see the session left it, after the call began, so the check ends the
-     * session.
+     * A revocation that kept the session and rolled back keeps nothing.
      *
      * @return void
      *
@@ -1407,8 +1329,7 @@ final class AdmissionRecheckTest extends TestCase
     }
 
     /**
-     * Sign the seeded member in and move the clocks a second on, so a check
-     * begins after it.
+     * Sign the seeded member in and move the clocks a second on.
      *
      * @return \SineMacula\Laravel\Authentication\Sessions\SignedInSession
      *
@@ -1519,8 +1440,7 @@ final class AdmissionRecheckTest extends TestCase
     }
 
     /**
-     * Update the model's row without the model's events, so no observer ends a
-     * session the check is to judge.
+     * Update the model's row without firing its events.
      *
      * @param  \Illuminate\Database\Eloquent\Model  $model
      * @param  array<string, mixed>  $values

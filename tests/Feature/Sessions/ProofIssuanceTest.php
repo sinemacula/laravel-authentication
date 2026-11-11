@@ -24,12 +24,8 @@ use Tests\Concerns\InteractsWithSessions;
 use Tests\TestCase;
 
 /**
- * Feature tests of the shared step of a step-up and a reauthentication: the
- * session's row is locked, then, once the proof is taken, the session's
- * issuance guard is written before the proof, in the same transaction, so an
- * issuance of the session that overlaps it waits for it and reads its proof;
- * a proof that is refused writes nothing, and a caller's rollback takes the
- * guard back with the proof.
+ * Feature tests of the step a step-up and a reauthentication share: the
+ * issuance guard is written before the proof, in one transaction.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -79,10 +75,8 @@ final class ProofIssuanceTest extends TestCase
     }
 
     /**
-     * A step-up writes the issuance guard once the proof is taken and before it
-     * is recorded, in the transaction that locked the row, and the token it
-     * issues reads the proofs after both: its `auth_time` and `amr` are the new
-     * proof's, and the result says it expires at its `exp`.
+     * A step-up writes the issuance guard before the proof in the locking
+     * transaction, and the token it issues carries the new proof.
      *
      * @return void
      *

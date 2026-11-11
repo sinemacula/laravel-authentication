@@ -18,10 +18,7 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
 /**
- * Feature tests of `authentication.refresh`: it declares the refresh credential
- * on the request, of the guard named or the default one, makes a named guard
- * the default as `auth:<guard>` does, and is ordered before
- * `SubstituteBindings`, however a route lists it.
+ * Feature tests of the `authentication.refresh` middleware.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -32,8 +29,8 @@ use Tests\TestCase;
 final class UseRefreshCredentialTest extends TestCase
 {
     /**
-     * The middleware declares the refresh credential of the default guard and
-     * passes the request on, leaving the default guard as it was.
+     * The default guard's refresh credential is declared and the default guard
+     * left as it was.
      *
      * @return void
      */
@@ -66,9 +63,8 @@ final class UseRefreshCredentialTest extends TestCase
     }
 
     /**
-     * Through its alias, the declaration is in place before the route's
-     * parameters are bound, even when the route lists it after
-     * `SubstituteBindings`.
+     * Through its alias, the declaration precedes route binding even when
+     * listed after `SubstituteBindings`.
      *
      * @return void
      */

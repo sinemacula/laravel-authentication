@@ -20,9 +20,7 @@ use Tests\Unit\Stubs\StubChangeableModel;
 
 /**
  * Integration tests for the default `replaceIdentifier()` of an Eloquent
- * identity: the row read again under a lock, the identifier compared byte for
- * byte, and the replacement written with its verification time in the same
- * transaction, on every engine the suite runs against.
+ * identity.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -64,10 +62,7 @@ final class ReplaceIdentifierTest extends TestCase
     }
 
     /**
-     * Replacing reads the row again under a lock and writes the new identifier,
-     * its verification time and `updated_at` to the row and the model, all in
-     * one transaction; it fires no model event, leaves the model clean, and
-     * reports that it replaced the identifier.
+     * Replacing writes the identifier and its verification time under a lock.
      *
      * @return void
      */
@@ -100,9 +95,8 @@ final class ReplaceIdentifierTest extends TestCase
     }
 
     /**
-     * Replacing writes nothing when the row's identifier is not the one given
-     * byte for byte (a look-alike the column's collation would match included),
-     * whatever the model in memory holds, or when the row is gone.
+     * Replacing writes nothing unless the stored identifier matches byte for
+     * byte.
      *
      * @return void
      */

@@ -18,10 +18,7 @@ use Tests\TestCase;
 
 /**
  * Feature tests for finding a session of the configured model by its
- * identifier: from the write connection, its row locked when asked, without a
- * query for an identifier that cannot be a key, and only for a correctly
- * configured model on the storage connection. The default connection is a
- * read/write split whose replica lags behind.
+ * identifier, over a read/write split whose replica lags behind.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -47,8 +44,7 @@ final class SessionLookupTest extends TestCase
     }
 
     /**
-     * A session written moments ago, which only the primary holds yet, is
-     * found, as the instance of the configured model.
+     * A session only the primary holds yet is found as the configured model.
      *
      * @return void
      */
@@ -89,9 +85,7 @@ final class SessionLookupTest extends TestCase
     }
 
     /**
-     * The locking lookup finds a session only the primary holds yet, as the
-     * instance of the configured model, and rejects an identifier that cannot
-     * be a key without a query.
+     * The locking lookup finds a session only the primary holds yet.
      *
      * @return void
      *
@@ -138,9 +132,8 @@ final class SessionLookupTest extends TestCase
     }
 
     /**
-     * The configured model must live on the storage connection: one that names
-     * another connection is refused, naming both, until the storage connection
-     * is that one; the shipped model takes whichever the storage connection is.
+     * A configured model that names a connection other than the storage
+     * connection is refused.
      *
      * @return void
      */
@@ -171,9 +164,7 @@ final class SessionLookupTest extends TestCase
     }
 
     /**
-     * `SessionLookup` is a static utility; instantiation is disallowed through
-     * the private constructor. Reflection invokes it so the line is covered
-     * while still documenting the access modifier.
+     * `SessionLookup` cannot be instantiated from outside.
      *
      * @return void
      *

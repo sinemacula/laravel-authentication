@@ -12,18 +12,6 @@ use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
  * Each guard's limits on each flow: its `rate_limits` block over the package
  * defaults in `authentication.rate_limits`.
  *
- * Every flow has a `per_identifier` and a `per_ip` limit, each either `['max'
- * => int, 'decay_seconds' => int]` or `null` (off). A request for passkey
- * sign-in options names no identifier, and the factor package counts a factor
- * code check per factor and per identity, so the `per_identifier` limit of each
- * must be `null`: one that could never apply fails closed rather than seeming
- * to limit something. A guard's flow block that is present wins for the scopes
- * it sets, `null` included, and a flow block of `null` turns the flow's limits
- * off. Nothing falls back to a literal: a scope missing at both levels, a
- * malformed value, or an unknown key fails closed with an
- * `InvalidArgumentException` naming the guard and the key. The configuration is
- * read on every call.
- *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
@@ -116,9 +104,7 @@ final readonly class AttemptLimits
     }
 
     /**
-     * Build a limit from its configured value: exactly a `max` and a
-     * `decay_seconds`, each an integer or the canonical string form of one,
-     * within range.
+     * Build a limit from its configured `max` and `decay_seconds`.
      *
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow  $flow

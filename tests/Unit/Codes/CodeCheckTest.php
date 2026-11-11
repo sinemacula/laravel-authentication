@@ -11,10 +11,7 @@ use SineMacula\Laravel\Authentication\Codes\Enums\CodeCheck;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 
 /**
- * Unit tests for the failure reason each outcome of a code check reports: none
- * for an accepted code, its own reason for an expired or exhausted one, and
- * `invalid_credentials` for any other, so a code that was never issued looks
- * like a wrong one.
+ * Unit tests for the failure reason each outcome of a code check reports.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

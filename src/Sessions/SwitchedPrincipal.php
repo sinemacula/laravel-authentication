@@ -7,9 +7,8 @@ namespace SineMacula\Laravel\Authentication\Sessions;
 use SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh;
 
 /**
- * A session a switch re-issued the pair of: the session as it now is, with its
- * new pair, the principal and active tenant it recorded before, as the type and
- * identifiers it stored, and which of them the switch changed.
+ * A session a switch re-issued the pair of, with what it recorded before and
+ * what the switch changed.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

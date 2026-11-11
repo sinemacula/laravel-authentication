@@ -100,9 +100,8 @@ final class ClientContextTest extends TestCase
     }
 
     /**
-     * A user agent is stored as valid UTF-8, without control or bidirectional
-     * formatting characters, and at most 512 characters long (not bytes); one
-     * that is empty after cleaning is `null`.
+     * A user agent is cleaned and cut to 512 characters; one left empty is
+     * `null`.
      *
      * @param  ?string  $header
      * @param  ?string  $expected
@@ -123,8 +122,7 @@ final class ClientContextTest extends TestCase
     }
 
     /**
-     * An IP address handed to the constructor is kept only when it is valid, as
-     * one read from a request is, so no instance holds an unsafe one.
+     * An IP address handed to the constructor is kept only when it is valid.
      *
      * @param  ?string  $ip
      * @param  ?string  $expected
@@ -138,7 +136,7 @@ final class ClientContextTest extends TestCase
 
     /**
      * A user agent handed to the constructor is cleaned as one read from a
-     * request is, so no instance holds an unsafe one.
+     * request is.
      *
      * @param  ?string  $userAgent
      * @param  ?string  $expected
@@ -151,10 +149,8 @@ final class ClientContextTest extends TestCase
     }
 
     /**
-     * A request's context holds its `Origin` as presented, its own scheme and
-     * host, and the names of the headers it carried with a value, as the header
-     * bag files them, never their values; a header sent empty, or whose first
-     * value is empty, is left out.
+     * A request's context holds its `Origin`, its scheme and host, and the
+     * names of its non-empty headers.
      *
      * @return void
      */
@@ -202,9 +198,8 @@ final class ClientContextTest extends TestCase
     }
 
     /**
-     * A request whose host Symfony refuses has no scheme and host however often
-     * its context is read, reading it throws nothing, and the request still
-     * refuses its host to the application afterwards.
+     * A host Symfony refuses leaves no scheme and host, and the request still
+     * refuses it afterwards.
      *
      * @return void
      */
@@ -226,9 +221,8 @@ final class ClientContextTest extends TestCase
     }
 
     /**
-     * A request for a host outside the application's trusted hosts has no
-     * scheme and host however often its context is read, and the request still
-     * refuses its host to the application afterwards.
+     * An untrusted host leaves no scheme and host, and the request still
+     * refuses it afterwards.
      *
      * @return void
      */
@@ -249,8 +243,7 @@ final class ClientContextTest extends TestCase
     }
 
     /**
-     * A request's same-site facts alone are its own context's, with no IP
-     * address or user agent.
+     * A request's same-site facts alone carry no IP address or user agent.
      *
      * @return void
      */
@@ -275,13 +268,12 @@ final class ClientContextTest extends TestCase
     }
 
     /**
-     * Reading a request's same-site facts leaves its IP address unread, so a
-     * trusted proxy's conflicting forwarded client addresses neither fail the
-     * read nor stop the request refusing them to the application afterwards.
+     * Reading the same-site facts leaves the IP address unread, so conflicting
+     * forwarded addresses do not fail it.
      *
      * @return void
      */
-    public function testTheSameSiteFactsLeaveConflictingForwardedAddressesToTheApplication(): void
+    public function testSameSiteFactsLeaveForwardedAddressesUnread(): void
     {
         Request::setTrustedProxies(['10.0.0.1'], Request::HEADER_FORWARDED | Request::HEADER_X_FORWARDED_FOR);
 
@@ -304,9 +296,7 @@ final class ClientContextTest extends TestCase
     }
 
     /**
-     * A request from a trusted proxy whose forwarded headers disagree on the
-     * scheme has no scheme and host however often its context is read, and the
-     * request still refuses those headers to the application afterwards.
+     * Forwarded headers that disagree on the scheme leave no scheme and host.
      *
      * @return void
      */
@@ -331,8 +321,7 @@ final class ClientContextTest extends TestCase
     }
 
     /**
-     * A request whose host was already refused to the application, which
-     * Symfony then answers as an empty host, has no scheme and host.
+     * A host already refused to the application leaves no scheme and host.
      *
      * @return void
      */
@@ -385,9 +374,8 @@ final class ClientContextTest extends TestCase
     }
 
     /**
-     * An origin, and a scheme and host, are kept whole only when 1 to 512
-     * printable ASCII characters, whether read from a request or given to the
-     * constructor; anything else is `null`, never a cut value.
+     * An origin, scheme and host are kept whole only when 1 to 512 printable
+     * ASCII characters.
      *
      * @param  ?string  $origin
      * @param  ?string  $expected
@@ -410,9 +398,8 @@ final class ClientContextTest extends TestCase
     }
 
     /**
-     * Header names given to the constructor are filed as the header bag files
-     * them, once each, and any that is not an HTTP token, one with a trailing
-     * newline included, is dropped.
+     * Header names given to the constructor are filed once each, and any that
+     * is not an HTTP token is dropped.
      *
      * @return void
      */

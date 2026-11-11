@@ -14,9 +14,7 @@ use Tests\Integration\Fixtures\SeparateConnectionSession;
 use Tests\TestCase;
 
 /**
- * Integration tests for the one-time code model: its table and connection, what
- * it keeps out of serialisation, and pruning expired codes with Laravel's
- * `model:prune`.
+ * Integration tests for the one-time code model.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -70,9 +68,7 @@ final class OneTimeCodeTest extends TestCase
     }
 
     /**
-     * The key's digest, the challenge, its transaction, the issuance and the
-     * code's hash never reach a serialised row, and the counts and times are
-     * cast.
+     * The digests and the code's hash never reach a serialised row.
      *
      * @return void
      */
@@ -95,10 +91,8 @@ final class OneTimeCodeTest extends TestCase
     }
 
     /**
-     * `model:prune` deletes the codes that have expired, from the second they
-     * expire, once their delivery window has ended too, from the second it
-     * ends, and keeps the rest, so pruning never starts a window afresh;
-     * `prunable()` is the query it deletes.
+     * `model:prune` deletes codes once both their expiry and delivery window
+     * have passed.
      *
      * @return void
      */

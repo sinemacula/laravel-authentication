@@ -30,10 +30,7 @@ use Tests\TestCase;
 
 /**
  * Integration tests of a session's proofs over a read/write split whose replica
- * lags: every read of them goes to the primary, so a proof just written counts
- * for the claims, for freshness and for the next step-up straight away, and an
- * active session's proofs, read through the session service or a contribution
- * subject, are its proofs and revocation as the primary holds them.
+ * lags.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -51,7 +48,7 @@ final class ReplicaProofsTest extends TestCase
     use InteractsWithLaggingReplica, InteractsWithProofs, InteractsWithSessions;
 
     /**
-     * Create the identity table on the primary and the replica and seed an
+     * Create the identity table on the primary and the replica, and seed an
      * identity both hold.
      *
      * @return void
@@ -88,9 +85,8 @@ final class ReplicaProofsTest extends TestCase
     }
 
     /**
-     * A session and its first factor only the primary holds give claims and
-     * freshness straight after the sign-in, and a step-up's proof the replica
-     * has not seen counts for the next.
+     * Proofs only the primary holds count for claims, freshness and the next
+     * step-up.
      *
      * @return void
      *
@@ -120,11 +116,7 @@ final class ReplicaProofsTest extends TestCase
     }
 
     /**
-     * An active session's proofs and first factor, read through the session
-     * service and a contribution subject, come from the primary: a session and
-     * a step-up the replica has not seen are read at once, and a revocation the
-     * replica has not seen answers nothing, though the replica still holds the
-     * session live with its proofs.
+     * An active session's proofs and revocation are read from the primary.
      *
      * @return void
      *

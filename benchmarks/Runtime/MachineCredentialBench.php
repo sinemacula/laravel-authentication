@@ -12,11 +12,6 @@ use PhpBench\Attributes\Warmup;
 /**
  * PHPBench suite for machine credential requests.
  *
- * Exercises the `api_key` guard authenticating a request (a key used within the
- * last-use throttle, a key recording its first use, and a wrong secret) and the
- * `jwt` guard authenticating a client credentials access token, which it checks
- * against the API key the token names.
- *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */

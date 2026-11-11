@@ -19,18 +19,6 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 /**
  * Stateless JWT bearer-token guard.
  *
- * Reads `Authorization: Bearer <token>` from the active request, decodes via
- * `JwtTokenService`, then rehydrates the live identity, principal, and optional
- * session from the configured provider/resolver/model state before binding them
- * (see `BearerAuthentication`).
- *
- * `logout()` signs the session out through the guard's session revocations,
- * built on its own context. The guard neither builds nor holds a session
- * service: `Auth::sessions()` builds one on the guard's context, with the guard
- * as the binding it signs in, and a refresh goes through it, as a switch of
- * principal does. The guard hands out its refresh token transport, which
- * `Auth::refreshTransport()` returns.
- *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
@@ -104,11 +92,7 @@ final class JwtGuard extends AbstractGuard
 
     /**
      * Sign the request's session out through the guard's session revocations,
-     * as the session service's `signOut()` does: the session the guard is bound
-     * to is revoked (`signed_out`) and `SessionRevoked` reported once
-     * committed, Laravel's `Logout` fires when an identity was bound, and the
-     * guard stays signed out for the rest of the request. A request without a
-     * persisted session is only forgotten.
+     * as the session service's `signOut()` does.
      *
      * @return void
      *
@@ -122,8 +106,7 @@ final class JwtGuard extends AbstractGuard
 
     /**
      * The guard's refresh token transport, built from the configuration as it
-     * is now; a malformed configuration throws an `InvalidArgumentException`
-     * naming the guard and the key.
+     * is now.
      *
      * @return \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport
      */
@@ -133,15 +116,7 @@ final class JwtGuard extends AbstractGuard
     }
 
     /**
-     * Resolve the identity from the request's bearer token. `user()` calls this
-     * at most once per request, so a rejected token is reported once. A request
-     * without a token attempts nothing and dispatches nothing, nor does one
-     * whose credential is in API key form on a route that also lists an
-     * `api_key` guard: that guard reads it (see `BearerForms`).
-     *
-     * Fail-closed: a token that claims a specific `principal` or `sid` but does
-     * not resolve to that exact principal/session is rejected rather than
-     * silently downgraded.
+     * Resolve the identity from the request's bearer token.
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
      *
@@ -162,12 +137,8 @@ final class JwtGuard extends AbstractGuard
     }
 
     /**
-     * Authenticate a bearer token and bind what it names. A request's token is
-     * an authentication, not a sign-in: success binds through
-     * `bindVerifiedContext()` without `Validated` or `Login`, so only
-     * `Authenticated`, `PrincipalAssigned` and `SessionAuthenticated` fire, and
-     * a rejected token fires only `AuthenticationFailed` with the reason (no
-     * `Attempting` or `Failed`).
+     * Authenticate a bearer token and bind what it names as an authentication,
+     * without `Validated` or `Login`.
      *
      * @param  string  $token
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity

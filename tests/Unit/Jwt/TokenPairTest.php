@@ -23,8 +23,8 @@ use SineMacula\Laravel\Authentication\Secrets\Secret;
 final class TokenPairTest extends TestCase
 {
     /**
-     * Constructor stores the access token, when it expires, its lifetime and
-     * the refresh token on the public properties.
+     * The constructor stores the tokens and the access token's expiry and
+     * lifetime.
      *
      * @return void
      */
@@ -43,8 +43,7 @@ final class TokenPairTest extends TestCase
     }
 
     /**
-     * An access token lives at least one second: a lifetime of one is taken,
-     * none or a negative one is refused.
+     * An access token lives at least one second.
      *
      * @return void
      */
@@ -81,8 +80,7 @@ final class TokenPairTest extends TestCase
     }
 
     /**
-     * A pair carries its refresh token one way exactly: never both in the body
-     * and in a cookie, nor neither.
+     * A pair carries its refresh token either in the body or in a cookie.
      *
      * @return void
      */

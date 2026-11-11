@@ -27,8 +27,8 @@ use Tests\Unit\Stubs\StubActiveAwarePrincipal;
 use Tests\Unit\Stubs\StubMutablePrincipalResolver;
 
 /**
- * Integration tests for cross-request freshness on the JWT bearer and refresh
- * paths: identity, principal, and session state are read live on every request.
+ * The bearer and refresh paths read identity, principal and session state live
+ * on every request.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -89,8 +89,7 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
     }
 
     /**
-     * Bearer auth must reject the next request once the identity becomes
-     * inactive.
+     * Bearer auth rejects the next request once the identity becomes inactive.
      *
      * @return void
      *
@@ -145,8 +144,7 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
     }
 
     /**
-     * Bearer session resolution remains live-only, so deleting the session row
-     * causes the next request with that `sid` claim to fail closed.
+     * Deleting the session row fails the next bearer request with that `sid`.
      *
      * @return void
      *
@@ -172,7 +170,7 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
     }
 
     /**
-     * Refresh must re-check the live identity row on every exchange.
+     * Refresh re-checks the live identity row on every exchange.
      *
      * @return void
      *
@@ -194,7 +192,7 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
     }
 
     /**
-     * Refresh must re-check the live principal result on every exchange.
+     * Refresh re-checks the live principal on every exchange.
      *
      * @return void
      *
@@ -219,8 +217,7 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
     }
 
     /**
-     * Refresh remains session-row-backed and must fail immediately when the
-     * referenced session has been deleted.
+     * Refresh fails once the referenced session has been deleted.
      *
      * @return void
      *
@@ -241,9 +238,7 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
     }
 
     /**
-     * The bearer path must resolve principals against the current resolver
-     * policy on a fresh request: once the resolver stops mapping the token's
-     * `principal` to that principal, the same token is rejected.
+     * A token is rejected once the resolver stops mapping its `principal`.
      *
      * @return void
      *
@@ -400,10 +395,7 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
     }
 
     /**
-     * Encode an access token with only the claims needed by the bearer tests,
-     * bound to the test issuer, audience and guard under the `at+jwt` header
-     * type, with the `person` subject type and, for a token that names a
-     * session, a password authentication at its issue time.
+     * Encode a signed access token with test defaults and the given claims.
      *
      * @param  array<string, mixed>  $claims
      * @return string

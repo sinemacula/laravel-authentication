@@ -8,11 +8,8 @@ use Webauthn\Counter\CounterChecker;
 use Webauthn\CredentialRecord;
 
 /**
- * Takes the sign counter check out of the WebAuthn library's assertion
- * ceremony: it accepts every counter, because the package applies its own rule
- * (`SignCounter`) after the ceremony, against the stored count, as one
- * compare-and-set on the passkey's row, which the library's in-memory check
- * cannot do.
+ * Accepts every sign counter in the WebAuthn library's ceremony, leaving the
+ * check to `SignCounter`'s compare-and-set on the stored count.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

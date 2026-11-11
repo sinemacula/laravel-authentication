@@ -37,10 +37,7 @@ use Tests\TestCase;
 
 /**
  * Feature tests of the policy-change helper's edges through the session
- * service, against a real database: a tenant without an identifier, sessions
- * whose owner or principal no longer loads, a met session already recorded at
- * the version answered, a session that changed between the locking read and the
- * write, and sessions that have already ended.
+ * service, against a real database.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -104,8 +101,7 @@ final class TenantPolicyChangesTest extends TestCase
     }
 
     /**
-     * A tenant whose identifier names no tenant has no sessions to judge: the
-     * helper revokes nothing, asks the policy nothing and reads nothing.
+     * A tenant whose identifier names no tenant has no sessions to judge.
      *
      * @return void
      *
@@ -128,8 +124,7 @@ final class TenantPolicyChangesTest extends TestCase
     }
 
     /**
-     * The tables whose row a session's actors are read from: the principal's,
-     * and the owning identity's.
+     * The tables a session's principal and owning identity are read from.
      *
      * @return iterable<string, array{string}>
      */
@@ -140,11 +135,8 @@ final class TenantPolicyChangesTest extends TestCase
     }
 
     /**
-     * A session whose owner or principal no longer loads lacks what the policy
-     * is asked about, so it is judged short without asking: an active one is
-     * revoked and reported, naming the owner, principal and tenant the row
-     * records, with the session holding its revocation; a pending one is left
-     * for its activation, which would refuse it.
+     * A session whose owner or principal no longer loads is judged short
+     * without asking the policy.
      *
      * @param  string  $table
      * @return void
@@ -180,9 +172,8 @@ final class TenantPolicyChangesTest extends TestCase
     }
 
     /**
-     * A session that meets a policy answering no version, and records none, is
-     * judged (a `null` version is never taken as already checked) but nothing
-     * is written: the version it would record is the one it records.
+     * A met session at the version the policy answers is judged but not
+     * written, even when that version is `null`.
      *
      * @return void
      *
@@ -206,10 +197,8 @@ final class TenantPolicyChangesTest extends TestCase
     }
 
     /**
-     * A re-judgement asks the policy about each session with the connection it
-     * was established through, read current under the lock when asked: a
-     * provider's session names its connection, a pending one its own, and a
-     * session no provider established none.
+     * Each session is judged with the connection it was established through,
+     * read under the lock.
      *
      * @return void
      *
@@ -250,8 +239,7 @@ final class TenantPolicyChangesTest extends TestCase
 
     /**
      * A session already recorded at the version the policy answers is not
-     * judged again, though the answer would revoke it; one recorded at another
-     * version, or at none, is judged and revoked.
+     * judged again.
      *
      * @return void
      *
@@ -277,9 +265,8 @@ final class TenantPolicyChangesTest extends TestCase
     }
 
     /**
-     * A policy that keeps the context it is asked about cannot read the
-     * session's connection after the re-judgement: it is expired, so a key
-     * another session has since taken is never read through it.
+     * A context the policy keeps cannot read the session's connection after the
+     * re-judgement.
      *
      * @return void
      *
@@ -309,9 +296,8 @@ final class TenantPolicyChangesTest extends TestCase
     }
 
     /**
-     * A session revoked between the helper's read and its write is not revoked
-     * again: the conditional update finds nothing, so the first revocation
-     * stands, the session is not counted and nothing is reported.
+     * A session revoked between the helper's read and its write is neither
+     * revoked again nor counted.
      *
      * @return void
      *
@@ -340,8 +326,7 @@ final class TenantPolicyChangesTest extends TestCase
 
     /**
      * A session that left the tenant between the helper's read and its write
-     * keeps the version it records: the conditional update finds it acting
-     * elsewhere and writes nothing.
+     * keeps its version.
      *
      * @return void
      *
@@ -371,12 +356,7 @@ final class TenantPolicyChangesTest extends TestCase
     }
 
     /**
-     * Every session row is locked before any proof is read: the keys of the
-     * tenant's live sessions are read with a locking read, then those sessions
-     * again with one, and only then is each judged, every read of its proofs
-     * taking a shared lock where the engine takes one. The sessions judged are
-     * those the keys named: one that enters the tenant after they were read is
-     * left as it is.
+     * Every session row is locked before any proof is read.
      *
      * @return void
      *
@@ -423,9 +403,8 @@ final class TenantPolicyChangesTest extends TestCase
     }
 
     /**
-     * Only live sessions are judged: one whose idle or absolute deadline has
-     * come (at this very second, or before) has already ended, so it is neither
-     * judged, revoked, counted nor reported, and is left for pruning.
+     * A session whose idle or absolute deadline has come is left alone for
+     * pruning.
      *
      * @return void
      *
@@ -483,9 +462,7 @@ final class TenantPolicyChangesTest extends TestCase
     }
 
     /**
-     * A session that records no guard is judged for none, the policy asked
-     * about the empty application name, and revoked when it falls short, its
-     * report naming no guard.
+     * A session that records no guard is judged for the empty application name.
      *
      * @return void
      *
@@ -543,9 +520,8 @@ final class TenantPolicyChangesTest extends TestCase
     }
 
     /**
-     * A pending session of the seeded member in its tenant, waiting on a
-     * further factor its tenant asked for at sign-in, and its key; the policy
-     * is put back as it was.
+     * A pending session of the seeded member waiting on a further factor its
+     * tenant asked for, and its key.
      *
      * @return mixed
      *

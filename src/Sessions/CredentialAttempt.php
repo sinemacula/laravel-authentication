@@ -15,22 +15,7 @@ use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 
 /**
  * One credential sign-in's attempt: the steps the guard's `attempt()` and the
- * session service's `signIn()` both take, and take the same way, each calling
- * them in its own order.
- *
- * `checkMethod()` asks the application policy whether it allows the method, and
- * `begin()` then takes the sign-in's slot on the identifier and IP limits from
- * the limiter the entry point resolved, so each entry point keeps its own order
- * between the two: when it reads the identifier for the limits and when it
- * resolves the limiter. The attempt holds that slot and the account attempts
- * the secret checks count against, refuses a sign-in an account had no attempts
- * left for (`accountRefusal()`), hands a pending session the windows it keeps
- * until it activates (`windows()`), and gives every slot back for a sign-in
- * that started its session (`release()`).
- *
- * What differs between the two entry points stays with each: the timebox and
- * what runs inside it, `Validated`, the admission and its pins, when the
- * password is rehashed, what a verified identity continues to, and the bind.
+ * session service's `signIn()` share.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -63,9 +48,8 @@ final readonly class CredentialAttempt
     ) {}
 
     /**
-     * The application policy, resolved from the container then, when it allows
-     * the method on the guard, or the refusal (`method_not_allowed`) of a
-     * sign-in it does not allow, before anything is counted.
+     * The application policy when it allows the method on the guard, or the
+     * `method_not_allowed` refusal.
      *
      * @param  \Illuminate\Contracts\Container\Container  $container
      * @param  string  $guard
@@ -82,9 +66,8 @@ final readonly class CredentialAttempt
     }
 
     /**
-     * Begin a sign-in the application policy allowed: the identifier and the IP
-     * address must have attempts left on the limiter (`rate_limited`, with the
-     * wait).
+     * Begin a sign-in, refused as `rate_limited` when the identifier or IP
+     * address has no attempts left.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\AttemptLimiter  $limiter
      * @param  \SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy  $policy
@@ -103,9 +86,8 @@ final readonly class CredentialAttempt
     }
 
     /**
-     * The refusal of a sign-in in which an account whose secret it checked had
-     * no attempts left (`account_rate_limited`, with that account's wait), or
-     * `null` when every account had attempts left.
+     * The `account_rate_limited` refusal when an account whose secret was
+     * checked had no attempts left.
      *
      * @return ?\SineMacula\Laravel\Authentication\Admission\Refused
      */
@@ -117,8 +99,7 @@ final readonly class CredentialAttempt
     }
 
     /**
-     * The windows of every slot the sign-in holds, its own first, for a pending
-     * session to keep and give back when it first activates.
+     * The windows of every slot the sign-in holds, its own first.
      *
      * @return list<array<string, string>>
      */
@@ -128,8 +109,7 @@ final readonly class CredentialAttempt
     }
 
     /**
-     * Give back every slot the sign-in holds, its own and the accounts', for a
-     * sign-in that started its session.
+     * Give back every slot the sign-in holds.
      *
      * @return void
      */

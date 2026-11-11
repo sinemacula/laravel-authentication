@@ -7,10 +7,8 @@ namespace Tests\Fixtures\Passwords;
 use Illuminate\Support\Timebox;
 
 /**
- * A timebox with Laravel's own semantics that records, for each call, whether
- * the box ended early once its work was done, and each wait it would have made,
- * without sleeping: a test can tell a success that returns early from a failure
- * that waits out the box, however many calls one guard makes.
+ * A timebox with Laravel's semantics that records each early return and wait
+ * without sleeping.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

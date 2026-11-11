@@ -35,12 +35,7 @@ use Tests\Fixtures\Sessions\RefusingApplicationAccess;
 use Tests\TestCase;
 
 /**
- * End-to-end tests for what a refresh and a bearer request are held to beyond
- * the token itself, against a real database on whichever engine the suite runs
- * on: the session must be one of the guard's sessions, the application policy
- * must still allow the method that started the session and still admit its
- * owner, the next idle deadline follows the policy's lifetimes for the guard,
- * and failed refreshes are counted and, past the limit, answered with a 429.
+ * Tests the checks a refresh and a bearer request face beyond the token itself.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -106,9 +101,7 @@ final class RefreshApplicationIntegrationTest extends TestCase
     }
 
     /**
-     * A session the row now records for another guard is neither refreshed nor
-     * revoked, even by a replayed token, and its access token no longer
-     * authenticates; once the row is the guard's again, the session refreshes.
+     * A session recorded for another guard is neither refreshed nor revoked.
      *
      * @return void
      *
@@ -147,9 +140,8 @@ final class RefreshApplicationIntegrationTest extends TestCase
     }
 
     /**
-     * A session started by a method the guard no longer allows cannot be
-     * refreshed, and is not revoked: once the method is allowed again, its
-     * refresh token still works.
+     * A session started by a method the guard no longer allows is not refreshed
+     * or revoked.
      *
      * @return void
      *
@@ -287,9 +279,8 @@ final class RefreshApplicationIntegrationTest extends TestCase
     }
 
     /**
-     * Past the limit, the refresh route answers 429 with `Retry-After`, after
-     * `AuthenticationFailed` (`rate_limited`) and `Failed`, and the session is
-     * left as it was.
+     * Past the limit, the refresh route answers 429 with `Retry-After` and
+     * leaves the session as it was.
      *
      * @return void
      *

@@ -11,12 +11,7 @@ use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
- * The package's default tenant access: a principal may act only in its own
- * tenant, the one its `getTenant()` returns, matched by class and identifier; a
- * platform principal (no tenant of its own) only in none. A principal whose own
- * tenant cannot be loaded (`TenantUnavailableException`) may act nowhere. Bind
- * another `TenantAccess`, with a `TenantResolver`, to let principals act in
- * other tenants.
+ * The default tenant access: a principal may act only in its own tenant.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

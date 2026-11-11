@@ -12,9 +12,7 @@ use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordViolation;
 use SineMacula\Laravel\Authentication\Passwords\PasswordSettings;
 
 /**
- * Unit tests for the password policy settings: their defaults, the forms and
- * ranges they accept, the key each malformed one is reported under, and the
- * bcrypt ceiling on the minimum length.
+ * Unit tests for the password policy settings.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -34,9 +32,7 @@ final class PasswordSettingsTest extends TestCase
     private const string BREACHED_MODE = 'authentication.passwords.breached.when_unavailable must be `reject` or `allow`.';
 
     /**
-     * With no `passwords` block, the policy is NIST's for a single factor: 15
-     * to 128 characters, no composition rule, and an unavailable breached check
-     * fails closed; Laravel's default hashing driver is bcrypt.
+     * With no `passwords` block, the policy is NIST's for a single factor.
      *
      * @return void
      */
@@ -51,9 +47,7 @@ final class PasswordSettingsTest extends TestCase
     }
 
     /**
-     * Every setting is read as configured: lengths from integers or the digit
-     * strings `env()` returns, each composition rule on, and the breached check
-     * failing open.
+     * Every setting is read as configured.
      *
      * @return void
      */
@@ -106,8 +100,7 @@ final class PasswordSettingsTest extends TestCase
     }
 
     /**
-     * A malformed setting fails `validate()` closed, naming the key and what it
-     * may be.
+     * A malformed setting fails `validate()` closed, naming the key.
      *
      * @param  array<string, mixed>  $block
      * @param  string  $driver
@@ -124,8 +117,7 @@ final class PasswordSettingsTest extends TestCase
     }
 
     /**
-     * The composition rules switched on are listed in the order the violations
-     * are declared, whatever order the configuration names them in.
+     * The composition rules switched on are listed in declaration order.
      *
      * @return void
      */
@@ -142,8 +134,7 @@ final class PasswordSettingsTest extends TestCase
     }
 
     /**
-     * A reset link lives an hour by default, and any lifetime from five minutes
-     * to a day, from an integer or its digit string.
+     * A reset link lives an hour by default, and from five minutes to a day.
      *
      * @return void
      */
@@ -155,8 +146,7 @@ final class PasswordSettingsTest extends TestCase
     }
 
     /**
-     * Under bcrypt the minimum may reach 72, the bytes bcrypt reads, and under
-     * another driver the whole range.
+     * Under bcrypt the minimum may reach 72, the bytes bcrypt reads.
      *
      * @return void
      */

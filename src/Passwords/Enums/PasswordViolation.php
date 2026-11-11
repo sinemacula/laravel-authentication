@@ -39,7 +39,7 @@ enum PasswordViolation: string
     // The breached-password checker found it
     case BREACHED = 'breached';
 
-    // The breached-password checker could not answer, and the policy fails
-    // closed (`when_unavailable` is `reject`)
+    // The breached-password checker could not answer and `when_unavailable` is
+    // `reject`
     case BREACH_CHECK_UNAVAILABLE = 'breach_check_unavailable';
 }

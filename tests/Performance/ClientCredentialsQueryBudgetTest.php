@@ -22,13 +22,7 @@ use Tests\Concerns\InteractsWithMachineCredentials;
 
 /**
  * Query-budget contracts for the client credentials exchange and the bearer
- * path of its tokens: an exchange costs the limiter's check, the key and its
- * owner, and the last-use write; a refused client the same lookups and its
- * counted failure, with no password hashing either way; a grant the
- * application does not allow, or credentials in the body it does not allow,
- * nothing at all; and a client token
- * costs one query more than any session-less access token, its key read by its
- * primary key.
+ * path of its tokens.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -74,12 +68,8 @@ final class ClientCredentialsQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A granted exchange reads the client's limits, the key and its owner, and
-     * writes the key's last use; an unknown client reads the limits and looks
-     * once for a key, and counts its failure against the IP address (an update,
-     * then an insert for a new window; the client id is not counted by
-     * default); a wrong secret for a known client costs exactly the same and is
-     * answered the same.
+     * A granted exchange costs the limits, the key, its owner and the last-use
+     * write; a refused one costs the same lookups and its count.
      *
      * @return void
      */
@@ -126,10 +116,8 @@ final class ClientCredentialsQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A service account's exchange also costs its membership and the
-     * membership's tenant, each read once: the token's check that the tenant is
-     * the principal's own reads the tenant the admission loaded, not the
-     * database.
+     * A service account's exchange also reads its membership and the
+     * membership's tenant, once each.
      *
      * @return void
      */
@@ -155,10 +143,8 @@ final class ClientCredentialsQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A guard whose application does not list `client_credentials` refuses the
-     * exchange before anything is read or counted, and so does a guard that
-     * does not allow `client_secret_post` refuse credentials in the body: both
-     * cost no query.
+     * A grant or client authentication method the application does not allow
+     * costs no query.
      *
      * @return void
      */

@@ -10,20 +10,8 @@ use Illuminate\Queue\Jobs\SyncJob;
 use SineMacula\Laravel\Authentication\AuthManager;
 
 /**
- * Starts every queued job with the package guards signed out.
- *
- * A queue worker keeps one application for every job it runs and forgets only
- * scoped instances between them, so a guard a job bound (through `login()`,
- * `setUser()` or `actingAs()`) would still be bound, with its identity,
- * principal and session, in the next job. Before each job this resets every
- * package guard already resolved to the current request, as an HTTP request
- * does; it creates no guard and registers no rebinding callback.
- *
- * A job run on the `sync` connection (the `sync` queue driver, or
- * `dispatchSync()` whatever the default connection) runs inside the request or
- * command that dispatched it, which owns the guards' state, so it is left
- * alone: a session that request just started stays bound, and one it signed out
- * stays signed out.
+ * Starts every queued job with the package guards signed out, leaving `sync`
+ * jobs to the request that dispatched them.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

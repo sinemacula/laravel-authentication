@@ -18,10 +18,8 @@ use Tests\Integration\Fixtures\ObserveConfigurationJob;
 use Tests\TestCase;
 
 /**
- * End-to-end tests of the configuration lifetimes the operations guide
- * documents, across two jobs one queue worker runs: a setting read on every use
- * follows a change made between them, while the token service the factory built
- * for the first job, and the guard itself, serve the second.
+ * End-to-end tests of the configuration lifetimes across two jobs one queue
+ * worker runs.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -73,10 +71,8 @@ final class ConfigurationLifetimeTest extends TestCase
     }
 
     /**
-     * A change between two jobs reaches the application settings, which are
-     * read on every use, but not the token lifetimes, which the token service
-     * built for the first job keeps, nor the guard, which the worker resets
-     * rather than rebuilds.
+     * A change between jobs reaches the settings read on every use, but not the
+     * token service or the guard.
      *
      * @return void
      */
@@ -95,8 +91,7 @@ final class ConfigurationLifetimeTest extends TestCase
     }
 
     /**
-     * A token service factory built after the change, as a restarted worker
-     * builds one, reads the new lifetimes.
+     * A token service factory built after the change reads the new lifetimes.
      *
      * @return void
      */
@@ -140,8 +135,8 @@ final class ConfigurationLifetimeTest extends TestCase
     }
 
     /**
-     * Queue two observing jobs, run them through one worker with the change
-     * made between them, and return what each observed.
+     * Run two observing jobs through one worker with the change between them,
+     * and return what each observed.
      *
      * @param  \Closure(): void  $change
      * @return list<array{access_ttl_minutes: int, allows_password: bool, guard: int}>

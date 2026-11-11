@@ -14,9 +14,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
- * 2D identity over the `stub_principals` table whose `sessions()` relation is
- * limited to the sessions a `session_grants` row permits, read with a query of
- * its own while the relation is built.
+ * 2D identity whose `sessions()` relation is limited to those a
+ * `session_grants` row permits, read while the relation is built.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

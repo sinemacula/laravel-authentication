@@ -12,15 +12,7 @@ use SineMacula\Laravel\Authentication\Secrets\Secret;
 
 /**
  * The outcome of stepping a session up or reauthenticating it: a new access
- * token for the same session, which keeps its refresh token and deadlines, or
- * why none was issued.
- *
- * A concealed reason (an account's own limit, an expired or exhausted code, a
- * passkey's sign counter that did not advance) is answered as
- * `invalid_credentials`, with no wait, as a sign-in's is; only the server-side
- * `AuthenticationFailed` says why. `retryAfter` carries the wait of a
- * `rate_limited` refusal. The token is a `Secret`, revealed only into the
- * response that hands it to the client.
+ * token for the same session, or why none was issued.
  *
  * @api
  *

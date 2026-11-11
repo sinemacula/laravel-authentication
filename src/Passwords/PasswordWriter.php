@@ -21,34 +21,8 @@ use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
- * Writes a password the policy accepted: hashes it with Laravel's hasher, then,
- * in one transaction on the identity's connection, stores the hash and ends the
- * sessions the flow ends, and reports `PasswordSet` once that commits. Every
- * report, the revocations' among them, carries the client given.
- *
- * An identity already stored gets one query-builder update of its password
- * column (and `updated_at`, when the model keeps timestamps) on its own row,
- * without its scopes: no other attribute is saved or discarded, and no model
- * event fires, so no observer can cancel the write or revoke again behind it. A
- * registration and an establishment update the row only while it has no
- * password (`null` or empty), in the same statement, so neither can replace
- * one: a registration's would be a change that ends no session, and an
- * establishment that finds one written meanwhile throws `PasswordAlreadySet`,
- * rolling its transaction back. An identity not stored yet, which only a
- * registration may set, is inserted with `save()`. The model is given the hash
- * only once the row has it.
- *
- * A change and an establishment end every session of the identity but the one
- * they were made from, when the caller keeps that session; a reset ends every
- * session; a registration ends none (see `SessionRevocations`). Ending them
- * also cancels the identity's pending identifier changes, whose links need no
- * session. Whatever the flow, every reset link and code still waiting for the
- * identity's identifiers is invalidated in the same transaction, and a change
- * or a reset invalidates their sign-in codes too (see `OutdatedProofs`): none
- * can take the account back once its owner has set a new password. When the
- * sessions live on another connection, their revocation commits inside the
- * identity's transaction, so a failure after it leaves the sessions revoked and
- * the password as it was: more is ended, never less.
+ * Writes a password the policy accepted and ends the sessions its flow ends, in
+ * one transaction.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -69,7 +43,7 @@ final readonly class PasswordWriter
         /** The context of the guard the change is made through, whose dispatcher reports it. */
         private GuardContext $context,
 
-        /** Ends every session but the kept one on a change, and every session on a reset; a registration ends none. */
+        /** Ends the sessions the flow ends. */
         private SessionRevocations $revocations,
 
         /** Container the hasher and the transactions manager are resolved from. */
@@ -77,10 +51,8 @@ final readonly class PasswordWriter
     ) {}
 
     /**
-     * Hash the password, store it, invalidate the proofs it outdates and end
-     * the sessions the flow ends, cancelling the identity's pending identifier
-     * changes with them, in one transaction, and report it once committed;
-     * returns how many sessions the flow revoked.
+     * Hash and store the password, invalidate the proofs it outdates and end
+     * the flow's sessions; returns how many were revoked.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $password
@@ -99,8 +71,7 @@ final readonly class PasswordWriter
      */
     public function write(Identity&Model $identity, #[\SensitiveParameter] string $password, PasswordFlow $flow, ClientContext $client, ?Session $except = null): int
     {
-        // `#[\SensitiveParameter]` does not cover what a closure captures,
-        // which a dump of the trace shows.
+        // `#[\SensitiveParameter]` does not cover what a closure captures.
         $hash      = new \SensitiveParameterValue($this->container->make(Hasher::class)->make($password));
         $container = $this->container;
 
@@ -128,8 +99,7 @@ final readonly class PasswordWriter
 
     /**
      * Store the hash on the identity's row, or insert the identity when it is
-     * not stored yet, and give the model the hash. A registration and an
-     * establishment store it only on a row that has no password yet.
+     * not stored yet.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $hash
@@ -173,9 +143,7 @@ final readonly class PasswordWriter
     }
 
     /**
-     * Why the update of a stored identity's password wrote no row: an
-     * establishment's row has a password already, a registration's has one or
-     * is gone, and any other's is gone.
+     * Why the update of a stored identity's password wrote no row.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow  $flow

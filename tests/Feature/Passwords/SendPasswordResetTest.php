@@ -20,9 +20,7 @@ use Tests\Concerns\InteractsWithPasswordResets;
 use Tests\TestCase;
 
 /**
- * Feature tests of the password reset delivery job: it delivers only reset
- * purposes, for a jwt guard, and only the live issuance, through the provider
- * of the guard the jwt driver builds.
+ * Feature tests of the password reset delivery job.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -84,10 +82,8 @@ final class SendPasswordResetTest extends TestCase
     }
 
     /**
-     * A job naming a guard of another driver is refused even when the guard
-     * resolves to the package's jwt guard: the jwt guards are the ones
-     * `auth.guards` configures with the `jwt` driver, the only ones whose reset
-     * proofs an identifier change outdates.
+     * A job naming a guard of another driver is refused, even one resolving to
+     * the jwt guard.
      *
      * @return void
      *
@@ -114,9 +110,8 @@ final class SendPasswordResetTest extends TestCase
     }
 
     /**
-     * A job for a jwt guard whose driver the application replaced with a guard
-     * that is not the package's has no provider to find the recipient through,
-     * and sends nothing.
+     * A job for a jwt driver replaced by a foreign guard has no provider and
+     * sends nothing.
      *
      * @return void
      *
@@ -143,9 +138,8 @@ final class SendPasswordResetTest extends TestCase
     }
 
     /**
-     * A job for a jwt guard whose driver the application replaced with another
-     * of the package's guards finds the recipient through that guard's
-     * provider.
+     * A job for a jwt driver replaced by another package guard sends through
+     * its provider.
      *
      * @return void
      *

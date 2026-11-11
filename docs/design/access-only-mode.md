@@ -47,10 +47,10 @@ principal auth without session tracking or refresh rotation.
 
 - A forged non-null `sid` does not cause a best-effort downgrade. The bearer path fails closed even in a deployment that
   has no `authentication_sessions` table.
-- This mode is intentionally bearer-only. `JwtTokenService::issueRefreshToken()` still requires a `Session`, and the
-  refresh exchange still depends on an `EloquentSession` model plus persisted session state. The session service refuses
-  to start a session (`signIn()`, `start()`) for an identity without `HasSessions` with a `LogicException`: every
-  session it starts is a persisted one, and the access token it would issue names one this identity can never resolve.
+- This mode is bearer-only. `JwtTokenService::issueRefreshToken()` still requires a `Session`, and the refresh exchange
+  still depends on an `EloquentSession` model plus persisted session state. The session service refuses to start a
+  session (`signIn()`, `start()`) for an identity without `HasSessions` with a `LogicException`: every session it starts
+  is a persisted one, and the access token it would issue names one this identity can never resolve.
 - Its revocation methods work, and are how session-less tokens end early: for an identity without `HasSessions`, or a
   principal whose owner is one and can still be read, a bulk revocation (`revokeSessions()`, `signOutEverywhere()`, the
   security-change methods, `principalDeactivated()`, `principalDeleted()`, `revokePrincipalSessions()`) only moves the
@@ -71,8 +71,8 @@ principal auth without session tracking or refresh rotation.
 - Guard construction still validates the configured session model: its class, and that it lives on the storage
   connection. The package tolerates a missing table on this path because bearer auth with no `sid` never tries to query
   it.
-- Access-token `jti` values are not consulted on the bearer path. Revocation behaviour therefore comes from identity and
-  principal rehydration, not from a server-side access-token store.
+- Access-token `jti` values are not consulted on the bearer path, and there is no server-side access-token store:
+  revocation behaviour comes from identity and principal rehydration.
 
 ## Implementation Anchors
 

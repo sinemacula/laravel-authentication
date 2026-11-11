@@ -253,7 +253,7 @@ Make the identifier unique on its normalised value, with a unique index on the s
    LOWER(TRIM(email))` for email, checking first for addresses that collide once normalised).
 2. Then add the unique index on the column itself, not on an expression, so it holds whoever writes the row.
 
-Why both engines need it: PostgreSQL compares strings case-sensitively, so without normalisation `Ben@x.com` and
+Both engines need it: PostgreSQL compares strings case-sensitively, so without normalisation `Ben@x.com` and
 `ben@x.com` are two accounts and a lookup with the other casing finds neither; MySQL's default `_ci` collations
 compare them as equal, so lookups match but a unique index rejects the second address only by accident of the
 collation, and `LOWER()` and the collation can disagree on non-ASCII letters. Storing the normal form makes both

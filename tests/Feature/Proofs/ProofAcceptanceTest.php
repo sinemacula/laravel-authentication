@@ -22,7 +22,7 @@ use Tests\TestCase;
 
 /**
  * Tests of which proofs a pending session takes as the further factor it waits
- * for, decided on the session as it is held, with no query.
+ * for.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -50,10 +50,8 @@ final class ProofAcceptanceTest extends TestCase
     }
 
     /**
-     * A further factor or a recovery code made for the sign-in, or a further
-     * factor confirming an enrolment, accepted, made by the session's owner on
-     * the guard for the session, between when the session began waiting and
-     * now, both seconds included, is taken.
+     * An accepted proof made for the pending session by its owner within the
+     * window, both ends included, is taken.
      *
      * @param  \SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind  $kind
      * @param  \SineMacula\Laravel\Authentication\Proofs\Enums\Purpose  $purpose
@@ -78,8 +76,7 @@ final class ProofAcceptanceTest extends TestCase
     }
 
     /**
-     * Rows of `[changes, reason]`: what makes a proof one the pending session
-     * refuses, alone or together.
+     * Rows of `[changes, reason]` that make the pending session refuse a proof.
      *
      * @return iterable<string, array{0: array<string, mixed>, 1: \SineMacula\Laravel\Authentication\Events\Enums\FailureReason}>
      */
@@ -105,10 +102,8 @@ final class ProofAcceptanceTest extends TestCase
     }
 
     /**
-     * A proof of another kind or purpose, not accepted, or made outside the
-     * window is invalid; one made by another identity, on another application,
-     * or for another session does not bind; and one that is both is invalid,
-     * judged before its binding.
+     * A proof that is not valid for the pending session is invalid, one that
+     * does not bind to it is a binding mismatch, and validity is judged first.
      *
      * @param  array<string, mixed>  $changes
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
@@ -146,8 +141,7 @@ final class ProofAcceptanceTest extends TestCase
     }
 
     /**
-     * A step-up refuses a further factor over the recovery channel as invalid,
-     * as a pending session does: recovery is a first factor only.
+     * A step-up refuses a further factor over the recovery channel as invalid.
      *
      * @return void
      */
@@ -168,8 +162,7 @@ final class ProofAcceptanceTest extends TestCase
     }
 
     /**
-     * The identity a refused proof was made by: another identity, one of
-     * another model with the same key, or the session's own.
+     * The identity a refused proof was made by.
      *
      * @param  mixed  $who
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity

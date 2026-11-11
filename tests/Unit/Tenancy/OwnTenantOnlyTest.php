@@ -15,9 +15,8 @@ use Tests\Unit\Stubs\PlainTenantFixture;
 use Tests\Unit\Stubs\StubTenant;
 
 /**
- * Unit tests for the default tenant access (D18): a principal may act only in
- * its own tenant, by class and identifier, and a platform principal only in
- * none.
+ * Unit tests for the default tenant access: a principal may act only in its own
+ * tenant.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

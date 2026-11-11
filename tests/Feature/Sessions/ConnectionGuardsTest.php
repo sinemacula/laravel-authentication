@@ -11,10 +11,8 @@ use SineMacula\Laravel\Authentication\Sessions\ConnectionGuards;
 use Tests\TestCase;
 
 /**
- * Feature tests of the connection guards a sign-in through an external
- * provider's connection and a revocation of its sessions both write: which rows
- * each writes, that writing one again keeps one row, and which slot a link's
- * guard is in.
+ * Feature tests of the connection guards external sign-ins and connection
+ * revocations write.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -28,9 +26,7 @@ final class ConnectionGuardsTest extends TestCase
     private const string TABLE = 'authentication_connection_guards';
 
     /**
-     * A link's guard is in the slot the CRC-32 of its id's bytes falls in among
-     * the connection's 64, so ids that differ only in case are two links, which
-     * may or may not share a slot.
+     * A link's guard is in the slot the CRC-32 of its id falls in.
      *
      * @return void
      */
@@ -45,10 +41,7 @@ final class ConnectionGuardsTest extends TestCase
     }
 
     /**
-     * A sign-in an external provider established writes only its link's guard,
-     * on the connection its provenance records; one with no link recorded
-     * writes the guard of the empty id's slot; a sign-in with no provenance
-     * writes none.
+     * A sign-in writes only the guard of its link.
      *
      * @return void
      */
@@ -67,9 +60,7 @@ final class ConnectionGuardsTest extends TestCase
     }
 
     /**
-     * Writing a link's guard again, as each later sign-in through it and each
-     * of its revocations does, keeps one row; another link of the connection
-     * writes its own slot's.
+     * Writing a link's guard again keeps one row.
      *
      * @return void
      */
@@ -86,9 +77,7 @@ final class ConnectionGuardsTest extends TestCase
     }
 
     /**
-     * A connection's revocation writes every one of its guards, those a link
-     * wrote already among them, and no other connection's; writing them again
-     * keeps one row each.
+     * A connection's revocation writes every guard of the connection.
      *
      * @return void
      */
@@ -108,7 +97,7 @@ final class ConnectionGuardsTest extends TestCase
     }
 
     /**
-     * The guards are a utility: they cannot be instantiated from outside.
+     * The guards cannot be instantiated from outside.
      *
      * @return void
      *

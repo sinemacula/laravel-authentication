@@ -7,9 +7,8 @@ namespace SineMacula\Laravel\Authentication\External;
 use SineMacula\Laravel\Authentication\Contracts\ExternalIdentityLinks;
 
 /**
- * The package's default external identity links: none, so no external result
- * maps to an identity and every external sign-in fails as unlinked. Bind an
- * implementation of `ExternalIdentityLinks` to change that.
+ * The package's default external identity links: none, so every external
+ * sign-in fails as unlinked.
  *
  * @api
  *

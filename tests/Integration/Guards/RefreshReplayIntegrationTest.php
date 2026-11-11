@@ -38,11 +38,7 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
 
 /**
- * End-to-end tests for refresh replay detection on the shipped sessions table,
- * through the guard, the facade, and HTTP: parallel refreshes with one token,
- * replays that revoke the session and end its access tokens, recovery from a
- * lost response, revocation reported only after commit, and refresh inside a
- * caller's transaction on each engine.
+ * Tests refresh replay detection on the shipped sessions table.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -109,11 +105,7 @@ final class RefreshReplayIntegrationTest extends TestCase
     }
 
     /**
-     * Two refreshes with the same token, the second run inside the first's
-     * transaction between its re-read and its swap (holding the row from its
-     * issuance guard, the first lets no other request write it there): the
-     * second rotates the session, and both succeed with the same current
-     * credential, the session staying live.
+     * Two parallel refreshes with one token both get the current credential.
      *
      * @return void
      *
@@ -141,9 +133,8 @@ final class RefreshReplayIntegrationTest extends TestCase
     }
 
     /**
-     * With grace disabled, the refresh whose swap misses after the second, run
-     * inside its transaction, rotated the session holds a replaced token: it is
-     * treated as a replay and the session is revoked.
+     * With grace disabled, the refresh that loses a parallel race revokes the
+     * session.
      *
      * @return void
      *
@@ -168,11 +159,8 @@ final class RefreshReplayIntegrationTest extends TestCase
     }
 
     /**
-     * A refresh token presented after the grace window of the rotation that
-     * replaced it revokes the session: `SessionRevoked` is dispatched once with
-     * `AuthenticationFailed`, and the session's access tokens stop working at
-     * once, through the `auth` middleware, each request reporting the revoked
-     * session.
+     * A replay after the grace window revokes the session and ends its access
+     * tokens.
      *
      * @return void
      *
@@ -221,11 +209,7 @@ final class RefreshReplayIntegrationTest extends TestCase
     }
 
     /**
-     * A rotation and a replay change only the session they concern. Another
-     * session of the same identity, and a session of another identity that
-     * holds the same rotation id digest, keep their digests, rotation time, and
-     * deadlines through both, stay live, and still authenticate through the
-     * `auth` middleware and refresh.
+     * A rotation and a replay change only the session they concern.
      *
      * @return void
      *
@@ -266,10 +250,8 @@ final class RefreshReplayIntegrationTest extends TestCase
     }
 
     /**
-     * A refresh whose response is lost after the rotation committed, here
-     * through a listener that throws, is recoverable: a retry inside the grace
-     * window gets the current credential; after the window the same token is a
-     * replay.
+     * A refresh whose response is lost can be retried inside the grace window
+     * only.
      *
      * @return void
      *
@@ -313,9 +295,7 @@ final class RefreshReplayIntegrationTest extends TestCase
     }
 
     /**
-     * A revocation made inside a transaction is reported only once the
-     * transaction commits; one that is rolled back is never reported and leaves
-     * the session live.
+     * A revocation made inside a transaction is reported only once it commits.
      *
      * @return void
      *
@@ -354,14 +334,8 @@ final class RefreshReplayIntegrationTest extends TestCase
     }
 
     /**
-     * Inside a caller's REPEATABLE READ transaction, a parallel refresh that
-     * commits between this refresh's read and its issuance guard (it can no
-     * longer commit after the guard, which holds the row until this refresh
-     * ends) is handled as the engine allows: on MySQL the locking re-read that
-     * follows the guard sees the committed rotation, which makes this refresh a
-     * grace retry; PostgreSQL refuses the guard with a serialisation failure,
-     * raised inside the caller's transaction as a `DeadlockException` for the
-     * caller to retry, and nothing is revoked.
+     * A parallel rotation inside a REPEATABLE READ transaction is a grace retry
+     * on MySQL and a retryable `DeadlockException` on PostgreSQL.
      *
      * @return void
      *

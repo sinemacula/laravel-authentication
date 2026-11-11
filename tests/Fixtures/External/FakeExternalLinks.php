@@ -9,11 +9,8 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\External\ExternalLink;
 
 /**
- * External identity links a test binds in place of a single sign-on package's:
- * links made in memory, each through one connection for one issuer and subject,
- * found only when all three match exactly. Every lookup is recorded, so a test
- * can show whether, and with what, the link contract was asked, and a test may
- * have the next lookup throw, or change something before it answers.
+ * In-memory external identity links that match on connection, issuer and
+ * subject exactly and record every lookup.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

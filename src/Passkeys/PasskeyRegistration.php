@@ -7,14 +7,7 @@ namespace SineMacula\Laravel\Authentication\Passkeys;
 use SineMacula\Laravel\Authentication\Passkeys\Enums\PasskeyRegistrationStatus;
 
 /**
- * How registering a passkey ended: registered, with the summary of the passkey
- * stored and the factor package's association of it as a factor, if its gate
- * made one, or refused, with why.
- *
- * A refused registration stores and dispatches nothing. The status names every
- * outcome; `passkey` is set only for `registered`, and `factor` only for a
- * registered passkey the factor gate associated, its `completion` the factor
- * package's own, uninterpreted.
+ * How registering a passkey ended.
  *
  * @api
  *
@@ -43,8 +36,7 @@ final readonly class PasskeyRegistration
     ) {}
 
     /**
-     * The passkey was stored for the identity, associated as the factor given,
-     * if any.
+     * The passkey was stored for the identity.
      *
      * @param  \SineMacula\Laravel\Authentication\Passkeys\PasskeySummary  $passkey
      * @param  ?\SineMacula\Laravel\Authentication\Passkeys\PasskeyFactorAssociation  $factor
@@ -107,8 +99,8 @@ final readonly class PasskeyRegistration
     }
 
     /**
-     * The pending credential handed in names no live pending session of the
-     * identity on the guard, or none the challenge was bound to.
+     * The pending credential names no live pending session the challenge was
+     * bound to.
      *
      * @return self
      */
@@ -118,8 +110,7 @@ final readonly class PasskeyRegistration
     }
 
     /**
-     * A cookie application's registration on a pending sign-in did not come
-     * from a page of its own site.
+     * A cookie application's request did not come from its own site.
      *
      * @return self
      */

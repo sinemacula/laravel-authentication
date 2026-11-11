@@ -9,10 +9,8 @@ use Illuminate\Translation\ArrayLoader;
 use Illuminate\Translation\Translator;
 
 /**
- * An application middleware that binds a translator of its own for the request
- * it serves, on the application serving it (under Octane, the request's
- * sandbox): one that words `Unauthenticated.` as the request's
- * `unauthenticated` input.
+ * An application middleware that binds its own translator for the request,
+ * wording `Unauthenticated.` as the `unauthenticated` input.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

@@ -50,16 +50,8 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\StubBareSession;
 
 /**
- * Feature tests of signing out by whichever credential the request carries, on
- * a body application: a request bound to its session by a live access token is
- * signed out as `signOut()` signs it out; otherwise its binding is forgotten
- * and the session its refresh token proves is revoked, so a client whose access
- * token expired, or that holds none, still signs out; a refused refresh token
- * signs the request out all the same and is reported with the flow `sign_out`
- * and its reason, and never as a failed authentication; and signing out from
- * plain values, on a cookie application and a body one, which judges the token
- * and the client it is handed, reads nothing from the guard's request, and
- * clears a cookie application's cookie only for a same-site client.
+ * Feature tests of signing out by whichever credential the request carries, and
+ * from plain values.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -120,10 +112,8 @@ final class SessionSignOutTest extends TestCase
     }
 
     /**
-     * A request bound to its session by a live access token signs that session
-     * out, as `signOut()` does, and leaves the refresh token it also carries
-     * unread, even one of another session; a body application has no cookie to
-     * clear.
+     * A session bound by a live access token is signed out without reading the
+     * refresh token.
      *
      * @return void
      *
@@ -154,9 +144,8 @@ final class SessionSignOutTest extends TestCase
     }
 
     /**
-     * An access-only token, which names no stored session, is forgotten with
-     * Laravel's `Logout` when the request carries no refresh token, and the
-     * guard stays signed out for the rest of the request.
+     * An access-only token is forgotten with `Logout` when no refresh token
+     * comes with it.
      *
      * @return void
      *
@@ -180,10 +169,8 @@ final class SessionSignOutTest extends TestCase
     }
 
     /**
-     * An access-only token with a refresh token, signed out as a controller
-     * does, forgets the access-only binding with `Logout`, and the refresh
-     * token then signs the session it proves out, with a `Logout` of its own:
-     * the sign-out by refresh credential stands apart from the guard's binding.
+     * An access-only token with a refresh token signs its session out with a
+     * `Logout` for each.
      *
      * @return void
      *
@@ -210,16 +197,14 @@ final class SessionSignOutTest extends TestCase
     }
 
     /**
-     * A binding to a session the package does not store, an Eloquent model the
-     * application bound itself, is forgotten as an access-only token's is, with
-     * `Logout`; the refresh token the request carries then signs its own
-     * session out, with a `Logout` of its own.
+     * A binding to a session the package does not store is forgotten, and the
+     * refresh token signs out.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testABindingToASessionThePackageDoesNotStoreIsForgottenAndTheRefreshTokenSignsOut(): void
+    public function testAnUnstoredSessionBindingIsForgottenAndTheRefreshTokenSignsOut(): void
     {
         $identity = $this->seedIdentity();
         $session  = $this->signedIn();
@@ -242,8 +227,8 @@ final class SessionSignOutTest extends TestCase
     }
 
     /**
-     * Rows of `[the server values and body carrying the token, the source]`:
-     * the body field and the header of a body application.
+     * Rows of `[server values and body carrying the token, source]` for a body
+     * application.
      *
      * @formatter:off
      *
@@ -262,10 +247,7 @@ final class SessionSignOutTest extends TestCase
     }
 
     /**
-     * A client whose access token has expired signs out by its refresh token:
-     * the session is revoked as `signed_out` and reported by `SessionRevoked`,
-     * `Logout` fires for its owner, reloaded through the guard's provider, and
-     * the token no longer refreshes.
+     * A client whose access token expired signs out by its refresh token.
      *
      * @param  \Closure(string): array{0: array<string, string>, 1: array<string, string>}  $carrier
      * @param  \SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource  $source
@@ -331,13 +313,8 @@ final class SessionSignOutTest extends TestCase
     }
 
     /**
-     * Every refresh token that proves no session signs the request out all the
-     * same: the result says why, and where the token was read from;
-     * `AuthenticationFailed` reports it with the flow `sign_out`, and neither
-     * `Attempting` nor `Failed` fires. A replayed token revokes its session as
-     * `rotation_reuse`, a pending session's token is `session_pending`, another
-     * application's token is `token_invalid`, and one issued before a switch no
-     * longer names the principal the session acts as.
+     * Every refused refresh token signs the request out and is reported as a
+     * `sign_out` failure.
      *
      * @return void
      *
@@ -399,8 +376,7 @@ final class SessionSignOutTest extends TestCase
 
     /**
      * A refresh token the transport refuses is reported with the transport's
-     * reason and no source: two different tokens in the body and the header
-     * conflict, and a cookie sent to a body application is the wrong transport.
+     * reason and no source.
      *
      * @return void
      *
@@ -441,9 +417,8 @@ final class SessionSignOutTest extends TestCase
     }
 
     /**
-     * A session whose owner the guard's provider no longer returns is still
-     * revoked by its refresh token, and reported naming the owner its row
-     * records; no `Logout` fires, since no identity was signed in.
+     * A session whose owner is gone is revoked by its refresh token without
+     * `Logout`.
      *
      * @return void
      *
@@ -469,8 +444,7 @@ final class SessionSignOutTest extends TestCase
     }
 
     /**
-     * A guard bound to a session that is already revoked has nothing left to
-     * revoke: the sign-out forgets the binding and reports nothing revoked.
+     * A bound session that is already revoked has nothing left to sign out.
      *
      * @return void
      *
@@ -500,10 +474,8 @@ final class SessionSignOutTest extends TestCase
     }
 
     /**
-     * A body application's refresh token read by the application's own code
-     * signs its session out: the guard, when it is bound to that session, is
-     * forgotten, and `Logout` fires once for the owner; bound to another
-     * session, it stays bound.
+     * A refresh token handed in signs its session out and forgets a guard bound
+     * to it.
      *
      * @return void
      *
@@ -580,8 +552,7 @@ final class SessionSignOutTest extends TestCase
     }
 
     /**
-     * No attempt limit applies to a sign-out: refused refresh tokens past the
-     * refresh limits are each still judged, and a good one still signs out.
+     * No attempt limit applies to a sign-out.
      *
      * @return void
      *
@@ -606,13 +577,8 @@ final class SessionSignOutTest extends TestCase
     }
 
     /**
-     * A cookie application signs out from plain values: the token presented
-     * from its cookie and a same-site client, on a guard whose own request is
-     * cross-site, carries no cookie and is bound to another session by its
-     * access token. The session the token proves is revoked, reported with the
-     * client given, `Logout` fires for its owner, the guard stays bound to the
-     * other session until its own token signs it out, and each result carries
-     * the expired cookie.
+     * A cookie application signs out from plain values, independent of the
+     * guard's own request.
      *
      * @return void
      *
@@ -654,11 +620,7 @@ final class SessionSignOutTest extends TestCase
     }
 
     /**
-     * A sign-out from plain values binds nothing, so no event it dispatches
-     * describes the guard's own request: on a guard serving a request from
-     * another address, the package events of a refused and of a successful
-     * plain sign-out carry the client given, and no bind event is dispatched
-     * (Laravel's `Logout` carries no client).
+     * A plain sign-out dispatches no event describing the guard's own request.
      *
      * @return void
      *
@@ -684,10 +646,8 @@ final class SessionSignOutTest extends TestCase
     }
 
     /**
-     * Rows of `[what is presented (the carriers of the cookie token, its source
-     * first, or a reason handed in, or nothing), the client, whether the
-     * session is signed out, the reason, the source, whether the cookie is
-     * cleared]` for a cookie application.
+     * Rows of `[presented, client, signed out, reason, source, cookie cleared]`
+     * for a cookie application.
      *
      * @formatter:off
      *
@@ -718,12 +678,8 @@ final class SessionSignOutTest extends TestCase
     }
 
     /**
-     * A cookie application's sign-out from plain values signs out only a token
-     * presented from its cookie by a same-site client; a refusal is reported
-     * with the flow `sign_out` and the client given, and no `Failed`, and
-     * leaves the session live; the result carries the expired cookie for every
-     * same-site client, whether or not a session was revoked, unless its token
-     * was refused as a conflict, so a cross-site page never clears it.
+     * A cookie application's plain sign-out clears the cookie only for a
+     * same-site client.
      *
      * @param  non-empty-list<\SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource>|\SineMacula\Laravel\Authentication\Events\Enums\FailureReason|null  $presented
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
@@ -782,9 +738,8 @@ final class SessionSignOutTest extends TestCase
     }
 
     /**
-     * A body application signs out from plain values by a token presented from
-     * its body field or its header with a client that has no same-site facts at
-     * all, and has no cookie to clear.
+     * A body application signs out from plain values with a client that has no
+     * same-site facts.
      *
      * @return void
      *
@@ -810,9 +765,7 @@ final class SessionSignOutTest extends TestCase
     }
 
     /**
-     * A token presented from plain values inside the grace window still signs
-     * its session out, and one replayed after it revokes the session as
-     * `rotation_reuse` and is refused, both reported with the client given.
+     * The grace window and replay detection hold for a plain sign-out.
      *
      * @return void
      *
@@ -851,9 +804,7 @@ final class SessionSignOutTest extends TestCase
     }
 
     /**
-     * A sign-out that expects the session its token proves signs it out, and so
-     * does one that expects none; an expected id that is not the session's is
-     * not matched.
+     * A sign-out expecting its own session, or none, signs it out.
      *
      * @return void
      *
@@ -878,10 +829,8 @@ final class SessionSignOutTest extends TestCase
     }
 
     /**
-     * A token proving another session than the one expected is refused as
-     * `session_mismatch`, reported with the flow `sign_out` and the token's own
-     * session, and revokes nothing: no `SessionRevoked`, no `Logout`, the
-     * session live and the guard still bound to it.
+     * A sign-out proving another session than expected is refused as
+     * `session_mismatch` and revokes nothing.
      *
      * @return void
      *
@@ -915,9 +864,7 @@ final class SessionSignOutTest extends TestCase
     }
 
     /**
-     * Refusing a sign-out as a mismatch attaches no expired cookie, so a
-     * request about another session never signs the browser out of its own;
-     * the same client signing its own session out still does.
+     * A mismatched sign-out on a cookie application clears no cookie.
      *
      * @return void
      *
@@ -946,10 +893,7 @@ final class SessionSignOutTest extends TestCase
     }
 
     /**
-     * The token is proven before the session is compared: a replay expecting
-     * another session still revokes its session as `rotation_reuse`, a retry
-     * inside the grace window matches its own session, and a revoked session
-     * reports its own reason.
+     * The token is proven before the expected session is compared.
      *
      * @return void
      *
@@ -1001,8 +945,8 @@ final class SessionSignOutTest extends TestCase
     }
 
     /**
-     * A reason the extraction never answers, handed in, is the caller's error,
-     * `cross_site_request` included: it throws before anything is dispatched.
+     * A reason the transport never answers, handed in, throws before anything
+     * is dispatched.
      *
      * @return void
      *
@@ -1028,9 +972,8 @@ final class SessionSignOutTest extends TestCase
     }
 
     /**
-     * A plain sign-out inside the caller's transaction that rolls back revokes
-     * nothing and reports no revocation: `SessionRevoked` waits on the commit,
-     * while Laravel's `Logout` is dispatched at once.
+     * A plain sign-out that rolls back revokes nothing, while `Logout` is
+     * dispatched at once.
      *
      * @return void
      *
@@ -1160,9 +1103,8 @@ final class SessionSignOutTest extends TestCase
     }
 
     /**
-     * The session service of the guard, on a guard resolved afresh for a
-     * sign-out request from the test client with the server values, body,
-     * cookies and bearer token.
+     * The guard's session service, resolved afresh for a sign-out request with
+     * the values given.
      *
      * @param  array<string, string>  $server
      * @param  array<string, string>  $body

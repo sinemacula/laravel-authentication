@@ -22,10 +22,8 @@ enum FactorCodeOutcome: string
     // binding, which counted an attempt when the code was well formed
     case INVALID = 'invalid';
 
-    // The challenge id is malformed or unknown, or the challenge was replaced,
-    // or is bound to another identity, session, factor, purpose, grant or
-    // transaction; another binding's challenge answers as an absent one, and no
-    // attempt is counted
+    // The challenge id is malformed or unknown, or the challenge was replaced
+    // or is another binding's; no attempt is counted
     case NOT_FOUND = 'not_found';
 
     // The binding's own challenge was used up, by its code or by being ended,

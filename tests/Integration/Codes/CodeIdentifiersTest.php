@@ -17,9 +17,8 @@ use Tests\Integration\Fixtures\CodeIdentity;
 use Tests\TestCase;
 
 /**
- * Integration tests for how the one-time code flows read an identity's own
- * identifier and decide whether it holds the identifier a code is bound to: the
- * stored value in its canonical form, compared exactly.
+ * Integration tests for how the code flows read and match an identity's own
+ * identifier.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -73,8 +72,8 @@ final class CodeIdentifiersTest extends TestCase
     }
 
     /**
-     * The identity's own identifier of the type is the stored one in its
-     * canonical form, or `null` when it has none the normaliser accepts.
+     * The own identifier is the stored one in canonical form, or `null` when
+     * the normaliser rejects it.
      *
      * @param  ?string  $phone
      * @param  ?string  $email
@@ -128,9 +127,7 @@ final class CodeIdentifiersTest extends TestCase
     }
 
     /**
-     * `CodeIdentifiers` is a static utility; instantiation is disallowed
-     * through the private constructor. Reflection invokes it so the line is
-     * covered while still documenting the access modifier.
+     * The constructor is private.
      *
      * @return void
      *
@@ -167,8 +164,8 @@ final class CodeIdentifiersTest extends TestCase
     }
 
     /**
-     * An identity whose identifiers are stored exactly as given, as a row
-     * written outside the model's casts would hold them.
+     * An identity whose identifiers are stored exactly as given, bypassing the
+     * model's casts.
      *
      * @param  ?string  $phone
      * @param  ?string  $email

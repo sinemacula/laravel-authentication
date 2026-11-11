@@ -22,13 +22,8 @@ use Symfony\Component\HttpFoundation\Response;
 use Tests\Integration\Octane\Fixtures\BootedApplicationFactory;
 
 /**
- * Serves requests through one Laravel Octane worker, as Octane's own suite
- * does: the test's booted application, warmed with Octane's default services,
- * is the worker's root application, and every request runs through the real
- * `Worker`, which clones it into a sandbox and dispatches Octane's listeners
- * (the configuration sandbox, `FlushAuthenticationState`, the new request
- * instance, the flush of scoped instances) around the HTTP kernel. Only the
- * server is fake: no Swoole, RoadRunner or FrankenPHP.
+ * Serves requests through one real Laravel Octane worker over a fake server, as
+ * Octane's own suite does.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -120,9 +115,7 @@ trait ServesRequestsThroughOctane
     }
 
     /**
-     * What the named guard has bound for the request being served: the
-     * identity, principal, session and tenant identifiers, and the granted
-     * scopes.
+     * What the named guard has bound for the request being served.
      *
      * @param  string  $guard
      * @return array{identity: mixed, principal: mixed, session: mixed, tenant: mixed, scopes: ?list<string>}
@@ -143,10 +136,8 @@ trait ServesRequestsThroughOctane
     }
 
     /**
-     * Bind, as the events of the application now serving, a dispatcher that
-     * records the events of the classes given and passes every other on, as
-     * `Event::fake()` does, for this request's sandbox alone: the next request
-     * is cloned from the booted application, with its own dispatcher.
+     * Bind a dispatcher that records the events of the classes given for this
+     * request's sandbox alone.
      *
      * @param  list<class-string<\SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent>>  $classes
      * @return void
@@ -161,12 +152,8 @@ trait ServesRequestsThroughOctane
     }
 
     /**
-     * What each request that bound a recording dispatcher has recorded by now,
-     * in the order the requests were served: each event of the classes it
-     * records, by class in the order given, as the event's short class name and
-     * the IP address of the client its context names. An event a later request
-     * dispatched to an earlier request's dispatcher shows up under the earlier
-     * request.
+     * The short class name and client IP of each event every recording request
+     * has recorded by now, in the order the requests were served.
      *
      * @return list<list<array{0: string, 1: ?string}>>
      */
@@ -194,14 +181,8 @@ trait ServesRequestsThroughOctane
     }
 
     /**
-     * Hand the services Octane gave the request's sandbox (the auth and
-     * database managers, the router, the HTTP kernel) back to the root
-     * application, so the test can read the database and use the manager
-     * between requests: the sandbox they hold has been flushed once the worker
-     * is done with it. Only the application they hold is replaced, as the next
-     * request's own listeners replace it again; nothing is reset, so the auth
-     * manager keeps the guards the request resolved, and whatever the next
-     * request does not see is down to Octane's lifecycle alone.
+     * Hand the services Octane gave the request's flushed sandbox back to the
+     * root application, so the test can use them between requests.
      *
      * @param  \Illuminate\Http\Request  $request
      * @param  \Symfony\Component\HttpFoundation\Response  $response

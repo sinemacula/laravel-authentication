@@ -34,9 +34,7 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
 
 /**
- * End-to-end tests for recording a session's last use: bearer requests through
- * the `auth` middleware and refresh both record when, from which IP address,
- * and with which user agent the session was used, on the shipped table.
+ * Tests recording a session's last use on the shipped table.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -124,9 +122,8 @@ final class SessionUsageIntegrationTest extends TestCase
     }
 
     /**
-     * Two requests served by the same application instance, as a long-running
-     * worker serves them, each record their own client once the throttle window
-     * has passed, and a request inside the window records nothing.
+     * Each request records its own client outside the throttle window and
+     * nothing inside it.
      *
      * @return void
      *
@@ -154,9 +151,8 @@ final class SessionUsageIntegrationTest extends TestCase
     }
 
     /**
-     * A request that sends no `User-Agent` header, once the throttle window has
-     * passed, records its IP address and no user agent in place of the one an
-     * earlier request recorded: the stored client is the client of that use.
+     * A request without a `User-Agent` header records no user agent in place of
+     * the earlier one.
      *
      * @return void
      *
@@ -213,10 +209,8 @@ final class SessionUsageIntegrationTest extends TestCase
     }
 
     /**
-     * A refresh a controller makes from plain values, for a client it describes
-     * (as a console command or a queued job does for the client it acts for),
-     * records that client as the session's last use, not the request that ran
-     * it.
+     * A refresh from plain values records the client given in place of the
+     * request's.
      *
      * @return void
      */
@@ -283,9 +277,8 @@ final class SessionUsageIntegrationTest extends TestCase
     }
 
     /**
-     * A bearer request and a refresh record their client on the session they
-     * used and on no other: another session of the same identity and a session
-     * of another identity keep their own last use.
+     * A bearer request and a refresh record their client only on the session
+     * they used.
      *
      * @return void
      *
@@ -329,11 +322,8 @@ final class SessionUsageIntegrationTest extends TestCase
     }
 
     /**
-     * A session created as the guides show records the guard, the principal,
-     * and the client it was created from, with the client's IP address and user
-     * agent cleaned by `ClientContext` so a crafted header is stored rather
-     * than failing the insert, and the tokens issued for it then work on the
-     * bearer path and on refresh.
+     * A session created as the guides show records where it was created, and
+     * its tokens work.
      *
      * @return void
      *
@@ -373,8 +363,7 @@ final class SessionUsageIntegrationTest extends TestCase
 
     /**
      * Rows of `[sign-in input]`: client names and platforms the documented
-     * validation rejects, each of which would otherwise fail the request or be
-     * stored cut short on some engine.
+     * validation rejects.
      *
      * @return iterable<string, array{0: array<string, mixed>}>
      */
@@ -389,9 +378,7 @@ final class SessionUsageIntegrationTest extends TestCase
     }
 
     /**
-     * The documented sign-in validates the client name and platform before
-     * storing them, so a client sending one that cannot be stored gets a
-     * validation error instead of a server error, and no session is created.
+     * The documented sign-in rejects client metadata that cannot be stored.
      *
      * @param  array<string, mixed>  $input
      * @return void
@@ -411,9 +398,7 @@ final class SessionUsageIntegrationTest extends TestCase
     }
 
     /**
-     * A client name and platform of exactly 255 characters, multibyte ones
-     * included, pass the documented validation and are stored whole on every
-     * engine.
+     * A multibyte client name and platform of 255 characters are stored whole.
      *
      * @return void
      */
@@ -431,9 +416,7 @@ final class SessionUsageIntegrationTest extends TestCase
     }
 
     /**
-     * A user agent with a NUL byte and invalid UTF-8 is stored cleaned on every
-     * engine, instead of failing the request (invalid UTF-8) or being cut short
-     * at the NUL byte (PostgreSQL).
+     * A user agent with a NUL byte and invalid UTF-8 is stored cleaned.
      *
      * @return void
      *
@@ -503,8 +486,8 @@ final class SessionUsageIntegrationTest extends TestCase
     }
 
     /**
-     * Register a `/sign-in` route that creates a session for the identity and
-     * issues its tokens exactly as the guides show.
+     * Register a `/sign-in` route that creates a session and issues its tokens
+     * as the guides show.
      *
      * @param  \Tests\Unit\Stubs\StubPrincipal  $identity
      * @return void

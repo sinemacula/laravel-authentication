@@ -20,11 +20,7 @@ use SineMacula\Laravel\Authentication\Testing\FakePasswordResetLinkSender;
 use Tests\Concerns\InteractsWithPasswords;
 
 /**
- * Query-budget contracts for password reset: a request writes its limits and
- * the token and reads no identity; a reset counts its submission, reads the
- * identity and the token once each, spends the token, writes the password and
- * the cutoff, revokes each session with one statement after one read of them,
- * and gives its slots back.
+ * Query-budget contracts for password reset requests and resets.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -84,10 +80,7 @@ final class PasswordResetQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A first request writes four limiter statements, reads the token's row,
-     * which it finds missing, and inserts it; a request after the cooldown in
-     * the same window writes the two counters, reads the row and replaces the
-     * token in one update. Neither touches an identity.
+     * A request writes its limits and the token and reads no identity.
      *
      * @return void
      *
@@ -110,12 +103,8 @@ final class PasswordResetQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A reset of an identity with two sessions reads the identity, its row
-     * under the lock taken before the token, the token and the sessions once
-     * each, and the row it updated once more, and writes the submission's
-     * limits, the token's use, the password, one `UPDATE` that ends every other
-     * reset link and code, the cutoff, one revocation per session, and the
-     * slots it gives back.
+     * A reset spends the token with the password and revokes each session with
+     * one statement.
      *
      * @return void
      *

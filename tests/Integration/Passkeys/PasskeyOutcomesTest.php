@@ -22,10 +22,8 @@ use Tests\Fixtures\Passkeys\VirtualAuthenticator;
 use Tests\TestCase;
 
 /**
- * Proves what a registration and a factor verification answer is what they
- * wrote, on whichever engine the suite runs against: the summary a passkey is
- * registered or verified with is the one read back from its row, and a refused
- * ceremony leaves the rows as they were.
+ * Proves a passkey ceremony answers with what it wrote, and a refused one
+ * writes nothing.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -96,9 +94,7 @@ final class PasskeyOutcomesTest extends TestCase
     }
 
     /**
-     * A refused registration answers its status and stores nothing: a challenge
-     * that is not one, a response that does not verify, and a credential
-     * registered already.
+     * A refused registration answers its status and stores nothing.
      *
      * @return void
      *
@@ -128,8 +124,7 @@ final class PasskeyOutcomesTest extends TestCase
     }
 
     /**
-     * A verified factor answers the passkey as its use left the row: the last
-     * use recorded and read back as the summary says.
+     * A verified factor answers the passkey as its use left the row.
      *
      * @return void
      *
@@ -160,8 +155,7 @@ final class PasskeyOutcomesTest extends TestCase
     }
 
     /**
-     * A refused factor answers its reason and records no use: the count and the
-     * last use stay as the verified use before it left them.
+     * A refused factor answers its reason and records no use.
      *
      * @return void
      *

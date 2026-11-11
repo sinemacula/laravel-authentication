@@ -6,8 +6,7 @@ namespace Tests\Integration\Octane\Fixtures;
 
 /**
  * A scoped service holding the `X-Request-Id` of the request it was resolved
- * for, so a contributor that depends on it shows which request's instance it
- * was given.
+ * for.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

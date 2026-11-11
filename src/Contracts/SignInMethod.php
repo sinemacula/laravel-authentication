@@ -9,30 +9,8 @@ use SineMacula\Laravel\Authentication\Proofs\FirstFactor;
 use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
 
 /**
- * Sign-in method contract.
- *
- * A sign-in method proves who is signing in from the input a client sent: a
- * password, a one-time code, an external provider's assertion. It answers with
- * what it verified (a `FirstFactor`: the identity, the channel it proved itself
- * over, what was observed about the authenticator, and the `amr` values the
- * proof stands for), or why it did not; everything after that (activity, the
- * principal, the application policy, a further factor, the session, its proofs
- * and the tokens) belongs to the session service, so every method ends in the
- * same place. The session records the first factor as its first proof and
- * derives the access token's `amr` from its values; `mfa` is reserved and a
- * `FirstFactor` refuses it.
- *
- * Methods are registered on the `SignInMethodManager` under the name the
- * session service records on the session and the application policy allows per
- * guard. The manager keeps one instance per name for the life of the process,
- * so a method must hold no state between calls (Octane, queue workers), and it
- * must never bind a guard, issue tokens or write session state itself. Its
- * timing must not reveal more than the session service's timebox hides: do the
- * same work whether or not the identifier exists. A method that looks an
- * identity up and then checks a secret counts the check against the account
- * with `SignInRequest::reserveAccountAttempt()` before making it, so the
- * account's own limit bounds the guesses at its secret however the identity was
- * found.
+ * Proves who is signing in from the input a client sent, answering with the
+ * first factor it verified or why it did not.
  *
  * @api
  *
@@ -42,10 +20,8 @@ use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
 interface SignInMethod
 {
     /**
-     * The type of identifier the method signs in to the guard with (for example
-     * `email`), or `null` when it uses none. It names the identifier's
-     * normaliser, the form the attempt limits count it in, and the identifier a
-     * guard that requires verified identifiers checks.
+     * The type of identifier the method signs in to the guard with, such as
+     * `email`, or `null` when it uses none.
      *
      * @param  string  $guard
      * @return ?string
@@ -54,8 +30,7 @@ interface SignInMethod
 
     /**
      * The identifier the input names for the guard, as given, or `null` when it
-     * names none. Used for the attempt limits and the failure event, never to
-     * look the identity up.
+     * names none.
      *
      * @param  string  $guard
      * @param  array<array-key, mixed>  $input
@@ -64,14 +39,8 @@ interface SignInMethod
     public function identifier(string $guard, #[\SensitiveParameter] array $input): ?string;
 
     /**
-     * The id of the challenge the input answers (a one-time code's, a passkey
-     * ceremony's) when it is in the form the method issues, or `null` for a
-     * method that answers none and for an id in any other form. The session
-     * service reports it with every failure of the method's sign-in or
-     * reauthentication once the application allowed the method, so a listener
-     * can follow every attempt at one challenge; a method the application does
-     * not allow fails as `method_not_allowed` with none, since nothing was
-     * checked. It never looks anything up with it.
+     * The id of the challenge the input answers when it is in the form the
+     * method issues, or `null`.
      *
      * @param  array<array-key, mixed>  $input
      * @return ?string

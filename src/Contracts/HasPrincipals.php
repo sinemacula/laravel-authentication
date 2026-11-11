@@ -7,11 +7,7 @@ namespace SineMacula\Laravel\Authentication\Contracts;
 use Illuminate\Contracts\Database\Eloquent\Builder;
 
 /**
- * Identity capability contract: owns principals.
- *
- * Implementations expose a `principals()` Eloquent relation builder and a
- * `resolveDefaultPrincipal()` method that returns the application-defined
- * default principal for 3D mode.
+ * An identity that owns principals.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -26,11 +22,7 @@ interface HasPrincipals
     public function principals(): Builder;
 
     /**
-     * Application-defined default principal lookup. The default resolver runs
-     * it inside `WriteConnection::during()` for this identity: model reads on
-     * any connection, and query-builder reads on this identity's own connection
-     * when it is an Eloquent model, go to the write connection; any other
-     * query-builder read must pin itself (see `Database\WriteConnection`).
+     * The application's default principal for the identity.
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
      */

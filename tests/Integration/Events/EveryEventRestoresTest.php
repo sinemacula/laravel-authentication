@@ -55,12 +55,8 @@ use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\TestCase;
 
 /**
- * Integration test that every package event, whatever it carries beside its
- * context, survives a queue whose wait outlived the rows it names: it holds no
- * model, so it restores as the same event with no query, every value of its
- * context (when it happened, who, as whom, within which tenant, on which
- * session, how, from where, through which connection and for which request) and
- * its own values as they were.
+ * Tests that every package event restores from the queue with its values once
+ * its rows are gone.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -111,8 +107,8 @@ final class EveryEventRestoresTest extends TestCase
     }
 
     /**
-     * Rows of `[event class, arguments after the context]`: every event the
-     * package dispatches, with values for what it carries beside its context.
+     * Rows of `[event class, arguments after the context]` for every event the
+     * package dispatches.
      *
      * @return iterable<string, array{0: class-string<\SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent>, 1: list<mixed>}>
      */
@@ -152,9 +148,8 @@ final class EveryEventRestoresTest extends TestCase
     }
 
     /**
-     * The event restores, after every row it names was deleted, as the same
-     * event, with no query, every value of its context unchanged, and its own
-     * values as they were; its payload names no model.
+     * The event restores with no query and its values unchanged once its rows
+     * are gone.
      *
      * @param  class-string<\SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent>  $class
      * @param  list<mixed>  $arguments
@@ -218,8 +213,7 @@ final class EveryEventRestoresTest extends TestCase
     }
 
     /**
-     * The events above are every event the package dispatches, so a new event
-     * is held to the same queue contract.
+     * The events above are every event the package dispatches.
      *
      * @return void
      */

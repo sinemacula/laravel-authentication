@@ -8,10 +8,8 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeOutcome;
 
 /**
- * Thrown inside a confirmation's transaction when the change cannot be made
- * after its proof was accepted, so the transaction rolls back and the proof,
- * the pending change and anything else written stay as they were; the service
- * catches it and answers with the outcome. Never leaves the service.
+ * Thrown inside a confirmation's transaction to roll it back when the change
+ * cannot be made after its proof was accepted.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

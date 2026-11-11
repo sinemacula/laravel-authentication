@@ -11,8 +11,7 @@ use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeSettings;
 
 /**
- * Unit tests for the identifier change settings: their defaults, the forms and
- * ranges they accept, and the key each malformed one is reported under.
+ * Unit tests for the identifier change settings.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -35,8 +34,7 @@ final class IdentifierChangeSettingsTest extends TestCase
     }
 
     /**
-     * Rows of `[key, value, what the reader returns]`: integers and the digit
-     * strings `env()` returns, at each end of their range.
+     * Rows of `[key, value, what the reader returns]` at each end of the range.
      *
      * @return iterable<string, array{0: string, 1: int|string, 2: int}>
      */
@@ -65,8 +63,7 @@ final class IdentifierChangeSettingsTest extends TestCase
     }
 
     /**
-     * Rows of `[key, value, message]`: values out of range, of another type, or
-     * strings that are not the canonical digits of an integer.
+     * Rows of `[key, value, message]` for malformed values.
      *
      * @return iterable<string, array{0: string, 1: mixed, 2: string}>
      */

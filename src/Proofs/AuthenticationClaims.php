@@ -7,19 +7,8 @@ namespace SineMacula\Laravel\Authentication\Proofs;
 use SineMacula\Laravel\Authentication\Contracts\Session;
 
 /**
- * The `auth_time` and `amr` an access token of a session carries, derived from
- * the session's proofs when the token is issued (see `ProofHistory`), never
- * stored in their place: the token service calls it for every access token it
- * issues for a session.
- *
- * The proofs are read in one aggregate query on the write connection, bounded
- * by the distinct kinds and `amr` sets the session recorded however long it
- * lives, so a session with many step-ups costs what one with a few does. Inside
- * the transaction that writes a proof, the read sees it. The read is current
- * (`SessionProofs::history()`), after the issuance has written the session's
- * issuance guard, so it sees every proof an issuance or a proof change of the
- * session committed before it; only a sign-in, whose new session holds no
- * proofs but its own until it commits, reads them as its transaction sees them.
+ * The `auth_time` and `amr` a session's access token carries, derived from the
+ * session's proofs when the token is issued.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -35,9 +24,7 @@ final class AuthenticationClaims
 
     /**
      * The session's authentication time and `amr` values, read current unless
-     * `$current` is `false`. A session the package wrote always has a counting
-     * first factor, so one without is a `LogicException`: no token is issued
-     * with no authentication time.
+     * `$current` is `false`.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  bool  $current

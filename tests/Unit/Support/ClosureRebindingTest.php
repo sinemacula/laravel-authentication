@@ -10,9 +10,7 @@ use SineMacula\Laravel\Authentication\Support\ClosureRebinding;
 use Tests\Unit\Stubs\ClosureOwnerFixture;
 
 /**
- * Unit tests for moving a replaced object's closures onto its replacement: an
- * anonymous closure bound to the replaced object is bound to the replacement,
- * and every other closure is kept as it is.
+ * Unit tests for moving a replaced object's closures onto its replacement.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -59,9 +57,7 @@ final class ClosureRebindingTest extends TestCase
     }
 
     /**
-     * The class holds no state and cannot be instantiated: its constructor is
-     * private. Reflection invokes it so the line is covered while still
-     * documenting the access modifier.
+     * The constructor is private.
      *
      * @return void
      *

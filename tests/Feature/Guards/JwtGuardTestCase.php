@@ -39,13 +39,8 @@ use Tests\Unit\Stubs\StubInjectableSession;
 use Tests\Unit\Stubs\StubSession;
 
 /**
- * Shared base case for the JwtGuard split tests.
- *
- * Owns collaborator mocks, the in-memory `stub_sessions` schema with the
- * shipped proofs and provenance tables (each saved session row given the
- * first-factor proof its sign-in would record), the frozen Carbon and JWT
- * clocks, and the helper factories used by every concrete `JwtGuardTest`
- * variant. Each subclass covers one slice of JwtGuard's behaviour.
+ * Shared base case for the `JwtGuard` tests, holding the collaborator mocks,
+ * in-memory schema, frozen clocks and token factories.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -134,8 +129,8 @@ abstract class JwtGuardTestCase extends TestCase
         // Every principal's sessions last as long as the token service says.
         self::bindSignInPolicyDoubles($this->app, $this->tokens->lifetimes());
 
-        // Default: Timebox::call() invokes the callback directly so credential
-        // validation paths run deterministically.
+        // Run the callback directly so tests exercise the real credential
+        // check.
         $this->timebox->shouldReceive('call')
             ->byDefault()
             ->andReturnUsing(static fn (callable $callback): mixed => $callback(new Timebox));
@@ -143,8 +138,8 @@ abstract class JwtGuardTestCase extends TestCase
         self::createSessionRecordTable('stub_sessions');
         self::migrateProofTables();
 
-        // A session row a test saves records the first factor its sign-in would
-        // have, so the tokens issued for it carry `auth_time` and `amr`.
+        // Saved session rows record a first factor, so their tokens carry
+        // `auth_time` and `amr`.
         FirstFactorRecorder::listen($this->app->make(Dispatcher::class), static fn (): bool => true);
     }
 
@@ -166,9 +161,8 @@ abstract class JwtGuardTestCase extends TestCase
     }
 
     /**
-     * Define the Testbench environment: an in-memory sqlite connection (so the
-     * refresh path can hit a real Eloquent query), the guard's `auth.guards`
-     * entry, and the package config keys the guard reads.
+     * Define an in-memory sqlite connection, the guard and the package config
+     * it reads.
      *
      * @param  mixed  $app
      * @return void
@@ -193,8 +187,7 @@ abstract class JwtGuardTestCase extends TestCase
         $config->set('authentication.session.model', StubSession::class);
         $config->set('authentication.session.table', 'stub_sessions');
 
-        // Every refresh reads the guard's transport, so the guard is configured
-        // as `auth.guards` would configure it, over the package's defaults.
+        // Every refresh reads the guard's transport from its configuration.
         $config->set('auth.guards.' . self::GUARD_NAME, ['driver' => 'jwt', 'provider' => 'users']);
         $config->set('authentication.refresh_token', [
             'transport'  => 'body',
@@ -255,12 +248,8 @@ abstract class JwtGuardTestCase extends TestCase
     }
 
     /**
-     * Encode an access-token-style JWT with `iat`, `exp`, the service's `iss`
-     * and `aud`, and the guard's `client_id` baked in, under the `at+jwt`
-     * header type, plus a default `jti` and the `person` subject type the
-     * claims may override, and, for a token that names a session, an
-     * `auth_time` of now and a password `amr` it may override too, so the real
-     * `JwtTokenService::parse(..., TokenType::ACCESS)` path accepts it.
+     * Encode an access token the real `JwtTokenService::parse()` accepts, with
+     * defaults the claims may override.
      *
      * @param  array<string, mixed>  $claims
      * @return string
@@ -290,9 +279,7 @@ abstract class JwtGuardTestCase extends TestCase
     }
 
     /**
-     * Encode a refresh-token-style JWT with `iat`, `exp`, the service's `iss`
-     * and `aud`, and the guard's `client_id`, under the `refresh+jwt` header
-     * type, so the real refresh parse path accepts it.
+     * Encode a refresh token the real refresh parse path accepts.
      *
      * @param  array<string, mixed>  $claims
      * @return string
@@ -324,11 +311,8 @@ abstract class JwtGuardTestCase extends TestCase
     }
 
     /**
-     * Swap the configured session model to `StubInjectableSession`, whose
-     * `newQuery()` yields a Builder mock that returns the supplied in-memory
-     * session from `find()`, so the refresh tests control the exact session row
-     * the exchange sees without a database round trip. The session is reloaded
-     * first so it carries every column, as the exchange's own lookup would.
+     * Swap the session model so the exchange finds the supplied session,
+     * reloaded with every column, without a database round trip.
      *
      * @param  \Tests\Unit\Stubs\StubSession  $session
      * @return void
@@ -353,9 +337,8 @@ abstract class JwtGuardTestCase extends TestCase
     }
 
     /**
-     * Expect the guard's identity provider to reload the session's owner once,
-     * by the owner key stored on the session row, and answer with the supplied
-     * identity.
+     * Expect the provider to reload the session's owner once, by its stored
+     * key, and answer with the identity.
      *
      * @param  \Tests\Unit\Stubs\StubSession  $session
      * @param  mixed  $identity

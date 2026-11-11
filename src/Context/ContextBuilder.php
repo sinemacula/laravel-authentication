@@ -24,19 +24,8 @@ use SineMacula\Laravel\Authentication\Support\MorphClass;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
- * Builds the authentication context of what a guard bound: the package's keys
- * from the bound state, the session's proofs and the guard's request, then each
- * registered contributor's.
- *
- * The proofs are read once, in the one aggregate query `SessionProofs::history()`
- * makes on the write connection, so a lagging replica cannot hide a step-up just
- * made, and only for an Eloquent session; without one, `amr` is empty,
- * `auth_time` and the step-up are `null`, and `mfa`, `recovery_code` and
- * `multifactor` are false. Nothing is read from the token's claims or from
- * input. Contributors are resolved from the container serving now, in the order
- * registered, and their keys checked as they come; one that resolves to
- * anything but a contributor, or answers keys a context cannot hold, is a
- * `LogicException`, and an exception one throws propagates.
+ * Builds the authentication context of what a guard bound, then adds each
+ * registered contributor's keys.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -51,8 +40,7 @@ final class ContextBuilder
     private function __construct() {}
 
     /**
-     * Build the context of the state the guard bound, for the request it
-     * serves.
+     * Build the context of the state the guard bound.
      *
      * @param  \SineMacula\Laravel\Authentication\Runtime\GuardContext  $guard
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity

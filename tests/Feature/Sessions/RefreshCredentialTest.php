@@ -44,11 +44,7 @@ use Tests\TestCase;
 
 /**
  * Feature tests of reading who the request's refresh credential would sign in
- * again, without rotating it or binding anything: the owner, principal, tenant
- * and session a refresh would admit, with where the credential was read from;
- * the reason the transport, the session, the admission or the tenant's
- * authentication policy refuses it, returned for the caller to report; and
- * nothing for a request that carries none.
+ * again, without rotating or binding.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -106,9 +102,8 @@ final class RefreshCredentialTest extends TestCase
     }
 
     /**
-     * A refresh token in the body is the credential of its session's owner,
-     * acting as the principal the session records, in no tenant: the session
-     * keeps its rotation, the guard stays a guest, and nothing is dispatched.
+     * A body refresh token is its session owner's credential, without rotating
+     * or binding anything.
      *
      * @return void
      *
@@ -136,11 +131,8 @@ final class RefreshCredentialTest extends TestCase
     }
 
     /**
-     * A member's refresh token in the header is the credential of the
-     * membership the session acts as, in the tenant it is active in, once the
-     * tenant's authentication policy, asked about that session as a refresh
-     * asks, is met; the version it answered is not recorded, since nothing is
-     * written.
+     * A member's header token carries its active tenant once that tenant's
+     * policy is met.
      *
      * @return void
      *
@@ -177,10 +169,8 @@ final class RefreshCredentialTest extends TestCase
     }
 
     /**
-     * A session its tenant's authentication policy now requires to have been
-     * established through one of its connections, which the next refresh would
-     * revoke, is no credential: it is refused as `sso_required`, and is neither
-     * revoked nor reported.
+     * A session its tenant policy would revoke on refresh is refused as
+     * `sso_required` without being revoked.
      *
      * @return void
      *
@@ -205,11 +195,8 @@ final class RefreshCredentialTest extends TestCase
     }
 
     /**
-     * A session its tenant's authentication policy now requires a further
-     * factor of, which the next refresh would return to pending, is no
-     * credential: it is refused as `additional_factor_required`, since binding
-     * a model cannot wait for the factor, and is neither returned to pending
-     * nor reported.
+     * A session its tenant policy would return to pending is refused as
+     * `additional_factor_required`.
      *
      * @return void
      *
@@ -234,9 +221,8 @@ final class RefreshCredentialTest extends TestCase
     }
 
     /**
-     * A credential is judged against its tenant's policy holding no lock on the
-     * session, so the session's proofs are read plainly, never with a shared
-     * lock, even where a judgement under the lock takes one.
+     * A credential is judged on plain reads of the session's proofs, without a
+     * shared lock.
      *
      * @return void
      *
@@ -277,10 +263,7 @@ final class RefreshCredentialTest extends TestCase
     }
 
     /**
-     * Each refusal is returned as its reason and reported by nothing, for the
-     * caller to report: the transport's, the session's, and the admission's, an
-     * owner deactivated since the sign-in and a principal the session no longer
-     * records among them.
+     * Every refusal is returned as its reason for the caller to report.
      *
      * @return void
      *
@@ -325,12 +308,8 @@ final class RefreshCredentialTest extends TestCase
     }
 
     /**
-     * A cookie application's token is judged on the client given before
-     * anything is read: a same-site client's cookie is its session's credential
-     * while the guard serves a cross-site request, and the cookie twice, a body
-     * token, or the cookie with a client that is not same-site while the guard
-     * serves a same-site request, are refused as a conflict, a mismatch and a
-     * cross-site request, with no query and nothing dispatched.
+     * A cookie application's token is judged on the client given before any
+     * query.
      *
      * @return void
      *
@@ -373,9 +352,8 @@ final class RefreshCredentialTest extends TestCase
     }
 
     /**
-     * A replayed token is refused as `rotation_reuse` and revokes its session,
-     * as a refresh does: the revocation's `SessionRevoked` is the one event
-     * dispatched.
+     * A replay revokes its session, reported only by the revocation's
+     * `SessionRevoked`.
      *
      * @return void
      *

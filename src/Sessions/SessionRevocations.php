@@ -31,56 +31,8 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
  * Ends sessions for one guard: signs the request's session out, revokes one
- * session or every session of an identity or a principal, and answers the
- * security changes an application makes in its own flows, each ending the
- * affected sessions with its own reason.
- *
- * Every revocation marks the session (`revoked_at`, `revoked_reason`) with one
- * conditional update that only applies while it is not revoked yet: idempotent,
- * the first revocation's time and reason kept, and only the call that changed
- * the row reporting `SessionRevoked`, once the revocation is committed on the
- * session's own connection. A bulk revocation moves the scope's "tokens valid
- * after" cutoff when it records one on a model loaded from its row (see
- * `RevocationScope`), ends its pending sessions with the rest and, for an
- * identity, cancels its pending identifier changes; it reports each session it
- * revoked and then `SignedOutEverywhere`, also when it revoked none.
- * Deactivation already stops every token at once through the live activity
- * checks; revoking makes the end outlast a reactivation and records why.
- *
- * A deactivation's or deletion's revocation (`identityDeactivated()`,
- * `identityDeleted()`, `principalDeactivated()`, `principalDeleted()`,
- * `tenantDeactivated()`) also ends a session a sign-in, a choice or a switch
- * admitted before the change and committed after it: such a call checks what
- * its session newly acts as once it commits (`AdmissionRecheck`), and these
- * calls, when made inside a transaction on the session model's connection or on
- * the changed model's, end the same scopes again once that commits, since the
- * transaction may have read the sessions before the call's commit. Either the
- * revocation reads the session, or the call's check, made after its commit,
- * reads the change; no session established before or concurrently with the
- * change survives its reactivation or restore. That holds for these calls made
- * inside the change's transaction or after it (not before it, outside a
- * transaction), and for Eloquent identities, principals and tenants whose
- * standing is read on their own connection: the check waits only for those
- * connections, so what it reads elsewhere (a principal or tenant that is no
- * model, through its resolver; a principal's own tenant on another connection;
- * activity derived from other rows) it reads as that connection gives it, a
- * caller's open transaction there included. The one exception is a change
- * undone (reactivated, restored) before a call in flight checks its session:
- * only a "tokens valid after" cutoff the revocation moved to a later second
- * than the call began in records that, so a subject without one (a tenant, an
- * identity or principal without `HasTokensValidAfter`, or one hard-deleted,
- * which has no row to move it on, when a row is inserted again under its key
- * before the check), or a revocation that ran within the second the call began,
- * however long after that the change was undone, leaves that call's session
- * standing.
- *
- * It runs on the guard's context: its events carry the client of the request
- * each call starts in, or the client `revokeSessions()` is given (a password
- * the password service sets), and go to the context's dispatcher as it is when
- * they are dispatched, a deferred report's when the revocation commits. Only
- * the two sign-out calls touch the guard's bound state, through the binding
- * they are given, so the guard's own `logout()` and the password writer use it
- * without a session service, and the session service delegates to it.
+ * session or every session of an identity or a principal, and answers security
+ * changes with their own reasons.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -109,8 +61,7 @@ final readonly class SessionRevocations
     ) {}
 
     /**
-     * The revocations of the guard the context belongs to, on the container's
-     * database connections and transactions manager.
+     * The revocations of the guard the context belongs to.
      *
      * @param  \SineMacula\Laravel\Authentication\Runtime\GuardContext  $context
      * @param  \Illuminate\Contracts\Container\Container  $container
@@ -126,13 +77,8 @@ final readonly class SessionRevocations
     }
 
     /**
-     * Sign the request's session out: revoke the session the binding is bound
-     * to (`signed_out`), dispatch Laravel's `Logout` when an identity was
-     * bound, and forget the binding for the rest of the request. Returns
-     * whether this call revoked a session.
-     *
-     * An access-only token, which names no stored session, has nothing to
-     * revoke and is only forgotten; a guest request does nothing.
+     * Sign the request's session out, dispatch Laravel's `Logout` and forget
+     * the binding; whether this call revoked a session.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\GuardBinding  $binding
      * @return bool
@@ -177,13 +123,8 @@ final readonly class SessionRevocations
     }
 
     /**
-     * End every session of the binding's identity, of every guard, with reason
-     * `signed_out_everywhere`, keeping the binding's own session when asked.
-     * Returns how many sessions this call revoked; `0` for a guest request.
-     *
-     * The binding's session is kept by leaving it unrevoked, or, for an
-     * access-only token, by leaving the identity's "tokens valid after" cutoff
-     * where it is. The binding stays bound either way.
+     * End every session of the binding's identity, of every guard, keeping the
+     * binding's own session when asked; how many this call revoked.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\GuardBinding  $binding
      * @param  bool  $keepCurrentSession
@@ -210,10 +151,8 @@ final readonly class SessionRevocations
     }
 
     /**
-     * Revoke one session of the owner, found through the owner's `sessions()`
-     * relation on the write connection, so another identity's session is not
-     * found: `false`, without saying whether it exists. Returns whether this
-     * call revoked it (`false` too for a session already revoked).
+     * Revoke one session of the owner, found through its `sessions()` relation;
+     * whether this call revoked it.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $owner
      * @param  mixed  $sessionId
@@ -240,12 +179,8 @@ final readonly class SessionRevocations
 
     /**
      * Revoke every session of the identity, of every guard, except the given
-     * one (its pending sessions among them), and cancel its pending identifier
-     * changes; when the identity records a "tokens valid after" cutoff, move it
-     * to now first. Returns how many sessions this call revoked. The
-     * `$committed` callback given runs once the revocation commits, before any
-     * session it ended is reported. The reports carry the client given, or else
-     * the client of the guard's request.
+     * one, and cancel its pending identifier changes; how many this call
+     * revoked.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
@@ -265,10 +200,8 @@ final readonly class SessionRevocations
     }
 
     /**
-     * Revoke every session that acts as the principal, except the given one,
-     * pending sessions that record it among them; when the principal records a
-     * "tokens valid after" cutoff, move it to now first. Returns how many
-     * sessions this call revoked.
+     * Revoke every session that acts as the principal, except the given one;
+     * how many this call revoked.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
@@ -319,8 +252,7 @@ final readonly class SessionRevocations
     }
 
     /**
-     * A first-factor credential of the identity (a passkey, or a phone number
-     * or email address it signs in with) was removed: end its sessions
+     * A first-factor credential of the identity was removed: end its sessions
      * (`factor_removed`), except the given session.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -339,8 +271,7 @@ final readonly class SessionRevocations
 
     /**
      * The identity was deactivated: end every session it has
-     * (`identity_deactivated`), and once more after the commit when called
-     * inside a transaction (see the class).
+     * (`identity_deactivated`).
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @return int
@@ -357,8 +288,7 @@ final readonly class SessionRevocations
 
     /**
      * The principal was deactivated: end every session acting as it
-     * (`principal_deactivated`), and once more after the commit when called
-     * inside a transaction (see the class).
+     * (`principal_deactivated`).
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return int
@@ -373,8 +303,7 @@ final readonly class SessionRevocations
 
     /**
      * The identity was deleted, or soft-deleted: end every session it has
-     * (`identity_deleted`), and once more after the commit when called inside a
-     * transaction (see the class).
+     * (`identity_deleted`).
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @return int
@@ -391,8 +320,7 @@ final readonly class SessionRevocations
 
     /**
      * The principal was deleted, or soft-deleted: end every session acting as
-     * it (`principal_deleted`), and once more after the commit when called
-     * inside a transaction (see the class).
+     * it (`principal_deleted`).
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return int
@@ -406,16 +334,8 @@ final readonly class SessionRevocations
     }
 
     /**
-     * The tenant was deactivated: end every session acting as one of the
-     * principals listed for it, and every session acting in it whatever its
-     * principal (its active tenant), as `tenant_deactivated`. Every principal
-     * listed must belong to the tenant, or nothing is written and an
-     * `InvalidArgumentException` is thrown; a principal listed twice counts
-     * once, and so does a session both find. All sessions, pending ones among
-     * them, are ended in one transaction, after each principal's cutoff moved,
-     * with one `SignedOutEverywhere` per principal and one `SessionRevoked` per
-     * session, and once more after the commit when called inside a transaction
-     * (see the class).
+     * The tenant was deactivated: end every session acting as one of its
+     * principals listed, or in it, as `tenant_deactivated`.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @param  iterable<\SineMacula\Laravel\Authentication\Contracts\Principal>  $principals
@@ -448,9 +368,8 @@ final readonly class SessionRevocations
     }
 
     /**
-     * Every session of the identity, with its pending identifier changes of
-     * every type that has a normaliser (a change needs one), when its
-     * identifiers can be changed.
+     * Every session of the identity, with its pending identifier changes when
+     * its identifiers can be changed.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @return \SineMacula\Laravel\Authentication\Sessions\RevocationScope
@@ -467,15 +386,8 @@ final readonly class SessionRevocations
     }
 
     /**
-     * End every session of the scopes, reporting each revoked session and then
-     * each scope of an identity or a principal once the revocations commit,
-     * after the `$committed` callback given; a tenant's scope signs no one out
-     * everywhere, so it reports only its sessions. For a deactivation or
-     * deletion of the model given as `$changed`, the scopes are ended again
-     * once a transaction open on the session model's connection or on the
-     * model's own has committed (see `RevocationWriter::revokeAgain()`),
-     * reporting each session that pass revokes. The reports carry the client
-     * given, or else the client of the guard's request.
+     * End every session of the scopes and report each revoked session and scope
+     * once the revocations commit.
      *
      * @formatter:off
      *
@@ -539,8 +451,8 @@ final readonly class SessionRevocations
     }
 
     /**
-     * The binding's active tenant, or `null` when there is none or, bound by a
-     * trusted bind, it cannot be loaded: a revocation is reported either way.
+     * The binding's active tenant, or `null` when there is none or it cannot be
+     * loaded.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\GuardBinding  $binding
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Tenant
@@ -558,12 +470,7 @@ final readonly class SessionRevocations
 
     /**
      * Refuse a principal that does not act within the tenant, read through
-     * `WriteConnection::stored()` so a tenant relation set by whoever loaded
-     * the principal (or eager-loaded from a replica) cannot stand in for the
-     * stored one. A principal whose opted-in tenant cannot be loaded any more
-     * (deleted, soft-deleted, hidden by a scope) acts within the tenant when
-     * its `TenantUnavailableException` names that very tenant: its class and
-     * key.
+     * `WriteConnection::stored()`.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant

@@ -25,11 +25,8 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
 /**
- * Integration tests of sessions an external provider established over a
- * read/write split whose replica lags: their provenance, their accepted
- * evidence and the sessions a link established are all read on the primary, so
- * a session, proof or provenance just written counts at once for a
- * reauthentication, a standing, the evidence judged and a link's revocation.
+ * Integration tests that external sessions are read on the primary while the
+ * replica lags.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -86,9 +83,8 @@ final class ReplicaExternalSessionsTest extends TestCase
     }
 
     /**
-     * Straight after an external sign-in the replica has seen, a session and
-     * provenance only the primary holds reauthenticate through the link and
-     * stand for it, with or without a transaction.
+     * A session only the primary holds reauthenticates through the link and
+     * stands for it.
      *
      * @return void
      *
@@ -113,8 +109,8 @@ final class ReplicaExternalSessionsTest extends TestCase
     }
 
     /**
-     * Evidence accepted at sign-in, which only the primary holds, is the
-     * session's accepted evidence and its provenance's at once.
+     * Evidence only the primary holds is read as the session's accepted
+     * evidence.
      *
      * @return void
      *
@@ -134,8 +130,7 @@ final class ReplicaExternalSessionsTest extends TestCase
     }
 
     /**
-     * A link's removal and its widened scope each end a session only the
-     * primary holds.
+     * A link's removal or widened scope ends a session only the primary holds.
      *
      * @return void
      *
@@ -185,8 +180,8 @@ final class ReplicaExternalSessionsTest extends TestCase
     }
 
     /**
-     * Sign the seeded identity in through the link given, with the evidence
-     * given, and answer the session's record.
+     * Sign the seeded identity in through the link with the evidence and return
+     * the session record.
      *
      * @param  ?\SineMacula\Laravel\Authentication\External\ExternalEvidence  $evidence
      * @param  string  $linkId

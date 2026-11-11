@@ -49,9 +49,8 @@ final class FactorChangeTest extends TestCase
     }
 
     /**
-     * An identity's first additional factor must be fresh for
-     * `first_additional_factor` and every other change for `factor_change`;
-     * only a replacement or a removal names the factor it acts on.
+     * A first additional factor is fresh for `first_additional_factor` and
+     * every other change for `factor_change`.
      *
      * @param  \SineMacula\Laravel\Authentication\Factors\Enums\FactorChange  $change
      * @param  string  $operation

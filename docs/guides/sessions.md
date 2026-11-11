@@ -36,8 +36,7 @@ through, kept byte for byte, and the provider context the adapter gave with the 
 (`ExternalResult::$providerContext`), if any. A later reauthentication at the provider is a proof of its own and never
 rewrites how the session began: a reauthentication's provider context is not recorded, so the session keeps the one it
 was established with. The provenance is indexed by connection and by tenant: the sessions a connection established are
-revoked through it (see [Connections and links](#connections-and-links)); there is no lookup by connection or tenant
-yet.
+revoked through it (see [Connections and links](#connections-and-links)); there is no lookup by connection or tenant.
 
 The provider context is the adapter's, for its own authentication-context contributor (see [Single
 sign-on](extending.md#single-sign-on-laravel-sso)): a map whose keys are the contributing package's own, opaque to this
@@ -533,9 +532,9 @@ requirement (see [Pending sessions](signing-in.md#pending-sessions)).
 
 An identity that may act as several principals (memberships of several tenants, say) switches the principal it acts as
 to another one, in the same session, proven by the session's refresh token; a principal the application lets act in
-tenants other than its own (see
-[Letting principals act in other tenants](extending.md#letting-principals-act-in-other-tenants)) switches the session's
-active tenant the same way. A `SwitchTarget` says where the session goes:
+tenants other than its own (see [Letting principals act in other
+tenants](extending.md#letting-principals-act-in-other-tenants)) switches the session's active tenant the same way. A
+`SwitchTarget` says where the session goes:
 
 ```php
 use Illuminate\Http\Exceptions\ThrottleRequestsException;
@@ -798,7 +797,7 @@ $sessions->revokePrincipalSessions($membership, RevocationReason::REVOKED);
 Each session is revoked by one conditional update that only applies while it is not revoked yet, so every call is
 idempotent: the first revocation's time and reason are kept, and of two calls racing for a session only the one that
 revoked it reports `SessionRevoked`. `revokeSession()` finds the session through the owner's `sessions()` relation on
-the write connection, so another identity's session is simply not found and the call returns `false`, as it does for an
+the write connection, so another identity's session is not found and the call returns `false`, as it does for an
 unknown or already revoked one. `revokeSessions()` covers every session the identity's relation returns, of every guard;
 `revokePrincipalSessions()` every session of the configured model that records the principal. Both keep the `except`
 session when one is given, and return how many sessions they revoked; pending sessions (waiting on a further factor or
@@ -848,16 +847,14 @@ client's previous session only when the client proves it holds it, with that ses
 `SignInContext` (see [Signing in](signing-in.md#signing-in-the-session-service)); the session is then revoked with the
 reason `superseded` in the same transaction, and `SessionRevoked` reports it before the new session's `SessionCreated`.
 The IP address and user agent never count, so an application that does not pass the refresh token keeps every earlier
-session of the client until it expires, is signed out or is revoked. A refresh and a switch keep their
-session.
+session of the client until it expires, is signed out or is revoked. A refresh and a switch keep their session.
 
 ### Listing sessions
 
 `sessions()` returns one page of an identity's active sessions for a "where you're signed in" screen: every session it
-holds on any guard that is active (not pending), not revoked and before its idle deadline and its absolute deadline
-when it has one (each
-summary's `absolute_expires_at` is `null` when it has none), most recently used first
-(sessions never used last), then newest first:
+holds on any guard that is active (not pending), not revoked and before its idle deadline and its absolute deadline when
+it has one (each summary's `absolute_expires_at` is `null` when it has none), most recently used first (sessions never
+used last), then newest first:
 
 ```php
 use SineMacula\Laravel\Authentication\Facades\Auth;
@@ -1003,11 +1000,10 @@ Membership::observe(RevokeSessionsOnDeletion::class);
   are all those it holds: register the observer on the identity model and do not rely on the principal's observer for
   cascades. A principal a cascade removes with its tenant is covered by no identity's revocation, so call
   `tenantDeactivated()` with the tenant's principals inside the transaction that deletes the tenant, before the delete.
-  Registering the observer on a model that is
-  neither an identity nor a principal throws a `LogicException` when that model is deleted. In access-only mode (no
-  `authentication_sessions` table), a principal whose owner cannot be read when the revocation runs (for the observer,
-  when the transaction commits, so whichever of the two was deleted first in it) has its sessions looked for in that
-  table, and the revocation throws without it (see [Access-only
+  Registering the observer on a model that is neither an identity nor a principal throws a `LogicException` when that
+  model is deleted. In access-only mode (no `authentication_sessions` table), a principal whose owner cannot be read
+  when the revocation runs (for the observer, when the transaction commits, so whichever of the two was deleted first in
+  it) has its sessions looked for in that table, and the revocation throws without it (see [Access-only
   mode](installation.md#access-only-mode-no-sessions-no-refresh)). So when the identity records the cutoff
   (`HasTokensValidAfter`), register the observer on the identity model only: its revocation needs no table, and its
   cutoff ends every session-less token of the identity, whatever principal it acts as. When only its principals record
@@ -1093,31 +1089,31 @@ it.
 
 Either the revocation reads the session, or the call's check, made after its commit, reads the change. So no session
 established before or concurrently with a deactivation or deletion works after the reactivation or restore, with the
-observers or with direct calls (inside the change's transaction or after it; a call made before the change and outside
-a transaction, such as `tenantDeactivated()` before deleting a tenant, is not covered), on MySQL and PostgreSQL at READ
-COMMITTED and REPEATABLE READ (the levels the package's race tests run; MariaDB follows MySQL), for identity, principal
-and tenant models that are Eloquent models and whose standing is read on their own connection. The check waits only for
-the connections of those models: what it reads on another connection (a principal or tenant that is no Eloquent model,
-through your resolver; a principal's own tenant loaded from another connection when the session records no active
-tenant; activity your `isActive()` derives from rows elsewhere) is read as that connection gives it, so a sign-in,
-choice or switch made inside a transaction of yours on such a connection, at REPEATABLE READ, judges it through that
-transaction's snapshot and can miss a change committed after it: do not make one inside a transaction on a connection
-the check reads but does not wait for. The one exception is a change undone (reactivated, restored) before a call in
-flight checks its session: the check sees the subject standing again, and only the "tokens valid after" cutoff the
-revocation moved records the change, so a call in flight is ended when its identity's or principal's cutoff moved to a
-later second than the one it began in (as `issued_before_cutoff`, revoked as `signed_out_everywhere`). So a call's
-session stands after the undo when the subject records no cutoff (a tenant always; an identity or principal without
-`HasTokensValidAfter`; one hard-deleted, which has no row to move a cutoff on, when a row is inserted again under its
-key before the check), or when the deactivation's or deletion's revocation ran within the second the call began,
-however long after that the change was undone: give identities and principals `ProvidesTokensValidAfter`. The cutoff
-ends a call in flight whatever moved it, so a sign-in, choice or switch under way while its identity signs out
-everywhere, changes or resets its password or removes a factor is ended too: it proved itself before that revocation.
-A revocation that keeps the call's session (`passwordChanged($user, Auth::session())`, `Auth::passwords()->establish()`,
-`credentialRemoved()` or the factor package's `factorRemoved()` given it, `signOutEverywhere(keepCurrentSession: true)`)
-saw it, so the cutoff it moves does not end it: that revocation, made in the same request or job before the check runs
-(inside your transaction, which the check waits for), is recorded with the session, and only a cutoff moved to a later
-second than both the call's start and that revocation's ends it. A keeping revocation whose move of an Eloquent
-identity's or principal's cutoff is rolled back (inside a nested transaction of yours) keeps nothing.
+observers or with direct calls (inside the change's transaction or after it; a call made before the change and outside a
+transaction, such as `tenantDeactivated()` before deleting a tenant, is not covered), on MySQL and PostgreSQL at READ
+COMMITTED and REPEATABLE READ (MariaDB follows MySQL), for identity, principal and tenant models that are Eloquent
+models and whose standing is read on their own connection. The check waits only for the connections of those models:
+what it reads on another connection (a principal or tenant that is no Eloquent model, through your resolver; a
+principal's own tenant loaded from another connection when the session records no active tenant; activity your
+`isActive()` derives from rows elsewhere) is read as that connection gives it, so a sign-in, choice or switch made
+inside a transaction of yours on such a connection, at REPEATABLE READ, judges it through that transaction's snapshot
+and can miss a change committed after it: do not make one inside a transaction on a connection the check reads but does
+not wait for. The one exception is a change undone (reactivated, restored) before a call in flight checks its session:
+the check sees the subject standing again, and only the "tokens valid after" cutoff the revocation moved records the
+change, so a call in flight is ended when its identity's or principal's cutoff moved to a later second than the one it
+began in (as `issued_before_cutoff`, revoked as `signed_out_everywhere`). So a call's session stands after the undo when
+the subject records no cutoff (a tenant always; an identity or principal without `HasTokensValidAfter`; one
+hard-deleted, which has no row to move a cutoff on, when a row is inserted again under its key before the check), or
+when the deactivation's or deletion's revocation ran within the second the call began, however long after that the
+change was undone: give identities and principals `ProvidesTokensValidAfter`. The cutoff ends a call in flight whatever
+moved it, so a sign-in, choice or switch under way while its identity signs out everywhere, changes or resets its
+password or removes a factor is ended too: it proved itself before that revocation. A revocation that keeps the call's
+session (`passwordChanged($user, Auth::session())`, `Auth::passwords()->establish()`, `credentialRemoved()` or the
+factor package's `factorRemoved()` given it, `signOutEverywhere(keepCurrentSession: true)`) saw it, so the cutoff it
+moves does not end it: that revocation, made in the same request or job before the check runs (inside your transaction,
+which the check waits for), is recorded with the session, and only a cutoff moved to a later second than both the call's
+start and that revocation's ends it. A keeping revocation whose move of an Eloquent identity's or principal's cutoff is
+rolled back (inside a nested transaction of yours) keeps nothing.
 
 The check and the second pass run after durable commits. Outside your transaction a database error in either is
 thrown from the call with the session (or the change) committed, and the call is not answered with the session: call
@@ -1394,8 +1390,8 @@ A further factor is met only as the bound `Contracts\ExternalEvidencePolicy` jud
 evidence (see [Proofs and provenance](#proofs-and-provenance)) or the bound `Contracts\RequirementCheck` judges the
 session's proofs (the defaults, `InsufficientEvidence` and `MeetNoRequirement`, meet nothing, so a tenant that requires
 a further factor admits no session until the application trusts a provider's evidence or a factor package binds its
-check). A session established through a connection carries it in its provenance (`signInExternally()`). A
-session that meets the policy records the version of the answer in `tenant_policy_version`.
+check). A session established through a connection carries it in its provenance (`signInExternally()`). A session that
+meets the policy records the version of the answer in `tenant_policy_version`.
 
 A refresh that returns a session to pending hands out no pair: `RefreshResult::isPending()`, with `pending` (what it
 waits on, `["mfa"]`) and `credential`, and `SessionReturnedToPending` reports it. A guard the request already bound to

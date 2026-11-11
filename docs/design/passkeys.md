@@ -106,20 +106,20 @@ package's.
   `PasskeyFactorAssociation`; `removing()` with the passkey's id and credential id and the call's `ClientContext`, which
   may answer the factor package's completion of the removal. The client is a plain value the registration or removal
   was given, so a gate's own `satisfy()` or `factorRemoved()` judges, reports and records it and never reads the
-  guard's request. A gate that throws refuses the change, rolled back
-  whole. The association may carry the factor package's completion of the registration (`completion`), and both
-  completions reach the caller untouched (`PasskeyRegistration::$factor->completion`, `PasskeyRemoval::$completion`):
-  they are opaque `?object`s, so the factor package's own result (its judgement of the current session again through
-  `factorChanged()` after a registration under a policy that now asks for a further factor, or `factorRemoved()`'s
-  `FactorRemoval` after a removal, each with any new pending credential) reaches its client without this package naming
-  its type. A credential inserted by another while the gate ran rolls the change back and answers `already_registered`
-  with no association; a passkey deleted by another answers `PasskeyRemoval::notRemoved()`, with no completion. The
-  default, `Passkeys\NoPasskeyFactors`, associates nothing, completes nothing and refuses nothing.
+  guard's request. A gate that throws refuses the change, rolled back whole. The association may carry the factor
+  package's completion of the registration (`completion`), and both completions reach the caller untouched
+  (`PasskeyRegistration::$factor->completion`, `PasskeyRemoval::$completion`): they are opaque `?object`s, so the factor
+  package's own result (its judgement of the current session again through `factorChanged()` after a registration under
+  a policy that now asks for a further factor, or `factorRemoved()`'s `FactorRemoval` after a removal, each with any new
+  pending credential) reaches its client without this package naming its type. A credential inserted by another while
+  the gate ran rolls the change back and answers `already_registered` with no association; a passkey deleted by another
+  answers `PasskeyRemoval::notRemoved()`, with no completion. The default, `Passkeys\NoPasskeyFactors`, associates
+  nothing, completes nothing and refuses nothing.
 - Registration on a pending sign-in (a bootstrap enrolment): the options are asked with a `ProofBinding` naming the
   pending session, and `register(..., $client, pending: PendingCredential::extract($request))` hands in that
   sign-in's pending credential (the `Secret`, `pending_invalid` for a malformed field, or the application's own value;
   any other `FailureReason` is an `InvalidArgumentException`, raised before the challenge is used up, and `null` is an
-  ordinary registration, which behaves as before). A cookie application's client that did not come from a page of its
+  ordinary registration). A cookie application's client that did not come from a page of its
   own site is `cross_site_request` first (`SessionPreconditions::crossSite()`, before the pending session is read or
   the gate asked); an ordinary registration is not judged, since it sets no cookie and acts for an active session.
   Then, in the registration's transaction and before the gate is asked or a row written, the package locks the

@@ -30,9 +30,8 @@ use Tests\Unit\Stubs\PlainSessionFixture;
 final class SessionReturnedToPendingTest extends TestCase
 {
     /**
-     * The event keeps its context, what the session waits on, when its pending
-     * credential expires, the flow the shortfall was found in, and the previous
-     * principal and tenant when the destination changed them.
+     * The event keeps its context, what the session waits on and what the
+     * return changed.
      *
      * @return void
      */
@@ -67,9 +66,8 @@ final class SessionReturnedToPendingTest extends TestCase
     }
 
     /**
-     * The event holds no model, serialises as it is for queued listeners and
-     * survives a round trip, and leaves the dispatch to the package, which
-     * waits for the session's own connection to commit.
+     * The event holds no model, survives a round trip and leaves its dispatch
+     * to the package.
      *
      * @return void
      */

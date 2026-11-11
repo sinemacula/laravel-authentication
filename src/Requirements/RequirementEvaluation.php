@@ -6,7 +6,7 @@ namespace SineMacula\Laravel\Authentication\Requirements;
 
 /**
  * A check's answer about a requirement: the kinds of part the session does not
- * meet. It meets the requirement when none is left unmet.
+ * meet.
  *
  * @api
  *

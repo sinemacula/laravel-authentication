@@ -36,11 +36,7 @@ use Tests\Unit\Stubs\StubNonModelSession;
 
 /**
  * Feature tests of how the token service issues an access token for a stored
- * session: in a transaction on the session's connection that first writes the
- * session's issuance guard, then takes the issue time, then reads the session's
- * proofs current, so the token's `auth_time` and `amr` never go back on those
- * of a token of the session committed before it; and how the package's own
- * issuers, which write the session's row themselves, issue without the guard.
+ * session.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -91,9 +87,8 @@ final class JwtTokenServiceTest extends TestCase
     }
 
     /**
-     * The token is issued in a transaction of its own: the session's issuance
-     * guard is its first statement, the read of the session's proofs comes
-     * after it in the same transaction, and the token carries what they say.
+     * The token is issued in its own transaction, whose first statement is the
+     * session's issuance guard.
      *
      * @return void
      *
@@ -146,9 +141,7 @@ final class JwtTokenServiceTest extends TestCase
 
     /**
      * With no issue time given, the token is issued at the second the guard was
-     * written, not when the call began: a proof another issuer committed while
-     * the guard waited is never later than the token's `iat`. A time the caller
-     * gives is kept.
+     * written; a given time is kept.
      *
      * @return void
      *
@@ -232,11 +225,8 @@ final class JwtTokenServiceTest extends TestCase
     }
 
     /**
-     * The package's own issuers, which write the session's row themselves
-     * first, issue at the time they give without writing anything, reading the
-     * proofs as the public issue does, and are told when the token expires and
-     * how long it lives as its `exp` and `iat` say; a machine is refused, as it
-     * has no session.
+     * The package's own issuers issue at the time they give without writing
+     * anything, and a machine is refused.
      *
      * @return void
      *
@@ -276,9 +266,8 @@ final class JwtTokenServiceTest extends TestCase
     }
 
     /**
-     * A guarded issue reads the proofs current, with a shared lock on MySQL and
-     * MariaDB, unless the issuer's transaction inserted the session, whose
-     * proofs are its own until it commits; other engines never lock.
+     * A guarded issue reads the proofs with a shared lock on MySQL and MariaDB,
+     * unless its transaction inserted the session.
      *
      * @param  string  $driver
      * @return void
@@ -304,9 +293,8 @@ final class JwtTokenServiceTest extends TestCase
     }
 
     /**
-     * A session that is not an Eloquent model takes no guard and no
-     * transaction, and its proofs are read current too; it records no owner a
-     * proof could be bound to, so no token is issued for it.
+     * A session that is not an Eloquent model takes no guard or transaction,
+     * and no token is issued for it.
      *
      * @return void
      */
@@ -322,10 +310,8 @@ final class JwtTokenServiceTest extends TestCase
     }
 
     /**
-     * A session that declares the Eloquent session contract but is not a model
-     * is issued for as any other session that is not one: no guard, no
-     * transaction, and its proofs read current; only a session that is both
-     * takes the guarded path.
+     * A session declaring the Eloquent session contract without being a model
+     * takes no guard or transaction.
      *
      * @return void
      */
@@ -348,10 +334,8 @@ final class JwtTokenServiceTest extends TestCase
     }
 
     /**
-     * A model that implements only the session contract, not the Eloquent one,
-     * is issued for as a session that is not a model: it is never held to the
-     * storage connection, no guard is written and no transaction opened, so it
-     * is refused for its own deadlines, without a query.
+     * A model implementing only the session contract takes no guard and is
+     * refused for its own deadlines without a query.
      *
      * @return void
      *

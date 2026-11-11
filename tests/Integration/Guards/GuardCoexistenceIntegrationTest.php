@@ -24,15 +24,7 @@ use Tests\Integration\Fixtures\Coexist3dPrincipal;
 use Tests\TestCase;
 
 /**
- * Integration test proving that two package guards - one in 2D mode
- * (identity-is-principal) and one in 3D mode (identity → distinct principal via
- * `HasPrincipals`) - can coexist in the same Laravel application without
- * cross-contamination.
- *
- * Both guards run through the real `JwtGuard::user()` bearer-token resolution
- * path using tokens issued through the guard-scoped `Auth::jwt(...)` surface,
- * so the test exercises the full identity → provider → resolver → principal
- * wiring end-to-end.
+ * A 2D guard and a 3D guard coexist in one application without sharing state.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -55,10 +47,7 @@ final class GuardCoexistenceIntegrationTest extends TestCase
     private Carbon $now;
 
     /**
-     * Freeze the Carbon + JWT clocks and create the three fixture tables used
-     * by the 2D and 3D guards (the base TestCase already creates the shipped
-     * `authentication_sessions` table via `defineDatabaseMigrations()`, which
-     * these guards do not need but is harmless to leave in place).
+     * Freeze the clocks and create the fixture tables for both guards.
      *
      * @return void
      */
@@ -99,7 +88,7 @@ final class GuardCoexistenceIntegrationTest extends TestCase
     }
 
     /**
-     * Drop the three fixture tables and release the frozen clocks.
+     * Drop the fixture tables and release the frozen clocks.
      *
      * @return void
      */
@@ -118,21 +107,7 @@ final class GuardCoexistenceIntegrationTest extends TestCase
     }
 
     /**
-     * End-to-end coexistence assertion.
-     *
-     * Seeds a 2D identity and a 3D identity + principal, issues a real JWT
-     * access token for each via the guard-scoped `Auth::jwt(...)` surface,
-     * hands each token to the respective guard through a real Illuminate
-     * Request's `Bearer` header, and asserts:
-     *
-     * 1. the 2D guard's `identity()` and `principal()` return the exact same
-     *    model instance (2D adoption mode),
-     * 2. the 3D guard's `identity()` and `principal()` return distinct model
-     *    instances of distinct classes (3D mode),
-     * 3. after rebinding the request for the 3D guard, the old 2D guard has
-     *    been cleared rather than leaking request-local auth state,
-     * 4. and `Auth::id()` on the active guard returns that guard's identity
-     *    key.
+     * Each guard resolves its own token in its own mode without leaking state.
      *
      * @return void
      *
@@ -182,18 +157,13 @@ final class GuardCoexistenceIntegrationTest extends TestCase
         self::assertNotInstanceOf(Coexist3dIdentity::class, $principal3d, 'The 3D principal must NOT be an instance of the identity model class.');
         self::assertSame($threeDPrincipal->getKey(), $principal3d->getPrincipalIdentifier());
 
-        // Request rebinding must clear the previously-bound 2D guard so no
-        // request-local auth state leaks across requests. `hasUser()` reads the
-        // bound state without resolving the new request.
+        // `hasUser()` reads the bound state without resolving the new request.
         self::assertFalse($guard2d->hasUser());
 
         self::assertNotInstanceOf(Coexist2dIdentity::class, $guard3d->identity());
         self::assertNotInstanceOf(Coexist2dIdentity::class, $guard3d->principal());
 
-        // Resolving the 2D guard against the new request does not accept the 3D
-        // guard's token: tokens are bound to the guard that issued them, even
-        // though both guards sign with the same key and the identifiers
-        // collide.
+        // Both guards share a signing key and the identifiers collide.
         self::assertNull($guard2d->identity());
         self::assertNull($guard2d->principal());
 
@@ -202,10 +172,7 @@ final class GuardCoexistenceIntegrationTest extends TestCase
     }
 
     /**
-     * Flip `auth.defaults.guard` between `api_2d` and `api_3d` and assert that
-     * the default-guard-dispatched `Auth::principal()` accessor routes to the
-     * correct guard each time, exposing the matching adoption mode's contextual
-     * triple.
+     * `Auth::principal()` follows the default guard as it flips between modes.
      *
      * @return void
      *
@@ -236,9 +203,7 @@ final class GuardCoexistenceIntegrationTest extends TestCase
     }
 
     /**
-     * Flip `auth.defaults.guard` to `api_3d` and assert that the
-     * default-guard-dispatched `Auth::principal()` accessor routes to the 3D
-     * guard, exposing distinct identity and principal instances.
+     * `Auth::principal()` on a 3D default guard returns a distinct principal.
      *
      * @return void
      *
@@ -269,8 +234,7 @@ final class GuardCoexistenceIntegrationTest extends TestCase
     }
 
     /**
-     * Configure the two providers and two jwt guards the tests run against,
-     * plus the JWT secret and the default `api_2d` guard.
+     * Configure the 2D and 3D guards with `api_2d` as the default.
      *
      * @param  mixed  $app
      * @return void
@@ -311,8 +275,7 @@ final class GuardCoexistenceIntegrationTest extends TestCase
     }
 
     /**
-     * Insert one 2D identity row, one 3D identity row, and one matching active
-     * principal row, returning the three hydrated models.
+     * Persist a 2D identity, a 3D identity and its active principal.
      *
      * @formatter:off
      *
@@ -344,11 +307,7 @@ final class GuardCoexistenceIntegrationTest extends TestCase
     }
 
     /**
-     * Bind a fresh Illuminate Request carrying the supplied JWT as a `Bearer`
-     * token onto the container's `request` binding. The service provider's
-     * `refresh('request', ...)` wiring propagates the new request onto every
-     * previously-constructed guard, so already-resolved guards pick up the swap
-     * automatically.
+     * Bind a fresh request carrying the bearer token for resolved guards.
      *
      * @param  string  $token
      * @return void
@@ -367,9 +326,7 @@ final class GuardCoexistenceIntegrationTest extends TestCase
     }
 
     /**
-     * Swap the default guard config key and forget any cached guards so the
-     * next `Auth::guard()` call builds the newly-defaulted guard against the
-     * current request binding.
+     * Switch the default guard and forget the cached guards.
      *
      * @param  string  $name
      * @return void

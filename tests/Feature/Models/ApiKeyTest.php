@@ -15,9 +15,7 @@ use Tests\Integration\Fixtures\SeparateConnectionSession;
 use Tests\TestCase;
 
 /**
- * Feature tests for the API key model: its configured table on the storage
- * connection, what it hides and casts, and pruning keys revoked or expired
- * longer ago than the retention.
+ * Feature tests for the API key model.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -43,9 +41,8 @@ final class ApiKeyTest extends TestCase
     }
 
     /**
-     * The model reads its table from the configuration and its connection from
-     * the storage connection, each time it is built; a session model on another
-     * connection does not move it, since keys have no sessions.
+     * The model reads its table and storage connection each time it is built,
+     * whatever connection the session model names.
      *
      * @return void
      */

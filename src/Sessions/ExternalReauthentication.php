@@ -39,44 +39,8 @@ use SineMacula\Laravel\Authentication\Tenancy\Enums\TenantPolicyStanding;
 use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyCheck;
 
 /**
- * Reauthenticates a session of one guard with a result an external identity
- * provider verified, through the very link that established the session:
- * records an `external_reauthentication` proof on it and issues it a new access
- * token. It renews the session's authentication time and nothing else unless
- * the evidence contract accepts the provider's evidence: no refresh token is
- * issued, the session row (apart from its issuance guard), its deadlines and
- * its provenance stay as they were, and nothing is bound.
- *
- * In order: the application policy must allow `external_provider`
- * (`method_not_allowed`); the session the identifier names, read on the write
- * connection, must exist (`session_unknown`) and be one of this guard's live,
- * active sessions of a person (the reasons `ProofIssuance` gives); the result
- * must say when the provider authenticated the identity (`proof_invalid`); the
- * link contract must link it to an identity (`ExternalResultUnlinked`, then
- * `external_result_unlinked`), and that identity must own the session
- * (`link_mismatch`); then the result's evidence is judged for it. The proof is
- * then recorded and the token issued as `ProofIssuance` describes, the
- * session's row locked (after every lock the adapter took, the link contract's
- * included) and checked again: still of the same generation
- * (`session_unknown`), owned by the link's identity and established through
- * exactly the result's connection and the link's id, which its provenance
- * records (`link_mismatch`: a session established through another link of the
- * same identity, or through no link at all, never matches), and not begun after
- * the provider authenticated the identity (`proof_invalid`). Once the proof is
- * recorded, the session is judged against its tenant's authentication policy,
- * with that proof among its own, as every redemption is: a connection the
- * tenant no longer admits is `sso_required`, a further factor it now requires
- * and the session does not meet `additional_factor_required`, and either rolls
- * the proof back. Neither writes the session: the next refresh revokes it or
- * returns it to pending, and no policy version is recorded.
- *
- * The proof is timed when the provider authenticated the identity (now, when
- * that is after now), so the access token's `auth_time`, the newest of the
- * session's proof times, becomes the later of its current value and the
- * provider's time, decided under the session's lock. Its `amr` and `mfa` change
- * only when the evidence was accepted. `Reauthenticated` reports it once
- * committed; a refusal reports `AuthenticationFailed` (flow `reauthentication`)
- * and is answered, never thrown.
+ * Reauthenticates a session with a result an external identity provider
+ * verified, through the very link that established the session.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -186,14 +150,7 @@ final readonly class ExternalReauthentication
 
     /**
      * Why the session the identifier names has no standing for the identity
-     * through the connection and the link, or `null` when it has: of this
-     * guard, live, active and a person's, owned by the identity and established
-     * through exactly that connection and that link, or any link when none is
-     * given. Inside a transaction on the session model's connection its row is
-     * locked until the transaction ends, and its provenance read current
-     * (`SessionProofs`), so a key another sign-in reused after the
-     * transaction's first read is judged on its own provenance; outside one
-     * both are read on the write connection and nothing is locked.
+     * through the connection and the link; `null` when it has.
      *
      * @param  mixed  $sessionId
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -225,9 +182,8 @@ final readonly class ExternalReauthentication
     }
 
     /**
-     * Check the session, the provider's time and the link before anything is
-     * locked: the stored session, the link and the time the proof is recorded
-     * at, or the refusal.
+     * The stored session, the link and the proof's time, or the refusal, before
+     * anything is locked.
      *
      * @formatter:off
      *
@@ -267,9 +223,7 @@ final readonly class ExternalReauthentication
     }
 
     /**
-     * Check the method, the session the identifier names as stored and the
-     * provider's time: the stored session and the provider's time, or the
-     * refusal.
+     * The stored session and the provider's time, or the refusal.
      *
      * @formatter:off
      *
@@ -339,10 +293,7 @@ final readonly class ExternalReauthentication
 
     /**
      * Why the locked session, with the proof just recorded, no longer meets its
-     * tenant's authentication policy, as a refresh judges it, its proofs and
-     * provenance read current, but writing nothing: `sso_required` for a
-     * session the next refresh would revoke, `additional_factor_required` for
-     * one it would return to pending; `null` when it meets it.
+     * tenant's authentication policy; `null` when it meets it.
      *
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
@@ -364,12 +315,9 @@ final readonly class ExternalReauthentication
 
     /**
      * Whether the session is the identity's and its provenance records exactly
-     * the connection and the link, or any link when none is given, each
-     * compared byte for byte; a session with no provenance, or one that records
-     * no link, never is. The provenance is read current when asked, for a row
-     * this transaction holds locked with no check of its generation before; a
-     * session's provenance never changes within a generation, so a check made
-     * after `SessionGeneration::isSame()` reads it plainly.
+     * the connection and the link, or any link when none is given.
+     *
+     * Provenance is fixed per generation; an unchecked row reads it current.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -392,8 +340,7 @@ final readonly class ExternalReauthentication
     }
 
     /**
-     * Report a refused reauthentication with `AuthenticationFailed`, with the
-     * result's connection and request reference, and answer it.
+     * Report a refused reauthentication and answer it.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Refused  $refused
      * @param  \SineMacula\Laravel\Authentication\External\ExternalResult  $result

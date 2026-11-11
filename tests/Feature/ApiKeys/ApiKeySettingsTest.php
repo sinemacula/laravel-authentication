@@ -10,9 +10,7 @@ use SineMacula\Laravel\Authentication\ApiKeys\ApiKeySettings;
 use Tests\TestCase;
 
 /**
- * Feature tests for the `authentication.api_keys` settings: the shipped
- * defaults, the forms accepted, and that every value out of form or range fails
- * closed naming its key.
+ * Feature tests for the `authentication.api_keys` settings.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

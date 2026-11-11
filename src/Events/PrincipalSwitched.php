@@ -7,24 +7,8 @@ namespace SineMacula\Laravel\Authentication\Events;
 use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
 
 /**
- * Dispatched when a session switches the principal it acts as, its active
- * tenant, or both (`switchTo()`): the session records the new principal and
- * tenant, its refresh credential was rotated, and every access token issued
- * before the switch stopped working. `principalChanged` and `tenantChanged` say
- * which changed; at least one did.
- *
- * Dispatched once the switch is committed on the session's own connection: at
- * once when that connection has no open transaction, after its transaction
- * commits otherwise, and never for a switch that is rolled back. A switch to
- * the principal and tenant the session already records rotates the credential
- * like a refresh and dispatches nothing.
- *
- * The context carries the guard, the client, the identity, the new principal
- * and the tenant it now acts in, the session and its method. The previous
- * principal is described by the morph class and identifier the session
- * recorded, and the previous tenant by the identifier the session recorded
- * (`null` for none), all taken when the event is built: plain values, as the
- * context's are.
+ * Dispatched once a session's switch of principal, active tenant or both is
+ * committed.
  *
  * @api
  *

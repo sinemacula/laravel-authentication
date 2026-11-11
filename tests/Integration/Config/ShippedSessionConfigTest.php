@@ -18,11 +18,7 @@ use Tests\TestCase;
 
 /**
  * Integration tests for the `session` block of the shipped
- * `config/authentication.php`: the env vars it reads and the last-use throttle.
- *
- * Loads the shipped `session` block against a controlled environment, so a
- * renamed key or env var fails here rather than shipping silently: the listener
- * falls back to the same 60 seconds the shipped default gives.
+ * `config/authentication.php`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -110,8 +106,7 @@ final class ShippedSessionConfigTest extends TestCase
     }
 
     /**
-     * `AUTHENTICATION_SESSION_LAST_USED_THROTTLE_SECONDS` set to 0 makes the
-     * listener record every use: a use one second after the last is recorded.
+     * A throttle of 0 in the environment records every use.
      *
      * @return void
      */
@@ -142,8 +137,8 @@ final class ShippedSessionConfigTest extends TestCase
     }
 
     /**
-     * Rows of `[env var, value, key]`: an env var the shipped `session` block
-     * reads, a value for it, and the key it sets.
+     * Rows of `[env var, value, key]` for the env vars the shipped `session`
+     * block reads.
      *
      * @return iterable<string, array{0: string, 1: string, 2: string}>
      */

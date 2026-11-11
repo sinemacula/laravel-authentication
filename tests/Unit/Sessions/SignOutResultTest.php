@@ -13,9 +13,7 @@ use Symfony\Component\HttpFoundation\Cookie;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Unit tests for how a sign-out ends: whether it revoked a session, why its
- * refresh credential was refused, where that credential was read from, and the
- * cookie that clears a cookie application's.
+ * Unit tests for how a sign-out ends.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

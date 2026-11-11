@@ -8,19 +8,8 @@ use Illuminate\Contracts\Auth\CanResetPassword;
 use SineMacula\Laravel\Authentication\Contracts\PasswordResetLinkSender;
 
 /**
- * The default password reset link sender: Laravel's own, through
- * `CanResetPassword::sendPasswordResetNotification($token)`, so its
- * `ResetPassword` notification and that notification's `createUrlUsing()` and
- * `toMailUsing()` hooks keep working.
- *
- * Laravel's notification builds the link from the identity's
- * `getEmailForPasswordReset()` and no guard, and states the expiry of
- * `auth.passwords.*.expire`, so it suits only a guard whose password identifier
- * is `email`, with one reset route per guard and that expiry kept in step with
- * `authentication.passwords.reset.link_ttl_seconds`; a reset link is refused
- * before anything is counted for any other identifier while this sender is
- * bound. An identity that does not implement `CanResetPassword` fails the job
- * with a `LogicException`.
+ * The default password reset link sender, through Laravel's
+ * `CanResetPassword::sendPasswordResetNotification()`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

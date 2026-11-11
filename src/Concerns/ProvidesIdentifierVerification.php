@@ -11,19 +11,7 @@ use SineMacula\Laravel\Authentication\Identifiers\IdentifierType;
 
 /**
  * Provides a default `HasVerifiableIdentifiers` implementation on an Eloquent
- * identity: the identifier of a type is the attribute named after the type
- * (`email`), and its verification time is `<type>_verified_at`
- * (`email_verified_at`, the column Laravel's own email verification uses).
- * Override `getVerifiedAtName()` to use other columns.
- *
- * Both attributes must be loaded: a model selected without one throws rather
- * than being read as unverified or as having no identifier, so a partial select
- * surfaces as a misconfiguration.
- *
- * When an identifier changes, its verification no longer applies: set its
- * `<type>_verified_at` to `null` with it, unless the change replaces it with
- * one already proven (`ProvidesIdentifierChanges::replaceIdentifier()` records
- * that one as verified).
+ * identity, verified at `<type>_verified_at`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -64,13 +52,8 @@ trait ProvidesIdentifierVerification
     }
 
     /**
-     * Record the identifier as verified now, in one transaction on the
-     * identity's connection: the row is read again under a lock (`FOR UPDATE`
-     * where the database has one), and `<type>_verified_at` is set only when
-     * the row's identifier is the one given, byte for byte (not merely equal
-     * under the column's collation), and its verification time is still `null`.
-     * The model is updated to match only when the row changed. The write fires
-     * no model events and leaves `updated_at` alone.
+     * Record the identifier as verified now, when the locked row still holds it
+     * byte for byte and is unverified.
      *
      * @param  string  $type
      * @param  string  $identifier

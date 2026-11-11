@@ -9,9 +9,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 
 /**
- * A principal resolver that answers the principal it was given, whatever it is
- * asked, and records the hints it is asked with: a stand-in for an
- * application's resolver of principals that are not Eloquent models.
+ * A principal resolver that answers the principal it was given and records the
+ * hints it is asked with.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

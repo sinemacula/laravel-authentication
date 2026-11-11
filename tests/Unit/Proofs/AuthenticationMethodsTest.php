@@ -10,8 +10,7 @@ use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Proofs\AuthenticationMethods;
 
 /**
- * Unit tests for a proof's `amr` values: the list a proof may carry, and the
- * values read back from a stored proof.
+ * Unit tests for a proof's `amr` values.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -48,8 +47,8 @@ final class AuthenticationMethodsTest extends TestCase
     }
 
     /**
-     * A list of at most eight values of 1 to 48 printable ASCII characters,
-     * none of them `mfa`, is kept whole and in order.
+     * A list of up to eight valid values, none of them `mfa`, is kept whole and
+     * in order.
      *
      * @param  list<string>  $methods
      * @return void
@@ -85,8 +84,7 @@ final class AuthenticationMethodsTest extends TestCase
     }
 
     /**
-     * Values that are no list, too many, or hold one that is no string, is
-     * misshapen or is `mfa`, are refused.
+     * An invalid list of values is refused.
      *
      * @param  array<array-key, mixed>  $methods
      * @param  string  $message
@@ -102,9 +100,7 @@ final class AuthenticationMethodsTest extends TestCase
     }
 
     /**
-     * The values a stored proof kept are its strings as a list, in order;
-     * anything else it holds is no value, and a row that holds no array has
-     * none.
+     * The values a stored proof kept are its strings, as a list.
      *
      * @return void
      */

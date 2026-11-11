@@ -22,10 +22,7 @@ use SineMacula\Laravel\Authentication\Passwords\PasswordSettings;
 use SineMacula\Laravel\Authentication\Testing\FakeBreachedPasswordChecker;
 
 /**
- * Unit tests for the password policy: which rule each password breaks under
- * each setting and at each bound, bcrypt's byte ceiling, and the breached check
- * with a checker that finds nothing, finds the password, or cannot answer,
- * failing closed or open.
+ * Unit tests for the password policy and its breached password check.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -50,7 +47,7 @@ final class PasswordPolicyTest extends TestCase
 
     /**
      * Build a container with the configuration, the default checker and a
-     * handler that records what it is given.
+     * recording handler.
      *
      * @return void
      */
@@ -77,8 +74,7 @@ final class PasswordPolicyTest extends TestCase
     }
 
     /**
-     * Rows of `[settings, password, violations]`: every rule at its bounds,
-     * alone and together.
+     * Rows of `[settings, password, violations]`: every rule at its bounds.
      *
      * @return iterable<string, array{0: array<string, mixed>, 1: string, 2: list<string>}>
      */
@@ -113,8 +109,7 @@ final class PasswordPolicyTest extends TestCase
     }
 
     /**
-     * Each password breaks exactly the rules listed, in the order the
-     * violations are declared; one that breaks none passes.
+     * Each password breaks exactly the rules listed, in declaration order.
      *
      * @param  array<string, mixed>  $settings
      * @param  string  $password
@@ -133,9 +128,7 @@ final class PasswordPolicyTest extends TestCase
     }
 
     /**
-     * Under bcrypt a password of more than 72 bytes is too long, however few
-     * characters it has, since bcrypt would ignore the rest; under another
-     * driver, or at exactly 72 bytes, it is not.
+     * Under bcrypt a password of more than 72 bytes is too long.
      *
      * @return void
      */
@@ -158,9 +151,7 @@ final class PasswordPolicyTest extends TestCase
     }
 
     /**
-     * Under bcrypt, which refuses to hash a null character, a password holding
-     * one breaks that rule alongside any other, and the breached check is not
-     * asked; under another driver it passes.
+     * Under bcrypt a password holding a null character breaks a rule.
      *
      * @return void
      */
@@ -180,8 +171,7 @@ final class PasswordPolicyTest extends TestCase
     }
 
     /**
-     * The breached check runs only for a password that passes the other rules,
-     * and finds what the checker finds.
+     * The breached check runs only for a password that passes the other rules.
      *
      * @return void
      */
@@ -196,9 +186,8 @@ final class PasswordPolicyTest extends TestCase
     }
 
     /**
-     * A checker that cannot answer is reported, once, and the password is then
-     * rejected as unchecked when the policy fails closed (the default) and
-     * passes when it fails open.
+     * An unavailable checker is reported, and the policy fails closed or open
+     * as configured.
      *
      * @return void
      */
@@ -218,8 +207,7 @@ final class PasswordPolicyTest extends TestCase
     }
 
     /**
-     * Any other failure of the checker is not an outage the policy decides on:
-     * it propagates, unreported.
+     * Any other checker failure propagates unreported.
      *
      * @return void
      */
@@ -242,8 +230,7 @@ final class PasswordPolicyTest extends TestCase
     }
 
     /**
-     * A malformed setting fails closed before any password is judged, even one
-     * that the rest of the policy would let through without reading it.
+     * A malformed setting fails closed before any password is judged.
      *
      * @return void
      */
@@ -287,10 +274,8 @@ final class PasswordPolicyTest extends TestCase
     }
 
     /**
-     * `rule()` is Laravel's `Password` rule with the configured lengths and
-     * exactly the composition rules switched on, and never Laravel's own
-     * breached check, which would call out to a service the application did not
-     * choose.
+     * `rule()` is Laravel's `Password` rule with the configured policy and no
+     * breached check.
      *
      * @param  array<string, mixed>  $settings
      * @param  array{min: int, max: int, mixedCase: bool, letters: bool, numbers: bool, symbols: bool}  $expected

@@ -10,11 +10,7 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 
 /**
- * Shared JWT helpers for test cases that issue tokens and inspect what the
- * issuer wrote into the header.
- *
- * A trait rather than a base-class method because the JWT tests extend
- * different base cases (plain PHPUnit, Testbench, and the package `TestCase`).
+ * Shared JWT helpers for test cases that issue tokens and inspect their header.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -24,8 +20,7 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 trait InteractsWithJwtTokens
 {
     /**
-     * Decode the JWT header segment of the supplied token without verifying it,
-     * so assertions on the header do not depend on the verifier path.
+     * Decode the header segment of the token without verifying it.
      *
      * @param  string  $token
      * @return array<array-key, mixed>
@@ -44,10 +39,8 @@ trait InteractsWithJwtTokens
     }
 
     /**
-     * Issue an access token for mock identity and principal context objects,
-     * the principal within no tenant, with no session: the tests that use it
-     * read the header and the claims every token carries, and a session's token
-     * would derive its authentication from the session's records.
+     * Issue a sessionless access token for a mock identity and a principal
+     * within no tenant.
      *
      * @param  \SineMacula\Laravel\Authentication\Jwt\JwtTokenService  $service
      * @return string

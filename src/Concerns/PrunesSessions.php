@@ -14,35 +14,8 @@ use SineMacula\Laravel\Authentication\Models\SessionProvenance;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
- * Lets Laravel's `model:prune` delete sessions that are over: revoked, or past
- * their idle or absolute deadline, longer ago than the retention in
- * `authentication.session.prune_after_days`, with their proofs and provenance.
- *
- * Retention is counted from the time the session ended (the revocation or the
- * deadline), never from when the session was created, so a session is kept for
- * audit for the same time however long it lasted. A session with no absolute
- * deadline is pruned once it goes idle or is revoked: a `null` absolute
- * deadline never matches the absolute condition. A pruned session's tokens fail
- * as an unknown session, just as they already fail once it is revoked or ended,
- * so retention changes nothing about authentication.
- *
- * The trait composes `MassPrunable` and replaces its `prunable()` and
- * `pruneAll()`, so a model opts in with this trait alone: using `MassPrunable`
- * beside it would be a collision of the two `prunable()` methods. Columns come
- * from the `EloquentSession` name accessors.
- *
- * Sessions are pruned in chunks, each in one transaction on the session's
- * connection: the keys of up to a chunk of prunable sessions are read, the
- * proofs and provenance recorded for those keys are deleted (by the keys as
- * strings, bound to the string column they are recorded in, whatever the
- * session model's key type), then the sessions themselves, deleted outright
- * even on a model that soft-deletes, as Laravel's mass pruning force-deletes (a
- * soft-deleted session would never be selected again, and its IP address and
- * user agent would be kept for good). A session deleted any other way leaves
- * its proofs and provenance behind, so whatever deletes sessions otherwise (a
- * truncation included) should delete the rows recorded under their keys too;
- * a sign-in whose new session reuses such a key deletes them before recording
- * its own, so they never count for it.
+ * Lets Laravel's `model:prune` delete sessions that ended longer ago than the
+ * configured retention, with their proofs and provenance.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -56,9 +29,8 @@ trait PrunesSessions
     use MassPrunable;
 
     /**
-     * The sessions revoked, or past either deadline, at or before the cutoff:
-     * now less the configured retention. Every session time is a whole second,
-     * so a deadline is pruned from the second it names.
+     * The sessions revoked, or past either deadline, at or before now less the
+     * configured retention.
      *
      * @return \Illuminate\Database\Eloquent\Builder<static>
      *
@@ -76,9 +48,8 @@ trait PrunesSessions
     }
 
     /**
-     * Prune every prunable session, a chunk at a time, with its proofs and
-     * provenance, dispatching `ModelsPruned` after each chunk with the running
-     * total, as Laravel's own pruning does.
+     * Prune every prunable session a chunk at a time, dispatching
+     * `ModelsPruned` after each chunk as Laravel's own pruning does.
      *
      * @param  int  $chunkSize
      * @return int

@@ -19,17 +19,7 @@ use Tests\Integration\Fixtures\UnverifiableCodeIdentity;
 
 /**
  * Shared set-up for tests that send and check one-time codes through the
- * package's guards: the `code_identities` table and its identities, and guards
- * that allow the code sign-in methods over them, built on the session tests'
- * helpers.
- *
- * Guards: `mobile` and `kiosk` allow `phone_code` and `email_code` (and
- * `mobile` `password`) over `CodeIdentity`; `console` allows `email_code` and
- * `password` and requires verified identifiers; `web` allows only `password`;
- * `machines` allows the code methods over `CodeMachineClient`; `unverifiable`
- * allows them over identities that cannot report verification; `lookalike`
- * (see `configureLookAlikeGuard()`) allows them over `CodeIdentity` found as a
- * case- and accent-insensitive collation finds it.
+ * package's guards.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -76,8 +66,8 @@ trait InteractsWithCodeIdentities
     }
 
     /**
-     * Register the providers and guards, a sync queue for code delivery, a
-     * cheap password hash and a timebox short enough not to slow the suite.
+     * Register the providers and guards, a sync queue, a cheap password hash
+     * and a short timebox.
      *
      * @param  \Illuminate\Config\Repository  $config
      * @return void
@@ -105,10 +95,8 @@ trait InteractsWithCodeIdentities
     }
 
     /**
-     * Register the `lookalike` guard: the code sign-in methods over
-     * `CodeIdentity`, looked up by a provider that finds an identity by any
-     * look-alike of its identifier, as a case- and accent-insensitive collation
-     * does, on every driver.
+     * Register the `lookalike` guard, whose provider finds an identity by any
+     * look-alike of its identifier.
      *
      * @return void
      */
@@ -121,8 +109,7 @@ trait InteractsWithCodeIdentities
     }
 
     /**
-     * Persist an identity with the phone number and email address, each
-     * verified unless said otherwise.
+     * Persist an identity with the phone number and email address.
      *
      * @param  ?string  $phone
      * @param  ?string  $email
@@ -144,8 +131,7 @@ trait InteractsWithCodeIdentities
     }
 
     /**
-     * Start a request from the test client and return the named guard's code
-     * service, on a guard resolved afresh for that request.
+     * Return the code service of a freshly resolved guard.
      *
      * @param  string  $guard
      * @return \SineMacula\Laravel\Authentication\Codes\CodeService

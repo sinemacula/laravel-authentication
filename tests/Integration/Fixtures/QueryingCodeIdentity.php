@@ -16,10 +16,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
- * Identity fixture over `code_identities` that reads its identifier of a type,
- * and whether it is verified, with queries of its own instead of the attributes
- * it was loaded with, as an identity keeping them in other tables would; so a
- * test can tell which connection those reads use.
+ * Identity that reads its identifiers and their verification with queries of
+ * its own, so a test can see which connection they use.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

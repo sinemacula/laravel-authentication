@@ -19,14 +19,7 @@ use Tests\TestCase;
 
 /**
  * End-to-end tests of API keys on a storage connection other than the default,
- * with no session model configured at all: the `api_key` guard, which keeps no
- * sessions, is built and authenticates, and its keys are issued, rotated, used
- * and revoked on the storage connection, where the shipped migrations created
- * their table.
- *
- * The storage connection is a second connection to the test database with a
- * table prefix of its own: a database of its own on SQLite, and prefixed tables
- * beside the default connection's on PostgreSQL and MySQL.
+ * with no session model configured.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -74,9 +67,7 @@ final class StorageConnectionApiKeysTest extends TestCase
     }
 
     /**
-     * A key is issued on the storage connection and authenticates through the
-     * `api_key` guard, its use recorded there; its rotation's replacement
-     * authenticates instead of it, and once revoked the replacement is refused.
+     * A key is issued, used, rotated and revoked on the storage connection.
      *
      * @return void
      *

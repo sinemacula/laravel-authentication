@@ -5,8 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Verification\Enums;
 
 /**
- * How consuming a verification link ended: what the verifier answered once the
- * link was accepted, or why the link was not.
+ * How consuming a verification link ended.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

@@ -30,27 +30,8 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyVerdict;
 
 /**
- * Returns an active session that fell short of a further factor during a
- * request (a refresh, a switch, the removal of a factor it was proved with, or
- * another change of the identity's factors) to pending, instead of re-issuing
- * its pair.
- *
- * One compare-and-swap on the row, as the caller loaded it, makes it pending:
- * it waits on a further factor, holds the digest of a new pending credential,
- * idles out when that credential expires (never past its absolute deadline),
- * records the destination the caller admitted (its principal and active tenant)
- * and the version of the destination's policy the caller judged it against, and
- * moves the floor for its access tokens' issue time (`SwitchFloor`). Its
- * refresh digests are kept: a refresh or switch of a pending session is refused
- * as `session_pending` before any digest is compared, so its old refresh token
- * is never taken for a replay, and its activation replaces them. From the
- * commit, every one of its access and refresh tokens is refused.
- * `SessionReturnedToPending` reports it once committed on the session's
- * connection.
- *
- * A requirement the session cannot meet in place (sign-in through a tenant's
- * own connections) is never a reason to return to pending: the caller refuses
- * it instead.
+ * Returns an active session that fell short of a further factor to pending,
+ * instead of re-issuing its pair.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -82,13 +63,12 @@ final readonly class PendingTransitions
         /** The client a return is reported with, or `null` for the guard's request's. */
         private ?ClientContext $client = null,
 
-        /** Given a return's report once the return applied, to schedule in place of the commit; `null` to schedule it for the commit. */
+        /** Report handed back once a return applied, in place of scheduling it for the commit. */
         private ?\Closure $schedule = null,
     ) {}
 
     /**
-     * These transitions with each return reported with the client given, for a
-     * flow acting for a client it was given as plain values (a switch).
+     * These transitions with each return reported with the given client.
      *
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return self
@@ -99,10 +79,8 @@ final readonly class PendingTransitions
     }
 
     /**
-     * These transitions with each return's report handed to `$schedule` once
-     * the return applied, in place of being scheduled for the commit, so a
-     * caller that holds its reports to a check of its own (a switch) holds this
-     * one too.
+     * These transitions with each return's report handed to `$schedule` in
+     * place of being scheduled for the commit.
      *
      * @param  \Closure(\Closure(): void): void  $schedule
      * @return self
@@ -113,11 +91,9 @@ final readonly class PendingTransitions
     }
 
     /**
-     * The first factor the session signed in with, as its tenant's verdict was
-     * judged on it, or, when the verdict asked for no further factor, as the
-     * session records it, so a caller judging the session again, or returning
-     * it to pending, reads it at most once, current when asked. Pass `$current`
-     * only for a session whose row this transaction holds locked.
+     * The first factor the session signed in with, as its tenant's verdict
+     * judged it or as the session records it. Pass `$current` only for a row
+     * this transaction holds locked.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  \SineMacula\Laravel\Authentication\Tenancy\TenantPolicyVerdict  $verdict
@@ -134,13 +110,7 @@ final readonly class PendingTransitions
 
     /**
      * What an active session's authentication falls short of: the strictest of
-     * its tenant's requirement (empty when the tenant asks for none) and the
-     * identity-level one while the session still owes it, judged on the
-     * session's recorded origin, client name, platform and the first factor
-     * given (see `PendingEvaluation::owedFactorOn()`), so a session returned to
-     * pending names everything its next action is judged against. Empty when
-     * nothing is outstanding. Its proofs are read current when asked: pass
-     * `$current` only for a session whose row this transaction holds locked.
+     * its tenant's requirement and the identity-level one it still owes.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -167,19 +137,8 @@ final readonly class PendingTransitions
     }
 
     /**
-     * Return the active session to pending instead of re-issuing its pair,
-     * recording the destination the caller admitted (its principal and active
-     * tenant) and the version of the destination's policy the caller judged it
-     * against, which the destination's policy-change helper compares with its
-     * own, and answering the pending session with the requirement the caller
-     * found it falls short of: one compare-and-swap on the row as the caller
-     * loaded it, while it is active and unrevoked with the refresh digest,
-     * principal, active tenant, policy version and both deadlines it was loaded
-     * with. Returns `null` when the row changed since it was loaded, so the
-     * caller judges it again, as after a lost rotation.
-     * `SessionReturnedToPending`, scheduled for the commit (or handed to the
-     * schedule these transitions report through), carries the client this was
-     * built with, or, without one, the guard's request's.
+     * Return the active session to pending with one compare-and-swap on the row
+     * as the caller loaded it, or `null` when the row changed since.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $destination
@@ -257,8 +216,7 @@ final readonly class PendingTransitions
 
     /**
      * The raw values the compare-and-swap requires unchanged since the caller
-     * loaded the session: its refresh digest, principal, active tenant, policy
-     * version and both deadlines.
+     * loaded the session.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  string  $type
@@ -287,9 +245,8 @@ final readonly class PendingTransitions
     }
 
     /**
-     * Schedule `SessionReturnedToPending` for the return's commit, or hand it
-     * to the schedule these transitions report through, naming the principal
-     * and tenant the session left when the destination changed them.
+     * Schedule `SessionReturnedToPending` for the commit, or hand it to the
+     * schedule these transitions report through.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Sessions\PendingSession  $pending

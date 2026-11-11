@@ -36,11 +36,8 @@ use Tests\Integration\Fixtures\RevocationLogSession;
 use Tests\TestCase;
 
 /**
- * Proves the session a client proves it holds is judged from the write
- * connection, for a session model that derives its revocation from another
- * table: a revocation only the primary has recorded yet keeps a sign-in, and
- * the completion of a sign-in held for a further factor, from replacing that
- * session while the replica lags behind.
+ * Integration tests that a proven session's revocation is read on the primary
+ * while the replica lags.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -62,7 +59,7 @@ final class ReplicaProvenSessionsTest extends TestCase
 
     /**
      * Freeze the clocks and create the identity and revocation log tables on
-     * the primary and the replica.
+     * both connections.
      *
      * @return void
      */
@@ -121,8 +118,7 @@ final class ReplicaProvenSessionsTest extends TestCase
     }
 
     /**
-     * A sign-in whose refresh token proves a session the primary has recorded
-     * as revoked starts a new session, leaving the revoked one as it was.
+     * A sign-in proving a session revoked on the primary starts a new session.
      *
      * @return void
      *
@@ -146,10 +142,8 @@ final class ReplicaProvenSessionsTest extends TestCase
     }
 
     /**
-     * A sign-in held for a further factor while its proven session was live
-     * does not replace that session once the primary has recorded it as
-     * revoked: satisfying it activates the new session, which supersedes
-     * nothing.
+     * A completed pending sign-in does not replace a session revoked on the
+     * primary.
      *
      * @return void
      *
@@ -227,7 +221,7 @@ final class ReplicaProvenSessionsTest extends TestCase
 
     /**
      * Sign the seeded identity in, proving the session the refresh token names
-     * when one is given.
+     * if given.
      *
      * @param  ?string  $refreshToken
      * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult

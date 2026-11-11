@@ -11,9 +11,7 @@ use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 
 /**
- * Tenant fixture, over the `parented_tenants` rows, that is active while it and
- * the parent it belongs to, if any, are: its activity reads its `parent`
- * relation, as a tenant hierarchy's would.
+ * Tenant that is active while it and its parent, if any, are.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

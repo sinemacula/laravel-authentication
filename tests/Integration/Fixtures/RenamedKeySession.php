@@ -11,9 +11,7 @@ use SineMacula\Laravel\Authentication\Concerns\ActsAsSession;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 
 /**
- * Session whose primary key column is `session_uuid` rather than `id`, so the
- * session identifier a token carries is only found again when lookups go by
- * primary key.
+ * Session whose primary key column is `session_uuid` instead of `id`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

@@ -321,9 +321,8 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A tenant-aware bearer token for a secondary tenant should keep the
-     * hinted-principal lookup to the same joined read budget as the primary
-     * tenant path.
+     * A secondary tenant hint keeps the hinted-principal lookup to the same
+     * joined read.
      *
      * @return void
      *

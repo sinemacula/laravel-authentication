@@ -80,9 +80,8 @@ final class SessionSummaryTest extends TestCase
     }
 
     /**
-     * The array and JSON forms use snake_case keys and ISO-8601 times, and hold
-     * nothing of the digests, the rotation, the revocation, the owner or the
-     * principal.
+     * The array and JSON forms use snake_case keys and ISO-8601 times, and omit
+     * internal state.
      *
      * @return void
      */
@@ -178,8 +177,7 @@ final class SessionSummaryTest extends TestCase
 
     /**
      * Columns that are not loaded read as `null` without asking the model for
-     * them, so a model that prevents accessing missing attributes is still
-     * summarised.
+     * them.
      *
      * @return void
      */

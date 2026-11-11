@@ -17,9 +17,8 @@ use Tests\Unit\Stubs\StubIdentity;
 use Tests\Unit\Stubs\StubTenant;
 
 /**
- * Feature tests for the binding every machine credential is held to: the
- * owner's, the principal's and the tenant's type and identifier must all be
- * what was loaded, identifiers alone never sufficing.
+ * Feature tests for the owner, principal and tenant binding every machine
+ * credential is held to.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -72,9 +71,8 @@ final class CredentialBindingTest extends TestCase
     }
 
     /**
-     * Another principal, by type or identifier, or another tenant, by type or
-     * identifier, or a tenant where none was recorded and none where one was,
-     * is `principal_mismatch`.
+     * Another principal or tenant, by type or identifier, is
+     * `principal_mismatch`.
      *
      * @return void
      */
@@ -111,9 +109,8 @@ final class CredentialBindingTest extends TestCase
     }
 
     /**
-     * An Eloquent tenant is recorded by its morph class, any other by its class
-     * name, and no tenant as none; a key recording a tenant's alias passes for
-     * that tenant.
+     * An Eloquent tenant is recorded by its morph class and any other by its
+     * class name.
      *
      * @return void
      */

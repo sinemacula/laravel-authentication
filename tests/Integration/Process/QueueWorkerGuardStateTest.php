@@ -21,9 +21,7 @@ use Tests\Integration\Fixtures\SignInOnGuardJob;
 use Tests\TestCase;
 
 /**
- * End-to-end tests for queued jobs run by one worker in one application: a
- * worker forgets only scoped instances between jobs, so without the package's
- * reset a guard one job signed in would still be signed in for the next.
+ * End-to-end tests of the guard state between queued jobs one worker runs.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -75,8 +73,8 @@ final class QueueWorkerGuardStateTest extends TestCase
     }
 
     /**
-     * Without the reset, the identity the first job signed in is still signed
-     * in when the second job runs: the leak the reset closes.
+     * Without the reset, the first job's identity is still signed in for the
+     * second.
      *
      * @return void
      */
@@ -123,9 +121,8 @@ final class QueueWorkerGuardStateTest extends TestCase
     }
 
     /**
-     * Queue a job that signs an identity in on the `api` guard and then one
-     * that records who the guard says is signed in, run both through one
-     * worker, and return the identity's key.
+     * Run a job that signs an identity in and one that records who is signed
+     * in, and return the identity's key.
      *
      * @return mixed
      */

@@ -17,10 +17,8 @@ use Tests\Integration\Fixtures\MachineClient;
 use Tests\TestCase;
 
 /**
- * Integration tests for API key rotations and revocations that race, each in a
- * process and on a connection of its own against a shared database server: the
- * second waits on the first's row lock and follows its outcome, so a key is
- * replaced once and revoked once, and each is reported once.
+ * Integration tests for racing API key rotations and revocations, each in its
+ * own process and connection.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -96,10 +94,7 @@ final class ConcurrentApiKeyRotationTest extends TestCase
     }
 
     /**
-     * Two rotations of one key: the second waits on the first; once the first
-     * commits it finds the key rotated and replaces nothing, and once the first
-     * rolls back it rotates the key itself. Either way one replacement exists
-     * and one rotation is reported.
+     * Two concurrent rotations of one key replace it once.
      *
      * @return void
      */
@@ -167,9 +162,7 @@ final class ConcurrentApiKeyRotationTest extends TestCase
     }
 
     /**
-     * A rotation waiting on a revocation of its key follows it: after a
-     * committed revocation it replaces nothing, after a rolled back one it
-     * rotates.
+     * A rotation waiting on a revocation of its key follows its outcome.
      *
      * @return void
      */
@@ -215,10 +208,8 @@ final class ConcurrentApiKeyRotationTest extends TestCase
     }
 
     /**
-     * Run the first side inside a transaction in this process and the second in
-     * a forked one, started once the first has written, then commit or roll
-     * back the first: the first's result, and the second's result, events and
-     * how long it waited.
+     * Run the first side in a transaction here and the second in a forked
+     * process, then commit or roll back the first.
      *
      * @param  \Closure(): mixed  $first
      * @param  \Closure(): mixed  $second
@@ -259,9 +250,7 @@ final class ConcurrentApiKeyRotationTest extends TestCase
     }
 
     /**
-     * In the forked process: wait to be started, run the second side on a
-     * connection of its own, report its outcome, and end without running the
-     * parent's shutdown.
+     * Run the second side in the forked process, report its outcome and exit.
      *
      * @param  \Closure(): mixed  $second
      * @return never

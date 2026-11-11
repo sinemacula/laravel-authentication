@@ -27,9 +27,8 @@ use Tests\Unit\Stubs\PlainSessionFixture;
 final class PrincipalSwitchedTest extends TestCase
 {
     /**
-     * The event keeps its context, the previous principal as the session
-     * recorded it, the previous tenant the session recorded, and which of the
-     * two changed.
+     * The event keeps its context, the previous principal and tenant, and which
+     * of them changed.
      *
      * @return void
      */
@@ -49,10 +48,7 @@ final class PrincipalSwitchedTest extends TestCase
     }
 
     /**
-     * The event survives a round trip for queued listeners as the values it
-     * holds: the recorded morph class and identifiers and the changes are kept.
-     * It does not ask the dispatcher to wait for a transaction: the package
-     * dispatches it once the switch commits.
+     * The event survives a round trip and leaves its dispatch to the package.
      *
      * @return void
      */

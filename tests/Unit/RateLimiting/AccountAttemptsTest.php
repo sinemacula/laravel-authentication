@@ -29,9 +29,8 @@ final class AccountAttemptsTest extends TestCase
     use MockeryPHPUnitIntegration;
 
     /**
-     * Each account is reserved on the guard's sign-in flow under its class and
-     * auth identifier when it is not a model, with no identifier, identifier
-     * type or IP address.
+     * An account is reserved on the guard's sign-in flow under its class and
+     * auth identifier alone.
      *
      * @return void
      */
@@ -59,9 +58,8 @@ final class AccountAttemptsTest extends TestCase
     }
 
     /**
-     * Granted reservations are held: their windows are reported together for a
-     * pending sign-in, and releasing gives each back once; a refused one is
-     * neither held nor given back.
+     * Granted reservations are held until released; a refused one is neither
+     * held nor given back.
      *
      * @return void
      */

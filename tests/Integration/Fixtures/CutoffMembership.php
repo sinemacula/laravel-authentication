@@ -12,9 +12,8 @@ use SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 
 /**
- * 3D principal fixture that records, through `ProvidesTokensValidAfter`, when
- * the access tokens issued without a session for it become valid, owned by an
- * `AccessOnlyMember`, in the `cutoff_memberships` table the test creates.
+ * 3D principal of an `AccessOnlyMember` that records when its session-less
+ * access tokens become valid.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

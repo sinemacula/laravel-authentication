@@ -42,20 +42,7 @@ use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 
 /**
- * Query-budget and timing contracts for the session service: what a sign-in
- * costs on a new session, on a proven session, and when it fails, and the
- * timebox that keeps a failed sign-in as slow whether or not its identifier
- * exists.
- *
- * A sign-in through a method also writes its attempt limits: it reserves a slot
- * on the identifier's and the IP address's counters (on a fresh window, for
- * each, an update that changes nothing and the insert that creates the counter;
- * later in the window, one update each), and a password checked against an
- * account reserves one on the account's counter too. A sign-in that starts its
- * session gives every slot back; one that asks for a further factor keeps them
- * all, the account's included, until its pending session first activates, which
- * then gives them back. `start()` reserves nothing, and `satisfy()` checks no
- * limit.
+ * Query-budget and timing contracts for the session service's sign-ins.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -101,15 +88,8 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A sign-in on a new session reads the identity once, writes the session,
-     * looks for proofs and provenance an earlier session left under its key
-     * (one read each, which find none, so nothing is deleted), writes its first
-     * proof, reads its proofs once for the access token's `auth_time` and
-     * `amr`, and, once the session is committed, reads the identity again to
-     * check it still stands (it is its own principal, so it is read once),
-     * besides the six reservation writes and three releases of its limits:
-     * binding it records no further use, since the session already records the
-     * sign-in as its last.
+     * A sign-in on a new session reads five times and writes the session, its
+     * first proof and its limits.
      *
      * @return void
      *
@@ -125,11 +105,8 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Inside a caller's transaction a sign-in costs what one alone does, and
-     * one read more at the commit: its bind, which waited for the commit, reads
-     * the session again before binding it. With no transaction open the bind
-     * runs at once and reads nothing. The check of the identity waits for the
-     * commit too, and costs the same one read.
+     * Inside a caller's transaction a sign-in costs one read more, at the
+     * commit.
      *
      * @return void
      *
@@ -147,9 +124,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A cookie application's sign-in costs what a body application's does:
-     * delivering the refresh token in the cookie, with its expiry read from the
-     * session it has just written, adds no query.
+     * A cookie application's sign-in costs what a body application's does.
      *
      * @return void
      *
@@ -216,10 +191,8 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A cookie application's `satisfy()` and `choose()` from another site, for
-     * a live pending session, are refused before the pending session is read,
-     * so each costs no query, as are those given a client the same-site check
-     * refuses.
+     * A cookie application's pending actions from another site are refused
+     * before any query.
      *
      * @return void
      *
@@ -266,10 +239,8 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A cookie application's satisfaction given a same-site client, though the
-     * guard's own request comes from another site, costs what a satisfaction
-     * given the client of a same-site request costs: judging the client given
-     * reads nothing.
+     * A satisfaction given a same-site client costs what one from a same-site
+     * request does.
      *
      * @return void
      *
@@ -302,12 +273,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Replacing a proven session reads the identity and the session, writes one
-     * compare-and-swap that revokes it and one insert each of the new session
-     * and its first proof, reads what was left under the new session's key (two
-     * reads, which find nothing) and its proofs once, and reads the identity
-     * again once committed, besides reserving and releasing a slot on each of
-     * the three counters the first sign-in created.
+     * A sign-in on a proven session reads six times and writes the replacement.
      *
      * @return void
      *
@@ -329,10 +295,8 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Starting a session for an externally verified identity reloads it once,
-     * writes the session, reads the proofs and the provenance left under its
-     * key (none), writes its first proof, reads its proofs once, and reads the
-     * identity again once the session is committed.
+     * `start()` reads the identity and its proofs and writes the session and
+     * its first proof.
      *
      * @return void
      *
@@ -349,10 +313,8 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * An external sign-in costs what `start()` does and writes its link's guard
-     * and the session's provenance too, and nothing more, the first sign-in
-     * through the link and every later one alike: the link contract is the
-     * adapter's, and the fake one here reads nothing.
+     * An external sign-in costs what `start()` does plus its link's guard and
+     * the provenance.
      *
      * @return void
      *
@@ -390,20 +352,8 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A sign-in that needs a further factor reads the identity once (the check
-     * judges the sign-in's own proofs in memory), writes its pending session,
-     * reads what an earlier session left under its key (two reads, which find
-     * nothing), writes its first proof and reads the identity again once
-     * committed, signing no token, besides its limits, whose slots it keeps
-     * (the account's as well as the identifier's and the IP address's); looking
-     * it up reads the session, its owner, its first factor and the one page of
-     * proofs the check judges for what is still outstanding; and satisfying it
-     * locks and reads the session and its owner, writes the session's issuance
-     * guard (so an issuance of the session that overlaps the proof reads it)
-     * and the further factor's proof, reads its first factor and the page of
-     * proofs the check judges, activates the session with one update, which is
-     * the activation's own guard, reads its proofs for the access token's
-     * `auth_time` and `amr`, and gives the three slots back.
+     * A pending session costs two writes to sign in and keeps its slots until
+     * it activates.
      *
      * @return void
      *
@@ -433,10 +383,8 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A pending session that records a membership in a tenant costs three reads
-     * more, to look up or to satisfy, than one of an identity that is its own
-     * principal: the membership, its owner and its tenant, which the gate
-     * admits again; the default access contracts read nothing.
+     * A pending session recording a membership costs three reads more: the
+     * membership, its owner and its tenant.
      *
      * @return void
      *
@@ -465,11 +413,8 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A pending session whose tenant's policy asks for a further factor reads
-     * its first factor once to be looked up and once to be satisfied: the
-     * tenant's verdict is judged on it, and the identity's own requirement and
-     * the pending session reuse it. Otherwise it costs what a pending session
-     * recording a membership costs.
+     * A pending session under its tenant's factor reads its first factor once
+     * to look it up and once to satisfy it.
      *
      * @return void
      *
@@ -502,8 +447,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
 
     /**
      * Satisfying a pending session that proved a session reads that session
-     * again on the write connection, once, and revokes it with one
-     * compare-and-swap, besides what any activation costs.
+     * once more and revokes it.
      *
      * @return void
      *
@@ -559,10 +503,8 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Satisfying with a credential that names no pending session costs no more
-     * than the one read that finds none, writes nothing, and checks no limit: a
-     * credential whose session already activated, and a garbled one, which
-     * costs no query at all.
+     * Satisfying with a credential that names no pending session costs at most
+     * one read and writes nothing.
      *
      * @return void
      *
@@ -597,9 +539,8 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Rows of `[credentials, writes]`: sign-ins that fail, with and without a
-     * known identifier, and the reservation writes each keeps (a wrong password
-     * also reserves the account's slot).
+     * Rows of `[credentials, writes]`: failed sign-ins and the reservation
+     * writes each keeps.
      *
      * @return iterable<string, array{0: array<string, string>, 1: int}>
      */
@@ -612,9 +553,8 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A failed sign-in reads the identity once, writes only the reservations it
-     * keeps, and waits out the real timebox whether or not the identifier
-     * exists.
+     * A failed sign-in reads once, writes only its limits and waits out the
+     * timebox.
      *
      * @param  array<string, string>  $credentials
      * @param  int  $writes
@@ -641,9 +581,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A successful sign-in returns as soon as it is done instead of waiting out
-     * the timebox. The fastest of a few sign-ins is compared, so one scheduler
-     * pause cannot fail the contract.
+     * A successful sign-in returns before the timebox.
      *
      * @return void
      *

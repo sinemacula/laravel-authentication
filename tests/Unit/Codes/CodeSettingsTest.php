@@ -23,9 +23,7 @@ use SineMacula\Laravel\Authentication\Codes\CodeSettings;
 final class CodeSettingsTest extends TestCase
 {
     /**
-     * With no `codes` block, each number takes its default: 6 digits, 600
-     * seconds, 5 attempts, a 60-second cooldown, and 3 deliveries in a
-     * 1800-second window.
+     * With no `codes` block, each number takes its default.
      *
      * @return void
      */

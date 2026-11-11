@@ -23,39 +23,6 @@ use Symfony\Component\HttpFoundation\Cookie;
  * request carries, judges a presented one, and hands a cookie application's
  * tokens to the browser in the cookie.
  *
- * An application's `refresh_token.transport` is `body` (the `body_field` of the
- * JSON or form body, never the query string, or the `header` when one is set)
- * or `cookie` (its `HttpOnly` refresh cookie). Every request is read in all
- * three carriers, whatever the transport: one that carries a token in more than
- * one of them, or the cookie twice, is refused as `refresh_token_conflict`,
- * equal or not, so a request cannot pass the cookie's cross-site checks by also
- * sending the token another way, nor leave the server to choose which one
- * counts; one that carries it only in a carrier that is not the application's
- * transport is refused as `refresh_transport_mismatch`. A token from the
- * cookie, which a browser attaches by itself, must come with an `Origin` that
- * is the request's own or an allowed one, and with the custom header, which a
- * cross-site form cannot send; the session service holds every other path that
- * sets a cookie application's cookie from credentials or a pending session to
- * the same rule (`isSameSiteClient()`), so a cross-site form cannot sign the
- * browser into another account. `signInExternally()` alone is exempt, since a
- * provider's callback is cross-site by design: the adapter that calls it must
- * bind the flow to the browser that began it instead.
- *
- * `extract()` is the helper a controller reads a request's refresh token with,
- * to hand on to the session service as a plain value with the request's
- * `ClientContext`; the session service's `refresh()`, `switchTo()` and
- * `signOutWith()` make every check through `judge()` from those plain values,
- * the same-site one on the client, so a presented token is never trusted to
- * have passed them, whoever built it.
- *
- * For a cookie application, `deliver()` puts the refresh token of every pair a
- * sign-in, refresh, switch or activation issues into a `RefreshCookie`, so the
- * plain token never reaches the application's code; `forgetCookie()` makes the
- * cookie that clears it. The cookie is host-only, on the application's path,
- * and its name is the application's own, so two browser applications on one
- * host never overwrite each other's. The token lives only in the browser, so
- * the API stays stateless.
- *
  * @api
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -103,16 +70,8 @@ final readonly class RefreshTokenTransport
     }
 
     /**
-     * Extract the refresh token the request carries, for the session service's
-     * `refresh()`, `switchTo()` and `signOutWith()`: `null` when no carrier
-     * carries one; `refresh_token_conflict` when more than one does or the
-     * request carries the cookie twice; `refresh_transport_mismatch` when the
-     * one that does is not the application's transport; `token_invalid` when
-     * the value is not a non-empty string; otherwise the token, with its source
-     * and carriers. It makes no same-site judgement, which the session service
-     * makes on the client (`judge()`), so it never answers
-     * `cross_site_request`. Extracting has no side effects and reads no IP
-     * address.
+     * Extract the refresh token the request carries, or why it cannot be read,
+     * or `null` when it carries none.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Http\PresentedRefreshToken|null
@@ -126,17 +85,7 @@ final readonly class RefreshTokenTransport
 
     /**
      * Judge a presented refresh token against the application's transport and
-     * the client, trusting nothing about how it was obtained:
-     * `refresh_token_conflict` when its carriers are not its source
-     * alone (more than one carrier, the cookie twice, none, or not its own);
-     * `refresh_transport_mismatch` when its source is not one of the
-     * application's carriers (the cookie of a body application, the body or
-     * header of a cookie application, or a header a body application has not
-     * configured); `cross_site_request` when it is in the cookie and the client
-     * fails `isSameSiteClient()`, as a context without the same-site facts
-     * does; otherwise `null`. A token `extract()` answered from a request of
-     * the API's own site passes with that request's `ClientContext`. Judging
-     * has no side effects.
+     * the client, or `null` when it passes.
      *
      * @param  \SineMacula\Laravel\Authentication\Http\PresentedRefreshToken  $presented
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
@@ -155,11 +104,8 @@ final readonly class RefreshTokenTransport
     }
 
     /**
-     * The pair as the application's transport hands it out: a body
-     * application's as it is; a cookie application's with its refresh token
-     * moved into the cookie that carries it, expiring when the session ends
-     * (the earlier of its deadlines, read on the write connection, as the
-     * token's own `exp` is). Only the session service delivers a pair.
+     * The pair as the application's transport hands it out, a cookie
+     * application's refresh token moved into its cookie.
      *
      * @param  \SineMacula\Laravel\Authentication\Jwt\TokenPair  $pair
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
@@ -186,16 +132,7 @@ final readonly class RefreshTokenTransport
 
     /**
      * The cookie that clears the refresh cookie: the same name and path,
-     * already expired. A route outside the cookie's path may send it, since a
-     * path limits where a browser sends a cookie, not which response may set
-     * it, though only a route under the path receives the cookie to sign out
-     * by. Send it only for a request that signed its session out by its access
-     * token (`signOut()`), which a cross-site page cannot send, or that passes
-     * `isSameSiteRequest()`, or whose client, handed in as plain values, passes
-     * `isSameSiteClient()`: a response that clears it whatever the request
-     * carried lets a cross-site form sign the browser out. `signOutWith()`'s
-     * result carries it for the client it is given on exactly those terms. A
-     * body application has no cookie to clear (`LogicException`).
+     * already expired.
      *
      * @return \Symfony\Component\HttpFoundation\Cookie
      *
@@ -207,11 +144,7 @@ final readonly class RefreshTokenTransport
     }
 
     /**
-     * Whether the request came from a page of the API's own site, as the
-     * refresh cookie's checks require: `isSameSiteClient()` of the request's
-     * same-site facts, read without its IP address, so the check never throws
-     * for a trusted proxy's conflicting forwarded client addresses. An
-     * application's own route that clears the cookie holds its request to it.
+     * Whether the request came from a page of the API's own site.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return bool
@@ -223,11 +156,7 @@ final readonly class RefreshTokenTransport
 
     /**
      * Whether the client came from a page of the API's own site: it carried the
-     * custom header with a value, which a cross-site form or simple request
-     * cannot send, and presented an `Origin` that is the request's own (scheme
-     * and host) or one of the allowed origins. A fact the context lacks fails
-     * the check, so a context built from plain values without them never
-     * passes.
+     * CSRF header and an `Origin` that is its own or an allowed one.
      *
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return bool
@@ -244,9 +173,8 @@ final readonly class RefreshTokenTransport
     }
 
     /**
-     * When the session ends, the earlier of its deadlines (the idle one alone
-     * when it has no absolute one), read on the write connection, as the
-     * refresh token's own `exp` is.
+     * When the session ends, read on the write connection as the refresh
+     * token's own `exp` is.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @return \Carbon\CarbonImmutable
@@ -273,8 +201,7 @@ final readonly class RefreshTokenTransport
     }
 
     /**
-     * The cookie's path, or a `LogicException` for a body application: a cookie
-     * it would never read must not be set.
+     * The cookie's path, or a `LogicException` for a body application.
      *
      * @return string
      *
@@ -286,11 +213,8 @@ final readonly class RefreshTokenTransport
     }
 
     /**
-     * The one carrier the request carries a refresh token in, or why it has
-     * none to read: `null` when no carrier carries one;
-     * `refresh_token_conflict` when more than one does or the request carries
-     * the cookie twice; `refresh_transport_mismatch` when the one that does is
-     * not the application's transport.
+     * The one carrier the request carries a refresh token in, why it has none
+     * to read, or `null` when no carrier carries one.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource|null
@@ -314,8 +238,7 @@ final readonly class RefreshTokenTransport
 
     /**
      * Whether the source is one the application's transport reads a refresh
-     * token from: the cookie of a cookie application; the body field, or the
-     * header when one is configured, of a body application.
+     * token from.
      *
      * @param  \SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource  $source
      * @return bool
@@ -347,12 +270,7 @@ final readonly class RefreshTokenTransport
 
     /**
      * How many cookies the request's `Cookie` headers carry under the refresh
-     * cookie's name, each name read as PHP files it: nothing from the first `[`
-     * on when a `]` follows it, and a `.`, a space or an unclosed `[` as `_`.
-     * PHP keeps only the first of the cookies it files under one name, and a
-     * browser sends a cookie that another host of the site planted (with the
-     * parent `Domain` and a longer `Path`) before the API's own, so the headers
-     * are counted rather than the one cookie PHP kept.
+     * cookie's name, each name read as PHP files it.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return int

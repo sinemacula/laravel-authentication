@@ -15,10 +15,7 @@ use Tests\Unit\Stubs\Enums\StubConnectionName;
 use Tests\Unit\Stubs\Enums\StubPureConnectionName;
 
 /**
- * Unit tests for the connection resolver `WriteConnection::during()` installs:
- * it hands out the wrapped resolver's connections, passing each Eloquent
- * connection to the pin callback first, and delegates the default connection
- * name.
+ * Unit tests for the connection resolver `WriteConnection::during()` installs.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

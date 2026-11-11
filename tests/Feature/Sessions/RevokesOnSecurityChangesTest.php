@@ -38,11 +38,7 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\StubTenant;
 
 /**
- * Feature tests of the session service's answers to security changes: each ends
- * the affected sessions with its own reason and moves the scope's cutoff,
- * keeping a session only where the method lets the caller name one; a tenant's
- * deactivation ends its principals' sessions only once every principal is
- * proven to act within it.
+ * Feature tests of the session service's answers to security changes.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -163,9 +159,8 @@ final class RevokesOnSecurityChangesTest extends TestCase
     }
 
     /**
-     * Each change of an identity ends its sessions with the change's reason and
-     * moves its cutoff; a change that may keep the session it was made from
-     * keeps it when given one.
+     * Each identity change ends its sessions with its reason and moves the
+     * cutoff, keeping the given session where allowed.
      *
      * @formatter:off
      *
@@ -249,9 +244,8 @@ final class RevokesOnSecurityChangesTest extends TestCase
     }
 
     /**
-     * A tenant's deactivation ends the sessions of every principal listed for
-     * it, a principal listed twice once, in one transaction, with one report
-     * per principal carrying the tenant.
+     * A tenant's deactivation ends each listed principal's sessions once, in
+     * one transaction.
      *
      * @return void
      *
@@ -338,9 +332,8 @@ final class RevokesOnSecurityChangesTest extends TestCase
     }
 
     /**
-     * A principal acts within a tenant only of the tenant's class as well as
-     * its identifier: one whose tenant shares the deactivated tenant's key but
-     * is of another class is refused, and nothing is written.
+     * A principal of a tenant of another class with the same key is refused,
+     * and nothing is written.
      *
      * @return void
      *
@@ -367,11 +360,8 @@ final class RevokesOnSecurityChangesTest extends TestCase
     }
 
     /**
-     * A tenant relation set on the principal by whoever loaded it does not
-     * decide: the principal's stored tenant does, read afresh. A membership of
-     * another tenant whose relation names the deactivated one is refused, and a
-     * membership of the deactivated tenant whose relation names another one is
-     * accepted.
+     * The principal's stored tenant, read afresh, decides over any tenant
+     * relation set on it.
      *
      * @return void
      *
@@ -403,9 +393,8 @@ final class RevokesOnSecurityChangesTest extends TestCase
     }
 
     /**
-     * The principals a tenant lists, hydrated in one collection while Eloquent
-     * prevents lazy loading (strict mode), each have their tenant read all the
-     * same, and their sessions are ended.
+     * Principals hydrated under Eloquent strict mode have their tenant read and
+     * their sessions ended.
      *
      * @return void
      *
@@ -448,10 +437,7 @@ final class RevokesOnSecurityChangesTest extends TestCase
     }
 
     /**
-     * A tenant already soft-deleted, or deleted outright, can no longer be
-     * loaded through its principals, but a principal naming it still acts
-     * within it: its sessions end, so restoring the tenant revives none. A
-     * principal naming another deleted tenant is still refused.
+     * A deleted tenant's deactivation still ends its principals' sessions.
      *
      * @return void
      *
@@ -487,8 +473,7 @@ final class RevokesOnSecurityChangesTest extends TestCase
     }
 
     /**
-     * Two principals whose recorded type and identifier run together into the
-     * same string (`member` with `12`, `member1` with `2`) are two principals,
+     * Principals whose type and identifier run together into one string are
      * both ended.
      *
      * @return void

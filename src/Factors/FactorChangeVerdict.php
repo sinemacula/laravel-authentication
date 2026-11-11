@@ -9,10 +9,8 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
 
 /**
- * The factor-change gate's answer: allowed, with the fresh proof that allows it
- * and until when the session stays fresh for it, or refused, with why. It
- * reports nothing and writes nothing: the factor package reports the change it
- * makes.
+ * The factor-change gate's answer: allowed, with the fresh proof that allows
+ * it, or refused, with why.
  *
  * @api
  *

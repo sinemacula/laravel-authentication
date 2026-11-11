@@ -11,12 +11,7 @@ use Symfony\Component\HttpFoundation\Response;
 
 /**
  * `authentication.refresh[:<guard>]`: declare that the route authenticates with
- * the refresh credential, of the guard named or the default one, which
- * `Auth::caller()` then reads the caller from, and make a named guard the
- * default for the request, as `auth:<guard>` does. It reads, proves and refuses
- * nothing itself: `Auth::caller()` does that when it is asked. The package
- * orders it before `SubstituteBindings`, so the declaration is in place before
- * any route parameter is bound.
+ * the refresh credential.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

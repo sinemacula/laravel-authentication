@@ -7,20 +7,8 @@ namespace SineMacula\Laravel\Authentication\Contracts;
 use Carbon\CarbonInterface;
 
 /**
- * Capability contract: an identity or principal that records from when its
- * access tokens issued without a session are valid.
- *
- * Optional supplement to `Identity` and `Principal`. A token that names a
- * session stops when the session is revoked; one issued without a session
- * (access only) has nothing to revoke, so signing out everywhere moves this
- * time forward instead, and the bearer path rejects every such token issued at
- * or before it. The time is read on the write connection. It also ends a
- * sign-in, a choice of principal or a switch still in flight when it moves: one
- * whose identity's or principal's time moved strictly after the second the call
- * began is refused or ended once its session commits, which is how a
- * deactivation or deletion undone before such a call could see it still ends
- * the session the call admitted before it. A move by a revocation that kept
- * that session (a password change keeping the current one) does not end it.
+ * An identity or principal that records from when its access tokens issued
+ * without a session are valid.
  *
  * @api
  *
@@ -31,8 +19,7 @@ interface HasTokensValidAfter
 {
     /**
      * Return the time at or before which access tokens issued without a session
-     * are rejected, or `null` when there is none. A value that was not loaded
-     * must not read as `null`: throw a `LogicException` instead.
+     * are rejected, or `null` for none.
      *
      * @return ?\Carbon\CarbonInterface
      *
@@ -41,12 +28,8 @@ interface HasTokensValidAfter
     public function getTokensValidAfter(): ?CarbonInterface;
 
     /**
-     * Move the time forward to `$time`, never back, and persist it at once.
-     * Returns whether it moved. A bulk revocation calls it only on a model
-     * loaded from its row, a soft-deleted one among them, never on an Eloquent
-     * model whose `exists` is `false` (hard-deleted, never saved, or built from
-     * its key alone), so persisting through `save()` never inserts a row; such
-     * a model's sessions end, but its cutoff stays where it is.
+     * Move the time forward to `$time`, never back, and persist it at once;
+     * returns whether it moved.
      *
      * @param  \Carbon\CarbonInterface  $time
      * @return bool

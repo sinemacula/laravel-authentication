@@ -7,14 +7,7 @@ namespace Tests\Unit\Stubs;
 use Illuminate\Database\Eloquent\Builder;
 
 /**
- * StubSession subclass whose `newQuery()` returns an injected Builder mock
- * instead of the default Eloquent builder.
- *
- * Used by `JwtGuardTest::swapSessionModelToInMemoryInstance()` to wire the
- * guard's `SessionLookup::find()` path through a pre-built in-memory session
- * whose `authenticatable` relation has been manually set - the refresh-token
- * tests need the relation to survive the round trip without hitting a real
- * polymorphic query.
+ * StubSession whose `newQuery()` returns an injected builder.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -27,9 +20,7 @@ final class StubInjectableSession extends StubSession
     public static ?Builder $injectedBuilder = null;
 
     /**
-     * Return the injected Builder mock if present, otherwise fall back to
-     * Eloquent's default query builder. A test double overriding the framework
-     * query entry point, not model behaviour.
+     * Return the injected builder if set, otherwise Eloquent's default one.
      *
      * @return \Illuminate\Database\Eloquent\Builder<\Tests\Unit\Stubs\StubInjectableSession>
      *

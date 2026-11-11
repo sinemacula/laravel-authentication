@@ -98,8 +98,7 @@ final class JwtGuardIntegrationTest extends TestCase
     }
 
     /**
-     * A valid JWT passes the `auth:api` middleware and exposes the identity via
-     * `Auth::check()`, `Auth::id()`, and `Auth::user()`.
+     * A valid JWT passes the `auth:api` middleware and exposes the identity.
      *
      * @return void
      */
@@ -170,8 +169,7 @@ final class JwtGuardIntegrationTest extends TestCase
     }
 
     /**
-     * Rows of `[claim]`: time claims a correctly signed access token must
-     * carry.
+     * Time claims a signed access token must carry.
      *
      * @return iterable<string, array{0: string}>
      */
@@ -184,8 +182,7 @@ final class JwtGuardIntegrationTest extends TestCase
     }
 
     /**
-     * A correctly signed access token without a required time claim is rejected
-     * with 401, so a token that never expires cannot authenticate.
+     * A signed access token without a required time claim is rejected with 401.
      *
      * @param  string  $claim
      * @return void
@@ -211,8 +208,8 @@ final class JwtGuardIntegrationTest extends TestCase
     }
 
     /**
-     * An authenticated request exposes the resolved principal and session
-     * through the `AuthManager` contextual accessors.
+     * An authenticated request exposes the principal and session through the
+     * `AuthManager` accessors.
      *
      * @return void
      */
@@ -261,9 +258,8 @@ final class JwtGuardIntegrationTest extends TestCase
     }
 
     /**
-     * A bearer token carrying a `sid` still resolves the session from storage
-     * and can therefore trigger the debounced `last_used_at` write on the
-     * persisted session row.
+     * A bearer token carrying a `sid` triggers the debounced `last_used_at`
+     * write.
      *
      * @return void
      */
@@ -303,9 +299,8 @@ final class JwtGuardIntegrationTest extends TestCase
     }
 
     /**
-     * Revoking a session ends it at once: an access token naming the session is
-     * rejected exactly as if the session were missing, and its refresh token no
-     * longer rotates.
+     * A revoked session rejects its access token and stops its refresh token
+     * rotating.
      *
      * @return void
      *
@@ -354,7 +349,7 @@ final class JwtGuardIntegrationTest extends TestCase
     }
 
     /**
-     * Configure the JWT guard, provider, and in-memory sqlite.
+     * Configure the JWT guard over an in-memory sqlite database.
      *
      * @param  mixed  $app
      * @return void
@@ -403,10 +398,7 @@ final class JwtGuardIntegrationTest extends TestCase
     }
 
     /**
-     * Encode a signed access-token JWT from the supplied claims, bound to the
-     * test issuer, audience and guard under the `at+jwt` header type, with the
-     * `person` subject type and, for a token that names a session, a password
-     * authentication at its issue time, each of which the claims may override.
+     * Encode a signed access token with test defaults the claims may override.
      *
      * @param  array<string, mixed>  $claims
      * @return string

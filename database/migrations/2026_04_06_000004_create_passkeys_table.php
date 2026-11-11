@@ -10,8 +10,7 @@ use SineMacula\Laravel\Authentication\Database\MigrationCollisionGuard;
 use SineMacula\Laravel\Authentication\Database\StorageConnection;
 
 /**
- * Create the passkeys table: the WebAuthn credentials identities sign in with,
- * each scoped to the relying party it was registered for.
+ * Create the passkeys table.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -35,23 +34,19 @@ return new class extends Migration {
         $schema->create($table, static function (Blueprint $blueprint) use ($table): void {
             $blueprint->uuid('id')->primary();
 
-            // A credential id reaches 1023 bytes, beyond what MySQL indexes as
-            // base64url text, so it is found by the SHA-256 hex digest of its
-            // raw bytes and kept in full beside it.
+            // A credential id reaches 1023 bytes, beyond what MySQL indexes, so
+            // it is found by its digest.
             $blueprint->char('credential_id_hash', 64)->unique();
             $blueprint->text('credential_id');
 
-            // Plain string polymorphic columns, as on the sessions table, so
-            // any key type fits.
             $blueprint->string('authenticatable_type');
             $blueprint->string('authenticatable_id');
 
             $blueprint->string('rp_id');
             $blueprint->string('user_handle');
 
-            // Long text: nothing bounds a COSE key, which may carry further
-            // parameters such as a key id, and MySQL silently cuts a value past
-            // its 64 KiB text when the insert ignores duplicates.
+            // Nothing bounds a COSE key, and MySQL silently truncates past 64
+            // KiB on an insert that ignores duplicates.
             $blueprint->longText('public_key');
 
             $blueprint->unsignedBigInteger('sign_count')->default(0);
@@ -65,8 +60,7 @@ return new class extends Migration {
             $blueprint->dateTime('last_used_at', 0)->nullable();
             $blueprint->datetimes(0);
 
-            // Named short, so a long configured table name still fits MySQL's
-            // 64-character identifiers.
+            // Named short, so a long table name fits MySQL's 64 characters.
             $blueprint->index(['authenticatable_type', 'authenticatable_id', 'rp_id'], $table . '_owner_index');
         });
     }
@@ -82,8 +76,7 @@ return new class extends Migration {
     }
 
     /**
-     * The connection the package's tables live on (see `StorageConnection`),
-     * the one the model reads and writes the table on.
+     * The connection the package's tables live on.
      *
      * @return ?string
      *

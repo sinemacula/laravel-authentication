@@ -6,8 +6,7 @@ namespace SineMacula\Laravel\Authentication\Context\Enums;
 
 /**
  * What kind of credential the request presented and the guard authenticated it
- * with (`AuthenticationContext::$credential`); a sign-in or a trusted bind made
- * in the request presented none.
+ * with.
  *
  * @api
  *

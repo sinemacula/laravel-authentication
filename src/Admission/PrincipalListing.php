@@ -15,29 +15,8 @@ use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 
 /**
- * The principals an identity may act as, listed for admission (a sign-in, a
- * pending session, a choice or switch screen), and the judging of those listed,
- * with each judged principal's tenant read once for the lot.
- *
- * An identity's `principals()` hydrates its rows together, so Eloquent's strict
- * mode forbids each of them a lazy load, and reading each principal's tenant on
- * its own would be one query per principal. So once the listed principals' own
- * activity is judged, the tenant relation of each active one that uses
- * `ActsAsPrincipal` is loaded on them together, on the write connection, after
- * their own query: one query per principal class and connection (one per tenant
- * type for a polymorphic relation, and those of the tenant model's own
- * `$with`), however many principals there are. No global scope or eager load
- * the application put on `principals()` can constrain it, and whatever was
- * loaded under that name, nested relations included, is replaced; a tenant the
- * load misses is read alone (`isMissed()`). The tenants loaded allow lazy
- * loading, as a tenant read on its own does, while the principals keep the
- * strictness their query gave them. A principal that implements `getTenant()`
- * itself has no relation the package can know, and is read as it always was.
- *
- * Each principal is still judged as it is stored (`WriteConnection::stored()`),
- * with only the tenant loaded here carried onto the copy; a principal the
- * resolver supplied carries nothing, since a relation it set cannot vouch for
- * the principal.
+ * The principals an identity may act as, judged for admission with their
+ * tenants loaded together in one query per group.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -57,7 +36,7 @@ final readonly class PrincipalListing
         /** The principals listed, before any check. */
         public array $candidates,
 
-        /** The identity whose `principals()` listed them, or `null` for the resolver's default. */
+        /** The identity that listed them, or `null` for the resolver's default. */
         private ?Identity $identity,
     ) {}
 
@@ -75,8 +54,7 @@ final readonly class PrincipalListing
     }
 
     /**
-     * The one principal the resolver's default gives, or none, for an identity
-     * that is its own principal or lists none.
+     * The one principal the resolver's default gives, or none.
      *
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return self
@@ -87,12 +65,8 @@ final readonly class PrincipalListing
     }
 
     /**
-     * Why each of the principals, taken from this listing, may not hold a
-     * session of the guard's application (`PrincipalAdmission::refusal()`), in
-     * their order, `null` for each that may: judged as stored, the tenants of
-     * those that are active loaded together on the write connection before any
-     * tenant is judged. An inactive principal is refused without its tenant
-     * being read, as when each was judged alone.
+     * Why each of the listed principals may not hold a session of the guard's
+     * application, in order, `null` for each that may.
      *
      * @param  string  $guard
      * @param  list<\SineMacula\Laravel\Authentication\Contracts\Principal>  $principals
@@ -114,8 +88,7 @@ final readonly class PrincipalListing
     }
 
     /**
-     * The principal's stored copy (`WriteConnection::stored()`) when it is
-     * active, or `null` when it is not.
+     * The principal's stored copy when it is active, or `null`.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
@@ -126,9 +99,8 @@ final readonly class PrincipalListing
     }
 
     /**
-     * Why the principal may not hold a session of the guard's application:
-     * `principal_inactive` when it has no active stored copy, otherwise judged
-     * on that copy with the tenant relation loaded for it, if any, set on it.
+     * Why the principal may not hold a session of the guard's application,
+     * judged on its stored copy with its loaded tenant.
      *
      * @param  string  $guard
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $stored
@@ -154,9 +126,8 @@ final readonly class PrincipalListing
     }
 
     /**
-     * Load each group's tenant relation on the identity's write connection, and
-     * return the relation name and what it loaded for each principal, by its
-     * object id.
+     * Load each group's tenant relation on the write connection, keyed by each
+     * principal's object id.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  array<int, \SineMacula\Laravel\Authentication\Contracts\Principal>  $principals
@@ -180,11 +151,7 @@ final readonly class PrincipalListing
 
     /**
      * The principal models whose tenant relation the package knows, grouped by
-     * class, connection and relation, each group with the relation's name.
-     *
-     * The connection is part of the group because Eloquent builds a group's
-     * load from its first model: principals of one class on two connections
-     * loaded together would all read the first one's tenants.
+     * class, connection and relation.
      *
      * @param  array<int, \SineMacula\Laravel\Authentication\Contracts\Principal>  $principals
      * @return array<string, array{0: string, 1: list<\Illuminate\Database\Eloquent\Model>}>
@@ -211,10 +178,8 @@ final readonly class PrincipalListing
     }
 
     /**
-     * Load the relation on the models together, read alone the tenant of each
-     * model the load missed (`isMissed()`), let the tenants loaded lazy-load as
-     * a tenant read on its own may, and return the relation name and what it
-     * loaded for each model, by the model's object id.
+     * Load the relation on the models together, reading alone any tenant the
+     * load missed, keyed by each model's object id.
      *
      * @param  string  $name
      * @param  list<\Illuminate\Database\Eloquent\Model>  $models
@@ -252,20 +217,8 @@ final readonly class PrincipalListing
     }
 
     /**
-     * Whether the load found no tenant (nothing, or the unsaved default model
-     * of `withDefault()`) where the principal's own relation may still name
-     * one.
-     *
-     * Eloquent's eager load pairs each row with its principal by the key's PHP
-     * value, where a lazy load lets the database compare it, so a key the
-     * database matches but PHP does not (another case under a case-insensitive
-     * collation, `'01'` against `1`) loads no tenant. It also builds the
-     * relation on a blank instance of the model, so a relation that reads the
-     * principal's own attributes is constrained without them. Such a principal
-     * has its tenant read alone, by a lazy load on a copy of it; one whose key
-     * is not set costs no query. A polymorphic relation without a type is not
-     * read alone, since Eloquent would build it against the principal's own
-     * model: the principal's `getTenant()` refuses it when its key is set.
+     * Whether the eager load found no tenant where the principal's own relation
+     * may still name one.
      *
      * @param  \Illuminate\Database\Eloquent\Model  $model
      * @param  string  $name
@@ -284,9 +237,8 @@ final readonly class PrincipalListing
     }
 
     /**
-     * The tenant relation of a principal model that uses `ActsAsPrincipal`: the
-     * name its protected `getTenantRelationName()` gives, when that is a
-     * relation of the model; otherwise `null`.
+     * The tenant relation name of a principal model that uses
+     * `ActsAsPrincipal`, or `null`.
      *
      * @param  \Illuminate\Database\Eloquent\Model  $principal
      * @return ?string

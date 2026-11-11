@@ -23,28 +23,7 @@ use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
 
 /**
  * Revokes sessions for the session service: one session, or every session of
- * one or more scopes (an identity's, or a principal's).
- *
- * Each session is revoked by its own conditional `UPDATE` (only while it is not
- * revoked yet), so revoking is idempotent, the first revocation's time and
- * reason are kept, and of two calls racing for a session only the one that
- * changed the row reports it. Reports run once the revocation commits on the
- * session's own connection, never for one rolled back.
- *
- * A bulk revocation first moves each scope's "tokens valid after" cutoff to
- * `$now` on the scope's own connection, then, in one transaction on the session
- * model's connection, revokes every unrevoked session of each scope, pending
- * sessions included (so a pending credential issued before cannot activate a
- * session afterwards), read on the write connection in key order in chunks of
- * 500, and deletes the pending identifier changes of an identity's scope (also
- * kept on that connection), so a change link requested from a session that
- * ends, which needs no session to confirm, cannot move the account afterwards.
- * A failure in the transaction leaves the cutoffs moved: more is cut off, never
- * less, and a retry is idempotent. The session a bulk revocation excepts is
- * recorded as kept by each holder whose cutoff it moved (`KeptSessions`), so a
- * sign-in, a choice or a switch that wrote it, and whose check is still to run,
- * is not ended by the cutoff of the revocation that kept it, unless that move
- * rolls back.
+ * one or more scopes.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -76,7 +55,7 @@ final readonly class RevocationWriter
 
     /**
      * Revoke the session unless it is already revoked, and run the report once
-     * the revocation commits. Returns whether this call revoked it.
+     * the revocation commits; whether this call revoked it.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
@@ -98,11 +77,8 @@ final readonly class RevocationWriter
     }
 
     /**
-     * End every session of the scopes, except the given session, and return how
-     * many sessions this call revoked. Once the transaction commits, the
-     * `$committed` callback given runs first, then each revoked session is
-     * reported, then each scope with its count and the cutoff this call set for
-     * it.
+     * End every session of the scopes except the given one, and return how many
+     * this call revoked.
      *
      * @formatter:off
      *
@@ -166,20 +142,9 @@ final readonly class RevocationWriter
     }
 
     /**
-     * End every session of the scopes once more, for a deactivation or deletion
-     * of the model given, once the transactions open now on the session model's
-     * connection and on the model's own have committed, in turn: the
-     * transaction the scopes were first ended in may have read the sessions
-     * through a snapshot taken before a sign-in, a choice or a switch that
-     * admitted the model committed one, which a read after the change's commit
-     * finds. Every cutoff stays where the first pass left it, each session this
-     * pass revokes is reported, and no scope is; the pending identifier changes
-     * an identity's scope names are deleted again, so a change requested since
-     * the first pass (from a session it could not see) is dropped with that
-     * session. With no transaction open on either connection, the first pass
-     * already read past every commit and nothing is done; a rollback runs
-     * nothing. The pass is required work (`AfterCommit::runAcross()`), so a
-     * listener that throws on a report of the first pass cannot skip it.
+     * End every session of the scopes once more after the open transactions
+     * commit, since the first pass may have read them through an earlier
+     * snapshot.
      *
      * @formatter:off
      *
@@ -213,10 +178,8 @@ final readonly class RevocationWriter
     }
 
     /**
-     * Revoke every unrevoked session of the scope but the excepted one, reading
-     * them on the write connection in key order, a chunk at a time, and queue
-     * each revoked session's report. The scope's query is copied, never
-     * narrowed, so a scope can be ended again (`revokeAgain()`).
+     * Revoke every unrevoked session of the scope but the excepted one, a chunk
+     * at a time, and queue each revoked session's report.
      *
      * @formatter:off
      *
@@ -267,8 +230,7 @@ final readonly class RevocationWriter
 
     /**
      * Move the scope's "tokens valid after" cutoff to the time given, and
-     * return its holder when this moved it; `null` when it records none or
-     * already had that time or a later one.
+     * return its holder when this moved it.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\RevocationScope  $scope
      * @param  \Carbon\CarbonImmutable  $now
@@ -281,11 +243,7 @@ final readonly class RevocationWriter
 
     /**
      * Record the excepted session as kept by each holder whose cutoff this call
-     * moved, so the check of a call that wrote it (`AdmissionRecheck`) does not
-     * take that cutoff for a revocation that could not see the session, until
-     * the move of an Eloquent holder's cutoff rolls back with its transaction:
-     * the cutoff is then back where a revocation that could not see the session
-     * may have left it.
+     * moved, until that move rolls back.
      *
      * @param  list<?\SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter>  $moved
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $except

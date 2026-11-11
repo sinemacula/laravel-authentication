@@ -128,8 +128,7 @@ final class FreshnessRequirementTest extends TestCase
 
     /**
      * A requirement of an age alone takes every proof kind and asks for no
-     * flag, so made stricter with a configured requirement it keeps that
-     * requirement's kinds and flags and only shortens its age.
+     * flag.
      *
      * @return void
      */

@@ -8,15 +8,8 @@ use Carbon\CarbonImmutable;
 use SineMacula\Laravel\Authentication\Models\OneTimeCode;
 
 /**
- * Writes a delivery of a one-time code to its key's row, for the engine: the
- * first row of a key, a new delivery window once the last has ended, a resend
- * of the live challenge, or a new challenge in the window; or answers why no
- * delivery may be made (the resend cooldown, or the window's delivery cap).
- *
- * Every write is one statement conditional on the issuance the delivery read,
- * so of concurrent deliveries for one key exactly one is written, and no
- * locking read is made, so a transaction around a first delivery locks no gap
- * of the index.
+ * Writes a delivery of a one-time code to its key's row, or answers why no
+ * delivery may be made.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -42,9 +35,7 @@ final readonly class ChallengeDeliveries
 
     /**
      * Write the secret as a new delivery for the binding's key, or answer why
-     * not and the seconds until another may be: a token's lifetime is its own,
-     * a code's (`$capped`) never outlasts the delivery window; a delivery that
-     * names a request of its own tries the insert first.
+     * not; a capped code never outlasts the delivery window.
      *
      * @param  \SineMacula\Laravel\Authentication\Codes\CodeBinding  $binding
      * @param  \Carbon\CarbonImmutable  $now
@@ -83,12 +74,8 @@ final readonly class ChallengeDeliveries
     }
 
     /**
-     * Replace the key's row with the delivery, after the cooldown since its
-     * last delivery: in a new delivery window when its window has ended;
-     * otherwise, while the window allows another delivery, as a resend of its
-     * live challenge in the same transaction, or else as a new challenge.
-     * Answers why no delivery may be made, or `null` when the row changed since
-     * it was read.
+     * Replace the key's row with the delivery, or answer why not, or `null`
+     * when the row changed since it was read.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\OneTimeCode  $row
      * @param  \SineMacula\Laravel\Authentication\Codes\CodeDelivery  $delivery
@@ -125,11 +112,7 @@ final readonly class ChallengeDeliveries
 
     /**
      * Why no delivery may be made to the row's key at the second given, or
-     * `null` when one may: the cooldown since its last delivery has not passed,
-     * its delivery window, ending at the second given, has not ended and has
-     * had all its deliveries, or a code the window would cut short (`$capped`)
-     * would have less than the cooldown left of it, so it could expire before
-     * another may be asked for; that one waits for the window to end.
+     * `null` when one may.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\OneTimeCode  $row
      * @param  int  $now
@@ -176,10 +159,7 @@ final readonly class ChallengeDeliveries
 
     /**
      * When another delivery may be made to the key after one made at the time
-     * given, by the same rules `refusal()` applies: once the cooldown has
-     * passed, unless the window, ending at the second given, would by then
-     * still be running and have had all its deliveries, or (`$capped`) have
-     * less than the cooldown left; then when the window ends.
+     * given, by the rules `refusal()` applies.
      *
      * @param  \Carbon\CarbonImmutable  $now
      * @param  int  $deliveries
@@ -199,10 +179,8 @@ final readonly class ChallengeDeliveries
     }
 
     /**
-     * Write the delivery's columns over the row, in one update conditional on
-     * the issuance read (and, for a resend, on its challenge still being live
-     * at the time given), and answer the code issued, or `null` when the row
-     * changed since it was read.
+     * Write the delivery's columns over the row, conditional on the issuance
+     * read, or answer `null` when the row changed since it was read.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\OneTimeCode  $row
      * @param  array<string, mixed>  $columns

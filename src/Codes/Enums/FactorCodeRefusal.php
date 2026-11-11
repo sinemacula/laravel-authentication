@@ -5,8 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Codes\Enums;
 
 /**
- * Why the factor package refused to have a factor code sent or checked. The
- * values are the factor package's own.
+ * Why the factor package refused to have a factor code sent or checked.
  *
  * @api
  *

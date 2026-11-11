@@ -10,25 +10,8 @@ use Psr\Log\LoggerInterface;
 use SineMacula\Laravel\Authentication\Config\IntegerSetting;
 
 /**
- * Guard-scoped JWT token-service factory.
- *
- * Resolves `auth.guards.<name>.jwt` config layered over the package-wide
- * `authentication.jwt.*` values so issuance and verification share the same
- * guard-local signing material, claim policy, and lifetimes.
- *
- * The package values, defaults included, come only from the merged
- * `config/authentication.php`; nothing here falls back to a literal. A value
- * missing at both levels, of the wrong type, or out of range fails closed with
- * an `InvalidJwtConfigurationException`, at either level: a malformed guard
- * override is never ignored in favour of the package value. Only the absolute
- * session lifetime may be `null`, explicitly, at either level, for no absolute
- * limit. `issuer` and `audience` are required too: every token carries them and
- * every parse checks them, so a guard with neither set at either level fails
- * closed.
- *
- * Each guard's service is built on first use and kept for the factory's life, a
- * container singleton's, so a later change to the configuration does not reach
- * it: in a queue worker, not until the worker restarts.
+ * Builds and keeps each guard's `JwtTokenService` from its `jwt` config layered
+ * over the package's `authentication.jwt` values.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -100,9 +83,8 @@ final class JwtTokenServiceFactory
     }
 
     /**
-     * Resolve the guard's `jwt` overrides: none when the guard has no `jwt`
-     * entry or sets it to `null`. Any other value that is not an array fails
-     * closed rather than silently dropping the guard's overrides.
+     * Resolve the guard's `jwt` overrides, failing closed on a value that is
+     * not an array or `null`.
      *
      * @param  string  $guard
      * @return array<string, mixed>
@@ -165,10 +147,7 @@ final class JwtTokenServiceFactory
     }
 
     /**
-     * Resolve the signing algorithm: a per-guard override that is present and
-     * not `null` wins, otherwise the package value. There is no literal
-     * default, and an override that is not a string fails closed rather than
-     * falling back to the package algorithm.
+     * Resolve the signing algorithm, preferring the per-guard override.
      *
      * @param  string  $guard
      * @param  array<string, mixed>  $guardJwtConfig
@@ -222,14 +201,8 @@ final class JwtTokenServiceFactory
     }
 
     /**
-     * Resolve the active kid, preferring the per-guard override and falling
-     * back to the package-wide default.
-     *
-     * A guard override that is absent or `null` falls back to the package-wide
-     * kid. A purely numeric kid written as an integer (e.g.
-     * `'active_kid' => 2026`) resolves to its string form, matching how
-     * `JwtKeyring` looks up numeric kids. Any other non-string value, at either
-     * level, fails closed instead of falling back.
+     * Resolve the active kid, preferring the per-guard override; an integer kid
+     * resolves to its string form.
      *
      * @param  array<string, mixed>  $guardJwtConfig
      * @return string
@@ -258,12 +231,7 @@ final class JwtTokenServiceFactory
 
     /**
      * Validate the raw JWT key map and return a strictly-typed `kid -> secret`
-     * array.
-     *
-     * Kids are not checked here: PHP stores a purely numeric kid such as
-     * `'2026'` as an integer array key, which `JwtKeyring` accepts and looks up
-     * by its string form, so the keyring is the single place kids are
-     * validated.
+     * array; `JwtKeyring` validates the kids.
      *
      * @param  array<array-key, mixed>  $rawKeys
      * @return array<array-key, string>
@@ -292,13 +260,8 @@ final class JwtTokenServiceFactory
     }
 
     /**
-     * Resolve an integer JWT config value: a per-guard override that is present
-     * and not `null` wins, otherwise the package value.
-     *
-     * The value must be an integer, or a string of digits with no padding or
-     * fraction (what `env()` returns), within the key's range. Anything else,
-     * including a value missing at both levels, fails closed rather than
-     * falling back.
+     * Resolve an integer JWT config value within its range, preferring the
+     * per-guard override.
      *
      * @param  string  $guard
      * @param  array<string, mixed>  $guardJwtConfig
@@ -326,12 +289,8 @@ final class JwtTokenServiceFactory
     }
 
     /**
-     * Resolve the absolute session lifetime, which may be explicitly `null` for
-     * no absolute limit: a per-guard override that is present wins, `null`
-     * included, so a guard can lift a limit the package value sets; otherwise
-     * the package value, `null` included. A value missing at both levels fails
-     * closed rather than reading as no limit, and so does any other value that
-     * is not an integer (or a string of digits) within the range.
+     * Resolve the absolute session lifetime, preferring the per-guard override;
+     * an explicit `null` means no absolute limit.
      *
      * @param  string  $guard
      * @param  array<string, mixed>  $guardJwtConfig
@@ -364,10 +323,8 @@ final class JwtTokenServiceFactory
     }
 
     /**
-     * Resolve a required string JWT config value (`issuer` / `audience`): a
-     * per-guard override that is present wins, otherwise the package value. It
-     * must be a non-empty string, at whichever level it comes from; a value
-     * missing at both levels, `null`, empty or of any other type fails closed.
+     * Resolve a required non-empty string JWT config value, preferring the
+     * per-guard override.
      *
      * @param  string  $guard
      * @param  array<string, mixed>  $guardJwtConfig
@@ -394,8 +351,7 @@ final class JwtTokenServiceFactory
     }
 
     /**
-     * Resolve the container's PSR-3 logger if bound, otherwise return `null` so
-     * the JWT service falls back to its `NullLogger`.
+     * Resolve the container's PSR-3 logger, or `null` when none is bound.
      *
      * @return ?\Psr\Log\LoggerInterface
      *

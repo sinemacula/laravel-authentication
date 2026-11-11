@@ -11,9 +11,7 @@ use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Http\RequestBody;
 
 /**
- * Unit tests for the body a credential is read from: the JSON body, or the form
- * body of a request that may have one, never the query string; and the field
- * names PHP keeps as they are in a form body.
+ * Unit tests for the body a credential is read from.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -24,8 +22,7 @@ use SineMacula\Laravel\Authentication\Http\RequestBody;
 final class RequestBodyTest extends TestCase
 {
     /**
-     * A JSON request's fields are its JSON body, whatever its method, and never
-     * its query string.
+     * A JSON request's fields are its JSON body, never its query string.
      *
      * @return void
      */
@@ -41,8 +38,7 @@ final class RequestBodyTest extends TestCase
     }
 
     /**
-     * A form request's fields are its form body, for a method that may have
-     * one, and never its query string.
+     * A form request's fields are its form body, never its query string.
      *
      * @return void
      */
@@ -54,8 +50,7 @@ final class RequestBodyTest extends TestCase
     }
 
     /**
-     * A form request of a method that has no body has no fields: what it
-     * carries is its query string.
+     * A form request of a method that has no body has no fields.
      *
      * @return void
      */
@@ -89,8 +84,7 @@ final class RequestBodyTest extends TestCase
     }
 
     /**
-     * A field name is a string PHP files as it is in a form body: no
-     * whitespace, `.`, bracket or control character.
+     * A field name is one PHP files as it is in a form body.
      *
      * @param  mixed  $name
      * @param  bool  $kept
@@ -103,9 +97,7 @@ final class RequestBodyTest extends TestCase
     }
 
     /**
-     * The utility cannot be instantiated: its constructor is private.
-     * Reflection invokes it so the line is covered while still documenting the
-     * access modifier.
+     * The constructor is private; reflection invokes it for coverage.
      *
      * @return void
      *

@@ -72,10 +72,7 @@ use Tests\TestCase;
 
 /**
  * Feature tests of the tenant authentication policy wherever a session comes to
- * act, or keeps acting, in a tenant: a sign-in, a choice of principal, the
- * further factor that activates a pending session, a refresh, `attempt()`, and
- * the policy-change helper, with a scripted policy and check, through the
- * session service and the guards against a real database.
+ * act, or keeps acting, in a tenant.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -151,9 +148,8 @@ final class TenantAuthenticationPolicyTest extends TestCase
     }
 
     /**
-     * A tenant that requires a further factor holds the sign-in pending on
-     * `mfa`, its principal and tenant recorded with the policy's version; the
-     * factor activates it only once the bound check finds it met.
+     * A tenant requiring a further factor holds the sign-in pending until the
+     * bound check finds it met.
      *
      * @return void
      *
@@ -205,9 +201,8 @@ final class TenantAuthenticationPolicyTest extends TestCase
     }
 
     /**
-     * A tenant that requires a connection refuses a password sign-in as
-     * `sso_required`, writing nothing; a session established through a named
-     * connection signs in.
+     * A tenant requiring a connection refuses any other sign-in as
+     * `sso_required`.
      *
      * @return void
      *
@@ -235,9 +230,7 @@ final class TenantAuthenticationPolicyTest extends TestCase
     }
 
     /**
-     * A choice of a principal whose tenant requires a connection is refused for
-     * that principal alone, the session left pending; one whose tenant requires
-     * a further factor records the principal and waits on `mfa`.
+     * A choice of principal answers to the chosen tenant's policy.
      *
      * @return void
      *
@@ -283,10 +276,8 @@ final class TenantAuthenticationPolicyTest extends TestCase
     }
 
     /**
-     * A choice of principal judges the tenant's further factor against the
-     * evidence a pending external session holds accepted, read back from its
-     * proofs: met, the session activates; under the default evidence policy,
-     * which accepted none, it waits on `mfa`.
+     * A choice of principal is judged on the evidence the pending session holds
+     * accepted.
      *
      * @return void
      *
@@ -324,10 +315,8 @@ final class TenantAuthenticationPolicyTest extends TestCase
     }
 
     /**
-     * A refresh and a switch judge the tenant's further factor against the
-     * evidence an external session holds accepted, read back from its proofs:
-     * met, the session refreshes and switches; once no evidence policy trusts
-     * that evidence, the next refresh returns the session to pending.
+     * A refresh and a switch are judged on the evidence the session holds
+     * accepted.
      *
      * @return void
      *
@@ -374,10 +363,7 @@ final class TenantAuthenticationPolicyTest extends TestCase
     }
 
     /**
-     * The evidence policy is told whose requirement it judges, so one tenant's
-     * connection never meets another tenant's further factor: a sign-in through
-     * the first tenant's connection, with evidence that tenant trusts, signs in
-     * as its principal and waits on `mfa` as the other tenant's.
+     * One tenant's connection never meets another tenant's further factor.
      *
      * @return void
      *
@@ -410,10 +396,8 @@ final class TenantAuthenticationPolicyTest extends TestCase
     }
 
     /**
-     * Evidence from a connection only one tenant trusts is still accepted, and
-     * so recorded, since acceptance asks whether anyone trusts it; it meets
-     * that tenant's requirement, but not the identity-level one, which only a
-     * connection trusted at the identity level meets.
+     * Evidence only one tenant trusts is accepted and meets only that tenant's
+     * requirement.
      *
      * @return void
      *
@@ -449,11 +433,8 @@ final class TenantAuthenticationPolicyTest extends TestCase
     }
 
     /**
-     * A tenant that comes to require a further factor returns the session to
-     * pending at its next refresh: no pair, the pending credential, the old
-     * access token refused at once and the old refresh token refused as pending
-     * without revoking; the factor activates it again (`SessionActivated`), its
-     * floor moved past every earlier token.
+     * A refresh that falls short of a newly required factor returns the session
+     * to pending.
      *
      * @return void
      *
@@ -522,11 +503,8 @@ final class TenantAuthenticationPolicyTest extends TestCase
     }
 
     /**
-     * A refresh that returns a session to pending names the strictest of what
-     * its tenant asks and what the identity's own factor policy, tightened
-     * since the session activated, still asks of it, the same requirement a
-     * look-up of the pending session answers, so the factor package verifies
-     * against what the next action is judged by.
+     * A refresh returning to pending names the strictest of the tenant's and
+     * the identity's requirements.
      *
      * @return void
      *
@@ -551,10 +529,7 @@ final class TenantAuthenticationPolicyTest extends TestCase
     }
 
     /**
-     * A refresh that returns a session to pending forgets a binding of the
-     * guard to that session in the same request, with no event, so nothing
-     * later in the request acts in it; a binding to another session is left as
-     * it is.
+     * A return to pending forgets only the guard's binding to that session.
      *
      * @return void
      *
@@ -586,9 +561,8 @@ final class TenantAuthenticationPolicyTest extends TestCase
     }
 
     /**
-     * A tenant that comes to require a connection the session was not
-     * established through refuses its next refresh as `sso_required` and
-     * revokes it (`tenant_policy_changed`), so it never refreshes again.
+     * A refresh that needs another connection is refused as `sso_required` and
+     * revokes the session.
      *
      * @return void
      *
@@ -612,11 +586,8 @@ final class TenantAuthenticationPolicyTest extends TestCase
     }
 
     /**
-     * A refresh from plain values meets the tenant's policy as the request form
-     * does, and reports with the client given: one that falls short of a factor
-     * returns the session to pending (`SessionReturnedToPending`), and one that
-     * needs another connection revokes it (`SessionRevoked`), each carrying
-     * that client, not the guard's request's.
+     * A plain refresh meets the tenant's policy and reports with the client
+     * given.
      *
      * @return void
      *
@@ -673,10 +644,8 @@ final class TenantAuthenticationPolicyTest extends TestCase
     }
 
     /**
-     * `attempt()`, which cannot wait, refuses a principal whose tenant requires
-     * a further factor as `additional_factor_required`, the check judging the
-     * password the attempt proved, with no session, and one whose tenant
-     * requires a connection as `sso_required`.
+     * `attempt()` refuses a principal whose tenant requires a further factor or
+     * a connection.
      *
      * @return void
      *
@@ -721,9 +690,7 @@ final class TenantAuthenticationPolicyTest extends TestCase
 
     /**
      * A policy change revokes the tenant's active sessions that no longer meet
-     * it, records the version on those that do, skips those already at it,
-     * leaves a pending session that lacks only a factor, and touches no other
-     * tenant's session.
+     * it.
      *
      * @return void
      *
@@ -767,8 +734,8 @@ final class TenantAuthenticationPolicyTest extends TestCase
     }
 
     /**
-     * A pending session that lacks only a further factor is left for its
-     * activation to judge; an active one is revoked.
+     * A policy change leaves a pending session that lacks only a further
+     * factor.
      *
      * @return void
      *
@@ -791,11 +758,8 @@ final class TenantAuthenticationPolicyTest extends TestCase
     }
 
     /**
-     * A policy change judges an external session's further factor on the
-     * evidence it holds accepted, for the tenant whose policy changed: evidence
-     * from a connection that tenant trusts meets it, and the session stays
-     * active with the version recorded; evidence from a connection only another
-     * tenant trusts does not, and the session is revoked.
+     * A policy change judges an external session on the evidence the changed
+     * tenant trusts.
      *
      * @return void
      *
@@ -829,9 +793,7 @@ final class TenantAuthenticationPolicyTest extends TestCase
     }
 
     /**
-     * Inside a caller's transaction that rolls back, nothing is revoked and no
-     * revocation is reported; called again outside it, the session is revoked,
-     * and a third call finds nothing left to revoke.
+     * A policy change rolls back with the caller's transaction.
      *
      * @return void
      *
@@ -910,9 +872,8 @@ final class TenantAuthenticationPolicyTest extends TestCase
     }
 
     /**
-     * A pending session of the member signing in with the email given, in its
-     * tenant, waiting on a further factor its tenant asked for at sign-in, and
-     * its key.
+     * A pending session of the member waiting on a further factor its tenant
+     * asked for, and its key.
      *
      * @param  string  $email
      * @return mixed

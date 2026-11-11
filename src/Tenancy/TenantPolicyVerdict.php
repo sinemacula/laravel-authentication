@@ -9,12 +9,7 @@ use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Tenancy\Enums\TenantPolicyStanding;
 
 /**
- * A session judged against its tenant's authentication policy: how it stands,
- * the version of the answer it was judged by (`null` for none, and for a
- * destination of no tenant, which has no policy), when it falls short of a
- * further factor, the requirement it falls short of (empty otherwise), which a
- * pending session names as outstanding, and the first factor a further factor
- * was judged on, when the answer asked for one.
+ * A session judged against its tenant's authentication policy.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

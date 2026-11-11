@@ -39,12 +39,8 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\PlainIdentityFixture;
 
 /**
- * Feature tests for what the identifier change service refuses as a
- * misconfiguration, with an exception, before it counts or writes anything: a
- * guard that is not a jwt guard, an identity that cannot change identifiers, a
- * type it cannot change, malformed settings, no notifier, a link route that
- * cannot carry a change link, and an identity on another connection than the
- * sessions.
+ * Feature tests for the misconfigurations the identifier change service refuses
+ * before it counts or writes anything.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -60,8 +56,7 @@ final class IdentifierChangeServiceTest extends TestCase
     use ChangesIdentifiers, InteractsWithVerifiableIdentities;
 
     /**
-     * Start every test from a known moment, with the fakes bound and the routes
-     * links might point at.
+     * Freeze the clock and bind the fakes and the routes links might point at.
      *
      * @return void
      */
@@ -109,9 +104,8 @@ final class IdentifierChangeServiceTest extends TestCase
     }
 
     /**
-     * Rows of `[the identity, the exception, its message]`: a machine identity
-     * has no identifiers to change, and an identity must be an Eloquent model
-     * that can change them.
+     * Rows of `[the identity, the exception, its message]` for identities that
+     * cannot change identifiers.
      *
      * @return iterable<string, array{0: \Closure(): \SineMacula\Laravel\Authentication\Contracts\Identity, 1: class-string<\Throwable>, 2: string}>
      */
@@ -151,9 +145,7 @@ final class IdentifierChangeServiceTest extends TestCase
     {
         $identity = $identity();
 
-        // An identity that is no model can hold no session row, so another
-        // identity's session stands in: the identity is refused before the
-        // proof is read.
+        // A non-model identity has no session row, so another's stands in.
         $proof   = self::freshSession($identity instanceof Model ? $identity : self::seedChangeable());
         $changes = $this->changes();
         $calls   = [
@@ -178,8 +170,7 @@ final class IdentifierChangeServiceTest extends TestCase
     }
 
     /**
-     * A link that names a machine identity, which a request never signs, is a
-     * misconfiguration of the guard's provider.
+     * A link naming a machine identity is refused as a misconfiguration.
      *
      * @return void
      *
@@ -204,9 +195,8 @@ final class IdentifierChangeServiceTest extends TestCase
     }
 
     /**
-     * Rows of `[type, the exception, its message]`: a type that is not a valid
-     * identifier type, and one no normaliser is registered for, so its
-     * normalised uniqueness cannot be kept.
+     * Rows of `[type, the exception, its message]`: an invalid type and one
+     * with no normaliser.
      *
      * @return iterable<string, array{0: string, 1: class-string<\Throwable>, 2: string}>
      */
@@ -223,8 +213,7 @@ final class IdentifierChangeServiceTest extends TestCase
     }
 
     /**
-     * A type the service cannot change is refused by requests, confirmations
-     * and the reads, before anything is counted.
+     * A type the service cannot change is refused before anything is counted.
      *
      * @param  string  $type
      * @param  class-string<\Throwable>  $exception
@@ -274,8 +263,8 @@ final class IdentifierChangeServiceTest extends TestCase
     }
 
     /**
-     * Rows of `[setting, value, message]`: settings every change reads, each
-     * malformed.
+     * Rows of `[setting, value, message]` of malformed settings every change
+     * reads.
      *
      * @return iterable<string, array{0: string, 1: mixed, 2: string}>
      */
@@ -290,8 +279,7 @@ final class IdentifierChangeServiceTest extends TestCase
     }
 
     /**
-     * A malformed setting fails closed before any statement runs, so before
-     * anything is locked, counted or written.
+     * A malformed setting fails closed before any statement runs.
      *
      * @param  string  $key
      * @param  mixed  $value
@@ -320,8 +308,7 @@ final class IdentifierChangeServiceTest extends TestCase
     }
 
     /**
-     * A change proven by code reads the code settings first, before any
-     * statement runs, so before anything is locked or counted.
+     * A change by code reads the code settings before any statement runs.
      *
      * @return void
      *
@@ -366,8 +353,7 @@ final class IdentifierChangeServiceTest extends TestCase
     }
 
     /**
-     * Without a notifier no change is requested or confirmed: the old
-     * identifier could not be told.
+     * Without a notifier no change is requested or confirmed.
      *
      * @return void
      *
@@ -398,9 +384,8 @@ final class IdentifierChangeServiceTest extends TestCase
     }
 
     /**
-     * Without a code sender, a change by code is refused before anything is
-     * counted or written; a change by link, which the application sends, still
-     * starts.
+     * Without a code sender a change by code is refused, while a change by link
+     * still starts.
      *
      * @return void
      *
@@ -428,9 +413,8 @@ final class IdentifierChangeServiceTest extends TestCase
     }
 
     /**
-     * Rows of `[route, parameters, the exception, its message]`: parameters
-     * that take a name the link sets, a route that takes one as a placeholder,
-     * and a route that does not exist.
+     * Rows of `[route, parameters, the exception, its message]` that cannot
+     * carry a change link.
      *
      * @return iterable<string, array{0: string, 1: array<string, mixed>, 2: class-string<\Throwable>, 3: string}>
      */
@@ -482,9 +466,7 @@ final class IdentifierChangeServiceTest extends TestCase
     }
 
     /**
-     * An identity stored on another connection than the sessions, the codes and
-     * the pending changes cannot have a change confirmed in one transaction, so
-     * none is requested or confirmed.
+     * An identity on another connection than the sessions is refused.
      *
      * @return void
      *
@@ -518,11 +500,8 @@ final class IdentifierChangeServiceTest extends TestCase
     }
 
     /**
-     * A confirmation counts its limits before its transaction, and none inside
-     * it (a confirmed change gives them back once it commits); the transaction
-     * locks the identity's row as it starts, before it reads the pending change
-     * or touches a proof, the lock order a password write follows too, so the
-     * two wait for each other rather than deadlock.
+     * A confirmation counts its limits before its transaction, which locks the
+     * identity's row first.
      *
      * @return void
      *
@@ -553,11 +532,8 @@ final class IdentifierChangeServiceTest extends TestCase
     }
 
     /**
-     * A confirmation by code counts one slot of the identity's account and one
-     * of the IP address (`identifier_change`): a refused one keeps them, a
-     * confirmed one gives both back once it commits, and once the account's are
-     * used up the confirmation is `rate_limited`, before its code is touched,
-     * with the wait its `AuthenticationFailed` reports.
+     * A confirmation by code is rate limited, and a confirmed one gives its
+     * slots back.
      *
      * @return void
      *
@@ -612,10 +588,8 @@ final class IdentifierChangeServiceTest extends TestCase
     }
 
     /**
-     * A malformed confirmation takes and keeps one slot of the identity's
-     * account and one of the IP address, counts no attempt against the code and
-     * is `invalid`; once the account's are used up the next is `rate_limited`,
-     * with the wait its `AuthenticationFailed` reports, not `invalid`.
+     * A malformed confirmation takes and keeps its slots, then is
+     * `rate_limited`.
      *
      * @param  ?string  $challengeId
      * @param  string  $code
@@ -657,13 +631,7 @@ final class IdentifierChangeServiceTest extends TestCase
     }
 
     /**
-     * A confirmation by code answers as the check of its code does: a code for
-     * another challenge is `invalid`, one out of attempts `exhausted` and one
-     * past its expiry `expired`, the identifier unchanged; a malformed
-     * challenge is `invalid` with no attempt counted, even with a well-formed
-     * code, and takes its slots like any other. Each refusal is reported once
-     * as an `identifier_change` failure with its reason and the challenge it
-     * checked, which is none for a malformed one.
+     * A confirmation by code answers and reports as the check of its code does.
      *
      * @return void
      *
@@ -708,12 +676,8 @@ final class IdentifierChangeServiceTest extends TestCase
     }
 
     /**
-     * A request counts its limits, the password proof's sign-in slots among
-     * them, before its transaction, and none inside it; the transaction locks
-     * the identity's row as it starts, before it checks the proof again or
-     * reads the pending change it replaces, so a password write or a
-     * confirmation racing it waits instead of falling in between; so does a
-     * cancellation, before it reads the change it deletes.
+     * A request and a cancellation lock the identity's row before reading the
+     * pending change.
      *
      * @return void
      *
@@ -760,8 +724,8 @@ final class IdentifierChangeServiceTest extends TestCase
     }
 
     /**
-     * Record from now on each statement run, and `begin` where a transaction
-     * starts, in order.
+     * Record each statement run from now on, with `begin` where a transaction
+     * starts.
      *
      * @return \Closure(): list<string>
      */

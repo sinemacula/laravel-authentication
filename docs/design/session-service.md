@@ -15,10 +15,10 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   are reserved for misconfiguration (an unknown method, a method that refuses with a reason that is not a sign-in method
   reason, an identity that is not an Eloquent model or does not implement `HasSessions`, an invalid session model, an
   `UnresolvableIdentityException`) and server errors. An identity without `HasSessions` is refused before it is admitted
-  (in `signIn()`, after its slot was taken; in `start()`, before anything is written), because a bearer
-  token names a session the guard can only find through that relation, so the session's access token would never
-  authenticate. A `MachineIdentity` is the exception: it is let through to admission, which refuses it as a result
-  (`machine_identity`), since a non-human identity has no session whatever it implements.
+  (in `signIn()`, after its slot was taken; in `start()`, before anything is written), because a bearer token names a
+  session the guard can only find through that relation, so the session's access token would never authenticate. A
+  `MachineIdentity` is the exception: it is let through to admission, which refuses it as a result (`machine_identity`),
+  since a non-human identity has no session whatever it implements.
 - Every sign-in, pending, proof and session action takes the client it acts for as a required plain value and never
   reads the guard's request for it: `signIn()`, `start()` and `signInExternally()` (the `SignInContext`), `refresh()`,
   `switchTo()`, `signOutWith()`, `satisfy()`, `choose()`, `discard()`, `stepUp()`, `reauthenticate()` and
@@ -39,18 +39,18 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 - `signIn()` order: the method is resolved (unknown throws); `Attempting`; a cookie application's request must come
   from a page of its own site (`SessionPreconditions::crossSite()`: `cross_site_request`, nothing read, counted or
   written, judged on the context's client; `start()`, `satisfy()` and `choose()` are held to it too, the last two on
-  the `ClientContext` they are given, before the pending session is read, and only
-  `signInExternally()` is exempt; see `refresh-token-transport.md`); the application policy must allow the method
-  (`method_not_allowed`, nothing counted, no timebox); the attempt limiter must grant a slot (`rate_limited`); then, in
-  the guard's credential timebox, cut short only for an admitted identity: the method verifies the input, the identity
-  must not be a `MachineIdentity` (`machine_identity`) and must be active, and the application policy must admit it with
-  the identifier type before any principal is resolved (`admitIdentifier()`; the package's finds the identifier verified
-  where the guard requires it); a password is rehashed; then, outside the timebox (`SessionEstablishment::select()` and
-  `proceed()`, over `PendingEvaluation`): the principals the identity may use the application as, read from the writer
-  and each admitted (`Admission\PrincipalAdmission`), with none left the last one's refusal or `principal_unresolved`;
-  the one the context names (`principal_mismatch` when it is not among them), or the only one, or none selected while a
-  choice is outstanding; the proof of a session is checked; the identity-level additional-factor policy is asked, with
-  no principal or tenant; a selected principal's active tenant is admitted (`Admission\TenantAdmission::select()`); that
+  the `ClientContext` they are given, before the pending session is read, and only `signInExternally()` is exempt; see
+  `refresh-token-transport.md`); the application policy must allow the method (`method_not_allowed`, nothing counted, no
+  timebox); the attempt limiter must grant a slot (`rate_limited`); then, in the guard's credential timebox, cut short
+  only for an admitted identity: the method verifies the input, the identity must not be a `MachineIdentity`
+  (`machine_identity`) and must be active, and the application policy must admit it with the identifier type before any
+  principal is resolved (`admitIdentifier()`; the package's finds the identifier verified where the guard requires it);
+  a password is rehashed; then, outside the timebox (`SessionEstablishment::select()` and `proceed()`, over
+  `PendingEvaluation`): the principals the identity may use the application as, read from the writer and each admitted
+  (`Admission\PrincipalAdmission`), with none left the last one's refusal or `principal_unresolved`; the one the context
+  names (`principal_mismatch` when it is not among them), or the only one, or none selected while a choice is
+  outstanding; the proof of a session is checked; the identity-level additional-factor policy is asked, with no
+  principal or tenant; a selected principal's active tenant is admitted (`Admission\TenantAdmission::select()`); that
   tenant's authentication policy is judged against the sign-in's own evidence in memory (`Tenancy\TenantPolicyCheck`,
   `SessionEvidence`: `sso_required` refuses, writing nothing; a further factor it lacks makes `mfa` outstanding); and
   the session is written active, recording the method, the policy's version, its identifier type and the tenant, or
@@ -63,12 +63,12 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   session commits on its connection, the guard is bound to it and it passed the check the call is held to
   (`AdmissionRecheck::then()`): a rollback leaves a first activation's session pending, and slots given back before it
   would be given back again when it activates; a session the check ends at a caller's commit keeps them counted, as a
-  sign-in the check refuses before it answers does. A release that fails then is
-  reported to the exception handler, not thrown, the one limiter error that does not propagate: the session already
-  stands, and Laravel runs a commit's callbacks in order without catching, so a throw would stop the later ones (another
-  activation's events, the caller's own). The release stops at the failure, and the slots not given back stay counted. A
-  handler that throws while reporting is not caught, as with Laravel's `rescue()`: an error that cannot be reported
-  surfaces rather than vanishing.
+  sign-in the check refuses before it answers does. A release that fails then is reported to the exception handler, not
+  thrown, the one limiter error that does not propagate: the session already stands, and Laravel runs a commit's
+  callbacks in order without catching, so a throw would stop the later ones (another activation's events, the caller's
+  own). The release stops at the failure, and the slots not given back stay counted. A handler that throws while
+  reporting is not caught, as with Laravel's `rescue()`: an error that cannot be reported surfaces rather than
+  vanishing.
 - The steps `signIn()` and the guard's `attempt()` take the same way are `Sessions\CredentialAttempt`'s, which each
   calls in its own order: `checkMethod()` (the application policy's method check, before anything is counted), `begin()`
   (the slot on the identifier and IP limits, from the limiter the caller resolved after the method check), the account
@@ -85,11 +85,11 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   channel, observations and `amr` values are recorded as the first proof. A factor over the `external_provider` channel
   or carrying the private external-provider `amr` value is an `InvalidArgumentException`
   (`SessionPreconditions::assertApplicationFactor()`), so only `signInExternally()` records one. Then it runs the
-  method check, the identity's admission with no identifier type, and the same order from the principals on.
-  It takes no slot and runs in no timebox: nothing is guessed. The principal is given as the argument or on the
-  context, never both. A machine credential kind (`SignInMethodManager::CREDENTIAL_METHODS`) as the method is an
-  `InvalidArgumentException` before anything else: a session recorded under `client_credentials` would pass for a
-  client credentials token to every listener that reads the method.
+  method check, the identity's admission with no identifier type, and the same order from the principals on. It takes no
+  slot and runs in no timebox: nothing is guessed. The principal is given as the argument or on the context, never both.
+  A machine credential kind (`SignInMethodManager::CREDENTIAL_METHODS`) as the method is an `InvalidArgumentException`
+  before anything else: a session recorded under `client_credentials` would pass for a client credentials token to every
+  listener that reads the method.
 - One `$now` per call, cut to the second, is used for the deadlines, the last use and every token's `iat`. The deadlines
   come from the application policy's lifetimes for the guard (`ApplicationPolicy::lifetimes($guard)`), which with the
   shipped policy are the guard's token service's (see `application-policy.md`), the absolute one capped at the
@@ -212,16 +212,15 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   transaction to end, committed or rolled back (see `session-lifecycle.md`).
 - The slots a pending session keeps stay taken until it first activates, the one the method's check took on the
   account (`SignInRequest::reserveAccountAttempt()`) among them, and a discard or expiry leaves them counted, so each
-  guess at a factor costs a sign-in attempt. For the password method the
-  guesses are bounded by the account's one count, whatever spelling of the identifier or guard the sign-ins used, held
-  to the most permissive `per_identifier` limit among the guards that check the account (see `application-policy.md`);
-  for a method that counts no account, only by its identifier's and the IP address's limits. A pending session from
-  `start()` or `signInExternally()` holds no slots (nothing was guessed), so its external verifier bounds it.
-- An activation runs in the client `satisfy()` or `choose()` is given: its events and the
-  session's last use carry that client, while the session keeps the client the sign-in came from as its creation. The
-  bind's `PrincipalAssigned` and `SessionAuthenticated` carry it too (`bound()` hands the client to
-  `GuardBinding::login()`), as they carry a sign-in's `SignInContext` client, so a last use the bind records is the same
-  client's.
+  guess at a factor costs a sign-in attempt. For the password method the guesses are bounded by the account's one count,
+  whatever spelling of the identifier or guard the sign-ins used, held to the most permissive `per_identifier` limit
+  among the guards that check the account (see `application-policy.md`); for a method that counts no account, only by
+  its identifier's and the IP address's limits. A pending session from `start()` or `signInExternally()` holds no slots
+  (nothing was guessed), so its external verifier bounds it.
+- An activation runs in the client `satisfy()` or `choose()` is given: its events and the session's last use carry that
+  client, while the session keeps the client the sign-in came from as its creation. The bind's `PrincipalAssigned` and
+  `SessionAuthenticated` carry it too (`bound()` hands the client to `GuardBinding::login()`), as they carry a sign-in's
+  `SignInContext` client, so a last use the bind records is the same client's.
 - Inside a caller's transaction the service's transaction is a savepoint: the lifecycle events, the bind and the
   give-back of the slots wait for the caller's commit, and a rollback withdraws all three with the session, leaving the
   guard unbound (and, unless the counters are on a connection of their own, the sign-in's attempts uncounted). A

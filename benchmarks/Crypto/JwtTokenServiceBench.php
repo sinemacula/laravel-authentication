@@ -20,10 +20,6 @@ use Tests\Unit\Stubs\PlainPrincipalFixture;
 /**
  * PHPBench suite for JWT token issue and parse paths.
  *
- * Measures the raw cryptographic cost of HS256 token issuance and verification
- * without any guard, provider or session overhead: the access token names no
- * session, so issuing it derives no authentication from the session's records.
- *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */

@@ -9,15 +9,8 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
 
 /**
- * A password reset link to deliver: what `PasswordResetLinkSender::send()` is
- * given, once the delivery job has checked that the token is still the live one
- * and that the identity may reset its password.
- *
- * The identifier is the destination: the identity's own identifier of the type,
- * in its normal form, exactly the one the link was requested for. The token is
- * a `Secret`, read through `token()`: no dump of the message shows it, and
- * serialising the message throws. Reveal it only into the link the identity
- * follows; never log it.
+ * A password reset link to deliver, as `PasswordResetLinkSender::send()` is
+ * given it.
  *
  * @api
  *

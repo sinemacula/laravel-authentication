@@ -34,30 +34,8 @@ use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\TestCase;
 
 /**
- * Races a refresh against the judgement of its session again after a change of
- * the factor package's (`factorChanged()`) on PostgreSQL and MySQL, each side
- * in a process with a database connection of its own, once the factor package
- * asks the active session for a further factor it lacks. Both write the
- * session's row (the refresh its issuance guard and rotation, the change its
- * issuance guard and the return to pending), so they serialise on it and the
- * session never stays active with a pair the change did not see.
- *
- * When the change holds its transaction, the refresh waits on its guard and,
- * once the change commits, is refused as `session_pending` with no pair. When
- * the refresh holds its transaction, the change waits on its lock and, once the
- * refresh commits, returns the rotated session to pending, so the pair the
- * refresh handed out is refused from then on and the change's pending
- * credential takes a further factor.
- *
- * Under PostgreSQL's REPEATABLE READ the waiting side's transaction takes its
- * snapshot at its first statement, before it waits, so it fails to serialise
- * once the other commits, and its caller's retry ends the same way (a change
- * may fail again while the refresh records the session's last use, which it
- * does once committed); under MySQL's the locking statements wait and read what
- * is committed, as at READ COMMITTED.
- *
- * Skipped on SQLite, whose in-memory database each process would have to
- * itself, and where `pcntl` is not available.
+ * Races a refresh against a factor change's judgement of its session, each in
+ * its own process.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -139,11 +117,7 @@ final class ConcurrentRefreshAndFactorChangeTest extends TestCase
     }
 
     /**
-     * A refresh that starts while a change holds the session's row, having
-     * returned it to pending, waits for it and is refused as `session_pending`
-     * with no pair; under PostgreSQL's REPEATABLE READ it fails to serialise
-     * first and is refused the same way once retried. The change's pending
-     * credential takes a further factor.
+     * A refresh that waits on a change is refused as pending.
      *
      * @param  string  $level
      * @return void
@@ -185,11 +159,7 @@ final class ConcurrentRefreshAndFactorChangeTest extends TestCase
     }
 
     /**
-     * A change that starts while a refresh holds the session's row, having
-     * rotated it, waits for it and returns the rotated session to pending: the
-     * pair the refresh handed out is refused from then on, and the change's
-     * pending credential takes a further factor; under PostgreSQL's REPEATABLE
-     * READ the change fails to serialise first and returns it once retried.
+     * A change that waits on a refresh returns the rotated session to pending.
      *
      * @param  string  $level
      * @return void
@@ -253,8 +223,8 @@ final class ConcurrentRefreshAndFactorChangeTest extends TestCase
     }
 
     /**
-     * A session the seeded identity signed in to with its password, active,
-     * after which the factor package asks it for a further factor it lacks.
+     * An active session of the seeded identity that the factor package then
+     * asks for a further factor.
      *
      * @return \SineMacula\Laravel\Authentication\Sessions\SignedInSession
      *
@@ -275,10 +245,8 @@ final class ConcurrentRefreshAndFactorChangeTest extends TestCase
     }
 
     /**
-     * Run the first side here inside a transaction, start the second in another
-     * process, hold the transaction open until the second is about to send the
-     * statement that waits on the row (the one containing the marker given) and
-     * a little longer, then commit, and return what the second side reported.
+     * Run the first side in an open transaction, start the second in another
+     * process and commit once it is about to wait.
      *
      * @param  \Closure(): void  $first
      * @param  \Closure(): array<string, mixed>  $second
@@ -329,8 +297,8 @@ final class ConcurrentRefreshAndFactorChangeTest extends TestCase
     }
 
     /**
-     * In the forked process: refresh at the isolation level, retried after a
-     * failure to serialise, and report the outcome.
+     * Refresh at the isolation level in the forked process, retrying after a
+     * failure to serialise.
      *
      * @param  string  $level
      * @param  string  $refreshToken
@@ -348,9 +316,8 @@ final class ConcurrentRefreshAndFactorChangeTest extends TestCase
     }
 
     /**
-     * In the forked process: judge the session again after a confirmed factor
-     * at the isolation level, retried after a failure to serialise, and report
-     * the outcome with the pending credential revealed.
+     * Judge the session after a factor change at the isolation level in the
+     * forked process, retrying after a failure to serialise.
      *
      * @param  string  $level
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $signedIn
@@ -370,11 +337,8 @@ final class ConcurrentRefreshAndFactorChangeTest extends TestCase
     }
 
     /**
-     * Run the work, again after each failure to serialise, as its caller
-     * retries its whole transaction, up to the attempts allowed: the SQLSTATE
-     * of the first failure, `null` for none, and what the work answered. The
-     * first side's own writes once it commits (a refresh records the session's
-     * last use then) can fail a retry again.
+     * Run the work, retrying each failure to serialise: the first failure's
+     * SQLSTATE and the work's answer.
      *
      * @template TResult
      *
@@ -402,7 +366,7 @@ final class ConcurrentRefreshAndFactorChangeTest extends TestCase
 
     /**
      * Set the isolation level of every transaction the default connection
-     * begins from now on.
+     * begins.
      *
      * @param  string  $level
      * @return void
@@ -435,10 +399,8 @@ final class ConcurrentRefreshAndFactorChangeTest extends TestCase
     }
 
     /**
-     * In the forked process: wait to be started, signal just before the
-     * statement containing the marker is sent, run the second side on a
-     * connection of its own, report its outcome, and end without running the
-     * parent's shutdown.
+     * Run the second side in the forked process, report its outcome and exit
+     * without the parent's shutdown.
      *
      * @param  \Closure(): array<string, mixed>  $second
      * @param  string  $marker
@@ -468,7 +430,7 @@ final class ConcurrentRefreshAndFactorChangeTest extends TestCase
 
     /**
      * Signal the first side just before a statement containing the marker is
-     * sent on the default connection.
+     * sent.
      *
      * @param  string  $marker
      * @return void
@@ -485,8 +447,7 @@ final class ConcurrentRefreshAndFactorChangeTest extends TestCase
     }
 
     /**
-     * Wait for the other side to create the signal file, for no longer than the
-     * timeout: whether it did.
+     * Wait, up to the timeout, for the other side to create the signal file.
      *
      * @param  string  $signal
      * @return bool
@@ -503,9 +464,8 @@ final class ConcurrentRefreshAndFactorChangeTest extends TestCase
     }
 
     /**
-     * Fail the race that was never set up: roll the first side's transaction
-     * back and stop and reap the second side, so neither is left holding locks
-     * on the tables the teardown drops.
+     * Fail the unstarted race, rolling back the first side and reaping the
+     * second so neither holds locks.
      *
      * @param  positive-int  $pid
      * @param  string  $message

@@ -21,8 +21,7 @@ use Tests\Unit\Stubs\StubVerifiableModel;
 
 /**
  * Integration tests for the default identifier verification of an Eloquent
- * identity: an identifier column per type and a `<type>_verified_at` column
- * beside it, marked with one conditional update.
+ * identity.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -100,10 +99,8 @@ final class ProvidesIdentifierVerificationTest extends TestCase
     }
 
     /**
-     * Marking reads the row again under a lock and writes the verification time
-     * to the row and the model, all in one transaction; it fires no model
-     * event, leaves `updated_at` alone and the model clean, and reports that it
-     * recorded the verification.
+     * Marking re-reads the row under a lock and records the verification time
+     * without model events or touching `updated_at`.
      *
      * @return void
      */
@@ -133,9 +130,8 @@ final class ProvidesIdentifierVerificationTest extends TestCase
     }
 
     /**
-     * Marking records nothing when the identifier is already verified, when the
-     * row's identifier is not the one given, whatever the model in memory
-     * holds, or when the row is gone.
+     * Marking records nothing when the identifier is already verified, the
+     * stored identifier differs or the row is gone.
      *
      * @return void
      */

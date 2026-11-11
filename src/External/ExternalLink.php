@@ -8,10 +8,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 
 /**
  * A link the link contract found: the identity an external result maps to and
- * the link's own id, opaque to the package and compared exactly. A session
- * signed in through the link records the id with its provenance, so a
- * reauthentication through the provider must come through the very same link,
- * and the link's removal ends only its own sessions.
+ * the link's own id.
  *
  * @api
  *

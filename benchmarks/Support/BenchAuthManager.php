@@ -8,10 +8,8 @@ use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 
 /**
- * The package's auth manager for benchmarks that build their guards by hand: it
- * holds each one as resolved under its name, as the manager does for a guard a
- * request resolved, so the listeners that look a resolved guard up
- * (`RecordSessionUsage`) take the path a request takes.
+ * Auth manager that holds hand-built benchmark guards as resolved, so listeners
+ * that look a resolved guard up take a request's path.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

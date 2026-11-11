@@ -28,10 +28,7 @@ use SineMacula\Laravel\Authentication\Proofs\Provenance;
 use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
 
 /**
- * Unit tests for the proof value types: what each keeps, the shape each
- * constructor checks (lengths that fit the columns, `amr` values a column can
- * hold, `mfa` reserved), and the times kept to the whole second. None of them
- * decides acceptance.
+ * Unit tests for the proof value types.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -53,8 +50,7 @@ final class ProofValuesTest extends TestCase
     use MockeryPHPUnitIntegration;
 
     /**
-     * A channel keeps its kind and reference, with no reference by default and
-     * one of up to 255 characters, counted as characters, not bytes.
+     * A channel keeps its kind and a reference of up to 255 characters.
      *
      * @return void
      */
@@ -129,8 +125,8 @@ final class ProofValuesTest extends TestCase
     }
 
     /**
-     * A list of up to eight values, each 1 to 48 printable ASCII characters, is
-     * kept as given.
+     * A list of up to eight values of 1 to 48 printable ASCII characters is
+     * kept.
      *
      * @return void
      */
@@ -187,9 +183,7 @@ final class ProofValuesTest extends TestCase
     }
 
     /**
-     * A first factor keeps the identity, channel, observations and values,
-     * observing nothing and standing for no value by default, and refuses
-     * `mfa`.
+     * A first factor keeps what the method verified, and refuses `mfa`.
      *
      * @return void
      */
@@ -237,8 +231,8 @@ final class ProofValuesTest extends TestCase
     }
 
     /**
-     * A proof result keeps everything the adapter handed over, its time cut to
-     * the whole second in the time zone it was given in.
+     * A proof result keeps what the adapter handed over, its time cut to the
+     * second.
      *
      * @return void
      */
@@ -279,8 +273,7 @@ final class ProofValuesTest extends TestCase
     }
 
     /**
-     * An empty method or factor reference, or one longer than its column, is
-     * refused; one of 255 characters fits, counted as characters, not bytes.
+     * A proof result refuses a method or factor that does not fit its column.
      *
      * @param  string  $method
      * @param  ?string  $factor
@@ -302,8 +295,7 @@ final class ProofValuesTest extends TestCase
     }
 
     /**
-     * A proof result refuses `mfa` among its values, and `mfa` or any value
-     * followed by a newline, which a trimming reader would take for it.
+     * A proof result refuses `mfa`, and any value followed by a newline.
      *
      * @return void
      */
@@ -325,10 +317,7 @@ final class ProofValuesTest extends TestCase
     }
 
     /**
-     * A provenance keeps what the caller checked, the link's id and the
-     * provider context, its times cut to the whole second, and nothing but the
-     * connection by default; each value fits up to its column's length in
-     * characters, not bytes.
+     * A provenance keeps what the caller checked, its times cut to the second.
      *
      * @return void
      */
@@ -405,8 +394,8 @@ final class ProofValuesTest extends TestCase
     }
 
     /**
-     * A proof about to be recorded keeps what an adapter's proof carries, its
-     * purpose taken from the binding.
+     * A proof about to be recorded keeps an adapter's proof, with the binding's
+     * purpose.
      *
      * @return void
      */

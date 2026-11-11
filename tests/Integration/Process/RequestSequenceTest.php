@@ -34,16 +34,9 @@ use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\TestCase;
 
 /**
- * End-to-end tests for one application serving many requests, as Octane and the
- * test kernel do: each request rebinds the request, which resets every package
- * guard already resolved, so nothing one request bound (an identity, a
- * principal, a session, a refusal) is seen by the next, and a dispatcher or a
- * principal resolver swapped in after the guard resolved reaches the guard, its
- * refresh exchange and its session service, the switch of principal and the
- * revocations included.
+ * End-to-end tests of one application serving many requests, as Octane does.
  *
- * The guards are never forgotten between the requests here, unlike the rest of
- * the suite, so a leak would show.
+ * The guards are never forgotten between requests here, so a leak would show.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -56,8 +49,7 @@ final class RequestSequenceTest extends TestCase
     use InteractsWithSessions;
 
     /**
-     * Freeze the clocks, create the tables, and add the routes: who the `api`
-     * guard says is signed in, a sign-in and a logout.
+     * Freeze the clocks, create the tables and add the routes.
      *
      * @return void
      */
@@ -155,8 +147,8 @@ final class RequestSequenceTest extends TestCase
     }
 
     /**
-     * A request with one identity's token, then one with another's: the second
-     * sees only the second identity, principal and session.
+     * A request with another identity's token sees only that identity,
+     * principal and session.
      *
      * @return void
      *
@@ -176,8 +168,7 @@ final class RequestSequenceTest extends TestCase
     }
 
     /**
-     * A rejected token, then a valid one: the refusal does not stick, and the
-     * valid token is reported once, as an authentication.
+     * A rejected token's refusal does not carry over to a valid one.
      *
      * @return void
      *
@@ -196,8 +187,7 @@ final class RequestSequenceTest extends TestCase
     }
 
     /**
-     * A sign-in, which binds the guard for the rest of its request, then a
-     * request without a token: the second is a guest.
+     * A request without a token after a sign-in is a guest.
      *
      * @return void
      */
@@ -210,8 +200,7 @@ final class RequestSequenceTest extends TestCase
     }
 
     /**
-     * A logout, which keeps the guard signed out for the rest of its request,
-     * then a request with a valid token: the second is signed in.
+     * A request with a valid token after a logout is signed in.
      *
      * @return void
      *
@@ -227,9 +216,7 @@ final class RequestSequenceTest extends TestCase
     }
 
     /**
-     * A switch of the principal a session acts as, between two requests with
-     * the same token: the second is refused, though the first was accepted by
-     * the same guard.
+     * After a principal switch, the old principal's token is refused.
      *
      * @return void
      *
@@ -251,10 +238,8 @@ final class RequestSequenceTest extends TestCase
     }
 
     /**
-     * A real switch of principal in one request, between requests with the old
-     * and the new access token: the request that switched is bound to the new
-     * principal, the old principal's token is refused on the next request, and
-     * the new one acts as the new principal.
+     * A switch of principal binds the new principal and refuses the old token
+     * on the next request.
      *
      * @return void
      *
@@ -291,8 +276,7 @@ final class RequestSequenceTest extends TestCase
 
     /**
      * `Event::fake()` after the guard resolved reaches the guard, its refresh
-     * exchange and its session service: a replayed refresh token's refusal and
-     * revocation, and a sign-in, are all recorded by the fake.
+     * exchange and its session service.
      *
      * @return void
      *
@@ -325,8 +309,8 @@ final class RequestSequenceTest extends TestCase
     }
 
     /**
-     * A principal resolver bound after the guard resolved is the one the next
-     * request uses.
+     * A principal resolver bound after the guard resolved is used on the next
+     * request.
      *
      * @return void
      *
@@ -351,10 +335,8 @@ final class RequestSequenceTest extends TestCase
     }
 
     /**
-     * `Event::fake()` after the guard and its session service resolved reaches
-     * the session lifecycle as well: a switch of principal and a sign-out
-     * everywhere made through the service the guard already holds are recorded
-     * by the fake.
+     * `Event::fake()` after the session service resolved reaches the session
+     * lifecycle.
      *
      * @return void
      *
@@ -386,8 +368,8 @@ final class RequestSequenceTest extends TestCase
     }
 
     /**
-     * A principal resolver bound after the guard and its session service
-     * resolved is the one a switch of principal admits the session with.
+     * A principal resolver bound after the session service resolved is used by
+     * a switch.
      *
      * @return void
      *
@@ -453,8 +435,7 @@ final class RequestSequenceTest extends TestCase
     }
 
     /**
-     * Ask who is signed in, with the session's access token or none, on the
-     * same application and guards as every request before.
+     * Ask who is signed in, with the session's access token or none.
      *
      * @param  ?\SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
      * @return \Illuminate\Testing\TestResponse<\Symfony\Component\HttpFoundation\Response>
@@ -467,8 +448,8 @@ final class RequestSequenceTest extends TestCase
     }
 
     /**
-     * Persist a member with a membership in an active tenant (its default
-     * principal) and a second one in the same tenant.
+     * Persist a member with a default and a second principal in one active
+     * tenant.
      *
      * @return array{0: \Tests\Integration\Fixtures\ActivatableTenantMembership, 1: \Tests\Integration\Fixtures\ActivatableTenantMembership}
      */

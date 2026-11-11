@@ -12,9 +12,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 
 /**
- * 2D fixture that eager-loads the tenant it acts within on every query, so the
- * tenant behind the activity check is loaded alongside the identity lookup
- * rather than lazily.
+ * 2D identity that eager-loads its tenant on every query.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

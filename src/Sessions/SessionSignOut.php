@@ -29,27 +29,8 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Symfony\Component\HttpFoundation\Cookie;
 
 /**
- * Signs a session of one guard out by its refresh credential, so a client whose
- * access token has expired, or that holds none, can still sign out, and clears
- * a cookie application's refresh cookie for a client its own pages sent.
- *
- * The credential is what was presented, as plain values: what
- * `RefreshTokenTransport::extract()` answered, or a `PresentedRefreshToken` the
- * application built, with the client. The token, its source and the client are
- * judged again by the transport, the guard's binding is not consulted, and the
- * guard's request is read for nothing. The session the token proves through
- * `RefreshProof` is revoked (`signed_out`, reported by `SessionRevoked` once
- * committed), `Logout` fires for its owner when the guard's provider still
- * returns it, and only a binding to it is forgotten. A refusal is reported by
- * `AuthenticationFailed` with the flow `sign_out`, and by no `Failed`: a
- * sign-out is not an attempt to authenticate. No attempt limit applies: nothing
- * is issued, a refresh token cannot be guessed, and revoking is the safe
- * direction.
- *
- * A cookie application's result carries the expired cookie only for a client a
- * cross-site page cannot have sent, since a browser keeps a cookie the response
- * to a cross-site navigation sets: a cross-site form must not sign the browser
- * out.
+ * Signs a session of one guard out by its refresh credential, and clears a
+ * cookie application's refresh cookie for a client its own pages sent.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -86,12 +67,8 @@ final readonly class SessionSignOut
     ) {}
 
     /**
-     * Sign out by what was presented, judged again with the client: `null`
-     * signs nothing out; a reason handed in (`SessionRefresh::handedIn()`), a
-     * refusal of the judgement, or a session the token does not prove is
-     * reported and answered; otherwise the session the token proves is signed
-     * out, unless it is not the session expected, which refuses the sign-out as
-     * `session_mismatch`.
+     * Sign out by what was presented, judged again with the client, or return
+     * `null` when nothing was.
      *
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Http\PresentedRefreshToken|null  $presented
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
@@ -129,11 +106,8 @@ final readonly class SessionSignOut
     }
 
     /**
-     * The expired cookie a cookie application's sign-out by refresh credential
-     * clears the browser's with: for a client that passes the cookie's
-     * same-site checks and whose token was not refused as a conflict, so a
-     * cross-site page never clears it; `null` otherwise, and for a body
-     * application.
+     * The expired cookie that clears a cookie application's refresh cookie, or
+     * `null` for a cross-site client, a conflict or a body application.
      *
      * @param  \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport  $transport
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
@@ -150,8 +124,7 @@ final readonly class SessionSignOut
     }
 
     /**
-     * Sign out the session the refresh token proves: revoke it, fire `Logout`
-     * for its owner, and forget a binding to it; or report the refusal and
+     * Sign out the session the refresh token proves, or report the refusal and
      * answer it.
      *
      * @param  \SineMacula\Laravel\Authentication\Secrets\Secret  $refreshToken
@@ -205,8 +178,7 @@ final readonly class SessionSignOut
 
     /**
      * Report a refresh token that proves a session other than the one expected,
-     * and answer it with no expired cookie, so refusing a request about another
-     * session never signs the browser out of its own.
+     * and answer it with no expired cookie.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource  $source

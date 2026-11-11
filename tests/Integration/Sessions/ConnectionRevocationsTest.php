@@ -25,12 +25,8 @@ use Tests\Integration\Fixtures\CutoffIdentity;
 use Tests\TestCase;
 
 /**
- * Integration tests of the revocations by connection against real rows: past
- * one chunk, every session the connection established is revoked once and no
- * other; a link's past one chunk of the identity's sessions, only those through
- * that very link; no cutoff moves; and each runs inside a caller's transaction
- * on the storage connection, committing or rolling back with it and reporting
- * only once it commits.
+ * Integration tests of the revocations by connection and by link against real
+ * rows.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -89,8 +85,7 @@ final class ConnectionRevocationsTest extends TestCase
     }
 
     /**
-     * Past one chunk, every session the connection established is revoked once,
-     * reported once, and another connection's sessions stay.
+     * Every session past one chunk is revoked once.
      *
      * @return void
      *
@@ -115,11 +110,8 @@ final class ConnectionRevocationsTest extends TestCase
     }
 
     /**
-     * Past one chunk of the identity's sessions, a removed link revokes every
-     * one established through that link, and none of its other sessions: not
-     * those through another link of the same connection, through no link, or
-     * through the same link id of another connection, and not another
-     * identity's through a link with the same id; no cutoff moves.
+     * A link past one chunk of the identity's sessions revokes only those
+     * through it.
      *
      * @return void
      *
@@ -144,10 +136,7 @@ final class ConnectionRevocationsTest extends TestCase
     }
 
     /**
-     * Past one chunk of the identity's sessions, a widened link scope revokes
-     * every one established through that link, with its own reason, though
-     * every per-event trigger is turned off; called again for the same widening
-     * it revokes and reports nothing more.
+     * A widened link scope past one chunk is mandatory and idempotent.
      *
      * @return void
      *
@@ -174,10 +163,7 @@ final class ConnectionRevocationsTest extends TestCase
     }
 
     /**
-     * With the provenance's connection column under a collation that counts
-     * distinct ids as equal, a disabled connection still ends only its own
-     * sessions, never those of a connection whose id differs from its own only
-     * in case or accent.
+     * A connection the collation counts as equal keeps its sessions.
      *
      * @param  string  $folded
      * @return void
@@ -204,9 +190,7 @@ final class ConnectionRevocationsTest extends TestCase
     }
 
     /**
-     * With the provenance's connection and link columns under a collation that
-     * counts distinct ids as equal, a removed link still ends only the
-     * identity's sessions through that very connection and that very link.
+     * A link the collation counts as equal keeps its sessions.
      *
      * @param  string  $folded
      * @return void
@@ -249,8 +233,7 @@ final class ConnectionRevocationsTest extends TestCase
     }
 
     /**
-     * Inside a caller's transaction that rolls back, the trigger revokes and
-     * reports nothing, with the caller's own change.
+     * A trigger rolls back with the caller's transaction.
      *
      * @param  \Closure(\Tests\Integration\Fixtures\CutoffIdentity): int  $trigger
      * @return void
@@ -280,9 +263,7 @@ final class ConnectionRevocationsTest extends TestCase
     }
 
     /**
-     * Inside a caller's transaction that commits, the trigger's revocations
-     * commit with the caller's own change and are each reported once, after the
-     * commit.
+     * A trigger commits with the caller's transaction and reports after it.
      *
      * @param  \Closure(\Tests\Integration\Fixtures\CutoffIdentity): int  $trigger
      * @return void
@@ -312,8 +293,8 @@ final class ConnectionRevocationsTest extends TestCase
     }
 
     /**
-     * Register the session guards, the `api` guard over the identities that
-     * record a cutoff.
+     * Register the session guards, the `api` guard over identities that record
+     * a cutoff.
      *
      * @param  mixed  $app
      * @return void
@@ -348,9 +329,8 @@ final class ConnectionRevocationsTest extends TestCase
     }
 
     /**
-     * Insert that many live sessions of the identity on the `api` guard, each
-     * established through the connection and link given, or signed in with a
-     * password when no connection is.
+     * Insert live sessions of the identity, established through the connection
+     * and link, or by password.
      *
      * @param  \Tests\Integration\Fixtures\CutoffIdentity  $identity
      * @param  ?string  $connection

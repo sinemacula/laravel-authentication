@@ -14,15 +14,8 @@ use SineMacula\Laravel\Authentication\Database\TableAlreadyExistsException;
 use Tests\TestCase;
 
 /**
- * Integration tests for the shape of the table the shipped identifier changes
- * migration creates, on whichever engine the suite runs against.
- *
- * The migration runs for a configured table name other than the default and
- * with the schema builder's default time precision raised, so the index names
- * and the whole-second precision are what the migration itself declares.
- *
- * Marked `#[CoversNothing]` because a migration is an anonymous class PHPUnit
- * cannot attribute coverage to.
+ * Integration tests for the shape of the table the identifier changes migration
+ * creates.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -78,9 +71,7 @@ final class IdentifierChangesTableSchemaTest extends TestCase
     }
 
     /**
-     * The table holds the row's digest, the guard, the type, both identifiers,
-     * the request, and when the change was requested and expires; only the
-     * replaced identifier is nullable.
+     * The table holds its columns, only the replaced identifier nullable.
      *
      * @return void
      */

@@ -5,9 +5,8 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Passwords;
 
 /**
- * Thrown by an establishment's write when the identity's row already holds a
- * password, so its transaction rolls back and the establishment is refused as
- * `password_already_set`; never seen outside the package.
+ * Thrown when an establishment finds the identity's row already holds a
+ * password, so its transaction rolls back.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

@@ -13,9 +13,8 @@ use SineMacula\Laravel\Authentication\Proofs\FirstFactor;
 use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
 
 /**
- * Sign-in method double that stands for any method that has already proven its
- * input (an accepted one-time code, an SSO assertion, a passkey): it returns
- * the identity the input's email address finds, checking nothing.
+ * Sign-in method that returns the identity the input's email address finds,
+ * checking nothing.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

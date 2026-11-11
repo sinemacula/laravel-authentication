@@ -12,18 +12,7 @@ use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 
 /**
- * Decides whom a presented key authenticates on a guard, and why not, in order:
- * the key must be one in form, and its public part must name a key whose secret
- * it is (`credential_invalid`, the same for a malformed key, an unknown public
- * part and a wrong secret); the key must be the guard's
- * (`credential_guard_mismatch`), not revoked (`credential_revoked`) and not
- * expired (`credential_expired`); the guard's application must allow the
- * credential (`method_not_allowed`); then its owner and principal are admitted
- * (`ApiKeyAdmission`). No password hashing is done: the secret's SHA-256 digest
- * is compared in constant time, against a fixed digest when no key matched.
- *
- * Built for one use with the guard's current collaborators, so it keeps nothing
- * between requests.
+ * Decides whom a presented key authenticates on a guard, and why not.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

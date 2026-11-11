@@ -22,19 +22,8 @@ use SineMacula\Laravel\Authentication\Proofs\ProofResult;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 
 /**
- * Steps a session of one guard up with a further factor an adapter verified:
- * records the proof on the session and issues it a new access token, whose
- * `auth_time` is the newest of the session's proof times (so never earlier than
- * the proof's) and whose `amr` gains its values (and `mfa` when its evaluation
- * reports multifactor authentication). It never issues a refresh token, keeps
- * the session, its key, its refresh token and its deadlines, and binds nothing:
- * the request it answers is already authenticated.
- *
- * The session is the one the proof's binding names, locked and checked as
- * `ProofIssuance` describes, and the proof must be one `ProofAcceptance`
- * accepts for a step-up. Once committed, `SteppedUp` reports it; a refusal
- * reports `AuthenticationFailed` (flow `step_up`) and is answered, never
- * thrown.
+ * Steps a session of one guard up with a further factor an adapter verified,
+ * issuing it a new access token.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

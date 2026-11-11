@@ -18,11 +18,7 @@ use Tests\Fixtures\Proofs\UndescribedFirstFactor;
 
 /**
  * Query-budget contracts for changing and establishing a password from a
- * session: the session and its owner are each read once before anything is
- * counted; a change's current password takes and gives back its two sign-in
- * counters outside the transaction; the transaction locks the identity's row
- * and the session's and then costs what a change through `set()` does; and a
- * refusal before the transaction writes nothing but the counters it took.
+ * session.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -68,12 +64,7 @@ final class PasswordChangesQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A change that keeps one of two sessions reads the session and its owner,
-     * takes and gives back its two sign-in counters, then, in its transaction,
-     * locks the identity's row and the session's and costs a change through
-     * `set()`: the password's update, the read of the row it updated and the
-     * `UPDATE` that ends the codes it outdates, the cutoff's update, one read
-     * of the sessions and one update for the session it revokes.
+     * A change that keeps one of two sessions has a fixed budget.
      *
      * @return void
      *
@@ -98,10 +89,7 @@ final class PasswordChangesQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * An establishment reads the session and its owner, then, in its
-     * transaction, locks the identity's row and the session's, reads the
-     * session again and its newest fresh proof for the freshness policy, and
-     * costs a change through `set()`, with no counter.
+     * An establishment has a fixed budget and takes no counter.
      *
      * @return void
      *

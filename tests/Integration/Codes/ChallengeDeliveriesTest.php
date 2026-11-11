@@ -27,11 +27,7 @@ use Tests\Unit\Stubs\PlainIdentityFixture;
 
 /**
  * Integration tests for how the one-time code engine writes a delivery to its
- * key's row, against the shipped table: the resend cooldown, a resend of the
- * live challenge (its id and attempts kept, its code replaced), a new challenge
- * for another transaction or once the last ended, the delivery window, its cap
- * and the lifetime it bounds, a reset link's token, and what a delivery does
- * when another request changes the row between its read and its write.
+ * key's row.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -79,9 +75,8 @@ final class ChallengeDeliveriesTest extends TestCase
     }
 
     /**
-     * Within the resend cooldown no new code is issued: the answer is the
-     * seconds until one may be, at least 1, and the live code is untouched.
-     * From the second the cooldown ends, a new code replaces it.
+     * Within the resend cooldown no new code is issued and the wait is
+     * returned.
      *
      * @return void
      *
@@ -105,9 +100,8 @@ final class ChallengeDeliveriesTest extends TestCase
     }
 
     /**
-     * A resend replaces the previous code at once, in the one update after its
-     * read: the old code no longer works, the new one does, and the challenge
-     * keeps its id and the attempts already spent on it.
+     * A resend replaces the previous code and keeps the challenge's id and
+     * attempts.
      *
      * @return void
      *
@@ -142,10 +136,8 @@ final class ChallengeDeliveriesTest extends TestCase
     }
 
     /**
-     * `issueFirst()` writes only the insert for a binding with no code, and,
-     * for one that has a code, falls back to `issue()`'s rules once its insert
-     * is refused: it reads the row, and within the cooldown answers the wait,
-     * after it replaces the code.
+     * `issueFirst()` inserts for a new binding and otherwise falls back to
+     * `issue()`'s rules.
      *
      * @return void
      *
@@ -183,9 +175,7 @@ final class ChallengeDeliveriesTest extends TestCase
     }
 
     /**
-     * A code pruned between an issue's refused insert and its read leaves a
-     * wait of one second, as does an issue that a concurrent one beat to the
-     * replacement when there is no cooldown at all.
+     * An issue that loses its code or the replacement race waits one second.
      *
      * @return void
      *
@@ -221,8 +211,7 @@ final class ChallengeDeliveriesTest extends TestCase
     }
 
     /**
-     * An issue that a concurrent one beat to the replacement waits out the
-     * cooldown from the delivery that won, not from the one it read.
+     * An issue beaten to the replacement waits out the winner's cooldown.
      *
      * @return void
      *
@@ -264,9 +253,7 @@ final class ChallengeDeliveriesTest extends TestCase
     }
 
     /**
-     * A token shares the codes' resend cooldown: within it no new token is
-     * issued and the seconds left are answered; from its end a new token
-     * replaces the old one, which stops working.
+     * A token follows the codes' resend cooldown and replaces the old one.
      *
      * @return void
      *
@@ -288,9 +275,8 @@ final class ChallengeDeliveriesTest extends TestCase
     }
 
     /**
-     * Every delivery to a key counts in its window, a first one included,
-     * whatever the challenge: once the window has had `max_deliveries`, a
-     * further request is refused until the window ends, with the wait.
+     * Once a window has had `max_deliveries`, further requests wait for it to
+     * end.
      *
      * @return void
      *
@@ -321,8 +307,7 @@ final class ChallengeDeliveriesTest extends TestCase
     }
 
     /**
-     * A window that has ended starts afresh at the next request: its first
-     * delivery, a new challenge with no attempts, the window starting now.
+     * A request after the window ends starts a new window and a new challenge.
      *
      * @return void
      *
@@ -354,8 +339,7 @@ final class ChallengeDeliveriesTest extends TestCase
     }
 
     /**
-     * A resend keeps the challenge but never extends it past its window: its
-     * code expires at the earlier of its own lifetime and the window's end.
+     * A resend's code expires no later than its window's end.
      *
      * @return void
      *
@@ -378,12 +362,8 @@ final class ChallengeDeliveriesTest extends TestCase
     }
 
     /**
-     * A code the window would leave less than the resend cooldown to live is
-     * not delivered: the request waits for the window to end, counting nothing,
-     * since the code could expire before another may be asked for. With the
-     * cooldown exactly left, the code is delivered and lives to the window's
-     * end; a reset link's token, which the window never cuts short, is
-     * delivered whatever is left of it.
+     * A code the window would leave less than the resend cooldown to live waits
+     * for the window to end; a reset link's token does not.
      *
      * @return void
      *
@@ -422,8 +402,7 @@ final class ChallengeDeliveriesTest extends TestCase
 
     /**
      * Rows of `[what ended the live challenge, the second the next request is
-     * made at]`: a challenge that expired, used up its attempts or was used is
-     * replaced by a new one in the same window, which keeps its deliveries.
+     * made at]`.
      *
      * @return iterable<string, array{0: array<string, mixed>, 1: int}>
      */
@@ -438,8 +417,7 @@ final class ChallengeDeliveriesTest extends TestCase
 
     /**
      * A request after the live challenge ended starts a new challenge in the
-     * same window: a new id, no attempts, unused, and one more delivery, never
-     * a fresh delivery budget.
+     * same window.
      *
      * @param  array<string, mixed>  $ending
      * @param  int  $second
@@ -470,10 +448,7 @@ final class ChallengeDeliveriesTest extends TestCase
     }
 
     /**
-     * A resend whose challenge another request ends between its read and its
-     * write (a check that used it) is written as a new challenge instead, so a
-     * used challenge never comes back to life; it says when the next may be
-     * made as the resend would have, here once its window ends.
+     * A resend overtaken by a use is written as a new challenge.
      *
      * @return void
      *
@@ -503,11 +478,7 @@ final class ChallengeDeliveriesTest extends TestCase
     }
 
     /**
-     * A further factor's challenges are bound to their transaction: a request
-     * for another session or factor on the same destination starts a new
-     * challenge in the same window, under the same cooldown and cap, and a code
-     * is accepted only for the transaction it was sent for; a check for another
-     * transaction, even naming the live challenge, spends nothing.
+     * A further factor's challenges are bound to their transaction.
      *
      * @return void
      *
@@ -536,8 +507,8 @@ final class ChallengeDeliveriesTest extends TestCase
     }
 
     /**
-     * A reset link's token works for the lifetime its caller gives, even past
-     * the delivery window, while it still counts against the window's cap.
+     * A reset link's token outlives the delivery window but counts against its
+     * cap.
      *
      * @return void
      *
@@ -559,14 +530,7 @@ final class ChallengeDeliveriesTest extends TestCase
     }
 
     /**
-     * Each delivery says when the next may be made, and the engine agrees: a
-     * request a second before is refused and one at that second is delivered.
-     * It is the cooldown after the delivery (a new window's first included),
-     * the window's end once the window has had all its deliveries (a first one,
-     * when the window allows only one) or would cut a code shorter than the
-     * cooldown (never a reset link's token, which it does not cut), the
-     * cooldown again when it ends after the window does, and the delivery's own
-     * second with no cooldown.
+     * Each delivery says when the next may be made, and the engine agrees.
      *
      * @return void
      *
@@ -640,9 +604,8 @@ final class ChallengeDeliveriesTest extends TestCase
     }
 
     /**
-     * The second, counted from the start of the test, from which the issued
-     * code says another may be delivered, once the engine has refused a request
-     * the second before and delivered one at it.
+     * The second, from the start of the test, at which the issued code says
+     * another may be delivered, checked against the engine.
      *
      * @param  \SineMacula\Laravel\Authentication\Codes\DeliveryRefusal|\SineMacula\Laravel\Authentication\Codes\IssuedCode  $issued
      * @param  ?\SineMacula\Laravel\Authentication\Codes\CodeBinding  $token

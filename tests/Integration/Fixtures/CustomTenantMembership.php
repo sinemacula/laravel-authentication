@@ -11,9 +11,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 
 /**
- * Membership fixture, over the `activatable_tenant_memberships` rows, that
- * implements the principal contract itself rather than through
- * `ActsAsPrincipal`, reading its tenant from a `tenant` relation of its own.
+ * Membership that implements `Principal` without `ActsAsPrincipal`, reading its
+ * tenant from a relation of its own.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

@@ -41,37 +41,8 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
 /**
- * Races an issuance for a session, or a judgement of it made under its lock,
- * against a proof another identity's session records, on PostgreSQL and MySQL,
- * each side in a process with a database connection of its own: the first side
- * issues an access token for the session, judges it again after a change of its
- * identity's factors, or asks the factor-change gate about it, inside a
- * caller's transaction that it holds open, at READ COMMITTED or REPEATABLE
- * READ; the second, started meanwhile, records a proof of another identity, so
- * the sides share no attempt-limit row. Either the first side holds the newest
- * session (a refresh, a step-up, the activation that completes a pending
- * sign-in, a factor change or a gate verdict) and the second side signs a new
- * session in through an external provider, or the first side refreshes the
- * session, judges it after a factor change or holds a gate verdict on it and
- * the second side steps up the session next to it, on either side, in the
- * proofs' session index.
- *
- * On MySQL the issuance, every requirement judgement and every freshness
- * judgement made under the session's lock (the gate's, for a factor change's
- * operation, whose kinds the index holds on either side of the session's first
- * factor) reads the session's proofs with a shared lock, which at REPEATABLE
- * READ also locks the gaps on either side of that session's proofs in the index
- * (`session_id`, `kind`, `authenticated_at`), keys being time-ordered: after
- * the newest session's proofs, where a new session's proof is inserted; before
- * the next session's `first_factor` entry, where its further factor falls; and
- * after the previous session's last entry, where its recovery code falls. So
- * the second side waits until the caller's transaction commits, and then
- * commits itself: it waits, and never deadlocks. At READ COMMITTED MySQL locks
- * no gap, and PostgreSQL reads the proofs without a lock at either level, so
- * the second side never waits there.
- *
- * Skipped on SQLite, whose in-memory database each process would have to
- * itself, and where `pcntl` is not available.
+ * Races an issuance or locked judgement of a session against another identity's
+ * proof, each in its own process.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -95,9 +66,8 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
     private string $outcomes;
 
     /**
-     * Skip where processes cannot share the database, freeze the clocks so both
-     * processes see one moment, create the tables, and ask the first side's
-     * identity alone for a further factor at sign-in.
+     * Skip where processes cannot share the database, freeze the clocks, create
+     * the tables and ask the first identity for a further factor.
      *
      * @return void
      *
@@ -148,10 +118,7 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
     }
 
     /**
-     * Rows of `[holder, isolation level]`: the issuances, the judgement after a
-     * factor change and the gate's verdict, that read the newest session's
-     * proofs with a shared lock on MySQL, at READ COMMITTED and at REPEATABLE
-     * READ.
+     * Rows of `[holder, isolation level]`.
      *
      * @return iterable<string, array{0: string, 1: string}>
      */
@@ -165,12 +132,7 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
     }
 
     /**
-     * A sign-in of another identity, started while a caller's transaction holds
-     * an issuance for the newest session, a judgement of it after a factor
-     * change or a gate verdict on it, waits for that transaction on MySQL at
-     * REPEATABLE READ and nowhere else, and then commits with its own session,
-     * proof and provenance; the first side commits too, so neither side
-     * deadlocks.
+     * A sign-in waits at most for a current read of the newest session.
      *
      * @param  string  $holder
      * @param  string  $level
@@ -199,13 +161,7 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
     }
 
     /**
-     * Rows of `[holder, neighbour, isolation level]`: a refresh of a session, a
-     * judgement of it after a factor change or a gate verdict on it, and the
-     * session signed in just after it, stepped up with a further factor, whose
-     * proof sorts before its own `first_factor` entry, or the one signed in
-     * just before it, stepped up with a recovery code, whose proof sorts after
-     * its own `first_factor` entry, each at READ COMMITTED and at REPEATABLE
-     * READ.
+     * Rows of `[holder, neighbour, isolation level]`.
      *
      * @return iterable<string, array{0: string, 1: string, 2: string}>
      */
@@ -221,12 +177,7 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
     }
 
     /**
-     * A step-up of another identity's session whose proofs border those of the
-     * session a caller's transaction holds a refresh of, a judgement of after a
-     * factor change or a gate verdict on, on either side, waits for that
-     * transaction on MySQL at REPEATABLE READ and nowhere else, and then
-     * commits with its proof recorded; the first side commits too, so neither
-     * side deadlocks.
+     * A step-up of a neighbouring session waits at most for a current read.
      *
      * @param  string  $holder
      * @param  string  $neighbour
@@ -286,12 +237,7 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
     }
 
     /**
-     * Sign the identity in with its password, so its session is the newest, and
-     * return what the first side does to that session, which hands back the
-     * access token it issued, or the judgement's result: a refresh of it, a
-     * step-up of it with a hardware key, the activation that satisfies the
-     * further factor its sign-in was asked for, a judgement after a factor
-     * change, or the gate's verdict on adding a factor.
+     * Sign the identity in and return what the first side does to its session.
      *
      * @param  string  $holder
      * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
@@ -341,10 +287,8 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
     }
 
     /**
-     * Step the identity's session up with a further factor, then ask the
-     * identity, and no other, for one, and return the judgement of the session
-     * after a factor change, which reads its first factor and its further
-     * factors and keeps it active.
+     * Step the session up, ask the identity for a further factor and return the
+     * judgement after a factor change.
      *
      * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
@@ -370,9 +314,7 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
     }
 
     /**
-     * What the first side does to the identity's session whose neighbour steps
-     * up: a refresh of it, a judgement of it after a factor change, or the
-     * gate's verdict on adding a factor from it.
+     * What the first side does to the session whose neighbour steps up.
      *
      * @param  string  $holder
      * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
@@ -394,9 +336,8 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
     }
 
     /**
-     * Step the identity's session up with a further factor, and return the
-     * factor-change gate's verdict on adding a factor from it, which reads its
-     * proofs current under its lock and allows the change.
+     * Step the session up and return the factor-change gate's verdict on adding
+     * a factor.
      *
      * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
@@ -420,8 +361,7 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
     }
 
     /**
-     * Ask a further factor of the identity, and of no other, when it signs in,
-     * judged on the session's proofs.
+     * Ask a further factor of the identity alone when it signs in.
      *
      * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
      * @return void
@@ -473,12 +413,8 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
     }
 
     /**
-     * Issue, or judge, here inside a caller's transaction at the isolation
-     * level, start the second side in another process once it has, hold the
-     * transaction open until the second side is about to insert its proof and
-     * then until it finishes, for no longer than the hold, then commit, and
-     * return what the second side returned and whether it was blocked: still
-     * unfinished when the transaction committed.
+     * Issue or judge inside a caller's transaction, race the second side and
+     * return its result and whether it was blocked.
      *
      * @param  \Closure(): mixed  $issue
      * @param  string  $level
@@ -539,9 +475,7 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
     }
 
     /**
-     * Whether the second side waits for the first at the isolation level: on
-     * MySQL at REPEATABLE READ alone, where the shared lock of the first side's
-     * current read locks the gaps around its session's proofs.
+     * Whether the second side waits for the first at the isolation level.
      *
      * @param  string  $level
      * @return bool
@@ -552,9 +486,8 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
     }
 
     /**
-     * In the forked process: wait to be started, run the second side on a
-     * connection of its own, report its outcome, and end without running the
-     * parent's shutdown.
+     * Run the second side in the forked process, report its outcome and exit
+     * without the parent's shutdown.
      *
      * @param  \Closure(): string  $second
      * @return never
@@ -579,8 +512,8 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
     }
 
     /**
-     * Wait for the other side to create the signal file, for no longer than the
-     * timeout in seconds: whether it did.
+     * Wait, up to the timeout in seconds, for the other side to create the
+     * signal file.
      *
      * @param  string  $signal
      * @param  int  $timeout
@@ -598,9 +531,8 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
     }
 
     /**
-     * Fail the race that was never set up: roll the first side's transaction
-     * back and stop and reap the second side, so neither is left holding locks
-     * on the tables the teardown drops.
+     * Fail the unstarted race, rolling back the first side and reaping the
+     * second so neither holds locks.
      *
      * @param  positive-int  $pid
      * @param  string  $message

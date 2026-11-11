@@ -13,18 +13,8 @@ use SineMacula\Laravel\Authentication\Models\IdentifierChange;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 
 /**
- * The pending identifier changes as the identifier change service reads and
- * writes them: one row per identity and type, keyed by the SHA-256 digest of
- * the identity's account (see `AccountAttempts::account()`) and the type, read
- * on the write PDO, and written with single statements on the table's own
- * connection.
- *
- * A request writes its row whatever row the identity had for the type, through
- * any guard, so the newest request wins: an unconditional update by key, an
- * insert that a concurrent one cannot duplicate when there was no row, and the
- * update once more when a concurrent insert won. A confirmation and a
- * cancellation delete the row only while it still names the request they read,
- * so of two confirmations, or a confirmation and a newer request, one wins.
+ * The pending identifier changes: one row per identity and type, read on the
+ * write PDO and written with single statements.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -51,9 +41,8 @@ final class PendingChanges
     }
 
     /**
-     * The identity's pending change of the type as stored, read from the write
-     * PDO, whatever guard requested it and whether or not it has expired; or
-     * `null`.
+     * The identity's pending change of the type through any guard, expired or
+     * not, or `null`.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $type
@@ -70,7 +59,7 @@ final class PendingChanges
 
     /**
      * The identity's pending change of the type when it was requested through
-     * the guard and has not expired; otherwise `null`, as if there were none.
+     * the guard and has not expired, or `null`.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $type
@@ -100,15 +89,8 @@ final class PendingChanges
     }
 
     /**
-     * Write the identity's pending change, requested through the guard, in
-     * place of any it had of the type, and return the one it replaced, as read
-     * before the write, or `null`.
-     *
-     * A change read before is updated in place, and none is inserted: inside
-     * the request's transaction, MySQL's `UPDATE` of a missing key would lock
-     * the gap it searched until the commit, and two requests that each insert
-     * into the same gap would then deadlock. Either falls back to the other
-     * when a concurrent write got there first.
+     * Write the identity's pending change in place of any it had of the type,
+     * and return the one it replaced, or `null`.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $guard
@@ -145,7 +127,7 @@ final class PendingChanges
     }
 
     /**
-     * Delete the pending change while it still names its request. Returns
+     * Delete the pending change while it still names its request, returning
      * whether this call deleted it.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\IdentifierChange  $change
@@ -161,11 +143,7 @@ final class PendingChanges
     }
 
     /**
-     * Delete the pending changes of the keys (see `key()`), whatever their
-     * request or the guard they were requested through, in one statement. Their
-     * codes need nothing: a code is checked only against its pending change's
-     * binding, which names that change's request, so without the change it
-     * confirms nothing, and it is pruned once it expires.
+     * Delete the pending changes of the keys, whatever their request or guard.
      *
      * @param  non-empty-list<string>  $keys
      * @return void
@@ -180,8 +158,7 @@ final class PendingChanges
     }
 
     /**
-     * The binding of the code that confirms the pending change of the identity:
-     * bound to its guard, its new identifier and its request.
+     * The binding of the code that confirms the identity's pending change.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\IdentifierChange  $change
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -193,8 +170,7 @@ final class PendingChanges
     }
 
     /**
-     * A query on the pending changes' table, on its own connection, for the
-     * writes.
+     * A query on the pending changes' table, on its own connection.
      *
      * @return \Illuminate\Database\Query\Builder
      *

@@ -20,12 +20,8 @@ use Tests\Integration\Fixtures\LandlordPrincipalMember;
 use Tests\TestCase;
 
 /**
- * Proves the principals offered to an identity, and the one principal looked up
- * by its identifier, are read and admitted with `ApplicationAccess` on the
- * principal's write connection, also when the principals live on another
- * connection than the identity: the identity is on the lagging default split,
- * its principals and their grants on the lagging `landlord` split, so an answer
- * read from the landlord replica would still hold a withdrawn grant.
+ * Tests that principals on another connection than the identity are read and
+ * admitted on the principal's write connection.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -45,9 +41,8 @@ final class ReplicaChoicesAcrossConnectionsTest extends TestCase
     private const string GRANTS = 'principal_grants';
 
     /**
-     * Create the member table on the default primary and replica, the principal
-     * and grant tables on the landlord primary and replica, and bind the access
-     * that reads the grants.
+     * Create the member tables on the default split, the principal and grant
+     * tables on the landlord split, and bind the grant access.
      *
      * @return void
      */
@@ -92,8 +87,7 @@ final class ReplicaChoicesAcrossConnectionsTest extends TestCase
 
     /**
      * A principal whose grant the landlord primary has withdrawn is no longer
-     * offered, with or without an identifier type, though the landlord replica
-     * still holds the grant; the other is.
+     * offered.
      *
      * @return void
      *
@@ -118,10 +112,7 @@ final class ReplicaChoicesAcrossConnectionsTest extends TestCase
     }
 
     /**
-     * One principal is found as the landlord primary holds and admits it: the
-     * principals exist only on the landlord primary, and the one whose grant
-     * the primary has withdrawn is no longer found, with or without an
-     * identifier type, though the landlord replica still holds the grant.
+     * One principal is found and admitted as the landlord primary holds it.
      *
      * @return void
      *
@@ -209,8 +200,7 @@ final class ReplicaChoicesAcrossConnectionsTest extends TestCase
 
     /**
      * Copy the grant to the landlord replica, then delete it on the landlord
-     * primary, as a replica that lags behind the withdrawal would still hold
-     * it.
+     * primary.
      *
      * @param  int  $id
      * @return void
@@ -226,9 +216,8 @@ final class ReplicaChoicesAcrossConnectionsTest extends TestCase
     }
 
     /**
-     * An access that lets a principal use the application only with a grant,
-     * read through the query builder on the landlord connection, which is the
-     * principal's.
+     * An access that admits a principal only with a grant on the landlord
+     * connection.
      *
      * @return \SineMacula\Laravel\Authentication\Contracts\ApplicationAccess
      */

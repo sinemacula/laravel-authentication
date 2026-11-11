@@ -12,9 +12,8 @@ use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use Tests\Unit\Stubs\PlainIdentityFixture;
 
 /**
- * A principal that is no Eloquent model and records a "tokens valid after"
- * cutoff it never moves: a stand-in for an application's principal kept
- * elsewhere than a model's row.
+ * A non-Eloquent principal that records a "tokens valid after" cutoff it never
+ * moves.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

@@ -7,15 +7,8 @@ namespace SineMacula\Laravel\Authentication\Proofs;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
 
 /**
- * The channel a proof was made over: its kind, and the destination or
- * credential reference it used, when it has one.
- *
- * The reference is the destination a code went to (an email address or an E.164
- * phone number, in its normal form), or a reference to the credential: for a
- * passkey, the package's own passkey row id (never the WebAuthn credential id,
- * which can run past a thousand bytes); for an external provider, the
- * connection id. It names personal data for a code, so a proof's stored
- * reference is hidden from serialisation and pruned with its session.
+ * The channel a proof was made over, with the destination or credential
+ * reference it used.
  *
  * @api
  *

@@ -8,11 +8,7 @@ use Illuminate\Contracts\Auth\Authenticatable;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 
 /**
- * Stub identity provider that looks up a StubPrincipal by primary key.
- *
- * Only `retrieveById` performs a real database lookup; all other methods return
- * null/false/void. Used by integration tests that need a wired provider without
- * the full `ModelProvider` machinery.
+ * Identity provider whose only real lookup is a StubPrincipal by primary key.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

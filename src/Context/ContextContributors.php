@@ -6,22 +6,7 @@ namespace SineMacula\Laravel\Authentication\Context;
 
 /**
  * The contributors that add keys to the authentication context, each under a
- * namespace of its own, in the order they were registered. Register one in a
- * service provider's `boot()`:
- *
- * ```php
- * $this->app->make(ContextContributors::class)->register('sso', SsoContextContributor::class);
- * ```
- *
- * Each is a container abstract that resolves to an
- * `AuthenticationContextContributor`, resolved each time a context is built
- * from the container serving then (the request's own under Octane), so it may
- * depend on request-scoped services. A namespace is taken once: a second
- * registration under it, a registration under the package's own
- * (`authentication`) and a malformed one all fail loudly, so no contributor's
- * keys can overwrite another's. `mfa` and `sso` are kept for the further-factor
- * and single sign-on packages' adapters, which register them; the package
- * registers none itself.
+ * namespace of its own, in the order they were registered.
  *
  * @api
  *
@@ -35,9 +20,7 @@ final class ContextContributors
 
     /**
      * Register the contributor resolved from `$contributor` under the
-     * namespace: a lower-case letter and then up to 31 lower-case letters,
-     * digits or underscores, not `authentication`, and not one registered
-     * already.
+     * namespace.
      *
      * @param  string  $namespace
      * @param  string  $contributor

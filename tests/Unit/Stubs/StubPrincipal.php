@@ -14,11 +14,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
- * Eloquent stub implementing Principal (and Identity for 2D mode) via the
- * package's ActsAsPrincipal trait.
- *
- * Also implements `HasSessions` so JWT integration tests can resolve a session
- * from a token hint via the polymorphic sessions table.
+ * Eloquent principal, and identity in 2D mode, using ActsAsPrincipal and
+ * holding sessions.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

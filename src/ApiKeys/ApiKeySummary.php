@@ -10,10 +10,7 @@ use Illuminate\Contracts\Support\Arrayable;
 use SineMacula\Laravel\Authentication\Models\ApiKey;
 
 /**
- * What an application may show about an API key: its id, its public part, the
- * guard it authenticates for, its name and scopes, and when it expires, was
- * last used, rotated (and by which key) or revoked. Never its secret or the
- * secret's digest. `toArray()` and JSON use snake_case keys and ISO-8601 times.
+ * What an application may show about an API key; never its secret or digest.
  *
  * @api
  *
@@ -44,7 +41,7 @@ final readonly class ApiKeySummary implements \JsonSerializable, Arrayable
         /** The key's id, which names it to the service and in events. */
         public string $id,
 
-        /** The key's public part, `<prefix>_<public>`: shown to tell keys apart, and the key's OAuth client id. */
+        /** The key's public part, `<prefix>_<public>`, which is also its OAuth client id. */
         public string $publicId,
 
         /** The guard the key authenticates for. */

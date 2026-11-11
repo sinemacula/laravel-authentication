@@ -12,18 +12,8 @@ use SineMacula\Laravel\Authentication\Contracts\ResolvesHintedPrincipal;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 
 /**
- * Default principal resolver.
- *
- * Handles both 2D (identity-is-principal) and 3D (HasPrincipals delegate)
- * modes. Consumers may bind a custom resolver in the container for per-guard or
- * tenant-aware logic.
- *
- * Principal lookups decide authentication, so every read goes to the write
- * connection: the `principals()->find()` query, and the identity's own
- * `resolveHintedPrincipal()` / `resolveDefaultPrincipal()` hooks, each run
- * inside `WriteConnection::during()` for the identity, which also covers the
- * relations a principal eager-loads, on any connection. A custom resolver
- * carries the same obligation (see `WriteConnection`).
+ * Default principal resolver, for identities that are their own principal or
+ * delegate through `HasPrincipals`, reading on the write connection.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -31,15 +21,8 @@ use SineMacula\Laravel\Authentication\Database\WriteConnection;
 final class DefaultPrincipalResolver implements PrincipalResolver
 {
     /**
-     * Resolve a principal for the given identity.
-     *
-     * Resolution order:
-     *  1. Hint + `ResolvesHintedPrincipal`: lookup via
-     *  `resolveHintedPrincipal()`.
-     *  2. Hint + `HasPrincipals`: lookup via `principals()->find()`.
-     *  3. 2D: identity is itself a `Principal`.
-     *  4. 3D: delegate to `resolveDefaultPrincipal()`.
-     *  5. Otherwise throw `UnresolvableIdentityException`.
+     * Resolve a principal for the identity: by hint first, else the identity
+     * itself, else its default principal.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  mixed|null  $hint
@@ -90,8 +73,7 @@ final class DefaultPrincipalResolver implements PrincipalResolver
 
         if ($identity instanceof HasPrincipals) {
 
-            // Pinned for the whole lookup, not only its query: relations the
-            // principal eager-loads (its tenant, say) run as separate queries.
+            // Pinned for the whole lookup: eager loads run as separate queries
             $hinted = WriteConnection::during($identity, static fn (): mixed => WriteConnection::query($identity->principals())->find($hint));
 
             if ($hinted instanceof Principal) {

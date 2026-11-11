@@ -20,21 +20,8 @@ use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
- * Decides whether a client signing in proved, with its refresh token, that it
- * holds an existing session, so the new session the sign-in creates replaces
- * that session, which is revoked (`superseded`).
- *
- * The proof is the refresh token carrying the session's current rotation id,
- * validly signed for the guard; it may have expired, since the usual case is a
- * client signing in again after its session ended. The session it names counts
- * only when, read from the write connection, it belongs to the identity signing
- * in, is of this guard for the same principal, is not revoked (revocation is
- * final, whatever the reason) and is active: a session that returned to pending
- * keeps its refresh digest, but proves nothing until it activates again. A
- * previous or older rotation id proves nothing. Anything short of that is
- * simply no proof: the sign-in creates a session, and nothing fails, is
- * revoked, or is reported. The IP address, user agent, client name and platform
- * never count.
+ * Decides whether a signing-in client's refresh token proves it holds an
+ * existing session, which the new session then replaces.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -73,8 +60,7 @@ final readonly class ProvenSessions
 
     /**
      * Return the session the refresh token proves the client holds for the
-     * identity, as the principal when one is given (any principal otherwise, as
-     * for a sign-in still to choose one), or `null` when it proves none.
+     * identity and any principal given, or `null` when it proves none.
      *
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -100,10 +86,8 @@ final readonly class ProvenSessions
     }
 
     /**
-     * Whether the session is the identity's live, active session of the guard,
-     * for the principal when one is given, and holds the rotation id as its
-     * current one. The session's state is read inside
-     * `WriteConnection::during()` for the session.
+     * Whether the session is the identity's live, active session of the guard
+     * and holds the rotation id as its current one.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  string  $guard

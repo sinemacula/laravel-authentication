@@ -58,11 +58,8 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\StubFixedPrincipalResolver;
 
 /**
- * End-to-end tests for sessions the session service starts, against a real
- * database on whichever engine the suite runs on: the tokens work through the
- * `auth` middleware and refresh, a client that proves it holds a session has it
- * replaced when it signs in again (and only then), the session commits or rolls
- * back as one, and its lifecycle events follow the session connection's commit.
+ * End-to-end tests for sessions the session service starts against a real
+ * database.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -82,7 +79,7 @@ final class SessionServiceTest extends TestCase
     private CarbonImmutable $now;
 
     /**
-     * Freeze the clocks, create the tables, and add a route behind the `auth`
+     * Freeze the clocks, create the tables and add a route behind the `auth`
      * middleware.
      *
      * @return void
@@ -121,8 +118,8 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * The access token of a new session authenticates a request through the
-     * `auth` middleware with its session, and its refresh token refreshes.
+     * A new session's access token authenticates and its refresh token
+     * refreshes.
      *
      * @return void
      *
@@ -147,13 +144,8 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A client that signs in again with its current refresh token gets a new
-     * session, and the proven one is revoked as `superseded`, both digests
-     * forgotten: a new key and rotation id, both deadlines from the sign-in,
-     * the method and the client's new name recorded, its platform inherited
-     * when it gives none, and the client it came from as the creation. The
-     * replacement is reported in order, and the old refresh token is refused as
-     * revoked without touching the new session.
+     * Signing in again with the current refresh token replaces the session as
+     * `superseded`.
      *
      * @return void
      *
@@ -226,10 +218,7 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * The replaced session ends at once: its access token, still within its
-     * lifetime, is refused by `auth:api`, its refresh token is refused as
-     * revoked, and only the new session is listed. Refreshing the new session
-     * keeps it.
+     * The replaced session's tokens stop working at once.
      *
      * @return void
      *
@@ -262,9 +251,7 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * Signing in twice from the same IP address and user agent, without the
-     * refresh token, starts two sessions and revokes nothing: only the session
-     * key counts.
+     * Signing in again without a refresh token revokes nothing.
      *
      * @return void
      *
@@ -288,9 +275,7 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * The proof may have expired, and so may the session: a client signing in
-     * again after its session ended replaces it, which is revoked even though
-     * it had already expired.
+     * An expired refresh token still proves its session for replacement.
      *
      * @return void
      *
@@ -314,9 +299,7 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * Only the current rotation id proves a session: a refresh token the
-     * session has rotated past, whether just before or long before, gets a new
-     * session, and the old one is left as it is, not revoked.
+     * A refresh token the session has rotated past proves nothing.
      *
      * @return void
      *
@@ -348,8 +331,7 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A revoked session is never replaced, whatever its refresh token says:
-     * revocation is final, and the revocation keeps its own time and reason.
+     * A revoked session is never replaced.
      *
      * @return void
      *
@@ -371,10 +353,7 @@ final class SessionServiceTest extends TestCase
 
     /**
      * A refresh token proves a session only for its own owner, guard and
-     * principal: another identity, another guard (by its token's `client_id`,
-     * or by the guard the session records), or another principal of the same
-     * identity gets a session of its own, and the proven session is untouched;
-     * only the same principal replaces it.
+     * principal.
      *
      * @return void
      *
@@ -417,8 +396,7 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * Anything that is not a refresh token of the guard (garbage, an access
-     * token) proves nothing, and revokes nothing.
+     * A token that is not the guard's refresh token proves nothing.
      *
      * @return void
      *
@@ -437,11 +415,8 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * When the proven session changes before it can be replaced (here a
-     * parallel refresh rotates it while the factor policy deliberates), the
-     * sign-in is reconsidered without it, factor policy included, and starts on
-     * a new session that records the sign-in's identifier type; the changed
-     * session is left as the refresh made it, not revoked.
+     * A proven session that changes before replacement is left alone and the
+     * sign-in reconsidered.
      *
      * @return void
      *
@@ -478,9 +453,7 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * Inside a caller's transaction `SessionCreated` and `SignedIn` wait for
-     * the commit, and the guard's bind after them; a rollback withdraws the
-     * events and the bind with the session.
+     * `SessionCreated`, `SignedIn` and the bind wait for the caller's commit.
      *
      * @return void
      *
@@ -515,10 +488,8 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A sign-in inside a caller's transaction whose request is rebound before
-     * the commit is not bound at the commit: the guard, reset for the new
-     * request, serves that request now, so the deferred bind leaves it alone,
-     * and the sign-in's slots are given back all the same.
+     * A deferred bind skips a guard whose request was rebound before the
+     * commit.
      *
      * @return void
      *
@@ -545,8 +516,7 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A failure while issuing the first pair (here a principal whose identifier
-     * cannot be written into `principal`) rolls the new session back.
+     * A failure while issuing the first pair rolls the session back.
      *
      * @return void
      *
@@ -573,10 +543,7 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A failure after the compare-and-swap that revokes a proven session (here
-     * as the new session is inserted) rolls the revocation back with it: the
-     * session stays live at the refresh key the client holds, so its current
-     * refresh token still refreshes, and no new session is left.
+     * A failure after revoking a proven session rolls the revocation back.
      *
      * @return void
      *
@@ -616,9 +583,7 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A listener that throws on a bind event fails the sign-in after the
-     * session committed, but the session is reported: `SessionCreated` and
-     * `SignedIn` were dispatched before the bind.
+     * A throwing bind listener fails the sign-in after the session is reported.
      *
      * @return void
      *
@@ -638,10 +603,8 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * Inside a caller's transaction a throwing bind listener runs only at the
-     * commit, after the session's events, and its exception reaches the
-     * caller's commit; a transaction that rolls back never binds, so the
-     * listener never runs and nothing is reported.
+     * A throwing bind listener inside the caller's transaction runs only on
+     * commit.
      *
      * @return void
      *
@@ -685,10 +648,7 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A refresh whose bind listener throws is reported once its rotation
-     * commits, and its bind, which follows the report at the commit, throws
-     * from the caller's commit; a refresh the caller rolls back is neither
-     * reported nor bound, and leaves the session's rotation as it was.
+     * A refresh whose bind listener throws follows the caller's transaction.
      *
      * @return void
      *
@@ -735,8 +695,7 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A crafted client name and platform are stored cleaned, so a sign-in
-     * cannot be turned into a server error by them.
+     * A crafted client name and platform are stored cleaned.
      *
      * @return void
      *
@@ -755,11 +714,7 @@ final class SessionServiceTest extends TestCase
 
     /**
      * A cookie application judges a pending session's satisfaction on the
-     * client given, whatever the guard's own request: one the same-site check
-     * refuses is refused as `cross_site_request` from a same-site request,
-     * leaving the session pending and the proof unstored, and a same-site one
-     * given on a request from another site activates the session with the
-     * cookie, the client written as its last use and carried by `SignedIn`.
+     * client given.
      *
      * @return void
      *
@@ -897,8 +852,7 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * Require a further factor of every sign-in, judged on the session's
-     * proofs.
+     * Require a further factor of every sign-in.
      *
      * @return void
      */

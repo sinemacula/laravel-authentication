@@ -12,21 +12,8 @@ use Illuminate\Support\Facades\Config;
 use SineMacula\Laravel\Authentication\Database\StorageConnection;
 
 /**
- * The pending change of one identity's identifier of one type: the guard it was
- * requested through, the identifier it would replace and the one it would set,
- * the request its code or link is bound to, and when it was requested and
- * expires. One row per identity and type, stored under a digest of the two, so
- * a new request replaces the one before.
- *
- * Kept on the storage connection (see `Database\StorageConnection`), so
- * confirming a change, using its code and invalidating the proofs it outdates
- * are one transaction, in the table named by
- * `authentication.identifier_changes.table`. The identifier change service
- * writes the rows with single statements of its own; the model exists so
- * `model:prune --model` with this class can delete expired changes.
- *
- * Only the class name is public, for applications to schedule that pruning
- * with; its columns and behaviour belong to the identifier change service.
+ * The pending change of one identity's identifier of one type, pruned by
+ * `model:prune` once expired.
  *
  * @api
  *
@@ -64,8 +51,7 @@ final class IdentifierChange extends Model
 
     /**
      * Create a pending change on the storage connection, in the configured
-     * table. Both are applied here, before Eloquent reads them, so this is
-     * construction rather than model behaviour.
+     * table.
      *
      * @param  array<string, mixed>  $attributes
      *
@@ -82,8 +68,7 @@ final class IdentifierChange extends Model
     }
 
     /**
-     * The pending changes that have expired: neither their code nor their link
-     * can confirm them any more.
+     * The pending changes that have expired.
      *
      * @return \Illuminate\Database\Eloquent\Builder<self>
      */

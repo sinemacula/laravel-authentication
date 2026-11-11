@@ -29,12 +29,8 @@ use Tests\Integration\Fixtures\SeparateConnectionSessionIdentity;
 use Tests\TestCase;
 
 /**
- * Integration tests of a current freshness judgement for a session model kept
- * on its own connection, apart from the identities: it is refused while the
- * only transaction open is on the default connection, answered inside one on
- * the session's connection, and a factor change's gate, which opens its own
- * transaction on that connection, is answered whatever the default connection
- * holds open.
+ * Integration tests of a current freshness judgement for sessions on their own
+ * connection.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -54,9 +50,8 @@ final class SeparateConnectionFreshnessTest extends TestCase
     private CarbonImmutable $now;
 
     /**
-     * Freeze the clocks and create the identity table on the default connection
-     * (the shipped migrations created the session and proof tables on the
-     * storage connection).
+     * Freeze the clocks and create the identity table on the default
+     * connection.
      *
      * @return void
      */
@@ -96,15 +91,14 @@ final class SeparateConnectionFreshnessTest extends TestCase
     }
 
     /**
-     * Asked current, for a proof or until when, while the only transaction open
-     * is on the default connection, the policy refuses with a `LogicException`
-     * before it reads anything on either connection.
+     * A current judgement inside a transaction on the default connection only
+     * is refused.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testACurrentJudgementInsideATransactionOnTheDefaultConnectionOnlyIsRefused(): void
+    public function testACurrentJudgementOnTheDefaultConnectionOnlyIsRefused(): void
     {
         $session = $this->steppedUpSession();
         $policy  = app(FreshnessPolicy::class);
@@ -129,16 +123,14 @@ final class SeparateConnectionFreshnessTest extends TestCase
     }
 
     /**
-     * Asked current inside a transaction on the session's connection, with none
-     * open on the default one, the policy answers the stored step-up and until
-     * when it keeps the session fresh, reading on the session's connection
-     * only.
+     * A current judgement inside a transaction on the session's connection is
+     * answered.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testACurrentJudgementInsideATransactionOnTheSessionsConnectionIsAnswered(): void
+    public function testACurrentJudgementOnTheSessionsConnectionIsAnswered(): void
     {
         $session    = $this->steppedUpSession();
         $policy     = app(FreshnessPolicy::class);
@@ -163,10 +155,8 @@ final class SeparateConnectionFreshnessTest extends TestCase
     }
 
     /**
-     * A factor change on a session stepped up a minute ago is allowed, the
-     * step-up its proof, with no transaction open and while one is open on the
-     * default connection only: the gate judges inside its own transaction on
-     * the session's connection.
+     * A factor change is judged in its own transaction on the session's
+     * connection.
      *
      * @return void
      *
@@ -194,9 +184,8 @@ final class SeparateConnectionFreshnessTest extends TestCase
     }
 
     /**
-     * Keep the sessions on their own connection, a separate database, as the
-     * storage connection, the counters on the default one, and configure the
-     * `api` guard.
+     * Keep the sessions on a separate database as the storage connection and
+     * configure the `api` guard.
      *
      * @param  mixed  $app
      * @return void
@@ -219,8 +208,7 @@ final class SeparateConnectionFreshnessTest extends TestCase
     }
 
     /**
-     * A live session, on its own connection, of an identity on the default one,
-     * stepped up with a further factor a minute ago.
+     * A live session on its own connection, stepped up a minute ago.
      *
      * @return \Tests\Integration\Fixtures\SeparateConnectionSession
      */
@@ -247,8 +235,7 @@ final class SeparateConnectionFreshnessTest extends TestCase
     }
 
     /**
-     * The `LogicException` the current judgement is refused with, failing when
-     * it is answered.
+     * The `LogicException` the current judgement is refused with.
      *
      * @param  \Closure(): mixed  $ask
      * @return \LogicException

@@ -28,9 +28,7 @@ use SineMacula\Laravel\Authentication\Sessions\SessionPreconditions;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
- * The part of a passkey registration that enrols a factor on a pending sign-in
- * (see `PasskeyService::register()`): reading the pending credential handed in,
- * holding the pending session it names, and reporting the registration refused.
+ * The part of a passkey registration that enrols a factor on a pending sign-in.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -58,9 +56,7 @@ final readonly class PendingRegistration
     ) {}
 
     /**
-     * The pending credential handed in, as `SessionPreconditions` reads it, or
-     * `null` for an ordinary registration. Given one, the identity must live on
-     * the storage connection. Raised before anything is read or consumed.
+     * The pending credential handed in, or `null` for an ordinary registration.
      *
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Secrets\Secret|string|null  $pending
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $owner
@@ -84,11 +80,8 @@ final readonly class PendingRegistration
     }
 
     /**
-     * The pending credential handed in as the secret the gate is given, or the
-     * registration's refusal: `cross_site_request` for a cookie application's
-     * client that did not come from a page of its own site, `pending_invalid`
-     * for `pending_invalid` handed in or a credential that is empty. Read
-     * before the pending session, and so before any query.
+     * The pending credential as the secret the gate is given, or the
+     * registration's refusal.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Refused|\SineMacula\Laravel\Authentication\Secrets\Secret|string  $presented
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $owner
@@ -115,14 +108,8 @@ final readonly class PendingRegistration
     }
 
     /**
-     * Prove, under the locks held until the transaction ends, that the pending
-     * credential names a live pending session of this guard whose owner is the
-     * identity and, when the challenge was bound, the session it names. The
-     * identity's row is locked first, then the session's, before the gate's own
-     * locks and the passkey's row, as the package's lock order puts them. The
-     * session is found as the pending-session actions find it
-     * (`PendingLookup`), so a credential that names none of the guard's live
-     * pending sessions fails here exactly as it does there.
+     * Lock the identity's row, then the pending session's, and prove the
+     * credential names the live pending session the challenge was bound to.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $owner
      * @param  ?\SineMacula\Laravel\Authentication\Proofs\ProofBinding  $binding
@@ -147,10 +134,7 @@ final readonly class PendingRegistration
     }
 
     /**
-     * Report a registration on a pending sign-in refused, as a pending action
-     * refused is reported (Laravel's `Failed` and `AuthenticationFailed` for
-     * the sign-in flow, carrying the client and the identity and never the
-     * credential), and answer it.
+     * Report a registration on a pending sign-in refused, and answer it.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $owner
      * @param  \SineMacula\Laravel\Authentication\Passkeys\RelyingParty  $rp

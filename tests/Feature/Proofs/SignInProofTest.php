@@ -21,8 +21,7 @@ use Tests\Fixtures\Proofs\UndescribedSignInProof;
 use Tests\TestCase;
 
 /**
- * Tests of what a sign-in carries to its session's first proofs: the first
- * factor a method verified, an external provider's, and an undescribed one.
+ * Tests of what a sign-in carries to its session's first proofs.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -33,9 +32,8 @@ use Tests\TestCase;
 final class SignInProofTest extends TestCase
 {
     /**
-     * A verified first factor keeps the method, the factor's channel,
-     * observations and values, and its time to the whole second, as the
-     * session's first proof.
+     * A verified first factor becomes the session's first proof, timed to the
+     * whole second.
      *
      * @return void
      */
@@ -57,9 +55,8 @@ final class SignInProofTest extends TestCase
     }
 
     /**
-     * An external provider's first factor is the connection, the private
-     * external-provider value and the provider's time, with the provenance and
-     * the provider's deadline; a time after now, or none, is now.
+     * An external provider's first factor is the connection and the provider's
+     * time, and a time after now, or none, is now.
      *
      * @return void
      */
@@ -85,10 +82,8 @@ final class SignInProofTest extends TestCase
     }
 
     /**
-     * An external sign-in whose evidence was accepted carries the acceptance on
-     * its first factor and the evidence with it as written, and reads back with
-     * the evidence alone, the acceptance being no requirement check's; one
-     * without carries neither.
+     * An external sign-in whose evidence was accepted carries the acceptance
+     * and the evidence on its first factor, and reads back with the evidence.
      *
      * @return void
      */
@@ -109,9 +104,7 @@ final class SignInProofTest extends TestCase
     }
 
     /**
-     * The acceptance and the evidence come together or not at all: an
-     * evaluation with no evidence, or evidence with no evaluation, is a
-     * programming error.
+     * The acceptance and the evidence come together or not at all.
      *
      * @return void
      */
@@ -131,8 +124,7 @@ final class SignInProofTest extends TestCase
     }
 
     /**
-     * A first factor the caller did not describe names no channel and no value,
-     * and is timed to the whole second it was given.
+     * A first factor the caller did not describe names no channel and no value.
      *
      * @return void
      */
@@ -145,8 +137,7 @@ final class SignInProofTest extends TestCase
     }
 
     /**
-     * Each sign-in proof chooses its first factor's id, distinct per proof, and
-     * reads back as the proof the session records under it.
+     * Each sign-in proof's first factor reads back under its own distinct id.
      *
      * @return void
      */

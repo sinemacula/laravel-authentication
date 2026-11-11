@@ -7,12 +7,8 @@ namespace SineMacula\Laravel\Authentication\Delivery;
 use Illuminate\Contracts\Config\Repository;
 
 /**
- * The queue settings in `authentication.delivery.queue`, which every delivery
- * job the package queues is pushed with (one-time codes, password reset links
- * and codes, identifier change codes and notices), read on every call and
- * validated as they are read: each a name or `null`, and the connection one
- * configured in `queue.connections`. Anything else fails closed with an
- * `InvalidArgumentException` naming the key; `authentication:check` reports it.
+ * The queue settings every delivery job the package queues is pushed with,
+ * validated as they are read.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -62,9 +58,8 @@ final readonly class DeliverySettings
     }
 
     /**
-     * Whether the delivery connection (the configured one, or the application's
-     * default) uses Laravel's `sync` driver, which would run a job during its
-     * dispatch. The connection must be configured in `queue.connections`.
+     * Whether the delivery connection uses Laravel's `sync` driver, which would
+     * run a job during its dispatch.
      *
      * @return bool
      *
@@ -76,10 +71,8 @@ final readonly class DeliverySettings
     }
 
     /**
-     * Whether the delivery connection uses Laravel's `failover` driver and
-     * lists a `sync` connection, directly or through another `failover`
-     * connection: once every connection before it fails, the job runs during
-     * its dispatch.
+     * Whether the delivery connection uses Laravel's `failover` driver and can
+     * fall back to a `sync` connection.
      *
      * @return bool
      *
@@ -93,8 +86,7 @@ final readonly class DeliverySettings
     }
 
     /**
-     * Read every setting, failing closed on the first that is malformed;
-     * `authentication:check` runs it.
+     * Read every setting, failing closed on the first that is malformed.
      *
      * @return void
      *
@@ -107,8 +99,7 @@ final readonly class DeliverySettings
     }
 
     /**
-     * The delivery connection: the configured one, or the application's
-     * default, which must be configured in `queue.connections`.
+     * The delivery connection, the configured one or the application's default.
      *
      * @return string
      *
@@ -141,9 +132,8 @@ final readonly class DeliverySettings
     }
 
     /**
-     * Whether the connection is a `sync` one, or a `failover` one that lists
-     * one, through any depth of `failover` connections; a connection already on
-     * the path is not followed again.
+     * Whether the connection is a `sync` one, or a `failover` one that reaches
+     * one, following no connection twice.
      *
      * @param  string  $connection
      * @param  list<string>  $path
@@ -170,8 +160,7 @@ final readonly class DeliverySettings
     }
 
     /**
-     * Read a queue setting: a non-empty string, or `null` (or an empty string,
-     * as `env()` returns for a variable set to nothing) for the default.
+     * Read a queue setting, `null` when it is null or empty.
      *
      * @param  string  $key
      * @return ?string

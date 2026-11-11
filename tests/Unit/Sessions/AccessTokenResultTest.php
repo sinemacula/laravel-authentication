@@ -15,9 +15,7 @@ use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Sessions\AccessTokenResult;
 
 /**
- * Unit tests for the result of a step-up or a reauthentication: an issued token
- * with its session and expiry, or a refusal, a concealed reason answered as
- * `invalid_credentials` with no wait.
+ * Unit tests for the result of a step-up or a reauthentication.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

@@ -8,14 +8,7 @@ use Illuminate\Support\Facades\Auth as IlluminateAuth;
 use SineMacula\Laravel\Authentication\AuthManager;
 
 /**
- * Package `Auth` facade.
- *
- * Subclasses Laravel's framework `Auth` facade and adds `@method` annotations
- * for every method the package `AuthManager` declares (the contextual accessors
- * and the guards' services), with the types the methods return, so IDEs and
- * static analysis see them. Both this facade and the framework facade resolve
- * through the same `auth` container key, which the package service provider has
- * already replaced with the `AuthManager` subclass.
+ * Laravel's `Auth` facade, typed for the package `AuthManager`'s methods.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -45,8 +38,7 @@ use SineMacula\Laravel\Authentication\AuthManager;
 final class Auth extends IlluminateAuth
 {
     /**
-     * Resolve the package `AuthManager` directly from the container. Equivalent
-     * to `app('auth')` but type-narrowed to the package subclass.
+     * Resolve the package `AuthManager` from the container.
      *
      * @return \SineMacula\Laravel\Authentication\AuthManager
      *

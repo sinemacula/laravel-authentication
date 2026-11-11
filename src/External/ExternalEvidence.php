@@ -9,19 +9,7 @@ use Carbon\CarbonInterface;
 
 /**
  * The evidence an external identity provider asserted about how it
- * authenticated the identity: its authentication method references (`amr`), its
- * authentication context (an `acr` value or a SAML authentication context class
- * reference) and the time the evidence is for.
- *
- * Given by a trusted server-side caller with the provider's result, never built
- * from what a client sent. It counts for nothing on its own: only once the
- * bound `Contracts\ExternalEvidencePolicy` accepts it (`accepts()`) is it
- * recorded, and only recorded evidence counts. The time is kept to the whole
- * second. Its values are counted in characters, but it is stored as JSON that
- * escapes every character outside ASCII, up to twelve bytes for one, so
- * evidence that is not valid UTF-8, or whose stored form would exceed
- * `STORED_MAX_BYTES`, is refused here rather than by the database once
- * accepted.
+ * authenticated the identity.
  *
  * @api
  *
@@ -81,8 +69,7 @@ final readonly class ExternalEvidence
     }
 
     /**
-     * The evidence as it is stored: its method references, its context, and its
-     * time in UTC as ISO 8601.
+     * The evidence as it is stored.
      *
      * @return array{methods: list<string>, context: ?string, authenticated_at: string}
      */
@@ -97,7 +84,7 @@ final readonly class ExternalEvidence
 
     /**
      * The evidence a stored value holds, or `null` when it holds none or is
-     * malformed, which is never read as evidence.
+     * malformed.
      *
      * @internal
      *

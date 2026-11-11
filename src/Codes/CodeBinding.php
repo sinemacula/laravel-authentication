@@ -11,15 +11,8 @@ use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
- * What a one-time code challenge is bound to: its purpose, its guard, the
- * identifier's type (or the channel's kind) and normal form, and, for a code
- * that verifies an identifier, proves a new one or is a further factor's, the
- * identity it is for; these form the challenge's delivery key, of which one
- * live challenge exists. A further factor's challenge is also bound to its
- * transaction (the session, the factor and the proof's purpose or enrolment
- * grant), which the key leaves out, so a new transaction replaces the challenge
- * without a new delivery window. A code checked against any other key or
- * transaction does not match.
+ * What a one-time code challenge is bound to: its delivery key and, for a
+ * further factor's code, its transaction.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -118,8 +111,7 @@ final readonly class CodeBinding
 
     /**
      * The binding of a code that proves the new identifier of one change
-     * request of the identity: bound to the request too, so a newer request's
-     * code is another binding and an earlier request's code never confirms it.
+     * request of the identity.
      *
      * @param  string  $guard
      * @param  string  $type
@@ -134,10 +126,8 @@ final readonly class CodeBinding
     }
 
     /**
-     * The binding of a further factor's code, or of an enrolment's: the
-     * destination of its channel under the channel's kind, and the identity it
-     * is for, as its key, and the session, the factor and the proof's purpose
-     * (for an enrolment, the grant) as its transaction.
+     * The binding of a further factor's code, or of an enrolment's, keyed by
+     * its channel and bound to its transaction.
      *
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Codes\FactorCodeBinding  $binding

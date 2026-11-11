@@ -7,9 +7,8 @@ namespace SineMacula\Laravel\Authentication\RateLimiting;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 
 /**
- * Who is attempting a flow of a guard: the identifier the attempt names, the
- * type of that identifier, and the IP address it came from; or, once a sign-in
- * has found the account it is guessing the secret of, that account.
+ * Who is attempting a flow of a guard, by identifier, IP address and, once
+ * known, account.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -43,7 +42,7 @@ final readonly class AttemptSubject
         /** IP address the attempt came from, or `null` when unknown. */
         public ?string $ip,
 
-        /** Account whose secret the attempt checks (the row an Eloquent identity is stored in, else its class and key), or `null` when none is known yet. */
+        /** Account whose secret the attempt checks, or `null` when none is known yet. */
         public ?string $account = null,
     ) {}
 }

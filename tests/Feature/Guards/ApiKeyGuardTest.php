@@ -41,11 +41,7 @@ use Tests\Integration\Fixtures\MachineMembership;
 use Tests\TestCase;
 
 /**
- * Feature tests for the `api_key` guard over HTTP, through the `auth`
- * middleware and the `Auth` facade, against a real database: what a key binds,
- * every reason a key is refused, that a request resolves once, that a key's use
- * is recorded at most once per throttle, and that a machine has no interactive
- * sign-in.
+ * Feature tests for the `api_key` guard over HTTP against a real database.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -113,9 +109,8 @@ final class ApiKeyGuardTest extends TestCase
     }
 
     /**
-     * A request with a live key binds its owner and principal with the key's
-     * scopes and no session, as an authentication rather than a sign-in, and
-     * records the key's use.
+     * A live key binds its owner and principal with its scopes and no session,
+     * and records its use.
      *
      * @return void
      */
@@ -181,10 +176,8 @@ final class ApiKeyGuardTest extends TestCase
     }
 
     /**
-     * A 3D key's membership moved to a tenant of another type under the same
-     * identifier is `principal_mismatch`: the key recorded the tenant by type
-     * as well as identifier, and a replacement rotated meanwhile keeps the
-     * recorded type rather than taking the new one.
+     * A 3D key, or its rotated replacement, whose membership moved to a tenant
+     * of another type under the same identifier is `principal_mismatch`.
      *
      * @return void
      *
@@ -265,9 +258,8 @@ final class ApiKeyGuardTest extends TestCase
     }
 
     /**
-     * An unknown public part and a wrong secret are refused alike, as
-     * `credential_invalid`, with one query each; the wrong secret's failure
-     * names the key its public part found.
+     * An unknown public part and a wrong secret are refused alike as
+     * `credential_invalid`, with one query each.
      *
      * @return void
      */
@@ -354,9 +346,8 @@ final class ApiKeyGuardTest extends TestCase
     }
 
     /**
-     * During a rotation's overlap both keys authenticate; once it ends the
-     * replaced key is refused as `credential_expired` and its replacement still
-     * authenticates.
+     * Both keys authenticate during a rotation's overlap; afterwards only the
+     * replacement does.
      *
      * @return void
      *
@@ -441,9 +432,8 @@ final class ApiKeyGuardTest extends TestCase
     }
 
     /**
-     * A key whose recorded owner type is not the one the provider returns, a
-     * key whose owner is a human identity, and a key whose principal is
-     * recorded under another type with the same identifier are each refused.
+     * A key whose recorded owner or principal type does not match what loads,
+     * or whose owner is a human identity, is refused.
      *
      * @return void
      */
@@ -483,11 +473,8 @@ final class ApiKeyGuardTest extends TestCase
     }
 
     /**
-     * A 3D key's membership must still resolve for its account
-     * (`principal_mismatch`), be active (`principal_inactive`), act within an
-     * active tenant (`tenant_inactive`) and the tenant the key recorded
-     * (`principal_mismatch`), and be admitted by the application
-     * (`principal_ineligible`).
+     * A 3D key's membership must still resolve, be active, act within the
+     * active tenant the key recorded and be admitted by the application.
      *
      * @return void
      */
@@ -557,10 +544,7 @@ final class ApiKeyGuardTest extends TestCase
     }
 
     /**
-     * A key's use is recorded at most once per throttle: not again within it,
-     * and again once it has passed; a throttle of 0 records every use. Only
-     * that key's use is recorded: another key, never used or stale, is left as
-     * it was.
+     * A key's use is recorded at most once per throttle, and only for that key.
      *
      * @return void
      */
@@ -597,9 +581,7 @@ final class ApiKeyGuardTest extends TestCase
     }
 
     /**
-     * Two requests that both find the last use stale record it once: the
-     * second's conditional update matches nothing and leaves its instance as it
-     * was.
+     * Two requests that both find the last use stale record it once.
      *
      * @return void
      */

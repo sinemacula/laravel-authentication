@@ -11,11 +11,8 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 
 /**
- * Minimal 2D identity used by the access-only integration test.
- *
- * Deliberately does NOT implement `HasSessions` or touch the shipped `Session`
- * model, verifying the package works end-to-end without the sessions migration
- * present.
+ * Minimal 2D identity with no `HasSessions`, so the package runs without the
+ * sessions migration.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

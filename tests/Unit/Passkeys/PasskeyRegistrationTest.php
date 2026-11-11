@@ -24,8 +24,8 @@ use SineMacula\Laravel\Authentication\Passkeys\PasskeySummary;
 final class PasskeyRegistrationTest extends TestCase
 {
     /**
-     * A registered passkey carries its summary, and the factor a gate
-     * associated it as, none unless it was given.
+     * A registered passkey carries its summary and the factor it was associated
+     * as.
      *
      * @return void
      */

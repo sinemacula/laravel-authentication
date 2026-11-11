@@ -11,13 +11,8 @@ use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
 
 /**
- * The package's activation policy, shared by the credential, bearer-token and
- * refresh paths.
- *
- * Activation is an opt-in capability: a model is active unless it implements
- * `CanBeActive` and reports otherwise, so an ordinary model with no activation
- * column always authenticates. The identity, the principal, and the tenant the
- * principal acts within are each checked.
+ * Decides whether an identity, principal or tenant may authenticate; a model is
+ * active unless it implements `CanBeActive` and reports otherwise.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -30,11 +25,7 @@ final class ActivationPolicy
     private function __construct() {}
 
     /**
-     * Whether the subject (an identity, principal, or tenant) may authenticate.
-     *
-     * `isActive()` runs inside `WriteConnection::during()` for the subject, so
-     * a check that reads the database (a suspension row, a lazily loaded
-     * relation) cannot be answered by a lagging replica.
+     * Whether the subject may authenticate, read on the write connection.
      *
      * @param  object  $subject
      * @return bool
@@ -45,14 +36,7 @@ final class ActivationPolicy
     }
 
     /**
-     * Whether the tenant the principal acts within, if any, may authenticate. A
-     * principal with no tenant passes; one that names a tenant that opts into
-     * activation but cannot be loaded (a `TenantUnavailableException`, for a
-     * deleted or soft-deleted tenant) fails.
-     *
-     * The tenant is read inside `WriteConnection::during()` for the principal,
-     * so a tenant relation loaded there cannot come from a replica that has not
-     * yet seen a deactivation, even one on another connection.
+     * Whether the tenant the principal acts within, if any, may authenticate.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return bool
@@ -63,11 +47,8 @@ final class ActivationPolicy
     }
 
     /**
-     * Return the tenant the principal acts within when it may authenticate,
-     * `null` when the principal acts within no tenant, and `false` when the
-     * tenant may not authenticate: it reports inactive, or opts into activation
-     * and cannot be loaded. The tenant is read once, as `isTenantActive()`
-     * reads it, so a caller that reports the tenant gets the very one checked.
+     * Return the principal's tenant when it may authenticate, `null` for none,
+     * or `false` when it is inactive or cannot be loaded.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return false|\SineMacula\Laravel\Authentication\Contracts\Tenant|null

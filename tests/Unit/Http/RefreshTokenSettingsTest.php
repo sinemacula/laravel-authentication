@@ -12,8 +12,8 @@ use SineMacula\Laravel\Authentication\Http\Enums\Transport;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenSettings;
 
 /**
- * Unit tests for reading a guard's refresh token transport from its
- * `refresh_token` block over the package defaults.
+ * Unit tests for reading a guard's refresh token transport over the package
+ * defaults.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -37,9 +37,7 @@ final class RefreshTokenSettingsTest extends TestCase
     ];
 
     /**
-     * A guard without a block of its own reads the package defaults: the body
-     * transport, a `__Secure-` cookie name derived from the guard, and no
-     * cookie path.
+     * A guard without a block of its own reads the package defaults.
      *
      * @return void
      */
@@ -57,9 +55,7 @@ final class RefreshTokenSettingsTest extends TestCase
     }
 
     /**
-     * A key the guard sets wins over the package's, inside `cookie` too, and
-     * the keys it leaves out keep the package's values; a cookie application
-     * below the root path derives a `__Secure-` name.
+     * A key the guard sets wins over the package's, inside `cookie` too.
      *
      * @return void
      */
@@ -96,8 +92,8 @@ final class RefreshTokenSettingsTest extends TestCase
     }
 
     /**
-     * A guard whose `refresh_token` is `null` has no overrides, and a `null`
-     * header reads the body field only.
+     * A `null` block has no overrides, and a `null` header reads the body field
+     * only.
      *
      * @return void
      */
@@ -108,9 +104,7 @@ final class RefreshTokenSettingsTest extends TestCase
     }
 
     /**
-     * Rows of `[the guard, its block, the cookie name it derives]`: an
-     * application on the root path gets a `__Host-` name, every other one a
-     * `__Secure-` name, each with the guard's own name in it.
+     * Rows of `[the guard, its block, the cookie name it derives]`.
      *
      * @return iterable<string, array{0: string, 1: array<string, mixed>, 2: string}>
      */
@@ -125,7 +119,7 @@ final class RefreshTokenSettingsTest extends TestCase
 
     /**
      * Without a name of its own, an application's cookie is named after its
-     * guard, so two applications on one host never share a cookie.
+     * guard.
      *
      * @param  string  $guard
      * @param  array<string, mixed>  $block
@@ -139,13 +133,12 @@ final class RefreshTokenSettingsTest extends TestCase
     }
 
     /**
-     * A cookie application whose guard's name makes no cookie name (it holds a
-     * space, a separator or another character a cookie name may not) needs a
-     * name of its own, and fails closed without one; with one it is accepted.
+     * A cookie application whose guard name makes no cookie name needs one of
+     * its own.
      *
      * @return void
      */
-    public function testACookieApplicationWhoseGuardNameMakesNoCookieNameNeedsAnExplicitOne(): void
+    public function testAnUnusableGuardNameNeedsAnExplicitCookieName(): void
     {
         foreach (['my app', 'app;x', 'app(x)'] as $guard) {
             try {
@@ -166,9 +159,8 @@ final class RefreshTokenSettingsTest extends TestCase
     }
 
     /**
-     * A body application never sets a cookie, so one whose guard's name makes
-     * no cookie name needs no cookie configuration: it looks for no cookie. A
-     * name it sets is still the cookie it refuses.
+     * A body application whose guard name makes no cookie name looks for no
+     * cookie.
      *
      * @return void
      */
@@ -186,9 +178,8 @@ final class RefreshTokenSettingsTest extends TestCase
     }
 
     /**
-     * An explicit `__Host-` cookie is accepted with `Path=/`, as a browser
-     * requires to keep it, and for a body application, which never sets it,
-     * whatever its path.
+     * An explicit `__Host-` cookie is accepted on the root path, and for a body
+     * application.
      *
      * @return void
      */
@@ -203,7 +194,7 @@ final class RefreshTokenSettingsTest extends TestCase
 
     /**
      * A body field, header or cookie name PHP keeps as it is in a request is
-     * accepted, symbols included.
+     * accepted.
      *
      * @return void
      */
@@ -222,9 +213,8 @@ final class RefreshTokenSettingsTest extends TestCase
     }
 
     /**
-     * Two cookie applications whose cookie names are equal fail closed,
-     * whichever is read, naming both guards: on one host they would overwrite
-     * each other's cookie.
+     * Two cookie applications with one cookie name fail closed, naming both
+     * guards.
      *
      * @return void
      */
@@ -249,10 +239,8 @@ final class RefreshTokenSettingsTest extends TestCase
     }
 
     /**
-     * Cookie applications with derived names never collide, on any path; a
-     * name another guard derives from the package-wide path is compared too;
-     * and a body application, a non-`jwt` guard, or a guard whose transport is
-     * malformed, that would share the name, is not a collision.
+     * Only cookie applications on `jwt` guards whose cookie names are equal
+     * collide.
      *
      * @return void
      */
@@ -278,10 +266,8 @@ final class RefreshTokenSettingsTest extends TestCase
     }
 
     /**
-     * Rows of `[a CSRF header]` a cross-site form or simple request can carry
-     * without the page setting it: CORS-safelisted, set by the browser itself,
-     * or attached from cached credentials, in any letter case and with `_` for
-     * `-`, which Symfony's header bag reads as the same header.
+     * Rows of `[a CSRF header]` a browser can send cross-site without the page
+     * setting it.
      *
      * @return iterable<string, array{0: string}>
      */
@@ -311,8 +297,8 @@ final class RefreshTokenSettingsTest extends TestCase
     }
 
     /**
-     * A CSRF header a browser sends on its own proves nothing about the page
-     * that sent the request, so it fails closed, naming the guard and the key.
+     * A CSRF header a browser sends on its own fails closed, naming the guard
+     * and the key.
      *
      * @param  string  $header
      * @return void
@@ -327,8 +313,8 @@ final class RefreshTokenSettingsTest extends TestCase
     }
 
     /**
-     * A custom header is accepted as it is configured, even when it contains a
-     * name a browser sends.
+     * A custom header is accepted as configured, even when it contains a name a
+     * browser sends.
      *
      * @return void
      */
@@ -462,9 +448,8 @@ final class RefreshTokenSettingsTest extends TestCase
     }
 
     /**
-     * The configuration of a guard (`api` unless named) with the given
-     * `refresh_token` block (none when `null`, unless it is to be set to
-     * `null`) over the package defaults.
+     * The configuration of a guard with the given `refresh_token` block over
+     * the package defaults.
      *
      * @param  mixed  $block
      * @param  bool  $setNull

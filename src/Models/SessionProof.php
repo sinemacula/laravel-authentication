@@ -9,21 +9,8 @@ use Illuminate\Support\Facades\Config;
 use SineMacula\Laravel\Authentication\Database\StorageConnection;
 
 /**
- * One proof recorded on a session: its kind and purpose, the method, the
- * channel and the factor it used, what was observed, the adapter's evaluation
- * for one an adapter verified, its `amr` values, its time and its binding (the
- * identity, the guard and the session's key), and the evidence an external
- * provider asserted for it once the evidence contract accepted it.
- *
- * Kept on the storage connection with the sessions, so a session and its proofs
- * are written in one transaction, in the table named by
- * `authentication.proofs.table`. A proof is never changed once written, except
- * to mark it as no longer counting (`voided_at`), which the removal of the
- * factor it was made with does on the session that removed it. The session
- * model's pruning deletes a session's proofs with it.
- *
- * Its columns and behaviour belong to the session service: callers read proofs
- * as `Proofs\RecordedProof`.
+ * One proof recorded on a session, never changed once written except to void
+ * it.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -74,9 +61,7 @@ final class SessionProof extends Model
     protected $hidden = ['channel_reference', 'factor_reference', 'evidence'];
 
     /**
-     * Create a proof on the storage connection, in the configured table. Both
-     * are applied here, before Eloquent reads them, so this is construction
-     * rather than model behaviour.
+     * Create a proof on the storage connection, in the configured table.
      *
      * @param  array<string, mixed>  $attributes
      *

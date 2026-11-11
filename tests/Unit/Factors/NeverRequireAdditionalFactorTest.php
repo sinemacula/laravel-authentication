@@ -28,9 +28,8 @@ final class NeverRequireAdditionalFactorTest extends TestCase
     use MockeryPHPUnitIntegration;
 
     /**
-     * The default asks for nothing beyond the first factor, even of a sign-in
-     * from a client it has never seen: its requirement is empty, so the feature
-     * is off until a policy that asks for more is bound.
+     * The default requires nothing beyond the first factor, even from an unseen
+     * client.
      *
      * @return void
      */

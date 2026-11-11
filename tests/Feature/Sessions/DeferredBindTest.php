@@ -21,11 +21,8 @@ use Tests\Concerns\InteractsWithSessions;
 use Tests\TestCase;
 
 /**
- * Feature tests for binding the guard to a session a flow wrote once the writes
- * on its connection commit: at once with no transaction open, with no query; at
- * the commit inside one, after reading the session again, and only while the
- * guard serves the same request and the session is still the one written; never
- * on a rollback. What follows the bind runs whether or not it bound.
+ * Feature tests of binding the guard to a session once the writes on its
+ * connection commit.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -79,8 +76,7 @@ final class DeferredBindTest extends TestCase
     }
 
     /**
-     * With no transaction open on the session's connection the bind runs at
-     * once, without reading the session again, and then what follows it.
+     * With no transaction open the bind runs at once with no query.
      *
      * @return void
      *
@@ -98,9 +94,8 @@ final class DeferredBindTest extends TestCase
     }
 
     /**
-     * Inside a transaction the bind waits for the commit, then reads the
-     * session once and binds it, and what follows runs after it; with nothing
-     * to follow, the bind alone runs. A rollback runs neither.
+     * Inside a transaction the bind waits for the commit, and a rollback runs
+     * nothing.
      *
      * @return void
      *
@@ -142,8 +137,7 @@ final class DeferredBindTest extends TestCase
     }
 
     /**
-     * A bind that waited is not made once the guard serves another request,
-     * though what follows it still runs.
+     * A bind that waited is not made for another request.
      *
      * @return void
      *
@@ -181,9 +175,7 @@ final class DeferredBindTest extends TestCase
     }
 
     /**
-     * A bind that waited is not made for a session the transaction changed so
-     * it is no longer the one written: revoked, returned to pending, ended,
-     * replaced, switched, or of another guard; what follows it still runs.
+     * A bind that waited is not made for a session changed before the commit.
      *
      * @param  array<string, mixed>  $change
      * @return void
@@ -250,8 +242,7 @@ final class DeferredBindTest extends TestCase
     }
 
     /**
-     * Deferral to the commit of the transactions manager bound when it is
-     * asked, as the session service builds it.
+     * Deferral to the commit, as the session service builds it.
      *
      * @return \SineMacula\Laravel\Authentication\Database\AfterCommit
      */

@@ -8,9 +8,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * The `machine_clients` table behind the `MachineClient` fixture, a non-human
- * identity that acts as its own principal, for every test that needs a machine
- * identity beside its own fixtures.
+ * The `machine_clients` table behind the `MachineClient` fixture.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

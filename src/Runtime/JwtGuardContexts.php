@@ -11,14 +11,7 @@ use SineMacula\Laravel\Authentication\Contracts\HasGuardContext;
 
 /**
  * Finds the context of a jwt guard by its name, for a queued job that carries
- * only the name and runs where the guard is resolved again.
- *
- * The guard is resolved first, so an undefined one keeps Laravel's refusal. It
- * must be one `auth.guards` configures with the `jwt` driver (see
- * `Config\JwtGuards`): an `InvalidArgumentException` otherwise. It must also
- * have a context (see `Contracts\HasGuardContext`), which a `jwt` driver the
- * application replaced with a guard that is not the package's does not: a
- * `LogicException` then.
+ * only the name.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

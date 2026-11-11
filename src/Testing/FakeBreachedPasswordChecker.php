@@ -10,14 +10,8 @@ use SineMacula\Laravel\Authentication\Contracts\BreachedPasswordChecker;
 use SineMacula\Laravel\Authentication\Exceptions\BreachedPasswordCheckUnavailableException;
 
 /**
- * A breached-password checker for tests: finds breached exactly the passwords
- * it is given, or, once made unavailable, cannot answer for any, and keeps
- * every password it was asked about, so a test can tell whether the policy
- * reached the breached check at all.
- *
- * `FakeBreachedPasswordChecker::fake(['password123'])` binds a fresh instance
- * as the application's checker and returns it. Assert on what it holds with the
- * test framework's own assertions.
+ * A breached-password checker for tests that finds the given passwords breached
+ * and records every password it is asked about.
  *
  * @api
  *
@@ -44,9 +38,7 @@ final class FakeBreachedPasswordChecker implements BreachedPasswordChecker
     ) {}
 
     /**
-     * Bind a fresh fake, which finds the given passwords breached, as the
-     * checker in the container (the application's, when none is given) and
-     * return it.
+     * Bind a fresh fake as the checker in the container and return it.
      *
      * @param  list<string>  $breached
      * @param  ?\Illuminate\Contracts\Container\Container  $container
@@ -62,8 +54,7 @@ final class FakeBreachedPasswordChecker implements BreachedPasswordChecker
     }
 
     /**
-     * Keep the password, then say whether it is one of the breached ones, or
-     * throw `BreachedPasswordCheckUnavailableException` while unavailable.
+     * Record the password and say whether it is one of the breached ones.
      *
      * @param  string  $password
      * @return bool

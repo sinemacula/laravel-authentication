@@ -31,24 +31,7 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
 /**
- * Races two passkey ceremonies on PostgreSQL and MySQL, each in a process with
- * a database connection of its own: one runs inside a transaction it holds
- * open, and the other, started meanwhile, waits on the row the first wrote.
- *
- * - Two answers to one challenge: only the one whose update commits proceeds;
- *   when that transaction rolls back, the waiting answer uses the challenge.
- * - Two assertions read against the same sign count: only the first to commit
- *   its compare-and-set moves the count; the other is refused as a regression,
- *   however far its own count went.
- * - Two registrations of one credential: only the first to commit stores it;
- *   the other is refused as already registered.
- * - A registration on a pending sign-in racing the pending session's
- *   discarding: the registration waits on the session's row lock, finds the
- *   session revoked once the discarding commits, and is refused as
- *   `pending_invalid`, storing nothing.
- *
- * Skipped on SQLite, whose in-memory database each process would have to
- * itself, and where `pcntl` is not available.
+ * Races two passkey ceremonies in separate processes on PostgreSQL and MySQL.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -76,8 +59,8 @@ final class ConcurrentPasskeyTest extends TestCase
     private string $outcomes;
 
     /**
-     * Skip where processes cannot share the database, freeze the clocks so both
-     * processes see one moment, and create the tables.
+     * Skip where processes cannot share the database, freeze the clocks and
+     * create the tables.
      *
      * @return void
      *
@@ -129,8 +112,7 @@ final class ConcurrentPasskeyTest extends TestCase
     }
 
     /**
-     * Of two answers to one challenge, the one whose update commits first
-     * proceeds; the other, which waited on it, finds the challenge used.
+     * Only the first of two answers to one challenge proceeds.
      *
      * @return void
      *
@@ -164,8 +146,7 @@ final class ConcurrentPasskeyTest extends TestCase
     }
 
     /**
-     * When the first answer's transaction rolls back, the answer that waited on
-     * its update uses the challenge instead.
+     * An answer waiting on one that rolls back uses the challenge.
      *
      * @return void
      *
@@ -199,10 +180,8 @@ final class ConcurrentPasskeyTest extends TestCase
     }
 
     /**
-     * Of two assertions read against the same count, the one whose
-     * compare-and-set commits first moves the count; the other waited on its
-     * row, finds the count moved, and is refused as a regression even though
-     * its own count is higher.
+     * Only the first of two assertions read against one count moves it; the
+     * other is refused as a regression.
      *
      * @return void
      *
@@ -239,9 +218,7 @@ final class ConcurrentPasskeyTest extends TestCase
     }
 
     /**
-     * Of two registrations of one credential, the one whose insert commits
-     * first stores it; the other waited on the unique index and is refused as
-     * already registered.
+     * Only the first of two registrations of one credential stores it.
      *
      * @return void
      *
@@ -277,9 +254,8 @@ final class ConcurrentPasskeyTest extends TestCase
     }
 
     /**
-     * A registration on a pending sign-in waits on the pending session's row
-     * while another call discards the session; once that commits, it finds the
-     * session revoked and is refused as `pending_invalid`, storing no passkey.
+     * A registration waiting on the discarding of its pending session is
+     * refused as `pending_invalid`.
      *
      * @return void
      *
@@ -337,10 +313,8 @@ final class ConcurrentPasskeyTest extends TestCase
     }
 
     /**
-     * Run the first ceremony here inside a transaction, start the second in
-     * another process once the first has written, hold the transaction open
-     * while the second waits, then commit or roll back, and return both
-     * outcomes.
+     * Run the first ceremony in a held transaction and the second in a forked
+     * process, and return both outcomes.
      *
      * @param  \Closure(): ?string  $first
      * @param  \Closure(): ?string  $second
@@ -379,9 +353,8 @@ final class ConcurrentPasskeyTest extends TestCase
     }
 
     /**
-     * In the forked process: wait to be started, run the ceremony on a
-     * connection of its own, report the outcome, and end without running the
-     * parent's shutdown.
+     * Run the ceremony in the forked process, report its outcome and exit
+     * without the parent's shutdown.
      *
      * @param  \Closure(): ?string  $ceremony
      * @return never

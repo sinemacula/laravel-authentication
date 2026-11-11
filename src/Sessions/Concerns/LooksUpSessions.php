@@ -14,13 +14,10 @@ use SineMacula\Laravel\Authentication\Sessions\ActiveSessions;
 use SineMacula\Laravel\Authentication\Sessions\SessionSummary;
 
 /**
- * The session service's lookups of one session, of one principal, and of an
- * active session's proofs and first factor, which `ActiveSessions`,
- * `PendingEvaluation` and `ActiveSessionProofs` carry out, as the session list
- * and `principals()` do.
+ * The session service's lookups of one session, one principal, and an active
+ * session's proofs.
  *
- * They are delegations with no state of their own; they sit in a trait only so
- * the service stays within the number of methods one class may declare.
+ * Kept in a trait only to hold the service under the per-class method limit.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -30,15 +27,8 @@ use SineMacula\Laravel\Authentication\Sessions\SessionSummary;
 trait LooksUpSessions
 {
     /**
-     * One of the identity's active sessions, of any guard, by its identifier,
-     * for a "where you are signed in" detail or before revoking it: the same
-     * summary the session list gives, without its digests, revocation or
-     * principal, marked when it is the session this guard is authenticated with
-     * for the request. Read on the write connection through the identity's
-     * `sessions()` relation, so another identity's session is not found. `null`
-     * when the session is not the identity's, is not active (pending, revoked,
-     * or past a deadline) or does not exist, without saying which; an
-     * identifier that cannot be a key of the session model is not queried.
+     * One of the identity's active sessions, of any guard, by its identifier;
+     * `null` when it is not found.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  mixed  $sessionId
@@ -52,21 +42,8 @@ trait LooksUpSessions
     }
 
     /**
-     * One of the principals the identity may use the application as, by its
-     * principal identifier, for a switch destination or a "your memberships"
-     * detail: the one `principals()` would list with that identifier, judged by
-     * the same reads and checks (the identity's `principals()` on the write
-     * connection, or the resolver's default, each active, in an active tenant
-     * or none, and allowed to use the application by `ApplicationAccess`), and
-     * with an identifier type the application policy must admit the identity
-     * with it first. `null` when the principal is not the identity's, is not
-     * admitted, or two of the identity's principals share the identifier,
-     * without saying which. A switch destination is checked again by the
-     * switch. A principal found among the identity's `principals()` that uses
-     * `ActsAsPrincipal` holds its tenant, loaded on the write connection, so
-     * reading `getTenant()` on it costs no further query and never lazy-loads,
-     * even under Eloquent strict mode; the resolver's default is returned as
-     * the resolver gave it.
+     * One of the principals `principals()` would list, by its identifier;
+     * `null` when it is not found or not admitted.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  mixed  $principalId
@@ -82,41 +59,8 @@ trait LooksUpSessions
     }
 
     /**
-     * The counting proofs of one of this guard's live, active sessions of a
-     * person, named by its identifier or given as a `Session`, for a factor
-     * package's proof store, a requirement checker or a confirmation that reads
-     * what a session proved: newest first by time and then by id, only those
-     * made at or after `$since` when it is given (the same instant in any time
-     * zone, and never changed) and of the given kinds when they are, at most
-     * `$limit` of them (1 to `RequirementSubject::MAX_LIMIT`, an
-     * `InvalidArgumentException` otherwise, before anything is read), exactly
-     * as `PendingSession::proofs()` reads a pending session's. Counting proofs
-     * are those not voided, and a further factor or recovery code only when
-     * accepted.
-     *
-     * An identifier names whichever session holds the key now. A `Session`
-     * names only itself: it is answered only while its key still holds that
-     * very session (the same generation and owner), so an instance whose key a
-     * later sign-in reused answers `[]`, and one that is not an Eloquent
-     * session answers `[]` without being looked up.
-     *
-     * `[]` when the session is not one this guard may answer for, without
-     * saying why: an identifier that cannot be a key of the session model (no
-     * query), one that names no session, or a session of another guard, a
-     * revoked, pending (read through its `PendingSession` instead) or ended
-     * one, or a machine's. The proofs are read bound to the session as stored,
-     * so another identity's or application's proof under the key never counts.
-     * No identity is checked: which sessions a caller may ask about is the
-     * application's to decide.
-     *
-     * Outside a transaction on the session model's connection the session and
-     * its proofs are read on the write connection and nothing is locked. Inside
-     * one, the session's row is locked until the transaction ends and the
-     * proofs are read current, so whatever the transaction read before, a
-     * step-up committed before the call is returned and a proof voided before
-     * it never is (at PostgreSQL's REPEATABLE READ the lock fails to serialise
-     * instead, for the whole transaction to be retried). It writes and reports
-     * nothing.
+     * The counting proofs of one of this guard's live, active sessions, newest
+     * first; `[]` when the session is not one this guard may answer for.
      *
      * @param  mixed  $session
      * @param  ?\Carbon\CarbonInterface  $since
@@ -136,12 +80,8 @@ trait LooksUpSessions
     }
 
     /**
-     * The first factor one of this guard's live, active sessions of a person
-     * signed in with, named by its identifier or given as a `Session` as for
-     * `proofs()`: its oldest counting first-factor proof. `null` when the
-     * session is not one this guard may answer for, as `proofs()` decides,
-     * without saying why, and when that proof no longer counts. Read, and
-     * locked inside a transaction, as `proofs()` is.
+     * The oldest counting first-factor proof of one of this guard's live,
+     * active sessions; `null` when there is none to answer with.
      *
      * @param  mixed  $session
      * @return ?\SineMacula\Laravel\Authentication\Proofs\RecordedProof
@@ -158,17 +98,8 @@ trait LooksUpSessions
     }
 
     /**
-     * How an external identity provider established one of this guard's live,
-     * active sessions of a person, named by its identifier or given as a
-     * `Session` as for `proofs()`: the provenance it records. `null` when the
-     * session is not one this guard may answer for, as `proofs()` decides,
-     * without saying why, and when no provider established it. Read, and locked
-     * inside a transaction, as `proofs()` is. A pending session's provenance
-     * stays on its `PendingSession`.
-     *
-     * This is a server-side read: the application decides which sessions a
-     * caller may ask about. The value holds provider ids and the evidence the
-     * provider asserted, so it is not response JSON as it is.
+     * The external provenance one of this guard's live, active sessions
+     * records; `null` when no provider established it.
      *
      * @param  mixed  $session
      * @return ?\SineMacula\Laravel\Authentication\Proofs\Provenance

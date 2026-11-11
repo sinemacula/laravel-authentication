@@ -18,11 +18,7 @@ use SineMacula\Laravel\Authentication\Jwt\TokenProfile;
 use Tests\Concerns\InteractsWithJwtTokens;
 
 /**
- * Issuance-side unit tests for `JwtTokenService` - `issueAccessToken()` and
- * `issueRefreshToken()`.
- *
- * Split out of the original `JwtTokenServiceTest` so each class stays focused
- * on a single behavioural slice.
+ * Issuance tests for `JwtTokenService`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -36,12 +32,7 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
     use InteractsWithJwtTokens;
 
     /**
-     * Asserts an issued access token decodes back to exactly the profile's
-     * claims for the supplied identity and principal: the issuer, audience and
-     * guard, the subject as a person, and an `exp` claim the access lifetime in
-     * the future, with `at+jwt` as its header type. A token for a session adds
-     * the session and its authentication, which the feature tests assert on
-     * sessions the session service started.
+     * An issued access token decodes back to exactly the profile's claims.
      *
      * @return void
      *
@@ -73,7 +64,7 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
 
     /**
      * The tenant the caller's admission loaded is carried in `tenant_id`,
-     * stringified; without a tenant the claim is absent.
+     * stringified.
      *
      * @return void
      *
@@ -96,8 +87,7 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * Rows of `[the principal's own tenant's identifier, or null for none]`:
-     * principals the tenant 9 is not the tenant of.
+     * Rows of `[the principal's own tenant's identifier, or null for none]`.
      *
      * @return iterable<string, array{0: ?int}>
      */
@@ -110,8 +100,7 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * An access token never names a tenant the principal does not act within:
-     * one given for a principal in no tenant, or in another, is refused.
+     * An access token never names a tenant the principal does not act within.
      *
      * @param  ?int  $own
      * @return void
@@ -130,10 +119,8 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * A principal whose tenant cannot be loaded cannot be shown to act within
-     * the tenant given, so no token is issued: the `TenantUnavailableException`
-     * its `getTenant()` throws reaches the caller as it is, for an access token
-     * and a client credentials token alike.
+     * A principal whose tenant cannot be loaded gets no token; the exception
+     * propagates.
      *
      * @return void
      *
@@ -168,9 +155,7 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * Identifier values that cannot be written into a required claim: an
-     * unsaved model's `null`, the empty string `parse()` reads as missing, and
-     * values that are not scalar.
+     * Identifier values that cannot be written into a required claim.
      *
      * @return iterable<string, array{0: mixed}>
      */
@@ -185,8 +170,7 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * An access token is not issued for a tenant whose identifier cannot become
-     * the `tenant_id` claim, since `parse()` would reject the token.
+     * An access token is not issued for a tenant without a usable identifier.
      *
      * @param  mixed  $identifier
      * @return void
@@ -203,9 +187,7 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * Every issued access token carries a `jti` claim - the unique token
-     * identifier that consumers can layer an external revocation denylist
-     * against.
+     * Every issued access token carries a `jti` claim.
      *
      * @return void
      *
@@ -229,8 +211,7 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * An integer identifier returned by `getAuthIdentifier()` is stringified in
-     * the `sub` claim per RFC 7519 §4.1.2.
+     * An integer identifier is stringified in the `sub` claim.
      *
      * @return void
      *
@@ -254,9 +235,8 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * Asserts issuing an access token without a session produces a token with
-     * no `sid`, `auth_time` or `amr`: there is no session to name or to have
-     * authenticated.
+     * An access token issued without a session carries no `sid`, `auth_time` or
+     * `amr`.
      *
      * @return void
      *
@@ -280,11 +260,7 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * Asserts the refresh-token claims are exactly the issuer, audience and
-     * guard, the session identifier, the supplied rotation id (`jti`), and an
-     * `exp` claim at the session's idle deadline, with the private
-     * `refresh+jwt` as its header type. A refresh token issued without a
-     * principal omits `principal`.
+     * A refresh token carries exactly the profile's refresh claims.
      *
      * @return void
      */
@@ -310,8 +286,7 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * Refresh tokens may carry the active principal identifier so refresh can
-     * preserve principal context across rotations.
+     * A refresh token carries the principal identifier when one is supplied.
      *
      * @return void
      */
@@ -332,8 +307,8 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * An access token is not issued for an identity whose identifier cannot
-     * become the `sub` claim, since `parse()` would reject the token.
+     * An access token is not issued for an identity without a usable
+     * identifier.
      *
      * @param  mixed  $identifier
      * @return void
@@ -350,8 +325,8 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * An access token is not issued for a principal whose identifier cannot
-     * become the `principal` claim, since `parse()` would reject the token.
+     * An access token is not issued for a principal without a usable
+     * identifier.
      *
      * @param  mixed  $identifier
      * @return void
@@ -368,8 +343,7 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * An access token issued with a session whose identifier cannot become the
-     * `sid` claim is refused rather than silently issued as session-less.
+     * An access token is not issued for a session without a usable identifier.
      *
      * @param  mixed  $identifier
      * @return void
@@ -386,8 +360,7 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * A refresh token is not issued for a session whose identifier cannot
-     * become the `sid` claim, since `parse()` would reject the token.
+     * A refresh token is not issued for a session without a usable identifier.
      *
      * @param  mixed  $identifier
      * @return void
@@ -402,9 +375,8 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * A refresh token issued with a principal whose identifier cannot become
-     * the `principal` claim is refused rather than silently issued without one,
-     * which would refresh into the default principal.
+     * A refresh token is not issued for a principal without a usable
+     * identifier.
      *
      * @param  mixed  $identifier
      * @return void
@@ -419,8 +391,7 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * A refresh token is not issued with an empty rotation id, which would
-     * leave the `jti` claim `parse()` requires empty.
+     * A refresh token is not issued with an empty rotation id.
      *
      * @return void
      */
@@ -433,7 +404,7 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * A Tenant mock whose getTenantIdentifier() returns the supplied value.
+     * A tenant mock whose `getTenantIdentifier()` returns the value given.
      *
      * @param  mixed  $id
      * @return \SineMacula\Laravel\Authentication\Contracts\Tenant

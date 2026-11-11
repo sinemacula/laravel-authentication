@@ -28,11 +28,8 @@ use Tests\Unit\Stubs\StubPrincipal;
 use Tests\Unit\Stubs\StubTenant;
 
 /**
- * Integration test for refresh principal continuity in multi-scope deployments.
- *
- * Verifies that a refresh token carrying the originally active principal id
- * keeps the refreshed bearer session on that same principal and therefore the
- * same tenant, even when the resolver's default principal differs.
+ * Refresh keeps the session's active principal rather than the resolver's
+ * default.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -51,7 +48,7 @@ final class JwtGuardRefreshPrincipalContinuityIntegrationTest extends TestCase
     private const string RESOLVER = 'refresh-principal-continuity-resolver';
 
     /**
-     * Provision the shared identity table used by the test.
+     * Create the identity table.
      *
      * @return void
      */

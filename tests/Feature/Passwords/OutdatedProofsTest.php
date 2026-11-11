@@ -27,11 +27,8 @@ use Tests\Integration\Fixtures\PasswordIdentity;
 use Tests\TestCase;
 
 /**
- * Feature tests of what a new password outdates: once a reset or a change
- * commits, no other reset link or code, and no sign-in code, for the identity's
- * identifiers works, through any guard that can return it, so whoever obtained
- * one before cannot take the account back; a link or code for another
- * identity's identifier keeps working.
+ * Feature tests of the reset links and codes, and sign-in codes, a new password
+ * outdates.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -50,9 +47,8 @@ final class OutdatedProofsTest extends TestCase
     private const string TAKEOVER_PASSWORD = 'a takeover passphrase';
 
     /**
-     * A reset with a link through one guard ends the identity's link for
-     * another guard and its reset code for another of its identifiers, and
-     * leaves another identity's link alone.
+     * A reset ends the identity's other links and codes, and leaves another
+     * identity's alone.
      *
      * @return void
      *
@@ -87,9 +83,8 @@ final class OutdatedProofsTest extends TestCase
     }
 
     /**
-     * A change of password ends every reset link and code issued for the
-     * identity's identifiers before it, through every guard, in its own
-     * transaction.
+     * A change ends every reset link and code issued for the identity before
+     * it.
      *
      * @return void
      *
@@ -121,10 +116,7 @@ final class OutdatedProofsTest extends TestCase
     }
 
     /**
-     * A reset and a change end the sign-in codes waiting for the identity's
-     * identifiers, through every guard that can return it, since each would
-     * open a session after the ones the new password ended; another identity's
-     * sign-in code keeps working.
+     * A reset and a change end the identity's waiting sign-in codes.
      *
      * @return void
      *
@@ -155,10 +147,8 @@ final class OutdatedProofsTest extends TestCase
     }
 
     /**
-     * A change ends the identity's sign-in codes without resetting their keys'
-     * delivery windows: a code asked for straight after it waits out the
-     * cooldown since the last delivery, and the next is refused while the
-     * window has had all its deliveries, as if no change had been made.
+     * A change keeps the cooldown and delivery cap of the sign-in codes it
+     * ends.
      *
      * @return void
      *
@@ -188,9 +178,8 @@ final class OutdatedProofsTest extends TestCase
     }
 
     /**
-     * A registration ends no session, so it leaves the identity's sign-in codes
-     * working, while its reset links, through every guard, are ended as any new
-     * password ends them.
+     * A registration keeps the identity's sign-in codes and ends its reset
+     * links.
      *
      * @return void
      *
@@ -216,9 +205,7 @@ final class OutdatedProofsTest extends TestCase
     }
 
     /**
-     * A guard whose provider reads another table binds its links to another
-     * identity: the one holding the same address there keeps its link when this
-     * identity's password changes, and resets with it.
+     * A guard over another model keeps the links of its own identity.
      *
      * @return void
      *
@@ -245,9 +232,8 @@ final class OutdatedProofsTest extends TestCase
     }
 
     /**
-     * The identifiers are read from the identity's stored row, not from the
-     * model given: one loaded with only some columns still has the links and
-     * codes of every identifier its row holds ended.
+     * Identifiers are read from the stored row, so a partly loaded model
+     * outdates them all.
      *
      * @return void
      *
@@ -368,9 +354,8 @@ final class OutdatedProofsTest extends TestCase
     }
 
     /**
-     * An identity that cannot report verification is read by the attribute
-     * named after each type, and a type it has no attribute for is skipped,
-     * even while Eloquent refuses to read a missing attribute.
+     * An identity without verification outdates the links of the attribute
+     * named after each type.
      *
      * @return void
      *
@@ -428,9 +413,8 @@ final class OutdatedProofsTest extends TestCase
     }
 
     /**
-     * An identity that reports its email address from a column of another name
-     * has that address's links outdated, and a type it cannot report at all
-     * (its verification throws a `LogicException` for it) is skipped.
+     * An identity reporting its own identifiers outdates their links and skips
+     * a type it cannot report.
      *
      * @return void
      *
@@ -480,9 +464,8 @@ final class OutdatedProofsTest extends TestCase
     }
 
     /**
-     * The input of a reset with the code and the challenge it was sent for, or
-     * the link's token, that would set the takeover password: well formed, so
-     * only a proof that no longer works refuses it.
+     * The input of a reset with the code or the link's token that would set the
+     * takeover password.
      *
      * @param  string  $type
      * @param  string  $identifier

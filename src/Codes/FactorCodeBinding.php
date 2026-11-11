@@ -14,21 +14,7 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
  * What a further factor's one-time code challenge is bound to: the proof's
- * binding (the identity, the application, the session and the purpose), the
- * factor package's factor, and the channel the code goes through, with its
- * destination; for the confirmation of a factor being enrolled, the enrolment
- * grant as well.
- *
- * A binding whose purpose is `sign_in` or `step_up` is an `mfa` challenge; one
- * whose purpose is `enrollment` is an `enrollment` challenge, bound to the
- * pending factor and its grant. Neither is ever accepted as the other, and a
- * `reauthenticate` binding is refused: a reauthentication proves the first
- * factor, never a further one. The destination, the owner and the purpose form
- * the challenge's delivery key, on which its delivery cap and cooldown are
- * counted, never on the factor, so an enrolment restarted with a new pending
- * factor and grant is still held to them. The session, the factor and the
- * proof's purpose or grant are the challenge's transaction: a code sent for one
- * is never accepted for another.
+ * binding, the factor, the channel and, for an enrolment, the grant.
  *
  * @api
  *

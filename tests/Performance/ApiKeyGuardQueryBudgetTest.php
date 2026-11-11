@@ -19,11 +19,7 @@ use SineMacula\Laravel\Authentication\Http\Middleware\Authenticate;
 use Tests\Concerns\InteractsWithMachineCredentials;
 
 /**
- * Query-budget contracts for the `api_key` guard: one indexed lookup of the
- * key, then the owner and its principal, a write only when the last use is
- * stale, no password hashing, the same single lookup for an unknown key as for
- * a wrong secret, and nothing for a JWT on a route that lists a `jwt` guard
- * too.
+ * Query-budget contracts for the `api_key` guard.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -109,9 +105,7 @@ final class ApiKeyGuardQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A malformed key costs nothing; an unknown key and a wrong secret cost the
-     * one lookup each; a revoked key, and a valid one on a guard whose
-     * application no longer allows `api_key`, stop after it.
+     * A refused key costs at most the one key lookup.
      *
      * @return void
      */
@@ -147,10 +141,8 @@ final class ApiKeyGuardQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A bearer credential in JWT form, on a route whose `auth` middleware lists
-     * a `jwt` guard beside the `api_key` guard, is that guard's: the key guard
-     * splits nothing, queries nothing and reports nothing, and a token whose
-     * signature fails costs the route no query at all.
+     * A JWT on a route that also lists a `jwt` guard costs the key guard
+     * nothing.
      *
      * @return void
      *

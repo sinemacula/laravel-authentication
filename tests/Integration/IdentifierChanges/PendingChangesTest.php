@@ -26,9 +26,8 @@ use Tests\Unit\Stubs\PlainIdentityFixture;
 final class PendingChangesTest extends TestCase
 {
     /**
-     * A pending change is keyed by the SHA-256 digest of the identity's account
-     * and the type, joined by a NUL byte: one per identity and type, the same
-     * through every guard.
+     * A pending change is keyed by a digest of the identity's account and the
+     * type.
      *
      * @return void
      */

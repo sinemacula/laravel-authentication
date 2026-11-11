@@ -18,11 +18,6 @@ use Tests\Unit\Stubs\StubCredentialGuard;
  * Feature tests for the protected hooks `AbstractGuard` offers to subclasses
  * that implement a new guard type.
  *
- * Drives `bindAuthenticationLifecycle()`, `setIdentity()`,
- * `fireValidatedEvent()`, `resolvePrincipal()`, and the guard context's timebox
- * budget from a subclass so the extension surface stays callable and behaves as
- * documented.
- *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
@@ -32,9 +27,8 @@ use Tests\Unit\Stubs\StubCredentialGuard;
 final class AbstractGuardExtensionTest extends AbstractGuardTestCase
 {
     /**
-     * A subclass binding a resolved context fires `Login`, `Authenticated`,
-     * `PrincipalAssigned`, and `SessionAuthenticated` in order and leaves the
-     * full context bound.
+     * A subclass binding a resolved context fires `Login` and the bind events
+     * in order and leaves the context bound.
      *
      * @return void
      */
@@ -86,9 +80,8 @@ final class AbstractGuardExtensionTest extends AbstractGuardTestCase
     }
 
     /**
-     * A subclass binding another identity directly has the context held for the
-     * binding before forgotten, the credential kind with it: the next ask is
-     * built for the identity bound now.
+     * A subclass binding another identity forgets the held context and its
+     * credential kind.
      *
      * @return void
      *

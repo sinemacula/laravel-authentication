@@ -9,10 +9,8 @@ use SineMacula\Laravel\Authentication\Contracts\ScopeRegistry;
 use SineMacula\Laravel\Authentication\Exceptions\InvalidScopeException;
 
 /**
- * The form scopes take in the package: RFC 6749 scope tokens, kept as an
- * ordered list without duplicates, and written as one space-separated string in
- * a token's `scope` claim and an OAuth response. The package never reads
- * meaning into a scope.
+ * The form scopes take in the package: RFC 6749 scope tokens in an ordered list
+ * without duplicates.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -24,19 +22,15 @@ final class Scopes
     /** @var int Longest scope accepted, in bytes. */
     public const int MAX_LENGTH = 255;
 
-    /** @var int Longest list of scopes accepted, in bytes, written space-separated as a token's `scope` claim carries it. */
+    /** @var int Longest list of scopes accepted, in bytes, written space-separated. */
     public const int MAX_LIST_LENGTH = 8192;
 
     /** @var string An RFC 6749 scope token: printable ASCII except space, `"` and `\`. */
     private const string TOKEN_PATTERN = '/^[\x21\x23-\x5B\x5D-\x7E]+$/D';
 
     /**
-     * Bring scopes to their stored form: each a well-formed scope token of at
-     * most 255 bytes, duplicates removed, the first occurrence's order kept,
-     * and all of them, space-separated, at most 8,192 bytes. The list bound
-     * keeps the stored list whole in every engine's column (MySQL's `TEXT`
-     * holds 65,535 bytes, and an insert that ignores duplicate keys there would
-     * cut a longer value short without an error).
+     * Bring scopes to their stored form: well-formed tokens, duplicates
+     * removed, within the length bounds.
      *
      * @param  array<array-key, mixed>  $scopes
      * @return list<string>
@@ -69,8 +63,7 @@ final class Scopes
     }
 
     /**
-     * Read a space-separated scope string (RFC 6749 section 3.3): tokens
-     * separated by single spaces, or the empty string for none.
+     * Read a space-separated scope string (RFC 6749 section 3.3).
      *
      * @param  string  $scope
      * @return list<string>
@@ -106,11 +99,8 @@ final class Scopes
     }
 
     /**
-     * The scopes a credential of the principal on the guard may grant: the
-     * given scopes normalised, then held to the scope registry. Any answer from
-     * the registry but `[]` refuses them, naming the given scopes it names, or
-     * every given scope when it names none of them as given (a pattern, or its
-     * own form of a scope), so a refusal never depends on echoing the input.
+     * The scopes a credential of the principal on the guard may grant,
+     * normalised and held to the scope registry.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\ScopeRegistry  $registry
      * @param  string  $guard
@@ -135,8 +125,7 @@ final class Scopes
     }
 
     /**
-     * The scopes when, space-separated, they fit the list bound; otherwise the
-     * scopes from the first that does not fit are refused.
+     * The scopes when, space-separated, they fit the list bound.
      *
      * @param  list<string>  $scopes
      * @return list<string>

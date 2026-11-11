@@ -36,10 +36,8 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\StubCredentialGuard;
 
 /**
- * Feature tests of a guard's execution context: the one copy of the guard's
- * name, provider, resolver, dispatcher, request and timebox that every flow of
- * the guard reads, each time it uses one, so a rebind after a flow was built
- * reaches it, and that no other guard shares.
+ * Feature tests of a guard's execution context, which every flow of the guard
+ * reads at use so a later rebind reaches it.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -132,10 +130,8 @@ final class GuardContextTest extends TestCase
     }
 
     /**
-     * A guard type built on the base guard runs on its context too: an identity
-     * it binds itself is announced to the dispatcher the context holds then,
-     * and a principal it resolves comes from the context's resolver as it is
-     * then.
+     * A guard type built on the base guard reads its context's dispatcher and
+     * resolver as they are at use.
      *
      * @return void
      *
@@ -161,10 +157,8 @@ final class GuardContextTest extends TestCase
     }
 
     /**
-     * A dispatcher swapped in after the guard resolved (`Event::fake()`)
-     * receives the events of every flow of the guard, the services built before
-     * the swap included: a sign-in, a code request, a passkey's removal, a
-     * password reset, a refresh and a bearer request.
+     * A dispatcher swapped in after the guard resolved receives the events of
+     * every flow of the guard.
      *
      * @return void
      *
@@ -209,11 +203,8 @@ final class GuardContextTest extends TestCase
     }
 
     /**
-     * A fake swapped in after the writes, before their commit (`Event::fake()`
-     * inside the caller's transaction), receives every event they deferred: a
-     * passkey sign-in's `PasskeyUsed` and `SignedIn`, a password change's
-     * `PasswordSet` and a passkey's removal; the dispatcher bound when they
-     * were written receives none.
+     * A fake swapped in before the commit receives every deferred event, and
+     * the dispatcher bound at the writes receives none.
      *
      * @return void
      *
@@ -244,9 +235,8 @@ final class GuardContextTest extends TestCase
     }
 
     /**
-     * A request rebound after the guard's session service and its refresh
-     * exchange were built reaches both: the sign-in reports the client of the
-     * request it is made in, and so does a refresh after another rebind.
+     * A request rebound after the session service and refresh exchange were
+     * built reaches both.
      *
      * @return void
      *
@@ -303,7 +293,7 @@ final class GuardContextTest extends TestCase
 
     /**
      * A guard with a resolver of its own keeps it when the global resolver is
-     * rebound: its refresh does not ask the global one.
+     * rebound.
      *
      * @return void
      *
@@ -330,11 +320,8 @@ final class GuardContextTest extends TestCase
     }
 
     /**
-     * Two guards resolved in one process have a context each: a rebind of one
-     * guard's dispatcher does not reach the other, and each guard's refresh
-     * exchange is bound to that guard's context and token service, so one guard
-     * does not take another's refresh token, takes its own, and reports its own
-     * name.
+     * Two guards resolved in one process each have their own context and
+     * refresh exchange.
      *
      * @return void
      *

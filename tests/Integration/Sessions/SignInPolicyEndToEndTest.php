@@ -60,20 +60,8 @@ use Tests\Integration\Fixtures\VerifiableStaffIdentity;
 use Tests\TestCase;
 
 /**
- * End-to-end tests of signing in, and refreshing, through the bindings the
- * package ships, on whichever engine the suite runs against: the guard
- * application policy, the database attempt limiter, the identifier normalisers
- * and the verified-identifier gate, configured per guard as an application
- * would.
- *
- * - `api`: identities with a designated email, the password and `sso` methods.
- * - `by_number`: the same identities, signing in by their `id` with a password.
- * - `sso_only`: the same identities, the `sso` method only.
- * - `staff`: the same rows read as another model class, with a password.
- * - `loose`: the same identities, ten sign-ins per identifier a window.
- * - `verified`: the same identities, verified identifiers required.
- * - `members`: memberships with a `type` column of the application's own, short
- *   lifetimes, and at most three failed refreshes per IP address a minute.
+ * End-to-end tests of signing in and refreshing through the bindings the
+ * package ships, configured per guard.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -100,8 +88,8 @@ final class SignInPolicyEndToEndTest extends TestCase
     private const int MEMBERS_ABSOLUTE_MINUTES = 1440;
 
     /**
-     * Freeze the clocks twenty seconds into a minute, create the tables, and
-     * add the routes an application would.
+     * Freeze the clocks twenty seconds into a minute, create the tables and add
+     * the routes.
      *
      * @return void
      */
@@ -163,12 +151,7 @@ final class SignInPolicyEndToEndTest extends TestCase
     }
 
     /**
-     * A sign-in finds the identity whatever the casing and spacing of the
-     * address, and every form of it counts against one limit: after a success
-     * gives its slot back, five failures under different casings use the
-     * identifier's limit, and the account's, up, and the next sign-in is
-     * refused without its password being checked, with the wait to the end of
-     * the window. The limits store digests only.
+     * A sign-in looks up and limits the identifier in its normalised form.
      *
      * @return void
      *
@@ -211,9 +194,7 @@ final class SignInPolicyEndToEndTest extends TestCase
     }
 
     /**
-     * `attempt()` refuses a list of addresses under the identifier key before
-     * any lookup: once the address has used its limit up, the list cannot be
-     * used to keep guessing, nor to sign in with the right password.
+     * A list of identifiers cannot get around the identifier's limit.
      *
      * @return void
      *
@@ -245,13 +226,7 @@ final class SignInPolicyEndToEndTest extends TestCase
     }
 
     /**
-     * Every password checked against an account counts against the account,
-     * however the attempt found it: after five wrong passwords through query
-     * closures (which name no identifier to count), the right password is
-     * refused, as a wrong one is, even through the plain address, until the
-     * window ends. The client is told only `invalid_credentials`;
-     * `AuthenticationFailed` tells listeners the account's limit refused it,
-     * with the wait.
+     * Every password checked counts against the account, however it was found.
      *
      * @return void
      *
@@ -291,11 +266,7 @@ final class SignInPolicyEndToEndTest extends TestCase
     }
 
     /**
-     * An account's password guesses are bounded however many guards check it:
-     * `api` (by address) and `by_number` (by id) share the account's provider,
-     * and three wrong passwords through one and two through the other use the
-     * account's one limit up, so the right password is refused through both,
-     * and through `signIn()` and `attempt()` alike, until the window ends.
+     * An account's limit holds across every guard that checks it.
      *
      * @return void
      *
@@ -332,11 +303,7 @@ final class SignInPolicyEndToEndTest extends TestCase
     }
 
     /**
-     * Each guard holds the account's one count to its own limit, so the most
-     * permissive guard bounds the account: after five wrong passwords through
-     * `api` (five per window), `loose` (ten per window, same provider) still
-     * checks five more, and then refuses the right password too, without
-     * checking it; `api` had stopped at its own five.
+     * The most permissive guard bounds the account.
      *
      * @return void
      *
@@ -362,13 +329,7 @@ final class SignInPolicyEndToEndTest extends TestCase
     }
 
     /**
-     * The account is the row, not the model class it is read as: `staff`'s
-     * provider returns the rows `api`'s does as another class, as an admin
-     * guard's own model over the users table would, yet five wrong passwords
-     * through `api` use up the account's limit for both, so the right password
-     * through `staff` is refused without being checked, through `signIn()` and
-     * `attempt()` alike, and only the failure event says the account's limit
-     * refused it.
+     * Model classes over one table share the account's limit.
      *
      * @return void
      *
@@ -394,11 +355,7 @@ final class SignInPolicyEndToEndTest extends TestCase
     }
 
     /**
-     * On MySQL, whose default collation compares accented, full-width and
-     * invisible variants of a letter as equal, every variant of an address
-     * finds the same account; five wrong passwords spread over five variants
-     * use the account's limit up, and a sixth variant with the right password
-     * is refused.
+     * On MySQL, collation variants of an address share the account's limit.
      *
      * @return void
      *
@@ -429,12 +386,8 @@ final class SignInPolicyEndToEndTest extends TestCase
     }
 
     /**
-     * A sign-in waiting for a further factor keeps the slot its password check
-     * took on the account, so the factor can be guessed no more often than the
-     * password, however the sign-ins name the account: five pending sessions
-     * through two guards and two identifiers, each discarded as a failed
-     * factor, use the account's limit up, and a sixth sign-in with the right
-     * password mints no pending session.
+     * A further factor can be guessed no more often than the account's
+     * password.
      *
      * @return void
      *
@@ -464,16 +417,14 @@ final class SignInPolicyEndToEndTest extends TestCase
     }
 
     /**
-     * On MySQL, whose default collation finds one account by many variants of
-     * its address, each variant has its own identifier limit but the account
-     * one: five pending sessions through five variants use it up, and a sixth
-     * variant with the right password mints no pending session.
+     * On MySQL, collation variants cannot mint more pending sessions than the
+     * account allows.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testCollationVariantsCannotMintMorePendingSessionsThanTheAccountAllowsOnMySql(): void
+    public function testCollationVariantsShareThePendingSessionLimitOnMySql(): void
     {
         if (DB::connection()->getDriverName() !== 'mysql') {
             self::markTestSkipped('Only MySQL\'s default collation finds an account by these variants.');
@@ -499,11 +450,8 @@ final class SignInPolicyEndToEndTest extends TestCase
     }
 
     /**
-     * A guard that names its own identifier column signs in by that column,
-     * through `signIn()` and `attempt()` alike, given as a string or, as a JSON
-     * body sends a numeric column, an integer, ignores the package's, and
-     * counts its attempts against the identifier under that column whichever
-     * form it came in: after five wrong passwords the right one is refused.
+     * A guard signs in and counts by its own identifier column, given as a
+     * string or an integer.
      *
      * @return void
      *
@@ -532,10 +480,8 @@ final class SignInPolicyEndToEndTest extends TestCase
     }
 
     /**
-     * An integer under a string identifier column is compared as the string it
-     * is counted as: MySQL compares a string column with a number by casting
-     * the column, so `0` would otherwise find an account whose address is not a
-     * number, and its right password would sign it in without its address.
+     * An integer identifier never finds an account by MySQL's loose
+     * string-to-number comparison.
      *
      * @return void
      *
@@ -550,8 +496,8 @@ final class SignInPolicyEndToEndTest extends TestCase
     }
 
     /**
-     * A guard that does not allow the method refuses the sign-in before
-     * counting it or looking anyone up, and creates nothing.
+     * A guard that does not allow the method refuses before counting or looking
+     * anyone up.
      *
      * @return void
      *
@@ -568,10 +514,8 @@ final class SignInPolicyEndToEndTest extends TestCase
     }
 
     /**
-     * A session waiting for a further factor when the application stops listing
-     * its method is refused every time it is satisfied (`method_not_allowed`):
-     * it never activates, and stays pending, without the proof, until its
-     * credential expires.
+     * A pending session whose method is no longer allowed is refused as
+     * `method_not_allowed`.
      *
      * @return void
      *
@@ -600,11 +544,7 @@ final class SignInPolicyEndToEndTest extends TestCase
     }
 
     /**
-     * A session lasts as the guard sets, whatever its principal: the session's
-     * deadlines, the access token's expiry, and the refresh token's, which is
-     * the idle deadline, are the guard's for two memberships whose own `type`
-     * columns differ, and neither token carries anything of that type. The
-     * bearer request authenticates as the principal.
+     * Sessions follow the guard's lifetimes whatever the principal.
      *
      * @return void
      *
@@ -635,11 +575,8 @@ final class SignInPolicyEndToEndTest extends TestCase
     }
 
     /**
-     * An application that decides which principals may use a guard binds its
-     * application access: a principal it refuses is refused as
-     * `principal_ineligible` before anything is written, and once it refuses a
-     * principal whose session already exists, that session no longer refreshes,
-     * and is not revoked.
+     * A rebound application access refuses the principal on sign-in and
+     * refresh.
      *
      * @return void
      *
@@ -669,18 +606,14 @@ final class SignInPolicyEndToEndTest extends TestCase
     }
 
     /**
-     * With verified identifiers required, a password sign-in, through the
-     * session service or `attempt()`, is refused until the address is verified,
-     * even when `attempt()` finds the identity with a query closure instead of
-     * the address. A session started for an identity verified elsewhere is not
-     * held up. Following a verification link verifies the address without
-     * signing anyone in, and the password sign-in then succeeds.
+     * The verified identifier gate holds password sign-ins until a link
+     * verifies the address.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testTheVerifiedIdentifierGateHoldsPasswordSignInsUntilALinkVerifiesTheAddress(): void
+    public function testTheVerifiedIdentifierGateHoldsPasswordSignInsUntilVerified(): void
     {
         $identity = $this->seedPasswordIdentity('ada@example.test');
 
@@ -710,10 +643,8 @@ final class SignInPolicyEndToEndTest extends TestCase
     }
 
     /**
-     * Failed refreshes from one IP address are counted in the database; once
-     * the address has used up its limit, even a valid refresh token is answered
-     * `429` with the wait to the end of the minute, and its session is left as
-     * it was. When the window ends, the token refreshes.
+     * Refreshes refused for their failures are answered `429` through the
+     * route.
      *
      * @return void
      *
@@ -820,8 +751,8 @@ final class SignInPolicyEndToEndTest extends TestCase
     }
 
     /**
-     * Bind an application access that keeps every membership whose `type` is
-     * the one given out of the `members` guard.
+     * Bind an application access that keeps memberships of the given `type` out
+     * of `members`.
      *
      * @param  string  $type
      * @return void
@@ -845,8 +776,8 @@ final class SignInPolicyEndToEndTest extends TestCase
     }
 
     /**
-     * Persist an identity with one membership whose `type` column is the one
-     * given, in a tenant, and return its password credentials.
+     * Persist an identity with one membership of the given `type` and return
+     * its credentials.
      *
      * @param  string  $email
      * @param  ?string  $type

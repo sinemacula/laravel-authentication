@@ -32,31 +32,7 @@ use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
- * JWT issue/parse service.
- *
- * Encapsulates `firebase/php-jwt` so the guards do not import it directly.
- * Issues access and refresh tokens, decodes and verifies.
- *
- * - signing material and algorithm live in a `JwtKeyring` that fails closed
- * - kid-based rotation via the active kid header and `kid -> Key` map
- * - the JOSE header's `typ` distinguishes access (`at+jwt`) from refresh
- *   (`refresh+jwt`), and each type's required claims
- *   (`TokenType::requiredClaims()`) must be present on every parse
- * - `client_id` binds every token to the guard (the application) whose service
- *   issued it; a token from another guard is rejected even when the guards
- *   share a key
- * - `iss` and `aud` are required, written on every token and strictly verified
- *   on every parse
- * - an access token's subject type, session claims and tenant must keep the
- *   profile's shape (`TokenProfile::accessFailure()`)
- * - configurable clock skew via `leewaySeconds` on every verification
- * - token lifetimes from the guard's `TokenLifetimes`; a token for a session
- *   mirrors the session and is never issued for one that has ended
- * - a token for a session is issued after its issuance guard, reading its
- *   proofs current, so its `auth_time` and `amr` never go back on a token of
- *   the session committed before it
- * - every token it issues is a `Secret`, revealed only where it is sent, and no
- *   token or claim that is a secret ever reaches its logger
+ * Issues and verifies the package's access and refresh tokens.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -99,8 +75,7 @@ final class JwtTokenService
         /** The `aud` every token carries; rejects tokens with a different audience. */
         private string $audience,
 
-        // Optional PSR-3 logger for parse-failure debug traces; defaults to
-        // NullLogger.
+        // PSR-3 logger for parse-failure debug traces.
         ?LoggerInterface $logger = null,
     ) {
         if ($guard === '') {
@@ -115,8 +90,7 @@ final class JwtTokenService
     }
 
     /**
-     * The token and session lifetimes this service issues with, which code that
-     * creates a session uses to stamp the session's deadlines.
+     * The token and session lifetimes this service issues with.
      *
      * @return \SineMacula\Laravel\Authentication\Jwt\TokenLifetimes
      */
@@ -126,57 +100,8 @@ final class JwtTokenService
     }
 
     /**
-     * Encode an access-token payload for the given context.
-     *
-     * The token expires after the guard's access lifetime, and never after the
-     * end of the session when a session is given: the earlier of its idle and
-     * absolute deadlines, from which the bearer path rejects the token anyway.
-     * An idle lifetime shorter than the access lifetime therefore shortens the
-     * token to match. `$issuedAt` (default now, cut to the whole second) sets
-     * `iat` and the start of the lifetime, so a caller that has just judged the
-     * session at a given time issues at that same time. Issuing reads nothing
-     * from the principal beyond its identifier and, for a token without a
-     * session given a tenant, its tenant (`getTenant()`), to check the tenant
-     * is its own.
-     *
-     * The token's subject type is `person`. `$tenant` is the active tenant the
-     * caller's admission found, written to `tenant_id`: for a token of a
-     * session, the tenant the session acts in, which the bearer path checks on
-     * every request against the session; without a session, the principal's
-     * own, since a principal acts in another tenant only through a session. A
-     * token for a session carries the session's latest authentication time in
-     * `auth_time` (never after the issue time: an authentication another server
-     * recorded with its clock ahead is carried as the issue time) and its
-     * authentication method references in `amr`, both derived from the session
-     * when the token is issued.
-     *
-     * A token for an Eloquent session is issued in a transaction on the
-     * session's connection (a savepoint inside one of the caller's), which
-     * first writes the session's issuance guard (`IssuanceGuard`), then takes
-     * the issue time, then reads the session's proofs current: a token issued
-     * after another one of the session committed never carries an older
-     * `auth_time` or fewer `amr` values than it, whatever the isolation level.
-     * Under PostgreSQL's REPEATABLE READ or SERIALIZABLE, a caller's
-     * transaction whose snapshot predates such a token or a proof of the
-     * session fails to serialise on the guard instead, for the caller to retry
-     * whole. A caller that passes `$issuedAt` should take it after it locks the
-     * session in its own transaction around the call, or it may be earlier than
-     * a proof that committed in between, and `auth_time` is never after the
-     * issue time.
-     *
-     * Refuses to issue a token that `parse()` would reject or that would lose
-     * part of its context: the identity and principal, the tenant when one is
-     * given, and the session when one is given, must each have an identifier
-     * that can be written into its claim (a saved model's scalar key). With a
-     * session, the tenant given must be the one the session records, by
-     * identifier, or none for a session that records none; without one, it must
-     * be the principal's own (a principal whose tenant cannot be loaded throws
-     * the `TenantUnavailableException` its `getTenant()` does). Refuses, too, a
-     * session that has ended or that has no idle deadline, and a non-human
-     * identity: a machine gets tokens only from a client credentials exchange.
-     * An Eloquent session model off the storage connection is refused with an
-     * `InvalidSessionModelConfigurationException`, and a session with no key or
-     * no row left with a `LogicException`.
+     * Encode an access token for the given context, never outliving its
+     * session.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -211,16 +136,9 @@ final class JwtTokenService
     }
 
     /**
-     * Encode an access-token payload for the session as `issueAccessToken()`
-     * does, at `$issuedAt`, inside the transaction of the issuer that called
-     * it, writing nothing, and return it with its `exp` and its lifetime in
-     * seconds, read from the claims signed: the issuer must have written the
-     * session's row first in that transaction, on the session's connection (its
-     * issuance guard, or its own write of the row, such as an activation's),
-     * and taken `$issuedAt` after that write, so the proofs read for the token,
-     * current, include every one committed before it. A session the transaction
-     * inserted (`$inserted`) holds no proofs but its own until it commits, so
-     * they are read as the transaction sees them, without a lock.
+     * Encode an access token for the session inside the transaction of the
+     * issuer that already wrote the session's row, and return it with its
+     * expiry.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -254,17 +172,7 @@ final class JwtTokenService
 
     /**
      * Encode the access token a client credentials exchange hands a non-human
-     * identity, acting as the principal, for the API key it was exchanged for:
-     * the client (the identity) in `sub` with the subject type `machine`, no
-     * session and no refresh, the key's id in `cid` and the granted scopes,
-     * space-separated, in `scope` (`""` for none), and the tenant the
-     * exchange's admission loaded in `tenant_id`, which must be the one the
-     * principal's `getTenant()` returns, by identifier, since a principal acts
-     * only within its own tenant. The token lives the guard's access lifetime,
-     * never past `$notAfter` (the key's expiry); `$issuedAt` (default now, cut
-     * to the whole second) sets `iat`. Every other claim is an access token's,
-     * so the bearer path admits the identity and principal as it would any
-     * other, and then holds the token to its key.
+     * identity for the API key it was exchanged for.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\MachineIdentity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -296,21 +204,8 @@ final class JwtTokenService
     }
 
     /**
-     * Encode a refresh-token payload bound to a specific session.
-     *
-     * The token expires at the session's idle deadline, and never after its
-     * absolute deadline when it has one: the session row is the source of truth
-     * for how long the session lasts, and the token mirrors it. `$issuedAt`
-     * (default now, cut to the whole second) sets `iat`.
-     *
-     * The caller MUST hash the supplied plaintext `$rotationId` before
-     * persisting it on the session row. Refuses to issue a token that `parse()`
-     * would reject or that would lose its principal: the session, and the
-     * principal when one is given, must each have an identifier that can be
-     * written into its claim, and the rotation id must not be empty. Refuses,
-     * too, a session that has ended or that has no idle deadline, and a session
-     * a non-human identity owns, or a non-human principal: a machine has no
-     * session and no refresh.
+     * Encode a refresh token bound to the session, expiring when the session
+     * does.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  string  $rotationId
@@ -345,18 +240,7 @@ final class JwtTokenService
     }
 
     /**
-     * Decode and verify a token, returning claims as an array.
-     *
-     * Returns `null` on any failure so callers can treat parse as a total
-     * function. A token whose header `typ` is missing or names no known type is
-     * always rejected, and when `$expectedType` is supplied, so is one whose
-     * header names the other type, to prevent a refresh token being presented
-     * as an access token (and vice versa). A token whose `client_id` does not
-     * name this service's guard, or whose `iss` or `aud` is not this service's
-     * (an `aud` that is an array included), is always rejected, as is one
-     * missing any claim its type requires, and an access token that breaks the
-     * profile's shape (see `TokenProfile::accessFailure()`). The token is the
-     * one a request carried or one this service issued.
+     * Decode and verify a token, returning its claims or `null` on any failure.
      *
      * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $token
      * @param  ?\SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $expectedType
@@ -370,16 +254,6 @@ final class JwtTokenService
     /**
      * Decode and verify a refresh token a client offers as proof that it holds
      * a session, accepting one that has expired.
-     *
-     * Every check `parse($token, TokenType::REFRESH)` makes applies (the
-     * signature and kid, the header `typ`, `client_id`, `iss` and `aud`, the
-     * required claims, and an `iat` that is not in the future) except expiry:
-     * firebase/php-jwt verifies the signature, kid, algorithm and `iat` before
-     * it rejects an expired token, so the header and payload of an expired one
-     * are as trustworthy as a live one's. Expiry is not enforced because the
-     * usual proof is from a client signing in again after its session ended;
-     * the session row decides what the proof is worth. Returns `null` on any
-     * other failure.
      *
      * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $token
      * @return ?array<string, mixed>
@@ -415,12 +289,7 @@ final class JwtTokenService
     }
 
     /**
-     * The claims of an access token for the context, and when it expires (its
-     * `exp`, in the issue time's timezone): its lifetime is the guard's access
-     * lifetime, never past the end of the session or, without a session,
-     * `$notAfter`, which must be after the issue time; a session's proofs are
-     * read current unless `$currentProofs` is `false`. The subject type follows
-     * the identity's kind.
+     * The claims of an access token for the context, and when it expires.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -477,12 +346,7 @@ final class JwtTokenService
     }
 
     /**
-     * The claims an access token for the session carries: the session, the time
-     * of its latest authentication, never after the issue time, and its
-     * authentication method references, derived inside
-     * `WriteConnection::during()` for the session, so they are read from the
-     * writer rather than a lagging replica, and current unless `$current` is
-     * `false` (`AuthenticationClaims`).
+     * The claims an access token for the session carries, read from the writer.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  \Carbon\CarbonImmutable  $issuedAt
@@ -505,15 +369,8 @@ final class JwtTokenService
     }
 
     /**
-     * Return when the session ends, the earlier of its idle and absolute
-     * deadlines (the idle one alone when it has no absolute one), refusing to
-     * issue for a session that has ended at the issue time or that has no idle
-     * deadline: a token for it could never be used, and must not be able to
-     * extend a session that is over.
-     *
-     * The deadlines are read inside `WriteConnection::during()` for the
-     * session, so a session that derives one from another table caps its tokens
-     * at the writer's deadline, not a lagging replica's.
+     * Return when the session ends, refusing a session that has ended or has no
+     * idle deadline.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  \Carbon\CarbonInterface  $issuedAt
@@ -542,10 +399,8 @@ final class JwtTokenService
     }
 
     /**
-     * Stringify the value of a claim the token cannot do without, throwing
-     * instead of issuing a token whose claim would be missing: `null` (an
-     * unsaved model's identifier, or one that is not a scalar) and the empty
-     * string both read as missing to `parse()`.
+     * Stringify the value of a claim the token cannot do without, throwing when
+     * it would be missing.
      *
      * @param  \SineMacula\Laravel\Authentication\Jwt\Enums\Claims  $claim
      * @param  mixed  $value
@@ -572,8 +427,7 @@ final class JwtTokenService
 
     /**
      * Encode the claim payload as a JWT of the type with the keyring's active
-     * key, signing under that key's algorithm and embedding its kid and the
-     * type in the header, and hold it as a secret from the moment it exists.
+     * key.
      *
      * @param  array<string, mixed>  $payload
      * @param  \SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $type
@@ -591,20 +445,11 @@ final class JwtTokenService
     }
 
     /**
-     * Run firebase/php-jwt with the configured leeway. Returns the header's
-     * `typ` and the decoded payload, or `null` on any decode, signature or
-     * expiry failure; with `$acceptExpired`, the verified header type and
-     * payload of a token whose only fault is that it has expired. php-jwt fills
-     * the header argument only when it is not `null`, and before it checks the
-     * signature, so the header is trusted only once `decode()` returns or
-     * throws `ExpiredException`, which it throws only after the signature, kid,
-     * algorithm and `iat` have been verified.
+     * Run firebase/php-jwt with the configured leeway, returning the header's
+     * `typ` and the payload, or `null` on failure.
      *
-     * `firebase/php-jwt` exposes leeway only via the public static
-     * `JWT::$leeway`. The previous value is captured and restored around the
-     * decode so a consumer-configured leeway survives. Persistent-worker
-     * runtimes (Octane, Swoole, ReactPHP) must rely on their own
-     * request-isolation model; this code does not lock.
+     * php-jwt exposes leeway only through the static `JWT::$leeway`, so the
+     * previous value is restored after the decode.
      *
      * @param  string  $token
      * @param  bool  $acceptExpired
@@ -640,10 +485,8 @@ final class JwtTokenService
     }
 
     /**
-     * Verify the header type against the expected one, the guard, issuer and
-     * audience against this service's, then that every claim the token's type
-     * requires is present and, for an access token, that it keeps the profile's
-     * shape.
+     * Verify the header type, guard, issuer, audience, required claims and
+     * profile shape of the token.
      *
      * @param  array<string, mixed>  $claims
      * @param  mixed  $typ
@@ -697,8 +540,7 @@ final class JwtTokenService
 
     /**
      * Locate why the token breaks the profile's shape, or return `null` when it
-     * keeps it (see `TokenProfile::accessFailure()` and
-     * `TokenProfile::refreshFailure()`).
+     * keeps it.
      *
      * @param  array<string, mixed>  $claims
      * @param  \SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $type
@@ -714,9 +556,8 @@ final class JwtTokenService
     }
 
     /**
-     * Locate the first guard/issuer/audience mismatch, or return `null` when
-     * every check passes. Each is compared strictly, so a token missing one, or
-     * with an `aud` that is an array, is rejected.
+     * Locate the first guard, issuer or audience mismatch, or return `null`
+     * when every check passes.
      *
      * @param  array<string, mixed>  $claims
      * @return array{message: string, context: array{expected: string, received: mixed}}|null

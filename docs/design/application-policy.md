@@ -17,26 +17,23 @@ attempt limits and the identifier normalisers meet that policy, since a sign-in 
   `authentication.application`: a key present at guard level wins, `null` included. `methods` (default `[]`) is a list,
   possibly empty, of method names; `require_verified_identifier` and `client_secret_post` (each default `false`) are
   booleans, the second answered by `allowsClientSecretPost($guard)`, which a client credentials exchange asks before it
-  reads body credentials (Basic needs no permission). A missing, malformed or unknown key (a leftover `principal_types`
-  included), at either level, fails closed with an `InvalidArgumentException` naming the guard and the key. Every call
-  reads and checks the whole block, so a malformed key fails whichever check runs first and nothing is cached past a
-  configuration change.
-- An empty `methods` list is a valid state, not a misconfiguration (decided: D21, every feature is opt-in). It allows
-  nothing, through the same refusals as a method the application does not list, with no code path of its own:
-  `attempt()`, `signIn()` and `start()` are refused as `method_not_allowed` before any attempt slot is reserved or the
-  method runs; a pending further factor or principal choice is consumed first (an unknown, expired or spent credential
-  is still `pending_invalid`) and then refused, so the person signs in again and the slots it held stay counted until
-  their window ends; code and password reset requests answer `method_not_allowed`, and a password never
-  reauthenticates; refresh and switch are refused without revoking the session; an `api_key` guard refuses every key and
-  a client credentials exchange answers `unauthorized_client`. Access tokens already issued keep working until they
-  expire: the list is admission, not revocation. It does not throw because the package default is `[]`, so throwing
-  would turn every application not yet configured into a server error, and because an application with no methods is
-  legitimate (access-only mode, or sign-ins stopped without revoking). `null` stays malformed, so "none" has one
-  spelling. `authentication:check` warns about a `jwt` guard whose package settings list nothing, or only `api_key`
-  (which a `jwt` guard never accepts), and reports an `api_key` guard whose policy, whichever is bound, does not allow
-  `api_key` as a problem, since such a guard has no other use. Any other name counts, registered or not, since
-  `start()` signs in under it; a policy of the application's own is asked every registered name and
-  `client_credentials` so an exception it throws is reported, and a guard it allows `passkey` has its relying party
+  reads body credentials (Basic needs no permission). A missing, malformed or unknown key, at either level, fails closed
+  with an `InvalidArgumentException` naming the guard and the key. Every call reads and checks the whole block, so a
+  malformed key fails whichever check runs first and nothing is cached past a configuration change.
+- An empty `methods` list is valid (D21: every feature is opt-in). It allows nothing, through the same refusals as a
+  method the application does not list, with no code path of its own: `attempt()`, `signIn()` and `start()` are refused
+  as `method_not_allowed` before any attempt slot is reserved or the method runs; a pending further factor or principal
+  choice is consumed first (an unknown, expired or spent credential is still `pending_invalid`) and then refused, so the
+  person signs in again and the slots it held stay counted until their window ends; code and password reset requests
+  answer `method_not_allowed`, and a password never reauthenticates; refresh and switch are refused without revoking the
+  session; an `api_key` guard refuses every key and a client credentials exchange answers `unauthorized_client`. Access
+  tokens already issued keep working until they expire. It does not throw: the package default is `[]`, and an
+  application with no methods is legitimate (access-only mode, or sign-ins stopped without revoking). `null` stays
+  malformed, so "none" has one spelling. `authentication:check` warns about a `jwt` guard whose package settings list
+  nothing, or only `api_key` (which a `jwt` guard never accepts), and reports an `api_key` guard whose policy, whichever
+  is bound, does not allow `api_key` as a problem, since such a guard has no other use. Any other name counts,
+  registered or not, since `start()` signs in under it; a policy of the application's own is asked every registered name
+  and `client_credentials` so an exception it throws is reported, and a guard it allows `passkey` has its relying party
   checked, but no such policy, even one that wraps the package's, gets the warning, since the names it allows are its
   own to know.
 - A method is allowed only when the guard lists its exact name: the key a method the package runs is registered under on
@@ -49,10 +46,9 @@ attempt limits and the identifier normalisers meet that policy, since a sign-in 
   no the package never interprets further. The default, `Applications\AdmitAnyPrincipal`, lets any principal use any
   application. An application with a rule binds its own, and a refusal is `principal_ineligible` on every path: sign-in,
   the choice and the list of principals, refresh, switch, API keys and their issue; a client credentials exchange
-  answers `unauthorized_client` for it and `invalid_client` for any other reason. The policy has no `admit()`: it only
-  ever delegated to `admitIdentifier()`, and two answers to one question would drift. A caller's category (staff, a
-  client's administrator, a service) is the application's or authorisation's to model, never the token's: no claim
-  carries it and no accessor returns it.
+  answers `unauthorized_client` for it and `invalid_client` for any other reason. A caller's category (staff, a client's
+  administrator, a service) is the application's or authorisation's to model, never the token's: no claim carries it and
+  no accessor returns it.
 - Which tenant a principal may act in is `Contracts\TenantAccess::mayActIn($principal, $tenant)` (`null` for none). The
   default, `Tenancy\OwnTenantOnly`, lets a principal act only in its own tenant, by class and identifier, and a platform
   principal only in none; a principal whose own tenant cannot be loaded may act nowhere. A tenant other than the

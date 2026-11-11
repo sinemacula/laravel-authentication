@@ -17,12 +17,8 @@ use SineMacula\Laravel\Authentication\RateLimiting\RateLimitStore;
 use Tests\TestCase;
 
 /**
- * Races the limiter against itself across processes, each with its own database
- * connection, on PostgreSQL and MySQL: however the attempts interleave, no more
- * than the limit are granted and no failure is lost.
- *
- * Skipped on SQLite, whose in-memory database each process would have to
- * itself, and where `pcntl` is not available.
+ * Races the limiter against itself in separate processes on PostgreSQL and
+ * MySQL.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -44,7 +40,7 @@ final class ConcurrentDatabaseAttemptLimiterTest extends TestCase
 
     /**
      * Skip where processes cannot share the database, and freeze the clock so
-     * every process counts in the same window.
+     * every process counts in one window.
      *
      * @return void
      *
@@ -88,8 +84,8 @@ final class ConcurrentDatabaseAttemptLimiterTest extends TestCase
     }
 
     /**
-     * Attempts racing for one identifier's first window are granted exactly up
-     * to the limit, the counter's creation race included.
+     * Racing attempts in an identifier's first window are granted exactly up to
+     * the limit.
      *
      * @return void
      */
@@ -148,8 +144,8 @@ final class ConcurrentDatabaseAttemptLimiterTest extends TestCase
     }
 
     /**
-     * Fork the processes, have each run the attempt at the same moment on a
-     * connection of its own, and collect what each reported.
+     * Fork the processes, run the attempt in each at the same moment, and
+     * collect what each reported.
      *
      * @param  \Closure(): string  $attempt
      * @return list<string>
@@ -186,8 +182,8 @@ final class ConcurrentDatabaseAttemptLimiterTest extends TestCase
     }
 
     /**
-     * In a forked process: wait for the start, make the attempt, report its
-     * outcome, and end without running the parent's shutdown.
+     * Run the attempt in a forked process, report its outcome and exit without
+     * the parent's shutdown.
      *
      * @param  int  $process
      * @param  float  $start

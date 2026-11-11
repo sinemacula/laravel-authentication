@@ -14,11 +14,7 @@ use Tests\Concerns\InteractsWithMachineCredentials;
 use Tests\TestCase;
 
 /**
- * Feature tests for the testing helpers on an `api_key` guard: a test acts as a
- * non-human identity, which no credential limits only to none, and a service
- * account's membership with its type and tenant, over requests through
- * `auth:<guard>`; once the test stops acting, the request's own API key
- * authenticates with its scopes.
+ * Feature tests for the testing helpers on an `api_key` guard.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

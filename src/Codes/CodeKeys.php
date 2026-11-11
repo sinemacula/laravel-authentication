@@ -7,18 +7,8 @@ namespace SineMacula\Laravel\Authentication\Codes;
 use Illuminate\Contracts\Config\Repository;
 
 /**
- * The keyed digests behind one-time codes: the binding digest a challenge's row
- * is stored under (its delivery key), the digest of the transaction a factor's
- * challenge is bound to, and the hash of the code itself, each an HMAC-SHA256
- * with its own key derived from `authentication.codes.key`, or from the
- * application key (`app.key`) when that is not set.
- *
- * A code has a few million values at most, so a plain hash of it could be
- * reversed by anyone who reads the table, from a backup or a replica, say, by
- * hashing every candidate; a keyed hash cannot be recomputed without the key.
- * The binding digest keeps the identifier out of the table the same way. A set
- * key shorter than 32 bytes fails closed. Rotating the key, or the application
- * key it is derived from, only invalidates the codes outstanding.
+ * The keyed digests behind one-time codes, each an HMAC-SHA256 under its own
+ * key derived from `authentication.codes.key` or `app.key`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

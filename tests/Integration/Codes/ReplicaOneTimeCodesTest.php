@@ -26,11 +26,8 @@ use Tests\Integration\Fixtures\QueryingCodeIdentity;
 use Tests\TestCase;
 
 /**
- * Proves every read that decides a one-time code is from the write connection:
- * a code issued moments ago, and an identity's number verified or changed
- * moments ago, which only the primary holds yet, decide the sign-in, the
- * verification and the delivery while the replica lags behind, also for an
- * identity that reads its number and verification with queries of its own.
+ * Tests that every read that decides a one-time code is from the write
+ * connection.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -59,8 +56,7 @@ final class ReplicaOneTimeCodesTest extends TestCase
 
     /**
      * Freeze the clock, create the identities table on the primary and the
-     * replica with one unverified identity both hold, issue known codes and
-     * fake the sender.
+     * replica, issue known codes and fake the sender.
      *
      * @return void
      */
@@ -127,8 +123,7 @@ final class ReplicaOneTimeCodesTest extends TestCase
     }
 
     /**
-     * The delivery job finds a code only the primary holds current, and sends
-     * it to a number only the primary records as verified.
+     * The delivery job finds the code and the verified number on the primary.
      *
      * @return void
      *
@@ -153,10 +148,8 @@ final class ReplicaOneTimeCodesTest extends TestCase
     }
 
     /**
-     * For an identity that reads its number and whether it is verified with
-     * queries of its own, the delivery and the sign-in both read them on the
-     * primary: a number changed and verified moments ago, which the replica
-     * still holds as the old, unverified one, gets the code and signs in.
+     * An identity that queries its own number and verification has them read on
+     * the primary.
      *
      * @return void
      *
@@ -178,10 +171,7 @@ final class ReplicaOneTimeCodesTest extends TestCase
     }
 
     /**
-     * A verification code for an identity loaded as the guard loads it, from
-     * the primary, is bound to the number changed moments ago; the delivery,
-     * which reads the identity again, sends it there, and the code verifies
-     * that number.
+     * A verification code is bound to and sent to the number the primary holds.
      *
      * @return void
      *
@@ -231,8 +221,7 @@ final class ReplicaOneTimeCodesTest extends TestCase
     }
 
     /**
-     * Create the package tables, the codes table among them, on the primary and
-     * the replica.
+     * Create the package tables on the primary and the replica.
      *
      * @return void
      */

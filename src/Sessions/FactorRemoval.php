@@ -8,12 +8,7 @@ use SineMacula\Laravel\Authentication\Secrets\Secret;
 
 /**
  * What the removal of one of the factor package's factors did to the identity's
- * sessions: how many it revoked, whether the current session was among them,
- * and, when the current session no longer met what it is asked without that
- * factor, the pending session it returned to and the pending credential it now
- * holds instead of its token pair.
- *
- * The pending credential travels only in a response body, as a sign-in's does.
+ * sessions.
  *
  * @api
  *

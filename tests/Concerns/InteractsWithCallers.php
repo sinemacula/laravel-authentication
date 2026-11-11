@@ -17,10 +17,7 @@ use Tests\Integration\Fixtures\CallerMember;
 use Tests\Integration\Fixtures\CallerMembership;
 
 /**
- * Shared set-up for the tests of the caller of a request: two applications
- * (`members`, the default guard, and `others`) over `CallerMember`, whose
- * sessions are the shipped session model's; the member and membership tables;
- * seeded members; and sign-ins, active or pending.
+ * Shared set-up for the tests of the caller of a request.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -76,9 +73,8 @@ trait InteractsWithCallers
     }
 
     /**
-     * Register both applications over the members, the members' guard the
-     * default, each allowing password sign-in, with a cheap password hash and a
-     * timebox short enough not to slow the suite.
+     * Register both applications over the members, with a cheap password hash
+     * and a short timebox.
      *
      * @param  \Illuminate\Config\Repository  $config
      * @return void
@@ -115,8 +111,7 @@ trait InteractsWithCallers
     }
 
     /**
-     * Sign the member in on the guard, as the membership named or its only one,
-     * from a request of its own, and return the session.
+     * Sign the member in on the guard and return the session.
      *
      * @param  string  $email
      * @param  ?\Tests\Integration\Fixtures\CallerMembership  $membership
@@ -135,8 +130,8 @@ trait InteractsWithCallers
     }
 
     /**
-     * Sign the member in on the guard, naming the membership, if any, from a
-     * request of its own, and return the result, active or pending.
+     * Sign the member in on the guard from a request of its own and return the
+     * result.
      *
      * @param  string  $email
      * @param  ?\Tests\Integration\Fixtures\CallerMembership  $membership

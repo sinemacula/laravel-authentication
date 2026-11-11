@@ -20,10 +20,8 @@ use Tests\Unit\Stubs\StubPrincipal;
  * Guests on a package guard get `401` whatever their `Accept` header, while
  * Laravel's own guards keep the guest redirect.
  *
- * The application here redirects guests to `route('login')`, as Laravel's
- * default application builder does, and defines no login route unless a test
- * adds one, so the package guard cases also prove the redirect is never
- * evaluated for them.
+ * No login route exists unless a test adds one, so a 401 also proves the
+ * redirect is never evaluated.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

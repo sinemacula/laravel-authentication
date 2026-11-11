@@ -21,9 +21,7 @@ use Tests\Fixtures\Http\CacheForAnHour;
 use Tests\TestCase;
 
 /**
- * Feature tests for the `authentication.no-store` middleware: every response of
- * a route that lists it is marked not to be stored, whoever built it and
- * however the request ended.
+ * Feature tests for the `authentication.no-store` middleware.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -36,10 +34,7 @@ final class NoStoreTest extends TestCase
     use InteractsWithSessions;
 
     /**
-     * Register routes that hand out secrets of other packages. The routes that
-     * list a middleware the kernel's priority knows list it before this one, so
-     * only the priority puts this one outside it; an application's own
-     * middleware is wrapped only when the route lists this one first.
+     * Register routes that hand out secrets of other packages.
      *
      * @return void
      */
@@ -88,9 +83,8 @@ final class NoStoreTest extends TestCase
     }
 
     /**
-     * The middleware marks the response its route gives not to be stored,
-     * replacing the caching another middleware allowed, and passes the response
-     * on otherwise untouched.
+     * The route's response is marked not to be stored and otherwise passed on
+     * untouched.
      *
      * @return void
      */
@@ -102,8 +96,7 @@ final class NoStoreTest extends TestCase
     }
 
     /**
-     * The `401` of `auth`, listed before the middleware, leaves through it too,
-     * since the kernel's priority puts it outside every sorted middleware.
+     * The `401` of `auth`, listed before the middleware, is never stored.
      *
      * @return void
      */
@@ -123,8 +116,7 @@ final class NoStoreTest extends TestCase
     }
 
     /**
-     * A later middleware that answers the request itself, letting its answer be
-     * cached, is still marked not to be stored.
+     * An early answer from a later middleware is still marked not to be stored.
      *
      * @return void
      */
@@ -148,9 +140,8 @@ final class NoStoreTest extends TestCase
     }
 
     /**
-     * The kernel sorts only the middleware its priority knows, so an
-     * application's own middleware the route lists before this one stays
-     * outside it and may allow caching again: the documented limit.
+     * An application middleware listed before this one stays outside it and may
+     * allow caching.
      *
      * @return void
      */
@@ -164,8 +155,7 @@ final class NoStoreTest extends TestCase
     }
 
     /**
-     * A route that does not list the middleware keeps its own caching: the
-     * middleware is opt-in per route.
+     * A route that does not list the middleware keeps its own caching.
      *
      * @return void
      */
@@ -178,8 +168,7 @@ final class NoStoreTest extends TestCase
     }
 
     /**
-     * Called directly, the middleware passes the request on and marks the
-     * response it gets back, whatever it is.
+     * Called directly, the middleware marks whatever response it gets back.
      *
      * @return void
      */

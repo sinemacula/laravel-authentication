@@ -12,32 +12,7 @@ use SineMacula\Laravel\Authentication\Models\OneTimeCode;
 
 /**
  * The one-time code engine: issues the live challenge of a delivery key and
- * checks codes against it, on the code table's connection and always on its
- * write PDO.
- *
- * A code is `length` digits drawn uniformly with `random_int()`, stored only as
- * a keyed hash (see `CodeKeys`) under the digest of its binding's key, so one
- * key has one live challenge. A challenge has a public id, and, for a further
- * factor's code, a transaction the key leaves out; both are compared before
- * anything is counted. Issuing again, once the resend cooldown since the last
- * delivery has passed, is a new delivery: of the same challenge (its id and its
- * attempts kept) while it is live and its transaction is the one given, or of a
- * new challenge otherwise; either way with a new code and issuance that
- * invalidate the previous code. The deliveries belong to the key's delivery
- * window, which lasts `delivery_window_seconds` from its first delivery and
- * allows `max_deliveries`, across every challenge it holds; no code outlives
- * it, so a resend never extends a challenge past it. A check counts an attempt
- * against the issuance it read before it compares anything, so concurrent
- * checks never exceed `max_attempts`, and uses the code up only with a second
- * conditional statement, so of two correct submissions exactly one is accepted.
- * A password reset link's token is a key's live secret in the same way, 256
- * random bits under the same cooldown and delivery cap, checked without
- * counting attempts, with the lifetime its caller gives. Every change is one
- * statement the database applies atomically, conditional on the issuance it
- * read, and a database error propagates.
- *
- * The engine keeps no state between calls: the settings and the key are read
- * from the configuration each time.
+ * checks codes against it, always on the write PDO.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -82,14 +57,7 @@ final readonly class OneTimeCodes
 
     /**
      * Deliver a new code for the binding, of its live challenge or a new one,
-     * unless one was delivered for its key within the resend cooldown or its
-     * delivery window has had all its deliveries: then why not, and the seconds
-     * until another may be.
-     *
-     * A key with no row gets one from an insert that a concurrent issue cannot
-     * duplicate; otherwise the row is replaced in one update conditional on the
-     * issuance it read. When neither wrote, a code for the key was issued
-     * meanwhile, by this client or a concurrent one, within the cooldown.
+     * or answer why not.
      *
      * @param  \SineMacula\Laravel\Authentication\Codes\CodeBinding  $binding
      * @param  \Carbon\CarbonImmutable  $now
@@ -106,12 +74,8 @@ final readonly class OneTimeCodes
     }
 
     /**
-     * Issue a code for a binding that names a request of its own (an identifier
-     * change's), so none can have been issued for it yet, as `issue()` issues
-     * one, trying the insert before reading the row: inside the request's
-     * transaction, a locking read of a missing key on MySQL would lock the gap
-     * it searched until the commit, and two requests that each insert into the
-     * same gap would then deadlock.
+     * Issue a code as `issue()` does, trying the insert first, for a binding
+     * that names a request of its own.
      *
      * @param  \SineMacula\Laravel\Authentication\Codes\CodeBinding  $binding
      * @param  \Carbon\CarbonImmutable  $now
@@ -129,10 +93,7 @@ final readonly class OneTimeCodes
 
     /**
      * Issue a new live token for the binding (a password reset link's), as
-     * `issue()` issues a code, under the same resend cooldown and delivery cap,
-     * that works for the seconds given, whatever is left of the delivery
-     * window: 32 random bytes, base64url-encoded without padding (43
-     * characters), stored only as its keyed hash.
+     * `issue()` issues a code, that works for the seconds given.
      *
      * @param  \SineMacula\Laravel\Authentication\Codes\CodeBinding  $binding
      * @param  \Carbon\CarbonImmutable  $now
@@ -152,19 +113,6 @@ final readonly class OneTimeCodes
     /**
      * Check the code against the live challenge of the binding's key, and use
      * it up when it matches.
-     *
-     * A key with no challenge, or whose challenge id or transaction is not the
-     * one given, is `not_found`; one whose challenge was used is `used`, even
-     * when it has also expired; one whose code has expired or used up its
-     * attempts says so; none of these counts an attempt. A check that can count
-     * an attempt against the issuance it read compares the code, and accepts it
-     * only when it also uses that issuance up, and is otherwise `wrong`; one
-     * that cannot (a concurrent resend, check or expiry got there first) never
-     * compares, and answers from a fresh read, `invalid` when that read finds
-     * the issuance replaced, deleted or still live. With `$lock`, the row is
-     * read with a lock held until the caller's transaction ends, so the check,
-     * and whatever the caller does in that transaction, is the only one made on
-     * the challenge meanwhile.
      *
      * @param  \SineMacula\Laravel\Authentication\Codes\CodeBinding  $binding
      * @param  string  $challengeId
@@ -196,12 +144,7 @@ final readonly class OneTimeCodes
 
     /**
      * Check a token against the binding's live token, and use it up when it
-     * matches. No attempt is counted: a token has 256 bits, so none can be
-     * guessed, and it is its own transaction. A binding with no token, or a
-     * used one, or a token that does not match, is `invalid`; a matching one
-     * that has expired is `expired`; a matching live one is `accepted` only
-     * when this check also uses it up, so of two concurrent checks exactly one
-     * is.
+     * matches; a 256-bit token counts no attempts.
      *
      * @param  \SineMacula\Laravel\Authentication\Codes\CodeBinding  $binding
      * @param  string  $token
@@ -250,14 +193,8 @@ final readonly class OneTimeCodes
     }
 
     /**
-     * End the challenge of each binding that is not used yet, whatever else its
-     * state, in one statement, so none of them can be checked again: each is
-     * used up now under a new issuance, so a write conditional on the issuance
-     * read before also fails. The row stays, with its delivery window, its
-     * deliveries, the time of its last delivery and its expiry, so ending a
-     * challenge never resets the window's delivery cap or the resend cooldown;
-     * pruning deletes it once its window and its expiry have passed. Returns
-     * how many it ended.
+     * End the challenge of each binding that is not used yet, keeping its row
+     * so the delivery cap and cooldown still hold, and answer how many ended.
      *
      * @param  iterable<\SineMacula\Laravel\Authentication\Codes\CodeBinding>  $bindings
      * @return int
@@ -326,9 +263,7 @@ final readonly class OneTimeCodes
 
     /**
      * The answer for a check that could not count its attempt against the
-     * issuance it read: why that issuance refuses checks when it is still the
-     * binding's code and does; otherwise `invalid`, as when it was replaced or
-     * deleted.
+     * issuance it read.
      *
      * @param  string  $digest
      * @param  string  $issueId
@@ -352,9 +287,8 @@ final readonly class OneTimeCodes
     }
 
     /**
-     * Compare the code with the issuance's, after its attempt was counted, and
-     * accept it only when this check also uses the issuance up; otherwise it is
-     * `wrong`.
+     * Compare the code with the issuance's, and accept it only when this check
+     * also uses the issuance up.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\OneTimeCode  $row
      * @param  string  $digest
@@ -372,9 +306,8 @@ final readonly class OneTimeCodes
     }
 
     /**
-     * Count one attempt against the issuance, in one statement, while it is
-     * still the live code, unused, unexpired and under its maximum. Returns
-     * whether it did.
+     * Count one attempt against the issuance while it is still live and under
+     * its maximum, and answer whether it did.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\OneTimeCode  $row
      * @param  int  $max
@@ -399,8 +332,8 @@ final readonly class OneTimeCodes
     }
 
     /**
-     * Use the issuance up, in one statement, while it is still the live code
-     * and unused. Returns whether this call used it.
+     * Use the issuance up while it is still the live code and unused, and
+     * answer whether this call used it.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\OneTimeCode  $row
      * @param  \Carbon\CarbonImmutable  $now

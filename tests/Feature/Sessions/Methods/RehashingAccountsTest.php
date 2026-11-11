@@ -21,9 +21,8 @@ use Tests\Integration\Fixtures\VerifiableStaffIdentity;
 use Tests\TestCase;
 
 /**
- * Feature tests for how the rehash mark tells Eloquent users apart: by the row
- * they are stored in, as the attempt limit tells accounts apart, so the same
- * key in another database is another user, through Laravel's auth events.
+ * Feature tests of how the rehash mark tells Eloquent users apart by their
+ * stored row.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -37,8 +36,7 @@ final class RehashingAccountsTest extends TestCase
     private const string PASSWORD = 'secret';
 
     /**
-     * Rows of `[a user with the same class and key as the attempt's, stored on
-     * another connection or in another table]`.
+     * Rows of a user with the attempt's class and key, stored elsewhere.
      *
      * @return iterable<string, array{0: \Closure(): (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity)}>
      */
@@ -49,9 +47,7 @@ final class RehashingAccountsTest extends TestCase
     }
 
     /**
-     * Two users of one class and key stored apart are told apart: a change of
-     * the one leaves what an attempt for the other takes for its rehash alone,
-     * and a forced rehash of the one runs nothing the other's attempt holds.
+     * The same class and key stored elsewhere is another user.
      *
      * @param  \Closure(): (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity)  $elsewhere
      * @return void
@@ -84,9 +80,7 @@ final class RehashingAccountsTest extends TestCase
     }
 
     /**
-     * Once a tenant's connection is switched to another tenant's database, the
-     * same key there is another user: a forced rehash of it runs nothing the
-     * first tenant's attempt held, and its save runs at once.
+     * The same key in another tenant's database is another user.
      *
      * @return void
      */
@@ -118,9 +112,7 @@ final class RehashingAccountsTest extends TestCase
     }
 
     /**
-     * The very instance an attempt validated, moved to another connection, is
-     * the user stored there: its save of a fresh hash of the attempt's password
-     * is a change, not the attempt's rehash.
+     * The validated instance moved to another connection is another user.
      *
      * @return void
      */
@@ -143,10 +135,7 @@ final class RehashingAccountsTest extends TestCase
     }
 
     /**
-     * Two model classes over one table are one user for the same row: a forced
-     * rehash through the one runs the save held for an attempt that validated
-     * the other, and is a change of that user's password, so the attempt takes
-     * no save for its rehash from then on.
+     * Two model classes over one table are one user for the same row.
      *
      * @return void
      */
@@ -186,7 +175,7 @@ final class RehashingAccountsTest extends TestCase
 
     /**
      * Save the user's password over a hash of the same password, recording the
-     * change under the name when it runs.
+     * change.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $user
      * @param  \ArrayObject<int, string>  $runs

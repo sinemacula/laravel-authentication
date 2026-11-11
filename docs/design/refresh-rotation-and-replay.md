@@ -121,12 +121,13 @@ other rotated token as a replay that revokes the session.
   the session again with a lock, and take `$now`. Everything below judges the row read there.
 - Classify the session at `$now`, before any identity or principal is loaded and before any rotation id is compared:
   1. revoked: `session_revoked`;
-  2. session ended (either deadline reached or missing): `session_expired`;
-  3. no current digest: `refresh_key_missing`;
-  4. the presented id matches the current digest: CURRENT;
-  5. the presented id matches the previous digest, the rotation time is set, `$now` is before the rotation time plus
+  2. pending: `session_pending`;
+  3. session ended (either deadline reached or missing): `session_expired`;
+  4. no current digest: `refresh_key_missing`;
+  5. the presented id matches the current digest: CURRENT;
+  6. the presented id matches the previous digest, the rotation time is set, `$now` is before the rotation time plus
      `refresh_grace_seconds`, and the successor of the presented id matches the current digest: GRACE;
-  6. anything else: a replay (`rotation_reuse`).
+  7. anything else: a replay (`rotation_reuse`).
 - Reload the session's owner through the guard's identity provider, confirm it is that exact owner (see
   `guard-bound-tokens.md`) and that it is active; resolve the principal (the `principal` one when the token carries it)
   and confirm it and its tenant are active.
@@ -161,8 +162,8 @@ other rotated token as a replay that revokes the session.
 - A session of another guard, or of none, produces `session_guard_mismatch` without a write to the session, even for a
   token that would be a replay, and nothing is hydrated.
 - A session whose `sign_in_method` the guard no longer allows, or which records none, produces `method_not_allowed`; an
-  owner the application policy no longer admits as the principal produces `principal_ineligible`. Neither writes
-  to the session or revokes it.
+  owner the application policy no longer admits as the principal produces `principal_ineligible`. Neither writes to the
+  session or revokes it.
 - Missing or malformed claims produce `token_invalid`: a refresh token must carry the `refresh+jwt` header type and
   `iss`, `aud`, `client_id`, `sid`, `jti`, `iat` and `exp` (`principal` is optional). The token's own `exp` is checked
   by `parse()` (with leeway) before `$now` is taken; the row's deadlines are authoritative and apply without leeway.
@@ -189,8 +190,7 @@ other rotated token as a replay that revokes the session.
   session with that session's current refresh token has it revoked (`superseded`) in the same transaction as the new
   session, by one compare-and-swap that applies only while the row still holds the proven digest, owner, principal and
   guard and is not revoked. The previous session's tokens then fail as `session_revoked`, never as replays, so they
-  cannot revoke the new session; before D15 a re-sign-in continued the same row, and its old tokens were replays that
-  revoked the continued session. A client that lost the sign-in response and retries with the old token proves nothing
+  cannot revoke the new session. A client that lost the sign-in response and retries with the old token proves nothing
   (its session is already revoked) and gets another session. A swap that misses (a parallel refresh rotated the session
   first) never retries: the sign-in is reconsidered without the session, so it starts a new session, revoking nothing,
   or is written pending when the additional-factor policy now asks for a factor. A refresh that loses to a
@@ -213,9 +213,9 @@ other rotated token as a replay that revokes the session.
   - the presented id is still current, so other security state changed (a deadline moved): `rotation_conflict`, with
     no revocation and no second swap. That proves nothing about theft, so the session is not revoked, and a client retry
     is judged against the new state.
-- One reason or two: two. Proven reuse has one revoking reason, `rotation_reuse`. The swap race is no longer a reuse
-  signal; it resolves by reclassification, and the residual conflict that proves nothing gets the non-revoking
-  `rotation_conflict`, because revoking for it would sign people out without cause.
+- Proven reuse has one revoking reason, `rotation_reuse`. The swap race is not a reuse signal; it resolves by
+  reclassification, and the residual conflict that proves nothing gets the non-revoking `rotation_conflict`, because
+  revoking for it would sign people out without cause.
 - A revocation, return to pending or switch that commits while a refresh waits on the issuance guard is seen by the
   locking re-read after it, so a grace retry never returns a pair for a session that changed before the exchange held
   it; nothing can commit to the row after the guard until the exchange ends.
@@ -265,8 +265,7 @@ other rotated token as a replay that revokes the session.
 - `src/Jwt/RefreshTokenExchange.php`: `exchange()` (the limiter check and the failure count), `exchangeClaims()`,
   `exchangeOn()` (the guard check), `extractRefreshClaims()`, `hydrateRefreshContext()` (the recorded principal),
   `rotate()`, `afterLostRotation()`, `reissue()`, `fail()`, `revokeSession()`.
-- `src/Jwt/RefreshJudgment.php`: `classify()` and `isGraceRetry()`, the verdict a refresh and a switch
-  share.
+- `src/Jwt/RefreshJudgment.php`: `classify()` and `isGraceRetry()`, the verdict a refresh and a switch share.
 - `src/Jwt/RefreshAdmission.php`: `admit()` (the owner reload, the principal, activity), `admitByPolicy()` (the
   application policy).
 - `src/Jwt/RefreshRotationStore.php`: `rotate()` (the compare-and-swap), `switchSession()` (the switch's

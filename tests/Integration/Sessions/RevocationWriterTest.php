@@ -25,11 +25,7 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
 /**
- * Integration tests for bulk and single revocations against real rows on each
- * supported database: chunked reads past one chunk, reports only once the
- * revocation commits (none for one rolled back), a race with another writer
- * that revoked a session first, and a session transaction that fails after the
- * cutoff was written.
+ * Integration tests for bulk and single revocations against real rows.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -87,8 +83,7 @@ final class RevocationWriterTest extends TestCase
     }
 
     /**
-     * More sessions than one chunk are all revoked and each reported once, the
-     * scope's report last.
+     * More sessions than one chunk are all revoked and each reported once.
      *
      * @return void
      *
@@ -115,8 +110,7 @@ final class RevocationWriterTest extends TestCase
     }
 
     /**
-     * Sessions already revoked are not read for revocation again, so they cost
-     * no write, and their first revocation is kept.
+     * Sessions already revoked are skipped and keep their first revocation.
      *
      * @return void
      *
@@ -142,8 +136,7 @@ final class RevocationWriterTest extends TestCase
     }
 
     /**
-     * Inside a transaction the reports wait for its commit; a rolled-back
-     * revocation is never reported and leaves the sessions live.
+     * Revocations are reported only once the transaction commits.
      *
      * @return void
      *
@@ -183,9 +176,8 @@ final class RevocationWriterTest extends TestCase
     }
 
     /**
-     * A session another writer revokes between the chunk's read and this call's
-     * write is not revoked again, not reported, and not counted, and the
-     * sessions after it are still revoked.
+     * A session another writer revoked meanwhile is not revoked again or
+     * reported.
      *
      * @return void
      *
@@ -221,8 +213,8 @@ final class RevocationWriterTest extends TestCase
     }
 
     /**
-     * A single revocation of a session another writer revoked after it was read
-     * changes nothing and reports nothing: the first revocation is kept.
+     * A single revocation of a session revoked meanwhile changes and reports
+     * nothing.
      *
      * @return void
      */
@@ -248,9 +240,8 @@ final class RevocationWriterTest extends TestCase
     }
 
     /**
-     * When the session transaction fails, the cutoff written before it stands
-     * (more is cut off, never less), the sessions stay as they were, nothing is
-     * reported, and a retry finishes the job without moving the cutoff again.
+     * A failed session transaction leaves the cutoff moved, and a retry
+     * finishes the job.
      *
      * @return void
      *

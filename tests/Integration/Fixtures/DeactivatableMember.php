@@ -16,9 +16,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
- * 3D identity fixture, over the `deactivatable_members` rows, that records its
- * deactivation as a `datetime` in `deactivated_at` and acts through
- * `DeactivatableMembership` rows.
+ * 3D identity that records its deactivation as a `datetime` in
+ * `deactivated_at`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

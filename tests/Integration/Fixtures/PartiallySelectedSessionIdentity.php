@@ -15,11 +15,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
- * 2D identity whose `sessions()` relation selects only some session columns,
- * leaving out `revoked_at`, as an application narrowing the relation might.
- *
- * Keyed by UUID so the polymorphic `authenticatable_id` string column compares
- * against a string key on every database driver.
+ * 2D identity whose `sessions()` relation leaves out `revoked_at`, keyed by
+ * UUID so `authenticatable_id` compares as text.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

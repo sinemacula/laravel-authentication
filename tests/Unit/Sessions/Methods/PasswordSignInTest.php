@@ -34,9 +34,7 @@ use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
 use Tests\Unit\Stubs\PlainIdentityFixture;
 
 /**
- * Unit tests for the password sign-in method: the configured identifier key,
- * the input `authenticate()` passes to the provider, and the credential checks
- * `attempt()` and `validate()` share.
+ * Unit tests for the password sign-in method.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -55,9 +53,7 @@ final class PasswordSignInTest extends TestCase
     private MockInterface $limiter;
 
     /**
-     * Build a fresh provider mock, and a limiter that grants every account
-     * attempt unless a test says otherwise and is never told to give one back
-     * by the method itself.
+     * Build a provider mock and a limiter that grants every account attempt.
      *
      * @return void
      */
@@ -143,9 +139,8 @@ final class PasswordSignInTest extends TestCase
     }
 
     /**
-     * A guard that names its own identifier column in its `sign_in` block signs
-     * in by it; a guard that does not, or whose block leaves it out, uses the
-     * package's.
+     * A guard may name its own identifier column in its `sign_in` block;
+     * otherwise the package's is used.
      *
      * @return void
      */
@@ -219,9 +214,8 @@ final class PasswordSignInTest extends TestCase
     }
 
     /**
-     * The identifier is the input's value under the configured key, as given,
-     * when it is a string, and as a string when it is an integer; anything else
-     * names none.
+     * The identifier is the string or integer under the configured key, as a
+     * string; anything else names none.
      *
      * @return void
      */
@@ -248,8 +242,7 @@ final class PasswordSignInTest extends TestCase
 
     /**
      * `authenticate()` passes the provider only the identifier and the
-     * password, so no other input key reaches a query, and returns the identity
-     * whose password matches.
+     * password.
      *
      * @return void
      */
@@ -279,9 +272,8 @@ final class PasswordSignInTest extends TestCase
     }
 
     /**
-     * Input whose identifier is not a string is refused as invalid credentials
-     * without a lookup, and a password that is not a string is passed on as
-     * `null`, which the provider validates as nothing.
+     * An identifier that is not a string is refused without a lookup, and a
+     * non-string password is passed as `null`.
      *
      * @return void
      */
@@ -303,11 +295,8 @@ final class PasswordSignInTest extends TestCase
     }
 
     /**
-     * `authenticate()` counts the password check against the account it found,
-     * through the request, before comparing the password, and leaves the slot
-     * with the sign-in rather than giving it back; an account with no attempts
-     * left is refused as invalid credentials without its password being
-     * compared.
+     * `authenticate()` counts the password check against the account before
+     * comparing the password.
      *
      * @return void
      */
@@ -364,10 +353,8 @@ final class PasswordSignInTest extends TestCase
     }
 
     /**
-     * `attempt()`'s password check is counted against the account first, in the
-     * attempt's account slots, which keep it whether or not the password
-     * matches; an account with no attempts left is refused without its password
-     * being compared.
+     * `attempt()` counts the password check against the account before
+     * comparing the password.
      *
      * @return void
      */
@@ -397,11 +384,8 @@ final class PasswordSignInTest extends TestCase
     }
 
     /**
-     * `attempt()` looks credentials up as given when they leave the identifier
-     * key out or give it a string, a `Stringable` or a query closure, and an
-     * integer as its string form, the form it is counted in; it does not look
-     * them up when the key holds anything else. The identifier counted is the
-     * string, or the `Stringable` or integer as one.
+     * `attempt()` looks credentials up only when the identifier is a string,
+     * `Stringable`, integer or closure.
      *
      * @return void
      */
@@ -442,8 +426,7 @@ final class PasswordSignInTest extends TestCase
 
     /**
      * `verifyCredentials()` hands the provider the caller's credentials
-     * untouched, closures included, and returns the identity whose password
-     * matches.
+     * untouched.
      *
      * @return void
      */
@@ -487,9 +470,8 @@ final class PasswordSignInTest extends TestCase
     }
 
     /**
-     * `retrieve()` returns whatever account the credentials name, whether or
-     * not the password matches, and `accepts()` checks the password only for an
-     * account that exists.
+     * `retrieve()` returns the account the credentials name, and `accepts()`
+     * checks its password.
      *
      * @return void
      */
@@ -526,8 +508,7 @@ final class PasswordSignInTest extends TestCase
     }
 
     /**
-     * `rehash()` asks the provider to rehash the identity's password with the
-     * credentials it signed in with, unless Laravel's `rehash_on_login` setting
+     * `rehash()` asks the provider to rehash unless Laravel's `rehash_on_login`
      * turns it off.
      *
      * @param  mixed  $setting
@@ -546,10 +527,8 @@ final class PasswordSignInTest extends TestCase
     }
 
     /**
-     * The rehash runs with its identity and the password signed in with marked
-     * by the container's shared `Rehashing`, so a listener on a change of
-     * password can tell a save that re-encodes that password from a change, and
-     * the mark is cleared once it ends.
+     * The rehash runs marked by the container's shared `Rehashing`, so a
+     * listener can tell it from a change.
      *
      * @return void
      */

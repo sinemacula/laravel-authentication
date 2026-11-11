@@ -56,9 +56,8 @@ final class AttemptLimiterQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A refused sign-in stops at the full counter: its update, the insert that
-     * finds it there, the second update, and one read of the counter for the
-     * end of its window.
+     * A refused sign-in stops at the full counter and reads it once for the end
+     * of its window.
      *
      * @return void
      */

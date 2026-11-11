@@ -17,9 +17,7 @@ use Tests\Unit\Stubs\StubSession;
 
 /**
  * Feature tests for work deferred until a session's connection commits, or run
- * if it rolls back, against real transactions on whichever engine the suite
- * runs on, and a session kept on a second connection, with the required work a
- * callback that throws runs before its exception leaves it.
+ * if it rolls back, against real transactions.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -73,9 +71,8 @@ final class AfterCommitTest extends TestCase
     }
 
     /**
-     * Inside a transaction on the session's connection, deferred work waits for
-     * that transaction to commit, including an outer one it is nested in, and
-     * never runs when the transaction is rolled back.
+     * Deferred work waits for the outermost commit on the session's connection
+     * and is dropped on a rollback.
      *
      * @return void
      *
@@ -110,11 +107,8 @@ final class AfterCommitTest extends TestCase
     }
 
     /**
-     * Work run across models runs once the writes on each model's connection
-     * have committed, in the order the models are given: at once with none
-     * open; otherwise only once every transaction open on any of them has
-     * committed, whichever commits first; never when one rolls back; and at
-     * once with no model at all.
+     * Work run across models waits for every model's connection to commit and
+     * is dropped when one rolls back.
      *
      * @return void
      *
@@ -170,11 +164,8 @@ final class AfterCommitTest extends TestCase
     }
 
     /**
-     * Work run once transactions have ended runs, on each model's connection in
-     * the order the models are given, once the outermost transaction open on it
-     * ends, whether it commits or rolls back, never when a transaction nested
-     * in it does, and not again for a second model on a connection whose
-     * transaction just ended; at once with none open, and with no model at all.
+     * Work run once ended waits for the outermost transaction on each model's
+     * connection to end, whether it commits or rolls back.
      *
      * @return void
      *
@@ -231,9 +222,8 @@ final class AfterCommitTest extends TestCase
     }
 
     /**
-     * Under the transactions manager of Laravel's testing traits, work run once
-     * transactions have ended does not wait for the transaction that wraps each
-     * test, only for one opened inside it, and runs when that one ends.
+     * Under Laravel's testing transactions manager, work run once ended ignores
+     * the transaction wrapping the test.
      *
      * @return void
      *
@@ -280,9 +270,8 @@ final class AfterCommitTest extends TestCase
     }
 
     /**
-     * Work deferred inside a nested transaction on the session's connection is
-     * dropped when that nested transaction is rolled back, even though the
-     * outer transaction it was nested in later commits.
+     * Work deferred in a nested transaction is dropped when it rolls back, even
+     * if the outer one commits.
      *
      * @return void
      *
@@ -305,10 +294,8 @@ final class AfterCommitTest extends TestCase
     }
 
     /**
-     * Under the transactions manager of Laravel's testing traits, the
-     * transaction that wraps each test never commits, so it does not delay
-     * deferred work; a transaction opened inside it still does, until it
-     * commits.
+     * Under Laravel's testing transactions manager, deferred work ignores the
+     * transaction wrapping the test.
      *
      * @return void
      *
@@ -347,9 +334,7 @@ final class AfterCommitTest extends TestCase
     }
 
     /**
-     * A transaction open on another connection neither delays nor cancels work
-     * deferred for a session on its own connection, whether it is the only
-     * transaction or opened inside one on the session's connection.
+     * Transactions on other connections neither delay nor cancel deferred work.
      *
      * @return void
      *
@@ -388,9 +373,8 @@ final class AfterCommitTest extends TestCase
     }
 
     /**
-     * Work run on a rollback runs once when the session connection's
-     * transaction rolls back, never when it commits, and not at all outside a
-     * transaction, whose writes were committed as they were made.
+     * Work run on a rollback runs only when the session connection's
+     * transaction rolls back.
      *
      * @return void
      *
@@ -424,9 +408,8 @@ final class AfterCommitTest extends TestCase
     }
 
     /**
-     * Work run on a rollback inside a nested transaction runs, once, when
-     * either rolls back: the nested one, or the outer one after the nested one
-     * committed into it; and not when both commit.
+     * Work run on a rollback in a nested transaction runs once when either it
+     * or the outer transaction rolls back.
      *
      * @return void
      *
@@ -476,9 +459,7 @@ final class AfterCommitTest extends TestCase
     }
 
     /**
-     * Work run on a rollback ignores what it cannot have been written in: a
-     * transaction open on another connection, the transaction wrapping a test
-     * under the testing traits' manager, and everything without a manager.
+     * Work run on a rollback ignores transactions its writes were not made in.
      *
      * @return void
      *
@@ -517,8 +498,7 @@ final class AfterCommitTest extends TestCase
     }
 
     /**
-     * It says whether work run now would wait: only while a transaction is open
-     * on the model's own connection, and never without a transactions manager.
+     * Work defers only inside a transaction on the model's own connection.
      *
      * @return void
      *
@@ -543,12 +523,7 @@ final class AfterCommitTest extends TestCase
     }
 
     /**
-     * A report that throws at a commit runs the required work that is due
-     * before its exception leaves the commit: work run across models or once
-     * transactions have ended, registered after the report, runs once, a report
-     * registered after it does not, and work still waiting for another
-     * connection's transaction waits on for it. Work that already ran is not
-     * run again by a later report that throws.
+     * A report that throws at a commit runs the required work that is due.
      *
      * @return void
      *
@@ -589,8 +564,8 @@ final class AfterCommitTest extends TestCase
     }
 
     /**
-     * Required work held for a nested transaction that rolled back is let go
-     * with it, so a report that throws at the outer commit does not run it.
+     * Required work rolled back with a nested transaction is not run by a
+     * report that throws.
      *
      * @return void
      *
@@ -616,9 +591,8 @@ final class AfterCommitTest extends TestCase
     }
 
     /**
-     * Required work that throws while it is run for a report that threw does
-     * not keep the rest from running, the report's exception is the one thrown,
-     * and work the required work's own report ran is not run twice.
+     * Required work that throws does not stop the rest, and the report's
+     * exception is the one thrown.
      *
      * @return void
      *
@@ -646,8 +620,7 @@ final class AfterCommitTest extends TestCase
     }
 
     /**
-     * A callback run on a rollback that throws runs the required work that is
-     * due, as one run on a commit does.
+     * A rollback callback that throws runs the required work that is due.
      *
      * @return void
      *
@@ -669,8 +642,7 @@ final class AfterCommitTest extends TestCase
     }
 
     /**
-     * Without a transactions manager, nothing can be deferred, so the work runs
-     * at once even inside a transaction.
+     * Without a transactions manager, work runs at once inside a transaction.
      *
      * @return void
      *

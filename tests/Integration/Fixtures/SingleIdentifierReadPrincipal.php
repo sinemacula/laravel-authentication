@@ -7,10 +7,8 @@ namespace Tests\Integration\Fixtures;
 use Tests\Unit\Stubs\StubPrincipal;
 
 /**
- * 2D principal whose identifier can be read only a set number of times (once by
- * default), so a refresh fails part of the way through: past its check that the
- * session records the principal, while issuing the access token or the refresh
- * token.
+ * 2D principal whose identifier can be read only a set number of times, so a
+ * refresh fails part of the way through.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

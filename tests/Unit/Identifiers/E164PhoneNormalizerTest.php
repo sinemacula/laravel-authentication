@@ -38,8 +38,7 @@ final class E164PhoneNormalizerTest extends TestCase
     }
 
     /**
-     * A number already in E.164 form is accepted, with surrounding whitespace
-     * removed.
+     * A number in E.164 form is accepted, with surrounding whitespace removed.
      *
      * @param  string  $given
      * @param  string  $normal

@@ -31,17 +31,8 @@ use Tests\Concerns\InteractsWithCodeIdentities;
 use Tests\Fixtures\Codes\RecordingFactorCodeCounters;
 
 /**
- * Query-budget contracts for one-time codes: a code request writes its limits
- * and one or two code statements and reads no identity at all; a sign-in by
- * code reads the identity and the code once each; a delivery reads the code and
- * the recipient once each; a verification by code reads the code once.
- *
- * A code request reserves a slot on the number's and the IP address's code
- * request counters (on a fresh window, for each, an update that changes nothing
- * and the insert that creates the counter; later in the window, one update
- * each), never given back. A sign-in by code reserves the sign-in counters as a
- * password sign-in does, the account's included, and gives them back when it
- * succeeds.
+ * Query-budget contracts for one-time code requests, sign-ins, deliveries and
+ * verifications.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -99,10 +90,7 @@ final class OneTimeCodeQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A first code request writes four limiter statements, reads the code's
-     * row, which it finds missing, and inserts it; a request after the cooldown
-     * in the same window writes the two counters, reads the row and resends the
-     * challenge in one update. Neither touches an identity.
+     * A code request writes its limits and the code and reads no identity.
      *
      * @return void
      *
@@ -143,11 +131,7 @@ final class OneTimeCodeQueryBudgetTest extends PerformanceContractTestCase
 
     /**
      * A sign-in by code reads the identity, the code and the new session's
-     * proofs once each, what an earlier session left under the new key in the
-     * proofs and the provenance (nothing, so nothing is deleted), and the
-     * identity again once the session is committed; it writes the sign-in and
-     * account reservations, the code's attempt and its use, the session and its
-     * first proof, and gives the three slots back.
+     * proofs once each.
      *
      * @return void
      *
@@ -167,10 +151,7 @@ final class OneTimeCodeQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * An email code costs what a phone code does: the request writes its limits
-     * and the code, reads the code's row and no identity, and the sign-in reads
-     * the identity, the code and the session's proofs once each, and the
-     * identity again once the session is committed.
+     * An email code costs what a phone code does.
      *
      * @return void
      *
@@ -199,9 +180,8 @@ final class OneTimeCodeQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A wrong code reads the identity and the code once each and writes the
-     * reservations and the attempt; a malformed one reads nothing but the
-     * limits and counts nothing against the code.
+     * A wrong code writes only its limits and the attempt; a malformed one
+     * counts nothing against the code.
      *
      * @return void
      *
@@ -254,9 +234,8 @@ final class OneTimeCodeQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Checking a verification code counts against the identity's account and
-     * the IP address, reads the code once and writes its attempt and its use,
-     * gives the two counts back, then the verifier's locked read and record.
+     * A verification by code reads the code once and writes its attempt and its
+     * use.
      *
      * @return void
      *
@@ -276,12 +255,7 @@ final class OneTimeCodeQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A factor code's first request writes its three `code_request` counters
-     * (destination, owner, IP address), reads the challenge's row and inserts
-     * it; its check writes the IP counter, reads the row once, locked, counts
-     * the attempt, uses the challenge up and gives the IP slot back. The factor
-     * package's counters, which run no query here, are asked and told inside
-     * that budget.
+     * A factor code's request and check each have a fixed budget.
      *
      * @return void
      *

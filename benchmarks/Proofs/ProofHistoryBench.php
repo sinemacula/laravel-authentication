@@ -14,12 +14,7 @@ use SineMacula\Laravel\Authentication\Proofs\ProofHistory;
 
 /**
  * PHPBench suite for deriving a session's `auth_time` and `amr` from its
- * proofs' summary rows, the work every access token issued for a session adds
- * once the proofs are read.
- *
- * Measured over the rows a long-lived session might summarise to: its first
- * factor, further factors and recovery codes of several methods with and
- * without multifactor reports, and reauthentications of both kinds.
+ * proofs' summary rows.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

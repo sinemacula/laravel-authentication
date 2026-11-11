@@ -18,10 +18,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
- * Activatable 2D identity that records, through `ProvidesTokensValidAfter`,
- * when its access tokens issued without a session become valid, in the
- * `tokens_valid_after` column of `cutoff_identities`, and owns sessions of the
- * shipped model.
+ * Activatable 2D identity with sessions that records when its session-less
+ * access tokens become valid.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

@@ -23,11 +23,7 @@ use Tests\Integration\Fixtures\PasswordIdentity;
 use Tests\TestCase;
 
 /**
- * Proves every read that decides a password reset is from the write connection:
- * an identity registered moments ago, and a link issued for it, which only the
- * primary holds yet, are found while the replica lags behind, by the queued job
- * that delivers the link and by the reset that spends it; and an application
- * policy of the application's own decides from the rows the primary holds.
+ * Proves every read that decides a password reset is from the write connection.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -48,8 +44,8 @@ final class ReplicaPasswordResetsTest extends TestCase
     private FakePasswordResetLinkSender $links;
 
     /**
-     * Freeze the clock, create the identities table on the primary and the
-     * replica, where no identity is copied, and fake the link sender.
+     * Freeze the clock, create the identities table on both connections, and
+     * fake the link sender.
      *
      * @return void
      */
@@ -81,8 +77,8 @@ final class ReplicaPasswordResetsTest extends TestCase
     }
 
     /**
-     * A link for an identity only the primary holds is delivered to it, and
-     * resets its password.
+     * A link for an identity only the primary holds is delivered and resets its
+     * password.
      *
      * @return void
      *
@@ -112,11 +108,8 @@ final class ReplicaPasswordResetsTest extends TestCase
     }
 
     /**
-     * An application policy of the application's own is asked on the primary
-     * whether the identity may reset its password with the identifier: a link
-     * is delivered on a verification only the primary holds, and none once the
-     * primary withdraws it while the replica still holds it, past the resend
-     * cooldown.
+     * The application's policy is asked on the primary whether the identity may
+     * reset its password.
      *
      * @return void
      *
@@ -145,8 +138,7 @@ final class ReplicaPasswordResetsTest extends TestCase
     }
 
     /**
-     * Create the package tables, the codes among them, on the primary and the
-     * replica.
+     * Create the package tables on the primary and the replica.
      *
      * @return void
      */

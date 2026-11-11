@@ -10,9 +10,8 @@ use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
 use SineMacula\Laravel\Authentication\Proofs\FirstFactor;
 
 /**
- * Makes the first factor of an identity nothing described: an unknown channel,
- * no observed properties and no `amr` values. For tests that start a session
- * and care about none of its first factor's detail.
+ * Makes an identity's first factor with an unknown channel, no observed
+ * properties and no `amr` values.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

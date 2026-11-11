@@ -41,17 +41,7 @@ use Tests\TestCase;
 
 /**
  * Pins, case by case, what a password sign-in through `attempt()` and through
- * the session service's `signIn('password')` does: what it answers, the events
- * it dispatches in order (the `Failed` line names the user it carries), whether
- * the credential timebox was padded, cut short or never run, whether an
- * outdated password hash was rehashed, and what became of the slot the sign-in
- * took on the identifier and IP limits and of the one it took on the account's
- * own limit: released, kept by a pending sign-in, consumed (left counted),
- * refused, or never taken.
- *
- * The two entry points share their credential steps; each row holds them to
- * what they did before they shared any, so a difference between the two is the
- * one the row records, not one the sharing made.
+ * `signIn('password')` does.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -266,9 +256,7 @@ final class CredentialAttemptMatrixTest extends TestCase
 
     /**
      * Rows of `[case, row]`: what the session service's `signIn('password')`
-     * does in each case. A pinned session is `attempt()`'s alone. The timebox
-     * is cut short once the identity is admitted, whatever comes of the sign-in
-     * after, a principal named that is not the identity's included.
+     * does in each case.
      *
      * @return iterable<string, array{0: string, 1: array{result: string, events: list<string>, timebox: string, rehashed: bool, reservation: string, account: string}}>
      */
@@ -433,9 +421,7 @@ final class CredentialAttemptMatrixTest extends TestCase
 
     /**
      * Register the guards the cases sign in through, beside the session tests'
-     * own: one over members who must choose a principal, one over machine
-     * clients that allows the password method, and one over the session tests'
-     * identities that does not.
+     * own.
      *
      * @param  mixed  $app
      * @return void
@@ -518,9 +504,8 @@ final class CredentialAttemptMatrixTest extends TestCase
     }
 
     /**
-     * Bind the recording timebox and limiter the sign-in runs with, and return
-     * them; give the timebox a budget a check stays inside, and set the
-     * policies and limits the case needs.
+     * Bind the recording timebox and limiter the sign-in runs with, set up for
+     * the case.
      *
      * @param  string  $case
      * @return array{0: \Tests\Fixtures\Passwords\RecordingTimebox, 1: \Tests\Fixtures\Sessions\RecordingAttemptLimiter}
@@ -546,9 +531,8 @@ final class CredentialAttemptMatrixTest extends TestCase
     }
 
     /**
-     * Name the identity signing in `i1` (and `p1`, as the principal it acts as)
-     * and start recording, then register the case's throwing listener after the
-     * recording one, so the event it throws on is recorded.
+     * Name the subject and start recording, with the case's throwing listener
+     * last.
      *
      * @param  string  $case
      * @param  \Illuminate\Database\Eloquent\Model  $subject
@@ -576,9 +560,7 @@ final class CredentialAttemptMatrixTest extends TestCase
     }
 
     /**
-     * The row the sign-in left: its answer, the events it dispatched, its
-     * timebox, whether the subject's outdated hash was replaced, and what
-     * became of its slots.
+     * The row the sign-in left.
      *
      * @param  string  $result
      * @param  \Illuminate\Database\Eloquent\Model  $subject
@@ -616,10 +598,8 @@ final class CredentialAttemptMatrixTest extends TestCase
     }
 
     /**
-     * What became of the slots the sign-in asked for, on the identifier and IP
-     * limits or on the account's: `none` when it asked for none, else, for
-     * each, `refused`, `released`, `kept` (held by the pending session it left)
-     * or `consumed` (left counted).
+     * What became of the slots the sign-in asked for: `none`, `refused`,
+     * `released`, `kept` or `consumed`.
      *
      * @param  \Tests\Fixtures\Sessions\RecordingAttemptLimiter  $limiter
      * @param  bool  $account

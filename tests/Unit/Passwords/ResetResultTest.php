@@ -11,8 +11,7 @@ use SineMacula\Laravel\Authentication\Passwords\Enums\ResetStatus;
 use SineMacula\Laravel\Authentication\Passwords\ResetResult;
 
 /**
- * Unit tests for how a password reset ends, and the values its statuses carry,
- * which applications branch on.
+ * Unit tests for how a password reset ends.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -23,9 +22,7 @@ use SineMacula\Laravel\Authentication\Passwords\ResetResult;
 final class ResetResultTest extends TestCase
 {
     /**
-     * A reset carries the sessions it revoked; a limited one the wait; a
-     * rejected one the violations; an invalid one nothing. Only a reset is
-     * reset.
+     * Each reset outcome carries only its own detail.
      *
      * @return void
      */

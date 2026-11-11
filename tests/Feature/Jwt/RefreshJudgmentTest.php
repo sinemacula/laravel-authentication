@@ -16,9 +16,7 @@ use SineMacula\Laravel\Authentication\Models\Session;
 use Tests\TestCase;
 
 /**
- * Feature tests of judging a presented refresh rotation id against its session:
- * the session's state first, then the id, current, previous inside the grace
- * window, or a replay.
+ * Feature tests of judging a presented refresh rotation id against its session.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -85,9 +83,8 @@ final class RefreshJudgmentTest extends TestCase
     }
 
     /**
-     * A live session with no absolute deadline is judged as any other: its
-     * current id is current, with no absolute deadline for the rotation to
-     * keep.
+     * The current id of a live session with no absolute deadline is current,
+     * with no deadline to keep.
      *
      * @return void
      */
@@ -156,8 +153,7 @@ final class RefreshJudgmentTest extends TestCase
 
     /**
      * A pending session refuses every id, a replayed one included, as
-     * `session_pending` rather than as a replay, so a refresh token it held
-     * before it returned to pending never revokes it.
+     * `session_pending` and never as a replay.
      *
      * @return void
      */

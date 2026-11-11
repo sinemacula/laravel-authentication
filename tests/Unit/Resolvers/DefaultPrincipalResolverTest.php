@@ -29,8 +29,7 @@ final class DefaultPrincipalResolverTest extends TestCase
     use MockeryPHPUnitIntegration;
 
     /**
-     * Asserts the 2D path returns the identity itself when it also implements
-     * the Principal contract.
+     * The identity is its own principal when it implements `Principal`.
      *
      * @return void
      */
@@ -45,12 +44,11 @@ final class DefaultPrincipalResolverTest extends TestCase
     }
 
     /**
-     * Asserts the 3D path delegates to resolveDefaultPrincipal() when the
-     * identity implements HasPrincipals but not Principal itself.
+     * An identity with principals resolves its default principal.
      *
      * @return void
      */
-    public function testDelegatesToResolveDefaultPrincipalWhenIdentityImplementsHasPrincipals(): void
+    public function testHasPrincipalsIdentityResolvesItsDefaultPrincipal(): void
     {
         $principal = \Mockery::mock(Principal::class);
 
@@ -67,9 +65,7 @@ final class DefaultPrincipalResolverTest extends TestCase
     }
 
     /**
-     * Asserts a hint takes precedence over the default delegate when the
-     * identity implements HasPrincipals: the resolver calls
-     * principals()->find($hint) and returns its result.
+     * A hint is looked up through `principals()->find()` before the default.
      *
      * @return void
      */
@@ -99,9 +95,7 @@ final class DefaultPrincipalResolverTest extends TestCase
     }
 
     /**
-     * When the identity declares `ResolvesHintedPrincipal`, the resolver
-     * prefers that capability over the generic `principals()->find($hint)`
-     * path.
+     * `ResolvesHintedPrincipal` is preferred over `principals()->find()`.
      *
      * @return void
      */
@@ -124,11 +118,7 @@ final class DefaultPrincipalResolverTest extends TestCase
     }
 
     /**
-     * When `principals()->find($hint)` returns a value that is NOT a
-     * `Principal` (e.g. a bare Model or `null`), the resolver falls through to
-     * the 2D/3D path instead of returning the non-Principal. Mutation guard:
-     * pins the `$hinted instanceof Principal` check in `resolve()` - removing
-     * it would cause the resolver to return a non-Principal object.
+     * A hinted lookup that finds no `Principal` falls through to the default.
      *
      * @return void
      */
@@ -188,13 +178,12 @@ final class DefaultPrincipalResolverTest extends TestCase
     }
 
     /**
-     * A null result from `resolveHintedPrincipal()` must preserve the existing
-     * fallback behaviour: try `principals()->find($hint)` and then the default
-     * 3D principal policy.
+     * A null from `resolveHintedPrincipal()` falls back to
+     * `principals()->find()` and then the default principal.
      *
      * @return void
      */
-    public function testNullFromResolveHintedPrincipalFallsThroughToExisting2d3dBehavior(): void
+    public function testNullHintedPrincipalFallsBackToTheRelation(): void
     {
         $principal = \Mockery::mock(Principal::class);
 
@@ -226,9 +215,7 @@ final class DefaultPrincipalResolverTest extends TestCase
     }
 
     /**
-     * Asserts a hint is silently ignored when the identity does not implement
-     * HasPrincipals; the 2D path still resolves the identity itself without
-     * ever touching a principals relation.
+     * A hint is ignored when the identity does not implement `HasPrincipals`.
      *
      * @return void
      */
@@ -243,16 +230,12 @@ final class DefaultPrincipalResolverTest extends TestCase
     }
 
     /**
-     * Asserts a bare Identity mock that implements neither Principal nor
-     * HasPrincipals throws the typed `UnresolvableIdentityException` (a
-     * `\LogicException` subclass) whose message names the offending class.
-     * Guards catch this specific type and convert it to a `Failed` event so the
-     * request still surfaces as a 401 - but consumer error reporters can
-     * attribute the misconfiguration via the typed class.
+     * An identity with neither `Principal` nor `HasPrincipals` is refused with
+     * an exception naming its class.
      *
      * @return void
      */
-    public function testThrowsUnresolvableIdentityExceptionWhenIdentityImplementsNeitherInterface(): void
+    public function testIdentityWithNeitherContractIsUnresolvable(): void
     {
         $identity = \Mockery::mock(Identity::class);
 
@@ -266,11 +249,7 @@ final class DefaultPrincipalResolverTest extends TestCase
     }
 
     /**
-     * Asserts the typed exception inherits from `\LogicException`, preserving
-     * the existing exception-handler contract for consumers who catch
-     * `\LogicException` broadly. Verified via a runtime instance check rather
-     * than `is_subclass_of(...)` so static analysis can narrow the
-     * relationship.
+     * `UnresolvableIdentityException` is a `\LogicException`.
      *
      * @return void
      */

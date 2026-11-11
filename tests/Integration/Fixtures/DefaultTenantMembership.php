@@ -10,9 +10,8 @@ use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 
 /**
- * 3D principal fixture over the `ActivatableTenantMembership` table whose
- * tenant relation is declared with `withDefault()`, so a missing tenant row
- * comes back as an unsaved placeholder rather than `null`.
+ * 3D principal whose tenant relation uses `withDefault()`, so a missing tenant
+ * is an unsaved placeholder instead of `null`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

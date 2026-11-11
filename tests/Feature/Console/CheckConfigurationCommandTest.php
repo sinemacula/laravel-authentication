@@ -37,10 +37,7 @@ use Tests\Unit\Stubs\StubAuthenticatableModel;
 use Tests\Unit\Stubs\StubReplacementPrincipalResolver;
 
 /**
- * Feature tests for `authentication:check`: it resolves each `jwt` and
- * `api_key` guard's settings and the session model as the package would, lists
- * every problem it finds as `[<guard>] <message>`, exits `1` when there is one
- * and `0` when there is none, and reads configuration only.
+ * Feature tests for `authentication:check`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -82,9 +79,7 @@ final class CheckConfigurationCommandTest extends TestCase
     private const array EVERY_SUBJECT_OK = [...self::PACKAGE_OK, '[api] OK', '[admin] OK', '[machine] OK'];
 
     /**
-     * A configuration without problems passes, says so for each guard and the
-     * session model, ignores guards of other drivers, and opens no database
-     * connection.
+     * A configuration without problems passes and opens no database connection.
      *
      * @return void
      */
@@ -469,8 +464,7 @@ final class CheckConfigurationCommandTest extends TestCase
 
     /**
      * Every `jwt` guard that allows a code method is named when no sender is
-     * bound, a guard named with digits included; a guard of another driver is
-     * not one, whatever its application lists.
+     * bound.
      *
      * @return void
      */
@@ -490,12 +484,7 @@ final class CheckConfigurationCommandTest extends TestCase
     }
 
     /**
-     * A code sign-in method the application registered for another identifier
-     * type counts as a code method: a guard that allows only it is named when
-     * no sender is bound. A method of another kind, or one that does not build
-     * as a sign-in method (whether the manager refuses what its factory gives,
-     * or a typed factory throws a `TypeError`), is not a code method, and no
-     * guard needs to list it.
+     * A code method the application registered counts as a code method.
      *
      * @return void
      */
@@ -522,10 +511,8 @@ final class CheckConfigurationCommandTest extends TestCase
     }
 
     /**
-     * Delivering on a `sync` connection is a warning, not a problem, whenever a
-     * `jwt` guard is configured, whatever its application allows: any of them
-     * may send a password reset or an identifier change. With only `api_key`
-     * guards, which deliver nothing, there is none.
+     * Delivering on a `sync` connection is a warning whenever a `jwt` guard is
+     * configured.
      *
      * @return void
      */
@@ -548,9 +535,7 @@ final class CheckConfigurationCommandTest extends TestCase
     }
 
     /**
-     * Delivering on a `failover` connection that can fall back to `sync` is a
-     * warning of its own, whenever a `jwt` guard is configured; one whose
-     * connections are all worker-backed is not.
+     * A `failover` connection that can fall back to `sync` is a warning.
      *
      * @return void
      */
@@ -577,9 +562,7 @@ final class CheckConfigurationCommandTest extends TestCase
     }
 
     /**
-     * A delivery connection that is not configured is a problem and raises no
-     * warning; a guard whose application is malformed counts as allowing no
-     * code method here, since its own checks report it.
+     * A malformed setting is reported once, by the check it belongs to.
      *
      * @return void
      */
@@ -680,9 +663,7 @@ final class CheckConfigurationCommandTest extends TestCase
     }
 
     /**
-     * With only `api_key` guards, which keep no sessions, the session model is
-     * not checked: a configuration the `api_key` guard accepts, with no session
-     * model at all, passes.
+     * With only `api_key` guards the session model is not checked.
      *
      * @return void
      */
@@ -716,10 +697,8 @@ final class CheckConfigurationCommandTest extends TestCase
     }
 
     /**
-     * An application policy of the application's own reads its own settings, so
-     * the package's application settings are not checked for it: it is asked
-     * instead, and a guard it allows nothing gets no warning, since the names
-     * it allows are its own to know.
+     * A custom policy's application settings are not checked; the policy is
+     * asked instead.
      *
      * @return void
      */
@@ -760,9 +739,7 @@ final class CheckConfigurationCommandTest extends TestCase
 
     /**
      * Rows of `[a name, what a policy of the application's own throws when
-     * asked it]`, for every name it is asked for a `jwt` guard: every
-     * registered sign-in method, `external_provider` and `client_credentials`,
-     * each with an argument exception and with an exception of another kind.
+     * asked it]`.
      *
      * @return iterable<string, array{0: string, 1: \Exception}>
      */
@@ -775,10 +752,7 @@ final class CheckConfigurationCommandTest extends TestCase
     }
 
     /**
-     * A policy of the application's own that throws only when asked the name is
-     * a problem for each `jwt` guard, reported once, so every name is asked of
-     * it, the code methods the code check asks about included, and nothing it
-     * throws stops the run; the `api_key` guard, asked only `api_key`, passes.
+     * A custom policy is asked every name a `jwt` guard could use.
      *
      * @param  string  $name
      * @param  \Exception  $exception
@@ -810,9 +784,8 @@ final class CheckConfigurationCommandTest extends TestCase
     }
 
     /**
-     * A policy of the application's own is asked whether each `jwt` guard
-     * allows `client_secret_post` too, so one that throws then is a problem for
-     * each `jwt` guard; the `api_key` guard, never asked it, passes.
+     * A custom policy is asked whether each `jwt` guard allows
+     * `client_secret_post`.
      *
      * @return void
      */
@@ -868,10 +841,8 @@ final class CheckConfigurationCommandTest extends TestCase
     }
 
     /**
-     * A policy of the application's own that throws when asked whether a `jwt`
-     * guard left out of the run with `--guard` allows a code sign-in method is
-     * a `[codes]` problem for that guard, reported once, since no check of the
-     * guard's own asks again; a named guard reports it as its own problem.
+     * A policy that throws for a guard left out of the run is a `[codes]`
+     * problem.
      *
      * @param  list<string>  $guards
      * @param  \Exception  $exception
@@ -897,10 +868,8 @@ final class CheckConfigurationCommandTest extends TestCase
     }
 
     /**
-     * The package's policy throws over settings it cannot read, so a `jwt`
-     * guard left out of the run with `--guard` whose `methods` names a method
-     * no sign-in method can have is a `[codes]` problem for that guard, and the
-     * run fails, though no check of the guard's own runs.
+     * Unreadable settings of a guard left out of the run are a `[codes]`
+     * problem.
      *
      * @return void
      */
@@ -940,9 +909,7 @@ final class CheckConfigurationCommandTest extends TestCase
     }
 
     /**
-     * An `api_key` guard has no other use, so its application must allow
-     * `api_key` under a policy of the application's own too: one that does
-     * passes, and one that does not is a problem for the guard.
+     * An `api_key` guard must allow `api_key` under a custom policy too.
      *
      * @param  bool  $allowsKeys
      * @param  int  $code
@@ -963,12 +930,7 @@ final class CheckConfigurationCommandTest extends TestCase
     }
 
     /**
-     * A policy of the application's own that wraps the package's, as one that
-     * decides which principals may use an application does, keeps every check
-     * that asks the policy: an `api_key` guard must allow `api_key`, and a
-     * guard it allows `passkey` needs a relying party. Only the warning about
-     * an application that allows nothing, which reads the package's settings,
-     * is given for the package's policy alone.
+     * A policy wrapping the package's keeps the checks that ask the policy.
      *
      * @return void
      *
@@ -1007,9 +969,7 @@ final class CheckConfigurationCommandTest extends TestCase
     }
 
     /**
-     * A `jwt` guard that allows nothing, by its own empty list or the package
-     * default, is a warning naming the guard, not a problem: the exit code is
-     * `0` and the guard is still reported as checked.
+     * A `jwt` guard that allows nothing is a warning naming the guard.
      *
      * @return void
      */
@@ -1024,10 +984,7 @@ final class CheckConfigurationCommandTest extends TestCase
     }
 
     /**
-     * Rows of `[what a jwt guard lists, whether it is warned about]`: it is
-     * warned about only when it lists nothing but `api_key`, which allows
-     * nothing on a `jwt` guard; any other name counts, registered or not, since
-     * the application may start sessions under it itself.
+     * Rows of `[what a jwt guard lists, whether it is warned about]`.
      *
      * @return iterable<string, array{0: list<string>, 1: bool}>
      */
@@ -1072,9 +1029,8 @@ final class CheckConfigurationCommandTest extends TestCase
     }
 
     /**
-     * A package-wide `__Host-` cookie name, on the root path for the guard
-     * whose transport is the cookie, passes for that guard and for the guards
-     * whose transport is the body and never set the cookie.
+     * A package-wide `__Host-` cookie name binds only the guard that reads the
+     * cookie.
      *
      * @return void
      */
@@ -1126,10 +1082,8 @@ final class CheckConfigurationCommandTest extends TestCase
     }
 
     /**
-     * A `jwt` guard whose identities live on another connection than the
-     * storage connection cannot run a password reset or an identifier change's
-     * confirmation: a warning for each such guard checked, naming both
-     * connections, that leaves the exit code alone.
+     * A `jwt` guard whose identities live on another connection than storage is
+     * a warning.
      *
      * @return void
      */
@@ -1154,9 +1108,8 @@ final class CheckConfigurationCommandTest extends TestCase
     }
 
     /**
-     * While Laravel's notification is the reset link sender, a `jwt` guard
-     * identifying passwords by anything but `email` is warned about; with a
-     * sender of the application's own, or an `email` identifier, it is not.
+     * Laravel's reset link sender with an identifier other than `email` is a
+     * warning.
      *
      * @return void
      */
@@ -1301,9 +1254,7 @@ final class CheckConfigurationCommandTest extends TestCase
     }
 
     /**
-     * Markup in a warning, an error and a guard name is printed as text: it is
-     * never read as a style tag, so it neither aborts the command nor changes
-     * the exit code.
+     * Markup in a finding is printed as text and never read as a style tag.
      *
      * @return void
      */

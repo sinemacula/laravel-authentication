@@ -9,18 +9,8 @@ use Carbon\CarbonInterface;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 
 /**
- * A proof an adapter verified and hands to the session service, to satisfy a
- * pending session or to step a session up: what kind it is, the method and
- * channel, the factor used, what was observed, the adapter's evaluation, the
- * `amr` values it stands for, when it was made, and what it was made for.
- *
- * The constructor checks only the shape: a method and a factor reference that
- * fit their columns, and at most 8 `amr` values, each 1 to 48 printable ASCII
- * characters other than a quote (`"`) or a backslash (`\`), `mfa` excluded,
- * since only the evaluation reports multifactor authentication; anything else
- * is an `InvalidArgumentException`. Whether the proof is accepted is the
- * operation's to decide, against its kind, purpose, evaluation, time and
- * binding. The time is kept to the whole second, as every stored time is.
+ * A proof an adapter verified and hands to the session service to satisfy a
+ * pending session or step a session up.
  *
  * @api
  *

@@ -5,16 +5,8 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Events;
 
 /**
- * Dispatched when the API key service rotates a key, once the replacement and
- * the replaced key's new expiry are committed on the keys' own connection,
- * never for a rotation that is rolled back. Both keys authenticate until the
- * replaced key's overlap ends; it then fails as `credential_expired`.
- *
- * The context describes the new key: its guard, the client of the request that
- * rotated it, its owner when the guard's provider still finds it, its principal
- * and that principal's tenant, its id in `credentialId` and its scopes, which
- * are the replaced key's. `previousKeyId` names the replaced key. Never a key,
- * a secret or a digest.
+ * Dispatched once an API key's rotation is committed; the context describes the
+ * new key.
  *
  * @api
  *

@@ -25,11 +25,7 @@ use Tests\Fixtures\Context\ScriptedContributor;
 
 /**
  * Query-budget and timing contracts for the authentication context of a
- * person's token: once the guard has authenticated the request, the context of
- * a session token costs the one aggregate read of the session's proofs, however
- * many it holds, and nothing when asked again, and that of an access-only token
- * nothing at all; the session's provenance is read only when a contributor asks
- * for it.
+ * person's token.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -121,9 +117,8 @@ final class AuthenticationContextQueryBudgetTest extends PerformanceContractTest
     }
 
     /**
-     * A contributor that reads only what it is given costs nothing; one that
-     * asks for the session's provenance costs one read, once, however often it
-     * asks, the provider context read in it.
+     * The session's provenance is read once, and only when a contributor asks
+     * for it.
      *
      * @return void
      *

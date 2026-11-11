@@ -29,10 +29,7 @@ use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 
 /**
  * Unit tests for the checks the session service makes of what a caller hands
- * it: the principal a session for an externally verified identity is pinned to,
- * whether a reloaded identity is the one that was verified, whether a cookie
- * application's request came from its own site, and the pending credential a
- * pending-session action was handed.
+ * it.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -45,10 +42,8 @@ final class SessionPreconditionsTest extends TestCase
     use MockeryPHPUnitIntegration;
 
     /**
-     * An identity that owns sessions may be signed in; one that does not is
-     * refused as a misconfiguration naming its class. A non-human identity,
-     * which owns none, is let through, for the admission to refuse as the
-     * result it is.
+     * An identity that owns no sessions is refused as a misconfiguration,
+     * unless it is non-human.
      *
      * @return void
      */
@@ -225,9 +220,7 @@ final class SessionPreconditionsTest extends TestCase
     }
 
     /**
-     * `SessionPreconditions` is a static utility; instantiation is disallowed
-     * through the private constructor. Reflection invokes it so the line is
-     * covered while still documenting the access modifier.
+     * The constructor is private.
      *
      * @return void
      *
@@ -246,10 +239,8 @@ final class SessionPreconditionsTest extends TestCase
     }
 
     /**
-     * A cookie application refuses a client that did not come from a page of
-     * its own site as `cross_site_request`, a context without the facts
-     * included, and lets a same-site one through; a body application never
-     * refuses, whatever the client.
+     * A cookie application refuses a cross-site client as `cross_site_request`;
+     * a body application never refuses.
      *
      * @return void
      */
@@ -276,10 +267,8 @@ final class SessionPreconditionsTest extends TestCase
     }
 
     /**
-     * A pending credential handed in is let through as given, a secret or a
-     * string alike, and `pending_invalid`, the reason
-     * `PendingCredential::extract()` answers, is refused with that reason and
-     * nothing else.
+     * A pending credential is let through as given, and `pending_invalid` is
+     * refused with that reason alone.
      *
      * @return void
      */

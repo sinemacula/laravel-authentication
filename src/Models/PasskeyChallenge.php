@@ -15,21 +15,8 @@ use SineMacula\Laravel\Authentication\Database\StorageConnection;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeyChallenges;
 
 /**
- * The challenge of one passkey ceremony (a registration, a sign-in or a
- * factor): which guard and relying party it is for, the identity it is bound to
- * (none for a usernameless sign-in), the session and purpose a factor ceremony
- * is bound to, the options sent to the browser, which carry the challenge, and
- * until when it may be answered. It is used up by the first response made to
- * it, whatever that response proves, which records `consumed_at`; the row is
- * kept so that a later response is told the challenge was used.
- *
- * Kept on the storage connection (see `Database\StorageConnection`), in the
- * table named by `authentication.passkeys.challenges_table`. Challenges that
- * expired, used or not, are pruned by Laravel's `model:prune --model` with this
- * class once they have been expired for one more challenge lifetime.
- *
- * Only the class name is public, for applications to schedule that pruning
- * with; its columns and behaviour belong to the passkey service.
+ * The challenge of one passkey ceremony, used up by the first response to it
+ * and pruned by `model:prune` a challenge lifetime after it expires.
  *
  * @api
  *
@@ -70,8 +57,6 @@ final class PasskeyChallenge extends Model
 
     /**
      * Create a challenge on the storage connection, in the configured table.
-     * Both are applied here, before Eloquent reads them, so this is
-     * construction rather than model behaviour.
      *
      * @param  array<string, mixed>  $attributes
      *
@@ -88,9 +73,7 @@ final class PasskeyChallenge extends Model
     }
 
     /**
-     * The challenges that expired, consumed or not, a challenge lifetime ago:
-     * until then a response to one is told it expired or was used, rather than
-     * that it never existed.
+     * The challenges that expired, consumed or not, a challenge lifetime ago.
      *
      * @return \Illuminate\Database\Eloquent\Builder<self>
      *

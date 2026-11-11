@@ -13,9 +13,8 @@ use SineMacula\Laravel\Authentication\Proofs\FirstFactor;
 use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
 
 /**
- * Sign-in method double that checks two secrets against the account its email
- * address finds, a password and a PIN, and counts each check against the
- * account before making it, as a method that checks more than one secret must.
+ * Sign-in method that checks a password and a PIN, counting each check against
+ * the account first.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

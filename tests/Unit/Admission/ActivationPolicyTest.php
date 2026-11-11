@@ -74,9 +74,8 @@ final class ActivationPolicyTest extends TestCase
     }
 
     /**
-     * A principal that names a tenant which cannot be loaded fails the tenant
-     * check, and so fails as a principal, rather than passing as one with no
-     * tenant.
+     * A principal naming a tenant that cannot be loaded fails the tenant check,
+     * so it fails as a principal.
      *
      * @return void
      */
@@ -129,9 +128,8 @@ final class ActivationPolicyTest extends TestCase
     }
 
     /**
-     * `activeTenant()` returns the very tenant it loaded and checked when that
-     * tenant is active, whether or not it opts into activation, so a caller
-     * reporting the tenant reports the one that passed.
+     * `activeTenant()` returns the tenant it loaded and checked when that
+     * tenant is active.
      *
      * @return void
      */
@@ -145,9 +143,8 @@ final class ActivationPolicyTest extends TestCase
     }
 
     /**
-     * `activeTenant()` returns `null` for a principal that acts within no
-     * tenant, and `false`, never the tenant, for one whose tenant is inactive
-     * or cannot be loaded.
+     * `activeTenant()` returns `null` for a principal in no tenant and `false`
+     * for an inactive or unloadable tenant.
      *
      * @return void
      */
@@ -163,10 +160,7 @@ final class ActivationPolicyTest extends TestCase
     }
 
     /**
-     * `ActivationPolicy` is a static utility; instantiation is disallowed via
-     * the private constructor so consumers cannot create a stateful activation
-     * policy. Reflection invokes the private constructor so the line is covered
-     * while still documenting the access modifier.
+     * `ActivationPolicy` is a static utility with a private constructor.
      *
      * @return void
      *

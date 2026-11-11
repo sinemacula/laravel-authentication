@@ -5,16 +5,8 @@ declare(strict_types = 1);
 namespace Tests\Fixtures\Database;
 
 /**
- * Runs the package's shipped migrations for a test that runs one itself rather
- * than through the migrator, requiring each file once per process.
- *
- * A migration file returns an anonymous class, and PHP compiles the file and
- * declares a new class each time the file is required, keeping every one until
- * the process ends: a test that required the files afresh in each test grew the
- * memory of the process running the suite by every migration it ran. Laravel's
- * migrator keeps the migrations it requires in the same way. The migrations
- * hold no state (they read their table and connection from the configuration
- * when they run), so the one required first runs as a fresh one would.
+ * Runs the package's shipped migrations, requiring each file once per process:
+ * every require declares a new anonymous class.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

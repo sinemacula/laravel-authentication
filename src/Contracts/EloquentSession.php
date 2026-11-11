@@ -7,15 +7,7 @@ namespace SineMacula\Laravel\Authentication\Contracts;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 
 /**
- * Explicit persistence boundary for refreshable Eloquent-backed sessions.
- *
- * Extends the generic `Session` read surface with the relations and the
- * column-name accessors behind each persisted session attribute, which the
- * package's session creation, refresh rotation, revocation, and last-use
- * persistence paths rely on. The columns that record what the session started
- * with are named through `EloquentSessionOrigin`, and those that record where
- * it stands (pending or active, and its active tenant) through
- * `EloquentSessionStanding`.
+ * Persistence boundary for refreshable Eloquent-backed sessions.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -88,10 +80,8 @@ interface EloquentSession extends EloquentSessionOrigin, EloquentSessionStanding
     public function getRefreshRotatedAtName(): string;
 
     /**
-     * Column name holding the session's generation: a random identifier the
-     * session service writes when it inserts the session and nothing changes,
-     * which tells the session apart from any other a model that reissues keys
-     * later puts under its key.
+     * Column name holding the session's generation, which tells it apart from
+     * any other session later put under its key.
      *
      * @return string
      */
@@ -113,13 +103,8 @@ interface EloquentSession extends EloquentSessionOrigin, EloquentSessionStanding
     public function getSwitchedAtName(): string;
 
     /**
-     * Column name holding the session's issuance sequence: the issuance guard,
-     * an integer that every issuance of an access token for the session that
-     * does not write the row itself (as a sign-in's insert and an activation's
-     * update do) increments before it reads the session's proofs, and every
-     * change of its proofs increments before the change, in the same
-     * transaction, so two of them on one session never read its proofs past
-     * each other. Nothing reads its value.
+     * Column name holding the session's issuance sequence, a counter that
+     * serialises token issuance against changes to its proofs.
      *
      * @return string
      */

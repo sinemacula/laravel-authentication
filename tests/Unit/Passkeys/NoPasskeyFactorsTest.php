@@ -29,9 +29,7 @@ final class NoPasskeyFactorsTest extends TestCase
     use MockeryPHPUnitIntegration;
 
     /**
-     * Without a factor package no passkey is a factor: a registration is
-     * associated with nothing, and a removal goes ahead completing nothing, the
-     * identity never consulted.
+     * Without a factor package no passkey is a factor.
      *
      * @return void
      */

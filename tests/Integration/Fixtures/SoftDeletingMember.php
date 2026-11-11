@@ -17,9 +17,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
- * 3D identity that soft-deletes, acts through `SoftDeletingMembership` rows,
- * records a "tokens valid after" cutoff in the `tokens_valid_after` column of
- * `soft_deleting_members`, and owns sessions of the shipped model.
+ * Soft-deleting 3D identity with a cutoff and sessions, acting through
+ * `SoftDeletingMembership` rows.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

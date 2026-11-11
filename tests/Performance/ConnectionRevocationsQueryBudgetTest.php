@@ -16,12 +16,7 @@ use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 
 /**
- * Query-budget contracts for the revocations by connection: a connection's
- * sessions cost one read of the provenance's connection index and one locking
- * read per chunk of 500, and one `UPDATE` per session; a link's cost one read
- * of the identity's sessions, one of their provenance and one locking read per
- * chunk, whichever of its triggers ends them, and a widened scope reported
- * again writes nothing; a trigger turned off reads and writes nothing.
+ * Query-budget contracts for the revocations a connection or a link triggers.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -60,9 +55,8 @@ final class ConnectionRevocationsQueryBudgetTest extends PerformanceContractTest
     }
 
     /**
-     * A disabled connection with three sessions writes its guards in one
-     * statement, reads one chunk of its provenance, locks those sessions in one
-     * read and writes one `UPDATE` each.
+     * A disabled connection with three sessions costs its guard write, two
+     * reads and one `UPDATE` per session.
      *
      * @return void
      *
@@ -102,9 +96,8 @@ final class ConnectionRevocationsQueryBudgetTest extends PerformanceContractTest
     }
 
     /**
-     * A removed link writes its guard, reads the identity's sessions, their
-     * provenance and the locked sessions through the link, and writes one
-     * `UPDATE` each; a widened scope costs the same.
+     * A removed link's sessions cost three reads and one `UPDATE` each, and a
+     * widened scope costs the same.
      *
      * @return void
      *
@@ -128,10 +121,7 @@ final class ConnectionRevocationsQueryBudgetTest extends PerformanceContractTest
     }
 
     /**
-     * A widened scope reported again for the same widening writes the link's
-     * guard, as every widening does, reads the identity's sessions and their
-     * provenance, finds nothing live through the link, locks nothing and writes
-     * no session.
+     * A widened scope reported again writes the link's guard and no session.
      *
      * @return void
      *

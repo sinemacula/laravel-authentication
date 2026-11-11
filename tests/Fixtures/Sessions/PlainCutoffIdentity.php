@@ -9,10 +9,8 @@ use SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 
 /**
- * An identity that is no Eloquent model and records a "tokens valid after"
- * cutoff it reads as none: a stand-in for an application's identity kept
- * elsewhere than a model's row, which says it moved the cutoff when asked to if
- * it was made to.
+ * A non-Eloquent identity that records a "tokens valid after" cutoff it reads
+ * as none.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

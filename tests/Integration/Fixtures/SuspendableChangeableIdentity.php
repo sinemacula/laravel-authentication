@@ -16,9 +16,8 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 
 /**
- * 2D identity fixture over `changeable_identities` whose identifiers can be
- * changed and which can be deactivated, through its `is_active` column, so a
- * change requested while it was active can be confirmed after it is not.
+ * 2D identity whose identifiers can be changed and that can be deactivated
+ * through `is_active`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

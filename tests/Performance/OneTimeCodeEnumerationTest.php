@@ -29,13 +29,7 @@ use Tests\Performance\Fixtures\SlowModelProvider;
 use Tests\Performance\Fixtures\SlowOneTimeCodeSender;
 
 /**
- * The enumeration criteria for one-time codes, held as contracts for both phone
- * and email codes: a request for a code runs the same statements, gives the
- * same answer and takes the same time whether or not anyone has the number or
- * address, with its delivery never inside it, against a slow identity store and
- * a slow gateway; and a failed sign-in by code answers `invalid_credentials`
- * and waits out the real credential timebox whatever failed, while a successful
- * one returns early.
+ * Holds phone and email one-time codes to the enumeration criteria.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -120,9 +114,8 @@ final class OneTimeCodeEnumerationTest extends PerformanceContractTestCase
     }
 
     /**
-     * Rows of `[method, field, known, unknown]`: each code method, the field
-     * its identifier is entered in, the seeded identity's identifier and one no
-     * identity has.
+     * Rows of `[method, field, known, unknown]`: each code method, its field, a
+     * seeded identifier and an unused one.
      *
      * @return iterable<string, array{0: string, 1: string, 2: string, 3: string}>
      */
@@ -135,10 +128,8 @@ final class OneTimeCodeEnumerationTest extends PerformanceContractTestCase
     }
 
     /**
-     * A request for a known identifier and one for an identifier no one has,
-     * each from a client of its own so their limits start alike, run the same
-     * statements, in the same order, with the same answer; so do the requests
-     * that follow within the cooldown.
+     * A code request runs the same statements with the same answer whether or
+     * not the identifier is known.
      *
      * @param  string  $method
      * @param  string  $field
@@ -172,10 +163,8 @@ final class OneTimeCodeEnumerationTest extends PerformanceContractTestCase
     }
 
     /**
-     * Against a slow identity store and a slow gateway, a request takes as
-     * little time for a known identifier as for one no one has: it never looks
-     * the identifier up, and the delivery runs only after the response, where
-     * the known identifier's code then goes out and the unknown's does not.
+     * Against a slow identity store and gateway, a request for a known
+     * identifier takes no longer than for an unknown one.
      *
      * @param  string  $method
      * @param  string  $field
@@ -233,10 +222,8 @@ final class OneTimeCodeEnumerationTest extends PerformanceContractTestCase
     }
 
     /**
-     * Every failed sign-in by code answers exactly as a wrong code does
-     * (`invalid_credentials`, no wait) and waits out the real timebox, a slow
-     * lookup of a known identifier included; only the server-side event may say
-     * more.
+     * Every failed sign-in by code answers as a wrong code does and waits out
+     * the timebox.
      *
      * @param  string  $method
      * @param  string  $field

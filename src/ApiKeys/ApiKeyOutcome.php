@@ -13,9 +13,7 @@ use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Models\ApiKey;
 
 /**
- * What presenting a key came to: the key its public part named, if any, and
- * either the owner admitted as the key's principal or the refusal with the
- * context established by then.
+ * The key a presented public part named, if any, and its admission or refusal.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -40,9 +38,8 @@ final readonly class ApiKeyOutcome
     ) {}
 
     /**
-     * The failure event of a refused key, for the flow and the client, with the
-     * context the refusal established and, once a key was found, its id and
-     * scopes. Never the key or its secret.
+     * The failure event of a refused key, with its id and scopes once one was
+     * found.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Refused  $refused
      * @param  string  $guard

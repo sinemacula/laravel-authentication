@@ -21,11 +21,7 @@ use Tests\Integration\Fixtures\SoftDeletingPruningSession;
 use Tests\TestCase;
 
 /**
- * Integration tests for pruning sessions with Laravel's `model:prune`, against
- * the shipped table on each supported database: which ended sessions are
- * deleted at each boundary of the retention, with their proofs and provenance,
- * and how a custom model opts in, an integer-keyed and a soft-deleting one
- * included.
+ * Integration tests for pruning sessions with Laravel's `model:prune`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -71,9 +67,8 @@ final class SessionPruningIntegrationTest extends TestCase
     }
 
     /**
-     * A session revoked, or past either deadline, at or before the cutoff is
-     * pruned; one that ended a second after it is kept, as is a live session
-     * however long ago it was created.
+     * Sessions that ended at or before the cutoff are pruned; live ones are
+     * kept.
      *
      * @return void
      */
@@ -102,9 +97,7 @@ final class SessionPruningIntegrationTest extends TestCase
     }
 
     /**
-     * The retention is read when pruning runs: with 0 days a session is pruned
-     * from the second it ended, and a digit string, as `env()` returns one,
-     * counts as its number of days.
+     * The retention is read when pruning runs.
      *
      * @return void
      */
@@ -173,9 +166,7 @@ final class SessionPruningIntegrationTest extends TestCase
     }
 
     /**
-     * A custom model opts in with the trait alone: pruning reads its renamed
-     * columns, and its own global scope still limits what is pruned, so an
-     * ended session the scope excludes is kept.
+     * A custom model prunes through its own columns and global scope.
      *
      * @return void
      */
@@ -206,9 +197,7 @@ final class SessionPruningIntegrationTest extends TestCase
     }
 
     /**
-     * Pruning a session deletes the proofs and the provenance recorded for it
-     * in the same chunk, and keeps those of the sessions it keeps; it reports
-     * the sessions it pruned, not their proofs.
+     * Pruning a session deletes its proofs and provenance in the same chunk.
      *
      * @return void
      */
@@ -234,9 +223,7 @@ final class SessionPruningIntegrationTest extends TestCase
     }
 
     /**
-     * A pending session whose credential expired at or before the cutoff ended
-     * then, so it is pruned with its proofs and provenance like any ended
-     * session; a pending one still waiting is kept with its own.
+     * An expired pending session is pruned with its proofs.
      *
      * @return void
      */
@@ -330,10 +317,8 @@ final class SessionPruningIntegrationTest extends TestCase
     }
 
     /**
-     * A session model that soft-deletes has its ended sessions deleted outright
-     * with their proofs and provenance, as Laravel's mass pruning
-     * force-deletes, rather than marked deleted, which would leave them out of
-     * every later prune and keep them for good.
+     * A soft-deleting model has its ended sessions force-deleted, or later
+     * prunes would skip them.
      *
      * @return void
      */

@@ -21,10 +21,8 @@ use SineMacula\Laravel\Authentication\Sessions\PendingSession;
 use Tests\Fixtures\Proofs\UndescribedSignInProof;
 
 /**
- * Unit tests for what judging the current session again after a change of the
- * factor package's did to it: each outcome named once, by its status and its
- * one predicate, and the pending session and credential carried by `pending`
- * alone.
+ * Unit tests for what judging the current session again after a factor change
+ * did to it.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

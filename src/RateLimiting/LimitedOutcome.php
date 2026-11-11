@@ -5,11 +5,8 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\RateLimiting;
 
 /**
- * How a flow whose outcomes an enum of its own names ended (`outcome`), with
- * the seconds until it may be tried again once it was `rate_limited`: what a
- * check of a verification code (`VerificationOutcome`) and a confirmation of a
- * change of identifier (`IdentifierChangeOutcome`) answer, so a throttled one
- * can be answered with its `Retry-After`.
+ * How a rate-limited flow ended, with the seconds until it may be retried once
+ * it was `rate_limited`.
  *
  * @template-covariant TOutcome of \BackedEnum
  *

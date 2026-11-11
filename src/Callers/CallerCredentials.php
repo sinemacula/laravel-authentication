@@ -23,30 +23,8 @@ use SineMacula\Laravel\Authentication\Sessions\PendingSession;
 use SineMacula\Laravel\Authentication\Sessions\RefreshCredential;
 
 /**
- * The caller of a request, read from the credential its route authenticates
- * with (`DeclaredCredential`), behind `Auth::caller()`.
- *
- * The access credential is the guard's own: its identity, principal, active
- * tenant and session, the guard reporting its own failures. The refresh
- * credential is the one the guard's refresh token transport extracts
- * (`RefreshTokenTransport::extract()`), judged with the request's client,
- * proven and admitted as a refresh would be and judged against the tenant's
- * authentication policy as a refresh judges it, without rotating or writing,
- * though a replayed one revokes its session. The pending credential is the one
- * `PendingCredential::extract()` reads from the configured body field, never
- * the query string or a header, and must name a live pending session of the
- * guard that allows the declared action now. The request's client is read only
- * once the request carries a refresh or pending credential. A refresh or
- * pending credential the request carries and that is refused is reported once,
- * with `AuthenticationFailed` and its reason (flow `refresh`, or `sign_in` with
- * `pending_invalid` or `pending_action_not_allowed`), never the credential; a
- * request that carries none is not reported.
- *
- * The caller is read only when it is asked for, and at most once per request
- * for a guard and a credential: it is kept on the request's attributes under
- * that key, so a request that asks several times proves the credential once, a
- * guard changed later in the request is read afresh, and nothing outlives the
- * request.
+ * Reads a request's caller from the credential its route declares, at most once
+ * per request, behind `Auth::caller()`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -111,10 +89,8 @@ final readonly class CallerCredentials
     }
 
     /**
-     * The caller the guard authenticates the request as, or `null` for a guest,
-     * with the scopes its credential grants: an API key's stored list or a
-     * client-credentials token's validated list (`[]` for none), and `null` for
-     * a human's access token, which no credential limits.
+     * The caller the guard authenticates the request as, with the scopes its
+     * credential grants, or `null` for a guest.
      *
      * @param  string  $guard
      * @return ?\SineMacula\Laravel\Authentication\Callers\Caller
@@ -182,9 +158,8 @@ final readonly class CallerCredentials
     }
 
     /**
-     * The caller the request's pending credential names, when its pending
-     * session allows the action now, or `null` when it carries none or it is
-     * refused, which is reported.
+     * The caller the request's pending credential names, or `null` when it
+     * carries none or it is refused, which is reported.
      *
      * @param  \Illuminate\Http\Request  $request
      * @param  string  $guard
@@ -217,9 +192,7 @@ final readonly class CallerCredentials
 
     /**
      * Why the pending credential may not be read for the action, or `null` when
-     * it may: `pending_invalid` when it names no live pending session of the
-     * guard, `pending_action_not_allowed` when the session does not allow the
-     * action now.
+     * it may.
      *
      * @param  ?\SineMacula\Laravel\Authentication\Sessions\PendingSession  $pending
      * @param  ?\SineMacula\Laravel\Authentication\Sessions\Enums\PendingAction  $action
@@ -235,9 +208,8 @@ final readonly class CallerCredentials
     }
 
     /**
-     * The context of a refused pending credential: the guard and the client,
-     * with the session it names and what that session records, when it names
-     * one.
+     * The context of a refused pending credential, with the session it names,
+     * if any.
      *
      * @param  \Illuminate\Http\Request  $request
      * @param  string  $guard

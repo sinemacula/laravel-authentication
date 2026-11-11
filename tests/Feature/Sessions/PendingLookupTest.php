@@ -37,10 +37,8 @@ use Tests\Integration\Fixtures\WideKeySession;
 use Tests\TestCase;
 
 /**
- * Feature tests for the lookup of the live pending session of a guard a pending
- * credential names, against a real database. The pending-session actions are
- * tested in `PendingSessionsTest` and the passkey registration on a pending
- * sign-in in `PasskeyServiceTest`.
+ * Feature tests for looking up the live pending session a pending credential
+ * names, against a real database.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -94,9 +92,8 @@ final class PendingLookupTest extends TestCase
     }
 
     /**
-     * A live credential finds its session, its owner and no principal (the
-     * sign-in has not chosen one for the identity that is its own), as a string
-     * or as a `Secret`, locked or not.
+     * A live credential finds its session and owner, as a string or a `Secret`,
+     * locked or not.
      *
      * @return void
      *
@@ -141,10 +138,8 @@ final class PendingLookupTest extends TestCase
     }
 
     /**
-     * A credential with no key or secret, a key longer than any the session can
-     * have, a session that is unknown, a wrong secret, or a session that is
-     * expired, revoked or no longer pending names no session, whether the read
-     * is locked or not.
+     * A credential that names no live pending session finds nothing, locked or
+     * not.
      *
      * @param  string  $case
      * @return void
@@ -199,9 +194,8 @@ final class PendingLookupTest extends TestCase
     }
 
     /**
-     * A credential without a key or a secret, or a key longer than 255
-     * characters, is rejected without a query; a key of 255 characters, however
-     * many bytes they take, is looked up.
+     * Only a credential with a key and a secret, and a key of at most 255
+     * characters, is looked up.
      *
      * @return void
      *
@@ -246,9 +240,8 @@ final class PendingLookupTest extends TestCase
     }
 
     /**
-     * Finding with the lock reads the session's row locked for update, and
-     * without it reads the row plain. On SQLite, which takes no row lock, the
-     * lock is written into the SQL as a comment.
+     * The row is locked for update only when asked; SQLite takes no row lock,
+     * so there the lock is an SQL comment.
      *
      * @return void
      *
@@ -316,11 +309,8 @@ final class PendingLookupTest extends TestCase
     }
 
     /**
-     * Rows of `[recorded principal, principal the resolver answers]`: the
-     * identity's own principal resolved from its recorded id, and the ways the
-     * recorded principal stops being the session's: it no longer resolves, the
-     * resolver answers another than the one recorded, or one that is not the
-     * owner's.
+     * Rows of `[recorded principal, principal the resolver answers]` for the
+     * owner's principal and each way it stops being the session's.
      *
      * @return iterable<string, array{0: string, 1: ?string, 2: bool}>
      */
@@ -335,9 +325,8 @@ final class PendingLookupTest extends TestCase
     }
 
     /**
-     * The principal a session records is resolved from the recorded id for the
-     * owner, and the session is found only while that very principal, the
-     * owner's, is the one resolved.
+     * The session is found only while its recorded principal resolves as the
+     * owner's own.
      *
      * @param  string  $recorded
      * @param  ?string  $answers

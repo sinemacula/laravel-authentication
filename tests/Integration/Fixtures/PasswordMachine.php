@@ -17,10 +17,8 @@ use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 
 /**
- * A non-human identity over the `password_identities` table that could
- * otherwise be sent a reset: it holds a password, a verified email address and
- * Laravel's password reset notification, so only its being a machine refuses
- * it.
+ * Non-human identity that holds everything a password reset needs, so only its
+ * being a machine refuses one.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

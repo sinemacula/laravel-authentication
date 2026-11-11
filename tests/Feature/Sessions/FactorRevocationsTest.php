@@ -69,14 +69,8 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\StubNonModelSession;
 
 /**
- * Feature tests of the mandatory triggers the factor package calls, through the
- * session service against a real database: a factor's removal ends the
- * identity's other sessions and judges the current one again without the
- * factor, voiding only that session's proofs made with it, keeping it, taking
- * it back to pending or revoking it; a reset ends every session; a removed
- * first-factor credential voids nothing; and an addition, a change of the
- * factor package's that removes no factor, judges the current session again the
- * same way, voiding nothing and touching no other session.
+ * Feature tests of the mandatory triggers the factor package calls when an
+ * identity's factors change.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -131,11 +125,8 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * A removal ends every other session of the identity and keeps the current
-     * one while nothing is asked of it: only the current session's proofs made
-     * with the removed factor are voided, after its issuance guard is written,
-     * another factor's stay, and the other sessions' proofs are left as they
-     * are, as are their guards.
+     * A removal ends the other sessions and voids only the current one's proofs
+     * with the factor.
      *
      * @return void
      *
@@ -181,8 +172,8 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * Without a current session, every session of the identity ends and no
-     * proof is voided.
+     * Without a current session every session of the identity ends and no proof
+     * is voided.
      *
      * @return void
      *
@@ -204,11 +195,7 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * A current session that met the identity's requirement only through the
-     * removed factor returns to pending, waiting on a further factor: its
-     * access and refresh tokens stop at once, `SessionReturnedToPending`
-     * reports the `factor_change` flow, and its pending credential takes a
-     * further factor that activates it again.
+     * A current session short of a further factor returns to pending.
      *
      * @return void
      *
@@ -254,8 +241,8 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * Rows of `[what is written to the current session's row while the removal
-     * judges it, whether the removal's own revocation ends it]`.
+     * Rows of `[write to the current session during the removal, whether the
+     * removal revokes it]`.
      *
      * @return iterable<string, array{0: array<string, ?string>, 1: bool}>
      */
@@ -266,11 +253,8 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * A current session whose row is written while the removal judges it short
-     * of a further factor (here by a check that writes it inside the removal's
-     * transaction) is never left active: the return to pending misses its
-     * compare-and-swap, so the removal revokes it as `factor_removed`, and
-     * counts it only when that revocation was its own.
+     * A current session written during its judgement is revoked, never left
+     * active.
      *
      * @param  array<string, ?string>  $write
      * @param  bool  $ownRevocation
@@ -298,8 +282,8 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * A current session that still meets the requirement with another factor
-     * stays active, its tokens working.
+     * A session that still meets the requirement with another factor stays
+     * active.
      *
      * @return void
      *
@@ -321,9 +305,8 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * The tenant's further factor is judged too: a session that met its
-     * tenant's requirement through the removed factor returns to pending,
-     * recording the version the tenant answers now.
+     * A session that met its tenant's requirement through the removed factor
+     * returns to pending.
      *
      * @return void
      *
@@ -350,9 +333,8 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * Rows of `[guard, email, what happened to the session meanwhile]`: a
-     * current session that nothing it could do in place would take back to
-     * meeting what it is asked.
+     * Rows of `[guard, email, what happened to the session meanwhile]` for a
+     * session no longer admitted.
      *
      * @return iterable<string, array{0: string, 1: string, 2: \Closure(): void}>
      */
@@ -372,10 +354,8 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * A current session that is no longer admitted as a refresh admits it, or
-     * whose tenant now requires a connection, is revoked as `factor_removed`
-     * and counted, and its revocation reported with the principal the session
-     * records.
+     * A current session that can no longer be admitted is revoked as
+     * `factor_removed`.
      *
      * @param  string  $guard
      * @param  string  $email
@@ -442,8 +422,8 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * A current session that has meanwhile been revoked, ended (pending or not)
-     * or been replaced is left as it is: neither voided, judged nor counted.
+     * A current session that ended meanwhile is neither voided, judged nor
+     * counted.
      *
      * @param  \Closure(\SineMacula\Laravel\Authentication\Sessions\SignedInSession): void  $meanwhile
      * @return void
@@ -474,10 +454,8 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * A current session that is pending, live and still the session given has
-     * its issuance guard written and its proofs made with the removed factor
-     * voided, another factor's kept, and stays pending as it was: nothing else
-     * of it is written, judged or counted.
+     * A pending current session has the factor's proofs voided and stays
+     * pending.
      *
      * @return void
      *
@@ -508,9 +486,7 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * A pending session waiting only on the principal choice, having met its
-     * further factor with the factor removed, no longer meets it: the choice it
-     * makes next leaves it pending on a further factor, not active.
+     * A choice made after the removal stays pending on a further factor.
      *
      * @return void
      *
@@ -557,9 +533,8 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * The guard bound to the current session forgets it once the removal that
-     * took it back to pending commits, not before; one that stays active stays
-     * bound.
+     * The guard forgets a current session returned to pending once the removal
+     * commits.
      *
      * @return void
      *
@@ -602,9 +577,8 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * A current session that stays active keeps the guard bound to it, and a
-     * guard bound to another session of the identity is not touched by the
-     * removal's recheck.
+     * A current session that stays active stays bound, and other bindings are
+     * untouched.
      *
      * @return void
      *
@@ -621,12 +595,7 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * A current session that stays active once its proofs made with the factor
-     * are voided has the context of the guard bound to it forgotten at once:
-     * the rest of the caller's transaction no longer holds the further factor.
-     * A rollback forgets it again, so the context holds the factor once more;
-     * once the removal commits, the context still lacks it and the session
-     * stays bound.
+     * A voided proof is forgotten from the bound guard's context at once.
      *
      * @return void
      *
@@ -671,9 +640,7 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * Rows of `[the removal's arguments, the message expected]`: a factor that
-     * names nothing, one too long, and a current session that is not one of the
-     * identity's on this guard.
+     * Rows of `[the removal's arguments, the message expected]`.
      *
      * @formatter:off
      *
@@ -698,9 +665,7 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * A removal whose factor names nothing, or whose current session is not one
-     * of the identity's stored sessions on this guard, is refused before
-     * anything is written or reported.
+     * A removal with invalid arguments is refused before anything is written.
      *
      * @param  \Closure(self, \SineMacula\Laravel\Authentication\Sessions\SignedInSession): array{0: string, 1: ?\SineMacula\Laravel\Authentication\Contracts\Session}  $arguments
      * @param  string  $message
@@ -763,9 +728,8 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * An identity that does not live on the storage connection is refused
-     * before anything is written: its cutoff and its sessions would not end in
-     * the factor package's transaction.
+     * An identity off the storage connection is refused before anything is
+     * written.
      *
      * @param  \Closure(\SineMacula\Laravel\Authentication\Contracts\Identity): mixed  $trigger
      * @param  string  $flow
@@ -796,8 +760,8 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * A reset ends every session of the identity, the current one included, as
-     * `factor_reset`, and reports the bulk revocation with that reason.
+     * A reset ends every session of the identity as `factor_reset`, the current
+     * one included.
      *
      * @return void
      *
@@ -816,10 +780,7 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * A reset forgets the binding of a guard bound to the identity once it
-     * commits, not before and not when it rolls back, so the rest of the
-     * request is not authenticated as a session it ended; a guard bound to
-     * another identity stays bound.
+     * A reset forgets a guard bound to the identity once it commits.
      *
      * @return void
      *
@@ -860,10 +821,8 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * A removal given no current session ends every session of the identity, so
-     * it forgets the binding of a guard bound to the identity once it commits,
-     * as a reset does: not before and not when it rolls back, and a guard bound
-     * to another identity stays bound.
+     * A removal without a current session forgets a guard bound to the identity
+     * once it commits.
      *
      * @return void
      *
@@ -904,8 +863,7 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * Rows of `[a change that ends every session of the current session's
-     * identity]`.
+     * Rows of a change that ends every session of the identity.
      *
      * @return iterable<string, array{0: \Closure(\SineMacula\Laravel\Authentication\Sessions\SignedInSession): mixed}>
      */
@@ -918,9 +876,7 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * A `SessionRevoked` listener that throws once a change ending every
-     * session of the identity commits cannot leave the guard bound to the
-     * identity: the binding is forgotten before any session is reported.
+     * A listener that throws leaves the guard unbound from the identity.
      *
      * @param  \Closure(\SineMacula\Laravel\Authentication\Sessions\SignedInSession): mixed  $ending
      * @return void
@@ -942,10 +898,8 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * A `SessionRevoked` listener that throws on the other session a removal
-     * ended (here one still pending) cannot leave the guard bound to the
-     * current session the removal returned to pending: the binding is forgotten
-     * before any session is reported.
+     * A listener that throws leaves the guard unbound from a session returned
+     * to pending.
      *
      * @return void
      *
@@ -970,9 +924,8 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * A `SessionRevoked` listener that throws on the current session a removal
-     * revoked cannot leave the guard bound to it: the binding is forgotten
-     * before the session is reported.
+     * A listener that throws leaves the guard unbound from a revoked current
+     * session.
      *
      * @return void
      *
@@ -1014,12 +967,8 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * A change of the factor package's that leaves an active current session
-     * short of a further factor (here its identity's first factor confirmed,
-     * which the factor policy now asks for) returns it to pending: its access
-     * and refresh tokens stop at once, `SessionReturnedToPending` reports the
-     * `factor_change` flow, and its new pending credential takes a further
-     * factor that activates it again under the same key.
+     * A factor change that leaves the current session short returns it to
+     * pending.
      *
      * @return void
      *
@@ -1058,9 +1007,7 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * The tenant's further factor is judged after a change too: a session its
-     * tenant let in on its password alone, whose tenant now asks for a further
-     * factor, returns to pending, recording the version the tenant answers now.
+     * A change judges the tenant's further factor too.
      *
      * @return void
      *
@@ -1089,11 +1036,8 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * A change and a removal judge the current session under its row's lock, so
-     * every read of its proofs either makes, the first factor and the proofs
-     * both its tenant's further factor and the identity's own are judged on,
-     * takes a shared lock where the engine takes one; the first factor is read
-     * so too when the tenant asks for no further factor.
+     * A change and a removal read the current session's proofs with a shared
+     * lock.
      *
      * @return void
      *
@@ -1136,7 +1080,7 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * Rows of `[the change made]`: every change the factor package names.
+     * Rows of every change the factor package names.
      *
      * @return iterable<string, array{0: \SineMacula\Laravel\Authentication\Factors\Enums\FactorChangeMade}>
      */
@@ -1148,11 +1092,7 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * Whatever the change, a current session it leaves short returns to pending
-     * in the same way, and nothing else is written or reported: the identity's
-     * other sessions, active or pending, keep their rows (status, digests,
-     * issuance guards), its pending identifier changes are kept, its own row is
-     * left as it was, and no proof is voided.
+     * Every change judges only the current session and writes nothing else.
      *
      * @param  \SineMacula\Laravel\Authentication\Factors\Enums\FactorChangeMade  $change
      * @return void
@@ -1202,10 +1142,8 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * A current session that still meets what it is asked stays active: only
-     * its issuance guard is written, before anything reads its proofs; no proof
-     * is voided, nothing is reported, its tokens keep working, and the guard
-     * bound to it stays bound with the authentication context it held.
+     * A current session that still meets what it is asked stays active and
+     * bound.
      *
      * @return void
      *
@@ -1251,9 +1189,8 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * Rows of `[guard, email, what happened to the session meanwhile, the
-     * change made, the reason its revocation records]`: each session no longer
-     * admitted, after a change other than a removal and after a removal.
+     * Rows of `[guard, email, what happened meanwhile, change, revocation
+     * reason]`.
      *
      * @formatter:off
      *
@@ -1276,11 +1213,7 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * A current session that is no longer admitted as a refresh admits it, or
-     * whose tenant now requires a connection, is revoked by the change, with
-     * `factor_removed` after a removal and `factor_changed` after any other
-     * change, stored on its row and reported once with the principal it
-     * records; the identity's other session is left as it is.
+     * A current session no longer admitted is revoked with the change's reason.
      *
      * @param  string  $guard
      * @param  string  $email
@@ -1327,8 +1260,8 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * Rows of `[what is written to the current session's row while the change
-     * judges it, the status answered, the reason its row records]`.
+     * Rows of `[write to the current session during the change, status,
+     * recorded reason]`.
      *
      * @return iterable<string, array{0: array<string, ?string>, 1: \SineMacula\Laravel\Authentication\Sessions\Enums\FactorChangeStatus, 2: string}>
      */
@@ -1339,11 +1272,8 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * A current session whose row is written while the change judges it short
-     * of a further factor is never left active: the return to pending misses
-     * its compare-and-swap, so the change revokes it as `factor_changed` and
-     * answers `revoked`, or, when another writer had revoked it meanwhile,
-     * keeps that revocation, reports none of its own and answers `skipped`.
+     * A current session written during the change's judgement is never left
+     * active.
      *
      * @param  array<string, ?string>  $write
      * @param  \SineMacula\Laravel\Authentication\Sessions\Enums\FactorChangeStatus  $status
@@ -1373,8 +1303,8 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * Rows of `[what made the current session other than a live, active session
-     * of the identity meanwhile]`: each ended session, and a live pending one.
+     * Rows of what made the current session other than live and active
+     * meanwhile.
      *
      * @return iterable<string, array{0: \Closure(\SineMacula\Laravel\Authentication\Sessions\SignedInSession): void}>
      */
@@ -1388,10 +1318,7 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * A current session that has meanwhile been revoked, ended, replaced or
-     * returned to pending is skipped: its row, issuance guard and proofs are
-     * left as they are, and nothing is reported; a pending one is judged at its
-     * next action instead.
+     * A current session that is no longer live and active is skipped.
      *
      * @param  \Closure(\SineMacula\Laravel\Authentication\Sessions\SignedInSession): void  $meanwhile
      * @return void
@@ -1423,8 +1350,8 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * Rows of `[the current session given]`: one that is not one of the
-     * identity's stored sessions on this guard.
+     * Rows of a current session that is not one of the identity's on this
+     * guard.
      *
      * @return iterable<string, array{0: \Closure(\Tests\Feature\Sessions\FactorRevocationsTest): \SineMacula\Laravel\Authentication\Contracts\Session}>
      */
@@ -1436,9 +1363,8 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * A change whose current session is not one of the identity's stored
-     * sessions on this guard is refused, naming the change, before anything is
-     * written or reported.
+     * A change whose current session is not the identity's is refused before
+     * any write.
      *
      * @param  \Closure(self): \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @return void
@@ -1468,8 +1394,7 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * An identity that does not live on the storage connection is accepted: a
-     * change writes nothing of the identity, so only its session is judged.
+     * An identity off the storage connection is accepted for a change.
      *
      * @return void
      *
@@ -1491,9 +1416,7 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * The guard bound to the current session forgets it once the change that
-     * returned it to pending commits, not before; a change rolled back keeps it
-     * bound and the session active.
+     * The guard forgets a session returned to pending once the change commits.
      *
      * @return void
      *
@@ -1548,8 +1471,8 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * Rows of `[the event whose listener throws, what makes the change end the
-     * current session]`.
+     * Rows of `[event whose listener throws, what makes the change end the
+     * session]`.
      *
      * @return iterable<string, array{0: class-string, 1: \Closure(): void}>
      */
@@ -1566,9 +1489,8 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * A listener that throws on the report of the current session the change
-     * returned to pending or revoked cannot leave the guard bound to it: the
-     * binding is forgotten before the session is reported.
+     * A listener that throws leaves the guard unbound from a session the change
+     * ended.
      *
      * @param  class-string  $event
      * @param  \Closure(): void  $ending
@@ -1595,11 +1517,7 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * Called after `factorRemoved()` in the same change and the same second, a
-     * session the removal returned to pending is skipped, its pending
-     * credential (the removal's) still taking a further factor; one the removal
-     * revoked is skipped too; one the removal kept is judged again on the same
-     * proofs and stays active.
+     * A change after a removal in the same second finds what the removal left.
      *
      * @return void
      *
@@ -1650,10 +1568,8 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * Called after `factorRemoved()` in the same change but a second later, a
-     * session the removal kept is judged at the change's own time: the proof
-     * that met a further factor's maximum age at the removal no longer does, so
-     * it returns to pending, its credential only on the change's result.
+     * A change a second after a removal returns a session the removal kept to
+     * pending.
      *
      * @return void
      *
@@ -1774,8 +1690,8 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * A session of the `api` guard that declares the Eloquent session contract
-     * without being an Eloquent model.
+     * A session that declares the Eloquent session contract without being a
+     * model.
      *
      * @return \SineMacula\Laravel\Authentication\Contracts\EloquentSession
      */
@@ -1789,8 +1705,8 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * A requirement check that writes the columns given to the row of the
-     * session with the key given, then finds the requirement unmet.
+     * A requirement check that writes the columns to the session's row, then
+     * finds it unmet.
      *
      * @param  mixed  $key
      * @param  array<string, ?string>  $write
@@ -1832,9 +1748,7 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * A session the identity with the email signed in to with its password now,
-     * seeding the 2D identity when it is the default one and does not exist
-     * yet.
+     * A session the identity with the email signed in to with its password now.
      *
      * @param  string  $guard
      * @param  string  $email
@@ -1856,8 +1770,7 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * Ask every sign-in of the identity for a further factor, met by any
-     * accepted further factor the session holds.
+     * Ask every sign-in of the identity for a further factor.
      *
      * @return void
      */
@@ -1869,7 +1782,7 @@ final class FactorRevocationsTest extends TestCase
 
     /**
      * A session that signed in pending a further factor and was activated with
-     * the factor given.
+     * it.
      *
      * @param  string  $factor
      * @param  string  $guard
@@ -1920,8 +1833,8 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * An accepted further factor's proof, made now with the factor given, for
-     * the session and purpose given.
+     * An accepted further factor's proof, made now, for the session and purpose
+     * given.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  mixed  $sessionId
@@ -2033,8 +1946,8 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * When each proof the session recorded with a factor was voided, by its
-     * factor, `null` for one that still counts.
+     * When each of the session's factor proofs was voided, by factor, or
+     * `null`.
      *
      * @param  mixed  $key
      * @return array<string, ?string>

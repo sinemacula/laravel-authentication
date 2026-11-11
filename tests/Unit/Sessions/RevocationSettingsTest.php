@@ -12,9 +12,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Sessions\RevocationSettings;
 
 /**
- * Unit tests for the revocation settings: each per-event revocation by
- * connection is on unless set, turned off only by `false`, and a value that is
- * not a boolean fails closed under its own key.
+ * Unit tests for the revocation settings.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -115,8 +113,7 @@ final class RevocationSettingsTest extends TestCase
 
     /**
      * A reason no setting turns off always ends sessions, whatever is set under
-     * its name: a factor removed, and a link's widened scope even with the
-     * link's own removal turned off.
+     * its name.
      *
      * @return void
      */

@@ -9,9 +9,8 @@ use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
 
 /**
- * Plain-object `Session` fixture used by the event serialisation round-trip
- * tests. Intentionally NOT an Eloquent model so the `SerializesModels` trait
- * leaves the instance untouched during serialize.
+ * A plain-object `Session` for the event serialisation tests, so
+ * `SerializesModels` leaves it as it is.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

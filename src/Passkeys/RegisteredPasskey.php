@@ -9,14 +9,7 @@ use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
 
 /**
  * A passkey a registration verified, as the factor gate sees it before its row
- * is written: the id the row will have, its credential id as canonical unpadded
- * base64url (compared byte for byte), the relying party it was registered for,
- * what the registration's own authenticator data showed, and when.
- *
- * The observed properties are the registration's: user presence and
- * verification, backup eligibility and state as its flags reported them,
- * resistance to phishing (the origin and the relying party id were verified),
- * and no key protection, since the registration asks for no attestation.
+ * is written.
  *
  * @api
  *

@@ -24,10 +24,7 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\StubModel;
 
 /**
- * Feature tests of the optional `RevokeSessionsOnDeactivation` listener,
- * registered by the test as an application registers it: turning an identity or
- * a principal from active to inactive revokes its sessions once the update
- * commits.
+ * Feature tests of the optional `RevokeSessionsOnDeactivation` listener.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -200,9 +197,8 @@ final class RevokeSessionsOnDeactivationTest extends TestCase
     }
 
     /**
-     * Deactivating an activatable model that is neither an identity nor a
-     * principal, such as a tenant, cannot end its sessions here: the observer
-     * was registered where it cannot act, which is reported.
+     * Deactivating a model that is neither an identity nor a principal, such as
+     * a tenant, is reported.
      *
      * @return void
      */

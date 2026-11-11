@@ -12,9 +12,8 @@ use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
 
 /**
- * Who a refresh credential the request carries would sign in again, without
- * rotating it: the session it proves, its owner, the principal and the active
- * tenant they are admitted as, and where the credential was read from.
+ * The session, owner, principal and tenant a refresh credential would sign in
+ * again, without rotating it.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

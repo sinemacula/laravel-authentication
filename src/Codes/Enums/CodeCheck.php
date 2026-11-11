@@ -19,9 +19,8 @@ enum CodeCheck: string
     // The code matched the live code, which this check used up
     case ACCEPTED = 'accepted';
 
-    // A check that read a live issuance could not count an attempt against it,
-    // as it was replaced or deleted meanwhile, or no fresher read says why; no
-    // attempt was counted
+    // The issuance read was replaced or deleted before an attempt could be
+    // counted against it
     case INVALID = 'invalid';
 
     // No code was issued for the binding, it was replaced, or the challenge or

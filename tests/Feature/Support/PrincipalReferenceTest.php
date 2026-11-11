@@ -105,9 +105,7 @@ final class PrincipalReferenceTest extends TestCase
     }
 
     /**
-     * `PrincipalReference` is a static utility; instantiation is disallowed
-     * through the private constructor. Reflection invokes it so the line is
-     * covered while still documenting the access modifier.
+     * The constructor is private.
      *
      * @return void
      *

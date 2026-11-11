@@ -10,24 +10,8 @@ use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
 
 /**
- * Everything an additional-factor policy decides on: the application, who is
- * signing in, the whole proof of the first factor they signed in with, and the
- * client they came from.
- *
- * The policy is asked about the identity, after its first factor is verified
- * and before any principal is chosen, so it names no principal or tenant: a
- * tenant that asks more of a session says so through its tenant authentication
- * policy, asked for the destination tenant once a principal is selected.
- *
- * The first factor is the proof as the session records it (or, at sign-in, will
- * record it): its method, channel, observed properties, `amr` values and time,
- * so a policy can ask more of a sign-in by one channel than another.
- *
- * `$provenSession` is set only when the client proved, with its current refresh
- * token, that it holds an existing session of this application on the same
- * identity, which the sign-in will then replace with a new session: the new
- * session has a new identifier, and nothing a policy kept about the proven one
- * transfers to it. A session merely named by the caller never appears here.
+ * Everything an additional-factor policy decides on, once the first factor is
+ * verified and before any principal is chosen.
  *
  * @api
  *

@@ -19,9 +19,7 @@ use Tests\Integration\Fixtures\ObserveGuardJob;
 use Tests\TestCase;
 
 /**
- * Integration tests for the testing helpers around a queued job a worker runs
- * against the database queue: the job starts signed out, as in production, and
- * the request the test sends after it is acted as again.
+ * Integration tests for the testing helpers around a queued job a worker runs.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -74,8 +72,8 @@ final class QueuedJobInteractsWithAuthenticationContextTest extends TestCase
     }
 
     /**
-     * Request, job, request: the job a worker runs between two requests starts
-     * signed out, and both requests are authenticated as the identity acted as.
+     * A job run between two requests starts signed out, and both requests are
+     * authenticated as the identity acted as.
      *
      * @return void
      */

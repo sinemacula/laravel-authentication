@@ -7,22 +7,8 @@ namespace SineMacula\Laravel\Authentication\Secrets;
 use SineMacula\Laravel\Authentication\Exceptions\SecretNotRevealedException;
 
 /**
- * A secret the package hands out: an access or refresh token, a pending
- * credential, an API key, a one-time code, a reset token or a signed link.
- *
- * The plaintext is held in a private `\SensitiveParameterValue` and leaves only
- * through `reveal()`, called where the secret is to be sent. Nothing else gives
- * it up: casting the secret to a string, encoding it as JSON, serialising it
- * (into a queued job, a cache or a session, say) and unserialising one each
- * throw `SecretNotRevealedException`, so a secret is never sent, stored or
- * logged by accident, nor replaced by a placeholder a client would take for the
- * real value. PHP's `var_dump` and `print_r` and Symfony's VarDumper (behind
- * Laravel's `dump` and `dd` helpers) show `[redacted]`, and `var_export` an
- * empty `\SensitiveParameterValue`, so neither a dump nor an exception report
- * that records a frame's arguments shows the plaintext.
- *
- * `SecretResponse::json()` reveals every secret in a response body and marks
- * the response not to be stored.
+ * A secret the package hands out, whose plaintext leaves only through
+ * `reveal()`.
  *
  * @api
  *
@@ -102,8 +88,7 @@ final readonly class Secret implements \JsonSerializable, \Stringable
     }
 
     /**
-     * The plaintext, to send where it belongs: a response body, a cookie, a
-     * message to its recipient. Never log it.
+     * The plaintext, to send where it belongs. Never log it.
      *
      * @return string
      */

@@ -5,15 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Sessions\Enums;
 
 /**
- * The actions a pending credential may be used for, each with a stable name: a
- * pending session allows only those of its first outstanding requirement, and
- * nothing because of a route's purpose.
- *
- * The `mfa.*` names follow the further-factor package's actions, spelt with
- * this package's identifiers (`enrollment`), so the two bootstrap actions'
- * values differ from that package's and the integration between them maps one
- * onto the other by case, not by value; listing and choosing principals are
- * this package's own.
+ * The actions a pending credential may be used for.
  *
  * @api
  *
@@ -34,7 +26,7 @@ enum PendingAction: string
     // Start enrolling a factor when one is required and the identity has none
     case START_BOOTSTRAP_ENROLLMENT = 'mfa.start_bootstrap_enrollment';
 
-    // Confirm that enrolment, receiving its secrets and any recovery codes
+    // Confirm that enrolment
     case CONFIRM_BOOTSTRAP_ENROLLMENT = 'mfa.confirm_bootstrap_enrollment';
 
     // List the principals the identity may choose from

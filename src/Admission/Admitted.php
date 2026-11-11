@@ -10,14 +10,7 @@ use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 
 /**
- * What the guard admitted, whichever flow asked (a sign-in, a refresh, a bearer
- * token, an API key, a client credentials exchange): the active identity, the
- * active principal it acts as, the active tenant the session acts in (the
- * principal's own unless a sign-in or a switch chose another; without a
- * session, always the principal's own), if any, and the session the flow is on,
- * once one is known: a sign-in's is the session the client proved it holds,
- * which its new session replaces. The principal's own tenant is derived from
- * the principal.
+ * The identity, principal, active tenant and session a guard flow admitted.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

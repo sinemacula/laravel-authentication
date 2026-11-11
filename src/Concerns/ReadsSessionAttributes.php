@@ -7,9 +7,7 @@ namespace SineMacula\Laravel\Authentication\Concerns;
 use Carbon\CarbonInterface;
 
 /**
- * Attribute readers behind the `ActsAsSession` accessors: state that must be
- * loaded, informational values that may be absent, and conversion of stored
- * timestamps and strings.
+ * Attribute readers behind the `ActsAsSession` accessors.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -76,14 +74,6 @@ trait ReadsSessionAttributes
     /**
      * The earliest instant showing the same wall-clock time as the given time
      * in its timezone.
-     *
-     * Times are stored without an offset, so one in the hour that repeats when
-     * the clocks go back could be either pass through it, and PHP resolves it
-     * to the first pass in some timezones and to the second in others. Taking
-     * the first pass means the ambiguity can only end a session or a grace
-     * window early, never late. The first pass is found from the offset a day
-     * earlier, before any change of the clocks that could have made the time
-     * ambiguous.
      *
      * @param  \Carbon\CarbonInterface  $time
      * @return \Carbon\CarbonInterface

@@ -5,15 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Proofs\Enums;
 
 /**
- * The kind of channel a proof was made over: a password, a code sent by text
- * message or email, an authenticator app, a passkey, an external provider, the
- * application's own account recovery, or one the method did not name.
- *
- * `recovery` is a first-factor channel only: `SessionService::start()` records
- * it, and `ProofAcceptance` refuses it (`proof_invalid`) on any further factor,
- * step-up or satisfied pending session, so it never counts as multifactor.
- *
- * The values are the further-factor package's own.
+ * The kind of channel a proof was made over.
  *
  * @api
  *

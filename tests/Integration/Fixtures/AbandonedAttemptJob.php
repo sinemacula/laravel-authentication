@@ -11,10 +11,8 @@ use Illuminate\Support\Facades\Auth;
 use SineMacula\Laravel\Authentication\Sessions\Methods\Rehashing;
 
 /**
- * A queued job whose `attemptWhen()` on Laravel's `web` guard validates the
- * credentials and then throws from its callback, which the job catches: the
- * attempt never ends, so the user it validated stays marked for the rest of the
- * job.
+ * Queued job whose `web` guard `attemptWhen()` throws from its callback after
+ * validating, leaving the validated user marked.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

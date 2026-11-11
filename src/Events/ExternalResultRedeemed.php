@@ -7,24 +7,8 @@ namespace SineMacula\Laravel\Authentication\Events;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 
 /**
- * Dispatched when a result an external identity provider verified was redeemed:
- * an adapter's `signInExternally()` wrote its session, active or pending
- * (`sign_in`), or its `reauthenticateExternally()` issued the session a new
- * access token (`reauthentication`).
- *
- * Dispatched once the redemption commits on the session's own connection, after
- * the events that report the session itself (`SessionCreated` and `SignedIn`,
- * `SessionPending`, or `Reauthenticated`), and never for a redemption that is
- * rolled back. A refused redemption dispatches `AuthenticationFailed` instead.
- *
- * The context carries the guard, the client, the identity, the principal and
- * the tenant as far as the redemption established them (a pending sign-in
- * waiting on a choice names no principal), the session, the method
- * `external_provider`, and the connection and the authorisation request's
- * public reference (`connectionId`, `requestReference`, when the result had
- * one), so a listener correlates it with the provider-side completion that
- * reported the same reference. The session's own events do not carry them;
- * they correlate with this one by the session's identifier.
+ * Dispatched once the redemption of a result an external identity provider
+ * verified is committed.
  *
  * @api
  *

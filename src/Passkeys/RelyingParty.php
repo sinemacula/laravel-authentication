@@ -7,21 +7,8 @@ namespace SineMacula\Laravel\Authentication\Passkeys;
 use Illuminate\Contracts\Config\Repository;
 
 /**
- * The WebAuthn relying party a guard's passkeys belong to: its id, which every
- * credential registered through the guard is scoped to, the name a browser
- * shows, and the exact origins its ceremonies may run on.
- *
- * Read from the guard's `passkeys` block on its `config/auth.php` entry over
- * the package's `authentication.passkeys.relying_party`, where a key present in
- * the guard's block wins. The id must be a lower-case host name, not an IP
- * address; the name a non-empty string (by default `app.name`); and each origin
- * `https://host[:port]`, or `http://localhost[:port]` for development, in lower
- * case, whose host is the id or a subdomain of it, as WebAuthn requires of an
- * origin its relying party id is scoped to. Whether the id is a public suffix
- * is not checked: the package does not carry the public suffix list, so an
- * application must not name one. Anything else, or an unknown key, fails closed
- * with an `InvalidArgumentException` naming the guard and the key. Nothing is
- * cached, so a change to the configuration applies at once.
+ * The WebAuthn relying party a guard's passkeys belong to, read from the
+ * guard's `passkeys` block over `authentication.passkeys.relying_party`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -132,9 +119,8 @@ final readonly class RelyingParty
     }
 
     /**
-     * Whether the value is an exact lower-case origin whose host is the relying
-     * party id or a subdomain of it, served over `https`, or over `http` on
-     * `localhost`.
+     * Whether the value is an exact lower-case `https` origin, or `http` on
+     * `localhost`, whose host is the relying party id or a subdomain of it.
      *
      * @param  string  $origin
      * @param  string  $id

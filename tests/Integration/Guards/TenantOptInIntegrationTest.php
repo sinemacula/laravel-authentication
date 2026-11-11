@@ -24,10 +24,8 @@ use Tests\Integration\Fixtures\UncheckedTenantUser;
 use Tests\TestCase;
 
 /**
- * Tenant checks are opt-in: only a tenant whose model implements both `Tenant`
- * and `CanBeActive` is checked. A user whose `tenant` relation points at an
- * ordinary model, or at a `Tenant` that does not opt in, signs in and
- * authenticates bearer requests whether or not that row still exists.
+ * Tests that only a tenant implementing both `Tenant` and `CanBeActive` is
+ * checked.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -99,8 +97,7 @@ final class TenantOptInIntegrationTest extends TestCase
 
     /**
      * A user whose `tenant` relation returns an ordinary team acts within no
-     * tenant: it signs in, its bearer token authenticates, and the guard
-     * reports no tenant.
+     * tenant.
      *
      * @return void
      *
@@ -117,8 +114,7 @@ final class TenantOptInIntegrationTest extends TestCase
     }
 
     /**
-     * A user whose team has been deleted still signs in and authenticates: an
-     * ordinary model is never checked.
+     * A user whose team has been deleted still signs in and authenticates.
      *
      * @return void
      *
@@ -137,9 +133,8 @@ final class TenantOptInIntegrationTest extends TestCase
     }
 
     /**
-     * A user whose tenant does not implement `CanBeActive` still signs in and
-     * authenticates after that tenant is deleted: only a tenant that opts in is
-     * checked.
+     * A user whose tenant does not implement `CanBeActive` still signs in after
+     * that tenant is deleted.
      *
      * @return void
      *

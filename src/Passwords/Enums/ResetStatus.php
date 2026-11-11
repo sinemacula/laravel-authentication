@@ -5,9 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Passwords\Enums;
 
 /**
- * How a password reset ended. An unknown identifier, a wrong, expired or used
- * token or code, and an identity that may not reset its password are all
- * `invalid`, so the answer does not say which.
+ * How a password reset ended.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -21,7 +19,7 @@ enum ResetStatus: string
     // reset its password
     case INVALID = 'invalid';
 
-    // The identifier or the IP address has used up its resets for now
+    // The identifier or the IP address has used up its resets
     case RATE_LIMITED = 'rate_limited';
 
     // The new password breaks the password policy; nothing was used up

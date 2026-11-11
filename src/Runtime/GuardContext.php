@@ -11,19 +11,11 @@ use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 
 /**
- * The collaborators one guard's flows run with: the guard's name, its identity
- * provider and principal resolver, the dispatcher its events go to, the request
- * it serves, and its credential timebox.
+ * The collaborators one guard's flows run with, shared by everything on the
+ * guard.
  *
- * Each guard builds one and keeps it for its life, and everything that runs on
- * the guard holds that same instance. It is mutable on purpose: the guard's
- * `setRequest()`, `setDispatcher()` and `setPrincipalResolver()`, which the
- * container's rebinds and `Event::fake()` reach, rebind it, so a flow built
- * before a rebind follows it. A flow reads a collaborator each time it uses
- * one, never keeping a copy; an operation captures what it reports (the client
- * it came from, its events' payload) when it starts, and a callback deferred to
- * a commit dispatches through `dispatch()`, reaching the dispatcher as it is
- * when the callback runs.
+ * Mutable so a flow built before a container rebind or `Event::fake()` follows
+ * it.
  *
  * @api
  *
@@ -145,8 +137,7 @@ final class GuardContext
     }
 
     /**
-     * Rebind the request the guard serves: for the owning guard's
-     * `setRequest()` only.
+     * Rebind the request the guard serves.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return void
@@ -159,8 +150,7 @@ final class GuardContext
     }
 
     /**
-     * Rebind the dispatcher the guard's events go to: for the owning guard's
-     * `setDispatcher()` only.
+     * Rebind the dispatcher the guard's events go to.
      *
      * @param  \Illuminate\Contracts\Events\Dispatcher  $events
      * @return void
@@ -173,8 +163,7 @@ final class GuardContext
     }
 
     /**
-     * Rebind the resolver the guard maps identities to principals with: for the
-     * owning guard's `setPrincipalResolver()` only.
+     * Rebind the resolver the guard maps identities to principals with.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\PrincipalResolver  $resolver
      * @return void

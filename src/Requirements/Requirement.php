@@ -7,11 +7,8 @@ namespace SineMacula\Laravel\Authentication\Requirements;
 use SineMacula\Laravel\Authentication\Requirements\Enums\RequirementKind;
 
 /**
- * What a session's authentication must include beyond its first factor: a
- * further factor, multifactor authentication, a minimum assurance level, a
- * phishing-resistant authenticator, each optional and each with an optional
- * maximum age. A requirement with none of them asks for nothing and is met by
- * definition; the package never asks a check to judge one.
+ * What a session's authentication must include beyond its first factor; with no
+ * parts it asks for nothing.
  *
  * @api
  *
@@ -44,9 +41,7 @@ final readonly class Requirement
     ) {}
 
     /**
-     * The strictest requirement the given ones make together: every part any of
-     * them has, each with the shortest maximum age any of them gives it, and
-     * the highest minimum level any asks for. None given asks for nothing.
+     * The strictest requirement the given ones make together.
      *
      * @param  self  ...$requirements
      * @return self

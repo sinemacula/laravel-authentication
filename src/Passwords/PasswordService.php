@@ -17,29 +17,8 @@ use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 
 /**
- * The password service of a JWT guard (`Auth::passwords($guard)`): the password
- * policy, changing or establishing a signed-in identity's password, resets, and
- * the trusted call that sets one.
- *
- * `check()` gives the policy's verdict on a new password and `rule()` the
- * Laravel validation rule for a form. `change()` changes a signed-in identity's
- * password with its current one, and `establish()` gives a passwordless one its
- * first on the strength of a recent authentication; both keep the session they
- * were made from and end every other. `sendResetLink()` and `sendResetCode()`
- * send a reset without saying whether anyone holds the identifier, and
- * `reset()` and `resetWithCode()` spend it with the new password, from input
- * read from a request's body only (`RequestBody::fields()` reads it so).
- * `set()` is a trusted call, as `login()` is: the caller has decided the
- * identity may have the password (a registration, a reset or a change the
- * application verified itself), and chooses the flow on the server, never from
- * input, since a registration ends no session. Each applies the policy, and
- * only a password that passes is hashed and stored (see `PasswordWriter`). The
- * policy never applies to the automatic rehash on sign-in.
- *
- * A non-human identity (`MachineIdentity`) has no password, so setting one is a
- * misconfiguration. The service keeps no state between calls: it reads the
- * guard's context and resolves the settings, checker and hasher each time, and
- * ends sessions through the guard's session revocations.
+ * The password service of a JWT guard (`Auth::passwords($guard)`): the policy,
+ * changes, establishments, resets and trusted sets.
  *
  * @api
  *
@@ -68,8 +47,7 @@ final readonly class PasswordService
     ) {}
 
     /**
-     * The policy's verdict on a new password: its length and composition, and
-     * the breached check once those pass.
+     * The policy's verdict on a new password.
      *
      * @param  string  $password
      * @return \SineMacula\Laravel\Authentication\Passwords\PasswordCheck
@@ -84,9 +62,7 @@ final readonly class PasswordService
 
     /**
      * Laravel's `Password` rule with the configured length and composition, for
-     * a form. It runs no breached check and cannot express bcrypt's 72-byte
-     * ceiling or its refusal of a null character: `check()` and `set()` stay
-     * authoritative.
+     * a form; `check()` and `set()` stay authoritative.
      *
      * @return \Illuminate\Validation\Rules\Password
      *
@@ -100,20 +76,7 @@ final readonly class PasswordService
 
     /**
      * Set the identity's password, when it passes the policy, and end the
-     * sessions its flow ends: a change every session but `$except` (the session
-     * the change was made from, when the application keeps it signed in), a
-     * reset every session, a registration none. `PasswordSet` follows once it
-     * commits. A password that breaks the policy writes nothing and reports
-     * nothing: the result says which rules it breaks.
-     *
-     * The identity must be an Eloquent model, stored already for a change or a
-     * reset (only a registration may insert it); a registration sets only a
-     * first password, so a stored identity it is given must have none yet;
-     * `$except` is for a change only; and an establishment is `establish()`'s
-     * alone. Prefer `change()`, which checks the current password, unless the
-     * application verified the change itself. The events report the client
-     * given: the request's `ClientContext`, or one a queued job or a console
-     * command builds for the client it acts for.
+     * sessions its flow ends.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $password
@@ -142,17 +105,8 @@ final readonly class PasswordService
     }
 
     /**
-     * Change the password of the identity signed in with the session, which it
-     * keeps, given its current password, ending every other session it has
-     * (`password_changed`). The session, read again on the write connection,
-     * must be this guard's, live, active and a person's; the identity must have
-     * a password (`password_not_set` otherwise: `establish()` one) and live on
-     * the storage connection. The current password is checked inside the
-     * credential timebox and counted against the account and the IP address
-     * under the `sign_in` limits (`invalid_credentials`, `rate_limited` with
-     * the wait), then the policy judges the new one (`rejected`). Every refusal
-     * but a rejected password is reported by `AuthenticationFailed` (flow
-     * `password_change`); `PasswordSet` follows once the change commits.
+     * Change the signed-in identity's password given its current one, keeping
+     * the session and ending every other.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  string  $current
@@ -168,15 +122,8 @@ final readonly class PasswordService
     }
 
     /**
-     * Establish a first password for the identity signed in with the session,
-     * which has none, keeping the session and ending every other it has
-     * (`password_established`). The session must be as for `change()`, the
-     * identity must have no password (`password_already_set` otherwise), and
-     * the session must hold a proof fresh enough for the
-     * `password_establishment` operation (`reauthentication_required`
-     * otherwise; see `FreshnessPolicy`). The password is written only while the
-     * row still has none, in the same statement; reported as `change()` is,
-     * `PasswordSet` carrying the flow `establishment`.
+     * Establish a first password for the signed-in identity, which has none,
+     * keeping the session and ending every other.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  string  $password
@@ -191,15 +138,8 @@ final readonly class PasswordService
     }
 
     /**
-     * Send a password reset link to the identifier the input names under the
-     * guard's password identifier (for `email`, `['email' => '...']`), with the
-     * same answer, statements and time whether or not anyone holds it: the
-     * link's token is issued for any identifier, and the queued delivery alone
-     * decides, later, whether its holder may reset (see `ResetRequests` and
-     * `SendPasswordReset`). The token works for
-     * `authentication.passwords.reset.link_ttl_seconds` and goes through the
-     * bound `PasswordResetLinkSender`. It is issued and limited by the code
-     * engine, so the answer is a code request's.
+     * Send a password reset link to the identifier the input names, answering
+     * the same whether or not anyone holds it.
      *
      * @param  array<array-key, mixed>  $input
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
@@ -217,11 +157,7 @@ final readonly class PasswordService
 
     /**
      * Send a password reset code to the identifier the input names under the
-     * type (for `phone`, `['phone' => '+447700900123']`), as `sendResetLink()`
-     * sends a link, with the same `Codes\CodeRequest` answer; the code is a
-     * one-time code, delivered with the purpose `password_reset` through the
-     * `OneTimeCodeSender`, which must be bound (a `LogicException` otherwise,
-     * before anything is counted).
+     * type, as `sendResetLink()` sends a link.
      *
      * @param  string  $type
      * @param  array<array-key, mixed>  $input
@@ -239,15 +175,8 @@ final readonly class PasswordService
     }
 
     /**
-     * Reset the password with a link's token: the input names the identifier
-     * under the guard's password identifier, the `token` and the new
-     * `password`. The token is spent in one transaction with the new password
-     * and the end of every session of the identity, or not at all (see
-     * `ResetSubmissions`). Pass the request's body only, never its query
-     * string, which access logs, proxies and `Referer` headers record:
-     * `RequestBody::fields($request)` reads it so. Link to a page that carries
-     * the token in the URL's fragment, which no browser sends to a server, and
-     * have it post the token in the body.
+     * Reset the password with a link's token, from input read from the
+     * request's body only.
      *
      * @param  array<array-key, mixed>  $input
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
@@ -261,10 +190,8 @@ final readonly class PasswordService
     }
 
     /**
-     * Reset the password with a code: the input names the identifier under the
-     * type, the `code`, the `challenge` it was sent for and the new `password`,
-     * as `reset()` does with a token. Pass the request's body only:
-     * `RequestBody::fields($request)` reads it so.
+     * Reset the password with a code, from input read from the request's body
+     * only.
      *
      * @param  string  $type
      * @param  array<array-key, mixed>  $input

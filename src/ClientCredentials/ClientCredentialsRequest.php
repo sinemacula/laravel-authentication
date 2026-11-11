@@ -8,18 +8,8 @@ use Illuminate\Http\Request;
 use SineMacula\Laravel\Authentication\ClientCredentials\Enums\ClientAuthentication;
 
 /**
- * Extracts a client credentials token request as RFC 6749 sections 2.3.1, 3.1,
- * 3.2 and 4.4.2 define it, for a controller to hand on to
- * `ClientCredentialsExchange::exchange()` as a plain value: a POST with an
- * `application/x-www-form-urlencoded` body carrying
- * `grant_type=client_credentials`, an optional `scope`, and the client
- * authenticated with HTTP Basic (`client_secret_basic`, the id and secret each
- * form-url-encoded), which every server must accept, or with `client_id` and
- * `client_secret` in the body (`client_secret_post`, which the exchange refuses
- * unless the application allows it), never both. Every parameter comes from the
- * body: one in the query string, given more than once, or not a string is
- * refused rather than ignored, so a credential in a URL never authenticates. A
- * parameter sent without a value is treated as omitted.
+ * Extracts a client credentials token request as RFC 6749 defines it, for a
+ * controller to hand on to `ClientCredentialsExchange::exchange()`.
  *
  * @api
  *
@@ -40,12 +30,7 @@ final class ClientCredentialsRequest
     private function __construct() {}
 
     /**
-     * What the request presented, with how it authenticated the client, or the
-     * RFC 6749 error it is refused with: `invalid_request` for a request that
-     * is not one in form or that authenticates the client both ways,
-     * `unsupported_grant_type` for another grant, and `invalid_client` for a
-     * request without client authentication or with malformed Basic
-     * credentials. Extracting has no side effects and reads no IP address.
+     * What the request presented, or the RFC 6749 error it is refused with.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return \SineMacula\Laravel\Authentication\ClientCredentials\PresentedClient|string
@@ -115,8 +100,7 @@ final class ClientCredentialsRequest
 
     /**
      * The client id and secret of Basic credentials, each form-url-decoded, or
-     * `null` for credentials that are not base64 of `id:secret` (the secret may
-     * itself contain a colon).
+     * `null` for credentials that are not base64 of `id:secret`.
      *
      * @param  string  $credentials
      * @return ?array{0: string, 1: string}
@@ -130,12 +114,8 @@ final class ClientCredentialsRequest
     }
 
     /**
-     * The request's parameters, read from a form-encoded POST body, or none
-     * when the request is not one in form (so it names no grant): not a POST, a
-     * body of another media type, a parameter in the query string, given twice,
-     * or not a string. A parameter without a value (empty, or `null` after
-     * Laravel's `ConvertEmptyStringsToNull`) is left out, as RFC 6749 section
-     * 3.1 requires.
+     * The request's parameters from a form-encoded POST body, or none when the
+     * request is malformed; a parameter without a value is left out.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return array<string, string>
@@ -178,14 +158,8 @@ final class ClientCredentialsRequest
     }
 
     /**
-     * The name of a pair of a form body as PHP's form parser registers it:
-     * decoded, cut at a NUL byte, leading spaces dropped, a `.` or space read
-     * as `_`, and cut at a `[` that a `]` follows, or else with the `[` and
-     * every `.`, space and `[` after it read as `_`. It is worked out here
-     * rather than with `parse_str()`, which also splits on whatever else
-     * `arg_separator.input` holds, while a form body is split on `&` alone. A
-     * list nested deeper than `max_input_nesting_level`, which PHP drops, still
-     * counts, so such a request is refused rather than read.
+     * The pair's name as PHP's form parser registers it; `parse_str()` would
+     * also split on any other `arg_separator.input` character.
      *
      * @param  string  $pair
      * @return string

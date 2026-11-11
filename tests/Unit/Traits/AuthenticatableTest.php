@@ -12,8 +12,6 @@ use Tests\Unit\Stubs\StubIdentity;
 /**
  * Unit tests for the package Authenticatable trait.
  *
- * Exercises the public trait surface through a named Eloquent stub.
- *
  * @internal
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -59,9 +57,8 @@ final class AuthenticatableTest extends TestCase
     }
 
     /**
-     * The override returns an empty string from `getRememberToken()` regardless
-     * of any in-memory `remember_token` attribute, so the stateless package
-     * never exposes a remember token to the framework.
+     * `getRememberToken()` returns an empty string whatever the in-memory
+     * attribute holds.
      *
      * @return void
      */

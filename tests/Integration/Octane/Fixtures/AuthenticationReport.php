@@ -9,11 +9,7 @@ use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 
 /**
- * Everything the package says about who is authenticated, as the application
- * serving the request (or running the job) sees it now: the default guard, what
- * each guard named has bound (identity, principal, session and tenant
- * identifiers, and scopes), the caller of the request, and its authentication
- * context as plain values.
+ * Everything the package says about who is authenticated, as plain values.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

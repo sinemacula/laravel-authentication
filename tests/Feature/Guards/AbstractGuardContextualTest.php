@@ -12,11 +12,8 @@ use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use Tests\Fixtures\Events\EventContextAssertions;
 
 /**
- * Feature tests for the contextual state surface on `AbstractGuard`
- * (`setPrincipal`, `setSession`, `tenant`).
- *
- * Split out of the original AbstractGuardTest so each class stays focused on a
- * single behavioural slice.
+ * Feature tests for `setPrincipal()`, `setSession()` and `tenant()` on
+ * `AbstractGuard`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

@@ -2,13 +2,13 @@
 
 ## Purpose
 
-This note describes how an application's tests act as an identity, a principal or a session on a package
-guard, how that context survives the requests a test sends through the HTTP kernel, how it ends, what the bound-context
-assertions compare, and the fakes the package ships for its delivery contracts.
+This note describes how an application's tests act as an identity, a principal or a session on a package guard, how
+that context survives the requests a test sends through the HTTP kernel, how it ends, what the bound-context assertions
+compare, and the fakes the package ships for its delivery contracts.
 
 ## Invariants
 
-- Production code paths are untouched but for one parameter. The helpers use only the guard's public, trusted
+- The helpers use only the guard's public, trusted
   `authenticateAs()`, `forgetUser()` and its collaborator accessors; `setRequest()`, `forgetGuardState()`, the service
   provider and the guards' own rebinding callbacks behave exactly as without the helpers. `authenticateAs()` takes the
   scopes for a machine identity (`?array $scopes`, which binds `[]`, none, when it is `null`) and refuses scopes for a

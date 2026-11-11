@@ -63,7 +63,7 @@ final class TokenLifetimesTest extends TestCase
 
     /**
      * Rows of `[access, idle, absolute, grace, accepted]` at and beyond each
-     * range bound; an absolute lifetime of `null` is none, and accepted.
+     * bound.
      *
      * @return iterable<string, array{0: int, 1: int, 2: ?int, 3: int, 4: bool}>
      */
@@ -86,9 +86,7 @@ final class TokenLifetimesTest extends TestCase
     }
 
     /**
-     * Each lifetime must lie within its range, so a hand-built instance can
-     * hold neither a zero lifetime nor one long enough to overflow a stored
-     * timestamp, and the grace window stays short.
+     * Each lifetime must lie within its range.
      *
      * @param  int  $access
      * @param  int  $idle
@@ -114,8 +112,8 @@ final class TokenLifetimesTest extends TestCase
     }
 
     /**
-     * The absolute deadline is the absolute lifetime after the sign-in, cut to
-     * the whole second and kept in the sign-in's timezone.
+     * The absolute deadline is the absolute lifetime after sign-in, on the
+     * whole second.
      *
      * @return void
      */
@@ -129,8 +127,8 @@ final class TokenLifetimesTest extends TestCase
     }
 
     /**
-     * Without an absolute lifetime a session has no absolute deadline unless
-     * its sign-in supplied one.
+     * Without an absolute lifetime there is no absolute deadline unless the
+     * sign-in gave one.
      *
      * @return void
      */
@@ -144,9 +142,8 @@ final class TokenLifetimesTest extends TestCase
     }
 
     /**
-     * Rows of `[absolute lifetime or null, seconds from now to the sign-in's
-     * deadline or null, seconds from now to the expected absolute deadline or
-     * null]`.
+     * Rows of `[absolute lifetime, seconds to the sign-in's deadline, seconds
+     * to the expected one]`.
      *
      * @return iterable<string, array{0: ?int, 1: ?int, 2: ?int}>
      */
@@ -164,9 +161,8 @@ final class TokenLifetimesTest extends TestCase
     }
 
     /**
-     * The absolute deadline is the earlier of the absolute lifetime from the
-     * sign-in and the deadline the sign-in supplied, either alone when the
-     * other is absent, on whole seconds and in the sign-in's timezone.
+     * The absolute deadline is the earlier of the lifetime and the sign-in's
+     * deadline.
      *
      * @param  ?int  $absolute
      * @param  ?int  $notAfterIn
@@ -186,8 +182,7 @@ final class TokenLifetimesTest extends TestCase
     }
 
     /**
-     * Lifetimes count elapsed time, so one that crosses a daylight saving
-     * change is neither stretched nor shortened by it.
+     * Lifetimes count elapsed time across a daylight saving change.
      *
      * @return void
      */
@@ -202,8 +197,8 @@ final class TokenLifetimesTest extends TestCase
     }
 
     /**
-     * Rows of `[seconds from now to the absolute deadline, seconds from now to
-     * the expected idle deadline]` either side of the idle lifetime.
+     * Rows of `[seconds to the absolute deadline, seconds to the expected idle
+     * deadline]`.
      *
      * @return iterable<string, array{0: int, 1: int}>
      */
@@ -219,8 +214,7 @@ final class TokenLifetimesTest extends TestCase
     }
 
     /**
-     * The idle deadline is the idle lifetime from now, but never past the
-     * absolute deadline.
+     * The idle deadline is never past the absolute deadline.
      *
      * @param  int  $absoluteIn
      * @param  int  $expectedIn
@@ -237,8 +231,7 @@ final class TokenLifetimesTest extends TestCase
     }
 
     /**
-     * Without an absolute deadline the idle deadline is the idle lifetime from
-     * now, uncapped, on whole seconds and in now's timezone.
+     * Without an absolute deadline the idle deadline is uncapped.
      *
      * @return void
      */
@@ -252,8 +245,8 @@ final class TokenLifetimesTest extends TestCase
     }
 
     /**
-     * Rows of `[seconds from now to the end of the session or null, seconds
-     * from now to the expected access expiry]`.
+     * Rows of `[seconds to the session end or null, seconds to the expected
+     * access expiry]`.
      *
      * @return iterable<string, array{0: ?int, 1: int}>
      */
@@ -268,8 +261,7 @@ final class TokenLifetimesTest extends TestCase
     }
 
     /**
-     * An access token expires after the access lifetime, and never after the
-     * end of its session.
+     * An access token never expires after the end of its session.
      *
      * @param  ?int  $sessionEndsIn
      * @param  int  $expectedIn
@@ -285,8 +277,7 @@ final class TokenLifetimesTest extends TestCase
     }
 
     /**
-     * A replaced rotation id is inside the grace window up to, but not
-     * including, the second the window ends.
+     * The grace window excludes the second it ends.
      *
      * @return void
      */
@@ -302,8 +293,8 @@ final class TokenLifetimesTest extends TestCase
     }
 
     /**
-     * A grace window of 0 never applies, not even to a rotation stamped later
-     * than now by a server whose clock runs ahead.
+     * A grace window of 0 never applies, even to a rotation stamped ahead of
+     * now.
      *
      * @return void
      */
@@ -317,8 +308,7 @@ final class TokenLifetimesTest extends TestCase
     }
 
     /**
-     * A rotation stamped later than now by a server whose clock runs ahead is
-     * still inside a non-zero window: the window counts from the stamp.
+     * A non-zero grace window counts from a rotation stamped ahead of now.
      *
      * @return void
      */

@@ -86,16 +86,16 @@ request input (a header that switches the acting membership, say) must be verifi
 pins.
 
 Pinning a principal therefore needs a principal that can report its owner. With `ActsAsPrincipal`, declare the
-`identity` relation, as `AppMembership` does above (or override `getIdentityRelationName()`). The owner is read again
-from the principal's own stored key, even when Eloquent's strict mode prevents lazy loading, ignoring any identity
-relation the resolver already set, and a principal whose owner cannot be read (no relation, or an owner that has been
-deleted) fails the attempt.
+`identity` relation, as `AppMembership` does in [Identity models](identity-models.md) (or override
+`getIdentityRelationName()`). The owner is read again from the principal's own stored key, even when Eloquent's strict
+mode prevents lazy loading, ignoring any identity relation the resolver already set, and a principal whose owner cannot
+be read (no relation, or an owner that has been deleted) fails the attempt.
 
 ## Signing in: the session service
 
 Each JWT guard has a session service, `Auth::sessions('api')`, that signs in, creates the session, issues the first
 token pair and binds the guard in one call. The manager builds a new one from the guard on each call; the guard itself
-has no `sessions()` method, so code written as `Auth::guard('api')->sessions()` becomes `Auth::sessions('api')`:
+has no `sessions()` method:
 
 ```php
 use Illuminate\Http\Exceptions\ThrottleRequestsException;
@@ -160,17 +160,17 @@ session's once it activates, a refresh's and a switch's. A step-up or reauthenti
 `AccessTokenResult::$expiresAt`.
 
 `signIn()` runs, in order: Laravel's `Attempting` (with only the identifier the method names, never the input); on a
-cookie application, the request must come from a page of the application's own site (`cross_site_request`, nothing
-read or counted; see [Refresh token cookie](refreshing.md#refresh-token-cookie)); the application policy must allow the
-method (`method_not_allowed`, nothing counted); the identifier and the client's IP
-address must have attempts left (`rate_limited`, with the wait); then, inside the credential timebox, the method must
-verify the input and the identity must be admitted; a password is rehashed when its hash is outdated; and the sign-in
-follows the order [Pending sessions](#pending-sessions) sets out: the principals, the one selected or a choice, the
-identity-level factor policy, the selected principal's active tenant, and that tenant's authentication policy
-(`sso_required`, or a further factor owed). Failures are results, not exceptions: Laravel's `Failed` and then
-`AuthenticationFailed` report them, with the reason. A method name that is not registered (exactly: `Password` is not
-`password`), a method that refuses with any reason but `invalid_credentials`, a misconfigured model and database errors
-still throw. A sign-in whose session starts active gives its attempt slots back.
+cookie application, the request must come from a page of the application's own site (`cross_site_request`, nothing read
+or counted; see [Refresh token cookie](refreshing.md#refresh-token-cookie)); the application policy must allow the
+method (`method_not_allowed`, nothing counted); the identifier and the client's IP address must have attempts left
+(`rate_limited`, with the wait); then, inside the credential timebox, the method must verify the input and the identity
+must be admitted; a password is rehashed when its hash is outdated; and the sign-in follows the order [Pending
+sessions](#pending-sessions) sets out: the principals, the one selected or a choice, the identity-level factor policy,
+the selected principal's active tenant, and that tenant's authentication policy (`sso_required`, or a further factor
+owed). Failures are results, not exceptions: Laravel's `Failed` and then `AuthenticationFailed` report them, with the
+reason. A method name that is not registered (exactly: `Password` is not `password`), a method that refuses with any
+reason but `invalid_credentials`, a misconfigured model and database errors still throw. A sign-in whose session starts
+active gives its attempt slots back.
 
 `start($factor, $principal, $method, $context)` begins a session for an identity the application verified itself. The
 `FirstFactor` describes how: its identity is the one signed in, and its channel, observed properties and `amr` values
@@ -337,8 +337,8 @@ principal, a step-up and a reauthentication never move it. `withNotAfter()` keep
 and the one given, so a deadline is only ever lowered, and `null` changes nothing. A sign-in whose deadline is this
 second or earlier is refused as `session_expired` (reported as any failed sign-in) before the additional-factor policy
 is asked, a choice is offered or anything is written. A pending session keeps its deadline, and its credential expires
-no later than it.
-`fromRequest()` never sets a deadline: it is the application's, or a trusted adapter's, to supply, never the client's.
+no later than it. `fromRequest()` never sets a deadline: it is the application's, or a trusted adapter's, to supply,
+never the client's.
 
 `attempt()` and `login()` remain for code that binds the guard itself; neither creates a session. A session is a stored
 row, so the session service signs in only identities that implement `HasSessions`: for any other identity `signIn()`,
@@ -552,12 +552,11 @@ identity's own, unanswered in its lifetime), `challenge_used` (a response was su
 registered a passkey), `response_invalid` (malformed, or it does not verify: origin, relying party, user presence and
 verification, challenge, algorithm, attestation statement) or `already_registered`, with no passkey (and, given a
 pending credential, `pending_invalid` or `cross_site_request`, see [Registering on a pending
-sign-in](#registering-on-a-pending-sign-in)). The name is stored
-cleaned and cut to 255 characters. Under `attestation: none` a browser may still pass an authenticator's own statement
-through, so the formats the WebAuthn library checks on its own (`none`, `packed`, `fido-u2f`, `android-key`, `tpm`,
-`apple`) are accepted for their internal consistency, but no certificate chain or metadata is evaluated and every
-passkey is recorded as unattested. A machine identity holds no passkey (an `InvalidArgumentException`), and passkeys
-belong to saved Eloquent identities.
+sign-in](#registering-on-a-pending-sign-in)). The name is stored cleaned and cut to 255 characters. Under `attestation:
+none` a browser may still pass an authenticator's own statement through, so the formats the WebAuthn library checks on
+its own (`none`, `packed`, `fido-u2f`, `android-key`, `tpm`, `apple`) are accepted for their internal consistency, but
+no certificate chain or metadata is evaluated and every passkey is recorded as unattested. A machine identity holds no
+passkey (an `InvalidArgumentException`), and passkeys belong to saved Eloquent identities.
 
 Signing in takes options and then the session service:
 
@@ -795,15 +794,14 @@ The package's own methods report `pwd` (password), `otp` (email code, and a code
 `extend()`), `sms` (phone code) and `pop` (passkey). A method may also answer `identifier_unverified`, but only once its
 input proved possession of the identifier (as a one-time code does), and `code_expired`, `code_exhausted`,
 `passkey_challenge_invalid`, `passkey_challenge_expired`, `passkey_challenge_used` or `passkey_counter_regressed`;
-`code_expired`, `code_exhausted` and
-`passkey_counter_regressed` reach the event only, and the sign-in's result says `invalid_credentials`. Every other
-reason is the session service's to give, and a method that returns one throws a `LogicException` (see
-[Events](events.md#events)). A method must not bind a guard, issue tokens or write session state, and must hold no state
-between calls, since the manager keeps one instance per name for as long as the same application serves: the life of the
-process, or under Octane the request, whose sandbox builds its own. The credential timebox pads every refused sign-in,
-the method's own work included, to `timebox.credentials_microseconds`, so a method may answer an unknown identifier at
-once, as the example does; keep the method's worst case under that budget, and only a method whose work can take longer
-needs to do the same work whether or not the identifier exists.
+`code_expired`, `code_exhausted` and `passkey_counter_regressed` reach the event only, and the sign-in's result says
+`invalid_credentials`. Every other reason is the session service's to give, and a method that returns one throws a
+`LogicException` (see [Events](events.md#events)). A method must not bind a guard, issue tokens or write session state,
+and must hold no state between calls, since the manager keeps one instance per name for as long as the same application
+serves: the life of the process, or under Octane the request, whose sandbox builds its own. The credential timebox pads
+every refused sign-in, the method's own work included, to `timebox.credentials_microseconds`, so a method may answer an
+unknown identifier at once, as the example does; keep the method's worst case under that budget, and only a method whose
+work can take longer needs to do the same work whether or not the identifier exists.
 
 A method that looks an identity up and then checks a secret calls `$request->reserveAccountAttempt($identity)` before
 checking it, and answers `invalid_credentials` without checking when that returns `false` (the account has used up its
@@ -879,7 +877,7 @@ The session keeps its id from pending to active, and the id grants nothing. The 
 only key: only the digest of its secret is stored, it is not a JWT (so it authenticates no request and refreshes
 nothing, and no token is ever accepted as one), it works only for this guard, and it expires
 `session.pending_ttl_seconds` after it is issued (five minutes by default, never past the session's absolute deadline),
-when the pending session has simply ended. It is a `Secret` here, as the token pair's tokens are, which
+when the pending session has ended. It is a `Secret` here, as the token pair's tokens are, which
 `SecretResponse::json()` reveals into the body (see [Secrets in responses](#secrets-in-responses)).
 
 ### In order
@@ -1089,7 +1087,7 @@ which cannot wait, refuses as `additional_factor_required` a sign-in whose passw
 ## Enumeration resistance
 
 No response, and no response time, tells a client whether an identifier belongs to anyone. Routes and responses are
-yours; what the package guarantees for each method and helper, and what its tests hold it to, is:
+yours; what the package guarantees for each method and helper is:
 
 | Flow                      | Same outcome for an unknown identifier                                                                                                                                                              | Delivery                                          | Timing                                                                                                       |
 |---------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------|--------------------------------------------------------------------------------------------------------------|

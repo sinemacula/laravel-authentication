@@ -15,12 +15,7 @@ use Tests\Concerns\RunsMigrationSteps;
 use Tests\TestCase;
 
 /**
- * Integration test for the shipped sessions migration's collision safety guard.
- *
- * Verifies that the migration aborts with a `TableAlreadyExistsException`
- * carrying an actionable message when the configured sessions table already
- * exists on the target connection, and that the abort occurs before any schema
- * mutation. Also verifies the happy path when no collision is present.
+ * Integration test for the sessions migration's collision guard.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -36,8 +31,7 @@ final class SessionMigrationCollisionTest extends TestCase
     private const string MIGRATION_PATH = __DIR__ . '/../../../database/migrations/2026_04_06_000000_create_authentication_sessions_table.php';
 
     /**
-     * Ensure every test starts with the default session config and a clean
-     * in-memory schema. Individual tests mutate state as required.
+     * Reset the configured sessions table name and drop any sessions tables.
      *
      * @return void
      */
@@ -68,9 +62,8 @@ final class SessionMigrationCollisionTest extends TestCase
     }
 
     /**
-     * Running the migration when a `authentication_sessions` table already
-     * exists throws a `TableAlreadyExistsException` whose message names the
-     * conflicting table and the `session.table` key that renames it.
+     * The migration refuses to run over an existing sessions table and names
+     * the key that renames it.
      *
      * @return void
      */
@@ -140,9 +133,7 @@ final class SessionMigrationCollisionTest extends TestCase
     }
 
     /**
-     * Overriding `session.table` with a custom name routes the migration to
-     * that table and leaves the default `authentication_sessions` table
-     * uncreated.
+     * A custom `session.table` name routes the migration to that table.
      *
      * @return void
      */
@@ -160,9 +151,8 @@ final class SessionMigrationCollisionTest extends TestCase
     }
 
     /**
-     * The migration creates the refresh-key column the shipped session model
-     * names through `EloquentSession::getRefreshKeyName()`. No config key
-     * renames it, so a stale `refresh_key_column` setting is ignored.
+     * The migration names the refresh-key column after the session model,
+     * ignoring any config.
      *
      * @return void
      */
@@ -178,10 +168,7 @@ final class SessionMigrationCollisionTest extends TestCase
     }
 
     /**
-     * Require the shipped anonymous-class migration file and return the
-     * resulting `Migration` instance. The shipped anonymous class defines
-     * `up()` and `down()` directly; callers invoke via `runMigrationStep()`
-     * because `up()` is not declared on the parent `Migration` class.
+     * Require the shipped anonymous-class migration and return it.
      *
      * @return \Illuminate\Database\Migrations\Migration
      *

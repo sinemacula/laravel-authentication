@@ -8,9 +8,7 @@ use Carbon\CarbonImmutable;
 
 /**
  * A change of identifier being requested, as it is written to the pending
- * changes and signed into a link: the type, the identifier it replaces exactly
- * as stored and whether that one was verified, the new one in its normal form,
- * the request its proofs are bound to, and when it was requested and expires.
+ * changes and signed into a link.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -55,8 +53,7 @@ final readonly class RequestedChange
     ) {}
 
     /**
-     * The same change, expiring at the time given when that is earlier: a
-     * change proven by code waits no longer than its code works.
+     * The same change, expiring at the time given when that is earlier.
      *
      * @param  \Carbon\CarbonImmutable  $deadline
      * @return self

@@ -39,10 +39,7 @@ use Tests\Integration\Fixtures\ChangeableIdentity;
 use Tests\TestCase;
 
 /**
- * Feature tests for the recent authentication a change of identifier asks for:
- * when a session's proofs or a password prove it under the guard's freshness
- * for the `identifier_change` operation, from the age's first second to its
- * last, and what a refusal reports and counts.
+ * Feature tests for the recent authentication a change of identifier asks for.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -59,7 +56,7 @@ final class RecentAuthenticationTest extends TestCase
     use ChangesIdentifiers, InspectsTraces, InteractsWithProofs, InteractsWithRateLimits, MarksSharedLocks;
 
     /**
-     * Start every test from a known moment, with the fakes bound.
+     * Freeze the clock and bind the fakes.
      *
      * @return void
      */
@@ -87,9 +84,8 @@ final class RecentAuthenticationTest extends TestCase
     }
 
     /**
-     * Rows of `[seconds before now the proof names, whether it is fresh]` with
-     * the default 900-second freshness: from now back to 899 seconds ago, and
-     * not from 900 seconds ago or the future.
+     * Rows of `[seconds before now the proof names, whether it is fresh]` under
+     * the default 900-second freshness.
      *
      * @return iterable<string, array{0: int, 1: bool}>
      */
@@ -105,8 +101,8 @@ final class RecentAuthenticationTest extends TestCase
     }
 
     /**
-     * A session is fresh when, as stored, its first factor was proved within
-     * the identifier change's maximum age.
+     * A session is fresh when its stored first factor is within the maximum
+     * age.
      *
      * @param  int  $ago
      * @param  bool  $fresh
@@ -122,9 +118,8 @@ final class RecentAuthenticationTest extends TestCase
     }
 
     /**
-     * A reauthentication or a step-up made within the age makes a session that
-     * signed in long ago fresh: the newest proof that meets the requirement
-     * decides, never the session's sign-in.
+     * A reauthentication or step-up within the age makes a long-lived session
+     * fresh.
      *
      * @return void
      */
@@ -144,9 +139,7 @@ final class RecentAuthenticationTest extends TestCase
     }
 
     /**
-     * The freshness is the one configured, per guard: a shorter age, a list of
-     * kinds that leaves the first factor out, and a guard's own entry, which
-     * `null` removes so that nothing is fresh.
+     * The freshness configured for the guard applies.
      *
      * @return void
      */
@@ -175,10 +168,8 @@ final class RecentAuthenticationTest extends TestCase
     }
 
     /**
-     * A proof accepted before the transaction stands under the lock as the rows
-     * read then: a session while it is still live and fresh (read with its row
-     * locked), and a password while the locked row holds the hash read before
-     * it was checked; nothing is counted.
+     * An accepted proof stands under the lock while its rows are as they were
+     * read.
      *
      * @return void
      *
@@ -211,11 +202,7 @@ final class RecentAuthenticationTest extends TestCase
     }
 
     /**
-     * Only the check under the identity's lock reads the session's proofs
-     * current: `stands()` reads the session's row with a lock held until the
-     * transaction ends and its proofs with a shared lock (on MySQL and MariaDB,
-     * the marked SQLite included), while `refusal()`, before the transaction,
-     * reads both plainly and locks nothing.
+     * Only the check under the lock reads the session's proofs current.
      *
      * @return void
      *
@@ -247,9 +234,7 @@ final class RecentAuthenticationTest extends TestCase
     }
 
     /**
-     * A session proves nothing when, as stored, it is another identity's, of
-     * another guard, revoked, past its deadlines, holds no proof fresh enough
-     * (one too old, one voided) or is gone, whatever the instance given says.
+     * A session that is not a live session of the identity proves nothing.
      *
      * @return void
      */
@@ -296,11 +281,7 @@ final class RecentAuthenticationTest extends TestCase
     }
 
     /**
-     * A session the caller still holds proves nothing once its key holds a
-     * later session of the same identity, even one started in the same second
-     * with a fresh first factor of its own, while the replacement's own
-     * instance does, before the change and under its lock; a session that is
-     * not an Eloquent session records no generation and proves nothing.
+     * A retained session is not proved by its replacement.
      *
      * @return void
      *
@@ -338,9 +319,7 @@ final class RecentAuthenticationTest extends TestCase
     }
 
     /**
-     * A refresh records no proof, so a session signed in long ago proves
-     * nothing however recently it refreshed; signing in again on the same
-     * client does.
+     * A refresh records no proof, while signing in again does.
      *
      * @return void
      *
@@ -371,8 +350,8 @@ final class RecentAuthenticationTest extends TestCase
     }
 
     /**
-     * The identity's current password proves it, and gives back the sign-in
-     * slots it took; a wrong one does not, and keeps them.
+     * The current password proves the identity and gives back its sign-in
+     * slots.
      *
      * @return void
      */
@@ -389,9 +368,7 @@ final class RecentAuthenticationTest extends TestCase
     }
 
     /**
-     * A guard whose application does not allow the password method, one that
-     * signs in only by code, takes no password as proof, even the right one:
-     * nothing is counted, and a request is refused as needing reauthentication.
+     * A guard that does not allow passwords takes none as proof.
      *
      * @return void
      *
@@ -416,11 +393,8 @@ final class RecentAuthenticationTest extends TestCase
     }
 
     /**
-     * A password is a reauthentication with the first factor made now, so it is
-     * taken only when the guard's freshness takes one and asks for neither
-     * multifactor authentication nor phishing resistance, which a password
-     * never shows; otherwise even the right one is refused with nothing
-     * counted.
+     * A password is taken only when the freshness takes a reauthentication
+     * without MFA or phishing resistance.
      *
      * @return void
      */
@@ -451,8 +425,7 @@ final class RecentAuthenticationTest extends TestCase
     }
 
     /**
-     * A password check takes the guard's whole credential timebox when the
-     * password is wrong, and ends as soon as it is known to be right.
+     * A wrong password takes the guard's whole credential timebox.
      *
      * @return void
      */
@@ -475,10 +448,8 @@ final class RecentAuthenticationTest extends TestCase
     }
 
     /**
-     * A failure while the password is checked, inside the credential timebox
-     * and the request's transaction, leaves the password and the new identifier
-     * out of every frame of its trace, the closures' captures included, even
-     * with arguments recorded in traces.
+     * A failed password check leaves the password and new identifier out of the
+     * trace.
      *
      * @return void
      *
@@ -507,8 +478,7 @@ final class RecentAuthenticationTest extends TestCase
     }
 
     /**
-     * The password is checked against the identity as stored: one whose
-     * password changed, or that is gone, does not take the old one.
+     * The password is checked against the identity as stored.
      *
      * @return void
      */
@@ -527,9 +497,7 @@ final class RecentAuthenticationTest extends TestCase
     }
 
     /**
-     * Once the account has no sign-in attempts left, its password is not
-     * checked: the seconds until it may be are given instead, and a request
-     * answers rate limited with them.
+     * A password checked too often is rate limited with the seconds to wait.
      *
      * @return void
      *
@@ -557,9 +525,8 @@ final class RecentAuthenticationTest extends TestCase
     }
 
     /**
-     * A request without a recent authentication is refused and reported as
-     * such, with the identifier as given, before anything is counted or
-     * written.
+     * A request without a recent authentication is refused before anything is
+     * counted or written.
      *
      * @return void
      *
@@ -616,8 +583,7 @@ final class RecentAuthenticationTest extends TestCase
     }
 
     /**
-     * Whether the proof stands, asked as a change asks it: inside the
-     * transaction that acts on it.
+     * Whether the proof stands, asked inside a transaction as a change asks it.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\RecentAuthentication  $check
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $before

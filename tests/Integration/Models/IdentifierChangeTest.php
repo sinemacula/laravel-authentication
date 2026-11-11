@@ -13,9 +13,7 @@ use Tests\Integration\Fixtures\SeparateConnectionSession;
 use Tests\TestCase;
 
 /**
- * Integration tests for the pending identifier change model: the table and
- * connection it reads, what its serialised form leaves out, and the pruning of
- * expired changes.
+ * Integration tests for the pending identifier change model.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -69,9 +67,8 @@ final class IdentifierChangeTest extends TestCase
     }
 
     /**
-     * The row's digest, both identifiers and the request never reach a
-     * serialised row; the times and whether the replaced identifier was
-     * verified are cast.
+     * The digest, both identifiers and the request never reach a serialised
+     * row.
      *
      * @return void
      */

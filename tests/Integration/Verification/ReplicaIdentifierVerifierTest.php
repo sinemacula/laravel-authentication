@@ -30,9 +30,8 @@ use Tests\Integration\Fixtures\VerificationLogIdentity;
 use Tests\TestCase;
 
 /**
- * Proves verified state is read from the write connection: a verification the
- * primary holds and the replica has not yet seen is honoured by the verifier's
- * re-read and by the sign-in gate.
+ * Proves verified state is read from the write connection while the replica
+ * lags.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -82,9 +81,8 @@ final class ReplicaIdentifierVerifierTest extends TestCase
     }
 
     /**
-     * Verifying an identity loaded before the verification is reported as
-     * already verified, from the primary, not as a mismatch the replica would
-     * suggest.
+     * Verifying an identity loaded before the verification reports it already
+     * verified, as the primary holds it.
      *
      * @return void
      */
@@ -118,10 +116,8 @@ final class ReplicaIdentifierVerifierTest extends TestCase
     }
 
     /**
-     * An identity that reads its identifier with a query has it read from the
-     * primary, both when the verifier compares it with the proof and when it
-     * tells a repeat from a mismatch: a proof of the primary's address is
-     * reported already verified while the replica still holds an older one.
+     * An identifier the identity reads with a query is read from the primary
+     * while the replica holds an older one.
      *
      * @return void
      *
@@ -159,9 +155,8 @@ final class ReplicaIdentifierVerifierTest extends TestCase
     }
 
     /**
-     * A link created for an identity that reads its identifier with a query,
-     * while the replica holds an older address, is signed for the address the
-     * primary holds, so following it verifies.
+     * A link for an identity that reads its identifier with a query is signed
+     * for the address the primary holds.
      *
      * @return void
      *
@@ -183,9 +178,8 @@ final class ReplicaIdentifierVerifierTest extends TestCase
     }
 
     /**
-     * Reading a verification time that an accessor derives with a query reads
-     * the primary, even when the identity is asked directly rather than by the
-     * package.
+     * A verification time an accessor derives with a query is read from the
+     * primary, even when the identity is asked directly.
      *
      * @return void
      */

@@ -29,20 +29,8 @@ use Tests\Fixtures\Factors\AlwaysRequireAdditionalFactor;
 use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 
 /**
- * Query-budget contracts for the factor package's mandatory triggers: a
- * factor's removal costs the bulk revocation of the identity's other sessions,
- * then one locking read of the current session, one `UPDATE` writing its
- * issuance guard (so an issuance of the session that overlaps the removal never
- * counts the factor's proofs), one `UPDATE` voiding its proofs with the factor,
- * and the reads of judging it again as a refresh does (its
- * owner and its first factor, and the requirement's page of proofs while a
- * further factor is asked), plus the return to pending's one `UPDATE` when it
- * falls short; without a current session, it is the bulk revocation alone, and
- * so is a reset. An addition, a change of the factor package's that removes
- * no factor, judges the current session alone: the locking read, the issuance
- * guard's `UPDATE` and the same reads of judging it again, plus the return's
- * `UPDATE` when it falls short; a current session that is no longer live costs
- * the locking read alone.
+ * Query-budget contracts for the revocations and rechecks the factor package's
+ * removals, resets and changes trigger.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -81,9 +69,8 @@ final class FactorRevocationsQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A removal that keeps the current session active revokes the two other
-     * sessions in bulk, locks the current one, writes its issuance guard, voids
-     * its proofs with the factor and judges it again.
+     * A removal that keeps the current session active revokes the others in
+     * bulk and judges the current one again.
      *
      * @return void
      *
@@ -172,10 +159,8 @@ final class FactorRevocationsQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A change that keeps the current session active locks it, writes its
-     * issuance guard and judges it again as a refresh does (its owner, its
-     * first factor and the requirement's page of proofs): four reads and one
-     * `UPDATE`, no other session read or written.
+     * A change that keeps the current session active costs four reads and one
+     * `UPDATE`, touching no other session.
      *
      * @return void
      *

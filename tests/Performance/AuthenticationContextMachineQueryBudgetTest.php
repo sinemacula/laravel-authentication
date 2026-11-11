@@ -13,9 +13,8 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
 use Tests\Concerns\InteractsWithMachineCredentials;
 
 /**
- * Query-budget contracts for the authentication context of a machine's request:
- * an API key and a client credentials token have no session, so once the guard
- * has authenticated the request their context reads nothing at all.
+ * Query-budget contracts for the authentication context of a machine's request,
+ * which has no session to read.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

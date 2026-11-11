@@ -10,21 +10,8 @@ use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Database\Eloquent\Model;
 
 /**
- * Pins authentication reads to the write connection.
- *
- * Every read that decides authentication, activity, replay, or revocation
- * (session, identity, and principal lookups) must see the primary's current
- * state. A read replica can lag behind a revocation, a deactivation, or a
- * refresh rotation, so a lookup served from it can admit a credential the
- * primary has already rejected. `query()` routes one query the package builds;
- * `during()` covers every other read while a callback runs: the relations a
- * lookup eager-loads, which Eloquent fetches with separate queries `query()`
- * does not reach, relations on other connections (a tenant in a landlord
- * database), and reads made inside application code the package calls (for
- * example `resolveDefaultPrincipal()`, or an `ApplicationAccess`'s `mayUse()`),
- * which the package cannot rewrite. Custom identity providers and principal
- * resolvers carry the same obligation and use whichever method covers their
- * reads.
+ * Pins authentication reads to the write connection, since a lagging replica
+ * could admit a credential the primary has already rejected.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -37,12 +24,8 @@ final class WriteConnection
     private function __construct() {}
 
     /**
-     * Route the supplied Eloquent builder, relation, or query builder to the
-     * write PDO and return it for chaining.
-     *
-     * Only this query is routed: the eager loads of its results run as separate
-     * queries without the flag, so a lookup whose model eager-loads relations
-     * (`$with`, `with()`) also runs inside `during()`.
+     * Route the builder to the write PDO. Eager loads run as separate queries
+     * it does not reach, so a lookup that eager-loads also runs in `during()`.
      *
      * @template TBuilder of \Illuminate\Contracts\Database\Query\Builder
      *
@@ -57,19 +40,8 @@ final class WriteConnection
     }
 
     /**
-     * Run the callback with reads routed to the write PDO, restoring each
-     * connection's previous read mode afterwards (also when the callback
-     * throws).
-     *
-     * Every connection a model resolves inside the callback is pinned, so a
-     * relation on another connection, eager-loaded by a lookup or lazily loaded
-     * by an activity check, is read from that connection's writer. When the
-     * subject is an Eloquent model, reads on its own connection are pinned as
-     * well, including ones made through the query builder rather than a model.
-     *
-     * A subject that is not an Eloquent model (a custom principal or identity)
-     * has no connection of its own, so only its model reads are pinned; a
-     * query-builder or `DB` read it makes must pin itself.
+     * Run the callback with model reads, and query-builder reads on an Eloquent
+     * subject's own connection, routed to the write PDO.
      *
      * @template TReturn
      *
@@ -108,14 +80,8 @@ final class WriteConnection
     }
 
     /**
-     * Run the callback against the subject as it is stored, with reads routed
-     * to the write PDO as `during()` routes them. An Eloquent model is handed
-     * to the callback as a copy without its loaded relations, so a relation
-     * whoever loaded the model set (an inverse a resolver filled, an eager load
-     * from a replica) cannot stand in for the stored one; the copy may
-     * lazy-load even when the model was hydrated with lazy loading prevented
-     * (Eloquent strict mode), because the package re-reads it on purpose. Any
-     * other subject is handed over as it is.
+     * Run the callback inside `during()` against the subject as stored, an
+     * Eloquent model as a copy without its loaded relations.
      *
      * @template TSubject of object
      * @template TReturn
@@ -159,9 +125,8 @@ final class WriteConnection
     }
 
     /**
-     * Whether the connection already routes reads to the write PDO. Laravel
-     * exposes a setter for this mode but no getter, so the flag is read from
-     * the connection's own scope.
+     * Whether the connection already routes reads to the write PDO, read from
+     * its own scope since Laravel exposes no getter.
      *
      * @param  \Illuminate\Database\Connection  $connection
      * @return bool

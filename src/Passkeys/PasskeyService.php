@@ -31,22 +31,7 @@ use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
- * The passkeys of a JWT guard, scoped to the guard's relying party: the
- * registration ceremony, the options of a usernameless sign-in (which the
- * `passkey` sign-in method completes through `Auth::sessions()->signIn()`), the
- * factor ceremony through which a further-factor package verifies one of the
- * passkeys it associated as an identity's factors, and the listing and removal
- * of an identity's passkeys. A registration and a removal ask the factor gate
- * (`Contracts\PasskeyFactorGate`) inside the transaction that makes them.
- *
- * Every ceremony hands out options with a single-use challenge stored in the
- * database, which the response must answer within its lifetime, through the
- * same guard, for the same relying party, and, for a registration or a factor,
- * for the same identity. Passkeys belong to Eloquent identities that are not
- * machine identities. The guard's relying party is read and validated on every
- * call, so a malformed one fails closed with an `InvalidArgumentException`.
- * Failures are results, not exceptions, except the `429` of `signInOptions()`.
- * The service keeps no state between calls.
+ * The passkeys of a JWT guard, scoped to the guard's relying party.
  *
  * @api
  *
@@ -75,23 +60,12 @@ final readonly class PasskeyService
         /** The context of the guard whose passkeys the service manages. */
         private GuardContext $context,
 
-        /** Container the configuration, the limiter, the translator and the library wrapper are resolved from on every call. */
+        /** Container the configuration, limiter, translator and library wrapper are resolved from. */
         private Container $container,
     ) {}
 
     /**
-     * Hand out the options of a registration ceremony for the identity: a
-     * discoverable credential with user verification and no attestation,
-     * excluding the passkeys it already has for the guard's relying party,
-     * under the user handle its passkeys there were registered with (a random
-     * one for its first). The user name and display name are what the browser
-     * shows (the display name defaults to the user name); choose them from the
-     * identity's own record, never from the request. A factor package that asks
-     * for the registration on a session (a pending session enrolling its
-     * factor, say) gives its binding, which must name this identity and this
-     * guard (an `InvalidArgumentException` otherwise); its session and purpose
-     * are kept on the challenge and handed to the factor gate when the
-     * registration completes.
+     * Hand out the options of a registration ceremony for the identity.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $userName
@@ -137,63 +111,7 @@ final readonly class PasskeyService
 
     /**
      * Register the passkey the browser created in answer to the identity's
-     * registration challenge, under the name given (cleaned of invalid UTF-8
-     * and of control and bidirectional formatting characters, and cut to 255
-     * characters). The challenge is used up whatever the outcome (unless a
-     * transaction of the caller's around the call rolls back). Refused as
-     * `challenge_invalid` when the challenge is malformed, unknown, or not a
-     * registration challenge of this guard for the identity,
-     * `challenge_expired` when it is the identity's own and expired unanswered,
-     * `challenge_used` when a response was submitted to it before (whether or
-     * not that one registered a passkey, since it is used up before it is
-     * verified), `response_invalid` when the response is malformed or does not
-     * verify (origin, relying party, user presence and verification, challenge,
-     * algorithm, attestation statement), and `already_registered` when the
-     * credential is registered already, before the factor gate is asked.
-     *
-     * Then, in one transaction on the passkey model's connection (the storage
-     * connection; a savepoint in the caller's), the factor gate is asked first
-     * (`PasskeyFactorGate::registering()`), with the passkey as the
-     * registration showed it and the challenge's binding, and the passkey's row
-     * is written only after it: a gate that throws refuses the registration,
-     * rolling back everything it did, and its exception reaches the caller. A
-     * credential registered concurrently, found only by the insert, rolls the
-     * whole change back, the gate's work (its association, a pending session it
-     * satisfied) with it, and is answered as `already_registered`. A passkey
-     * registered is `registered`, with its summary and the factor association
-     * the gate answered, if any, and dispatches `PasskeyAdded` once its row is
-     * committed. The gate is also handed the client.
-     *
-     * A registration that enrols a factor on a pending sign-in (a bootstrap
-     * enrolment: the options were asked for with a `ProofBinding` naming the
-     * pending session) hands in that sign-in's pending credential as
-     * `$pending`: what `PendingCredential::extract()` answered, once the
-     * controller has answered its absence, or the application's own `Secret` or
-     * string. It is `null` for an ordinary registration, which behaves as it
-     * always did. `pending_invalid` is the one reason that may be handed in
-     * (any other reason is a caller's error, an `InvalidArgumentException`
-     * raised before anything is read or consumed), and is refused as a
-     * credential that names no live pending session is. Given a pending
-     * credential, a cookie application's client that did not come from a page
-     * of its own site is refused as `cross_site_request` before the pending
-     * session is read or the gate asked (an ordinary registration sets no
-     * cookie, so it is not judged). Then, in the registration's transaction and
-     * before the gate is asked or a row written, the identity's row is locked
-     * and then the pending session's, and held until the transaction ends: the
-     * credential must name a live pending session of this guard whose owner is
-     * this identity and, when the challenge records a binding, the very session
-     * it names; otherwise `pending_invalid`, whichever of these failed, with
-     * the gate not asked, nothing stored and no `PasskeyAdded`. The credential
-     * is never used to retarget a bound challenge. The identity's row is locked
-     * in the storage connection's transaction, so the identity must live on
-     * that connection, as for a password reset (a `LogicException` otherwise,
-     * before anything is consumed). The gate gets the credential as a `Secret`
-     * and completes the session's factor itself (see
-     * `PasskeyFactorGate::registering()`). Either refusal is reported once, as
-     * a pending action refused is (Laravel's `Failed` and
-     * `AuthenticationFailed` for the sign-in flow, with the client and the
-     * identity, never the credential). The challenge is used up whatever the
-     * outcome, a refusal included, so a retry needs fresh options.
+     * registration challenge.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $challenge
@@ -268,13 +186,8 @@ final readonly class PasskeyService
     }
 
     /**
-     * Hand out the options of a usernameless sign-in: user verification
-     * required and no credentials named, so the browser offers every passkey it
-     * holds for the relying party. The sign-in completes through
-     * `Auth::sessions()->signIn('passkey', ...)`. Anyone may ask, and each
-     * request writes a challenge, so each is counted against the client's IP
-     * address under the guard's `passkey_options` limit; once that is used up a
-     * `ThrottleRequestsException` (429 with `Retry-After`) is thrown.
+     * Hand out the options of a usernameless sign-in, counted against the
+     * client's IP address.
      *
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Passkeys\CeremonyOptions
@@ -297,17 +210,8 @@ final readonly class PasskeyService
     }
 
     /**
-     * Hand out the options of a factor ceremony for the identity, bound to the
-     * factor package's binding (which must name this identity and this guard,
-     * and a session), allowing only those of the identity's passkeys for the
-     * guard's relying party whose credential id is one given: the ones the
-     * factor package associated as its factors, each as canonical unpadded
-     * base64url (an `InvalidArgumentException` otherwise). User verification is
-     * required unless the factor package asks only to prefer it. `null`, with
-     * no challenge written, when none of the identity's passkeys is among them:
-     * an empty list would let the browser offer any credential it holds. The
-     * seam a further-factor package verifies a passkey through, with
-     * `verifyFactor()`.
+     * Hand out the options of a factor ceremony for the identity's passkeys
+     * with the given credential ids, or `null` when it has none.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Proofs\ProofBinding  $binding
@@ -350,24 +254,7 @@ final readonly class PasskeyService
 
     /**
      * Verify one of the identity's passkeys as a further factor, in answer to
-     * its factor challenge for the binding: verified, with what the assertion
-     * showed, or failed with why. The challenge must be a live factor
-     * challenge of this guard and relying party for the identity and the
-     * binding's session and purpose: not that (`passkey_challenge_invalid`, as
-     * for a malformed, unknown or another's challenge), or its own and expired
-     * (`passkey_challenge_expired`), or its own and submitted to before
-     * (`passkey_challenge_used`, whether or not that one verified, since it is
-     * used up before it is verified); the passkey
-     * asserted must be one the challenge allowed, compared exactly, and the
-     * identity's (`invalid_credentials`, as for a malformed or unverified
-     * response); then the origin, the relying party id hash, user presence,
-     * user verification where the challenge required it, the signature and the
-     * challenge are verified, and the sign counter rule applies, with its
-     * tolerance of a counter that stays at zero (`passkey_counter_regressed`).
-     * The assertion reports what its authenticator data showed, never what the
-     * ceremony asked for. A verified passkey records its use and dispatches
-     * `PasskeyUsed`; nothing else is dispatched and nothing counted, since the
-     * factor's outcome is the further-factor package's to report and limit.
+     * its factor challenge for the binding.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Proofs\ProofBinding  $binding
@@ -418,8 +305,7 @@ final readonly class PasskeyService
     }
 
     /**
-     * The identity's passkeys for the guard's relying party, oldest first, read
-     * from the write connection.
+     * The identity's passkeys for the guard's relying party, oldest first.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @return list<\SineMacula\Laravel\Authentication\Passkeys\PasskeySummary>
@@ -435,13 +321,7 @@ final readonly class PasskeyService
 
     /**
      * The credential ids of the identity's passkeys for the guard's relying
-     * party, as stored (unpadded base64url), in registration order (oldest
-     * first), read from the write connection. A credential id is public
-     * WebAuthn data, which a ceremony sends the browser as an allowed
-     * credential, but that the identity holds it is not: the association stays
-     * the application's to access-control, so hand these only to the identity
-     * they belong to, or to a caller authorised for it. Reports nothing, so it
-     * takes no client.
+     * party, oldest first; hand them only to a caller authorised for it.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @return list<string>
@@ -456,19 +336,8 @@ final readonly class PasskeyService
     }
 
     /**
-     * Remove the identity's passkey with the id, for the guard's relying party,
-     * found on the write connection. In one transaction on the passkey model's
-     * connection (the storage connection; a savepoint in the caller's), the
-     * factor gate is asked first (`PasskeyFactorGate::removing()`), then the
-     * row is deleted: a gate that throws refuses the removal, keeping the
-     * passkey, and its exception reaches the caller; a passkey removed
-     * concurrently rolls the gate's work back. Answers whether this call
-     * removed it, with the completion the gate answered, uninterpreted, and
-     * only then dispatches `PasskeyRemoved`, once the removal is committed.
-     * Ending the identity's sessions when it loses a first-factor credential is
-     * the optional `RevokeSessionsOnPasskeyRemoval` listener's; a factor
-     * package calls its own mandatory helper when the passkey was one of its
-     * factors.
+     * Remove the identity's passkey with the id, asking the factor gate in the
+     * same transaction.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $passkeyId
@@ -535,12 +404,8 @@ final readonly class PasskeyService
     }
 
     /**
-     * Prove the pending credential, if one was handed in, then ask the factor
-     * gate about the passkey, then store it, inside the registration's
-     * transaction; a credential the insert finds registered already throws, so
-     * the transaction rolls back whatever the gate did, and a pending
-     * credential that proves no pending session of the identity throws before
-     * the gate is asked.
+     * Hold the pending session, if any, ask the factor gate about the passkey
+     * and store it, inside the registration's transaction.
      *
      * @formatter:off
      *
@@ -576,8 +441,8 @@ final readonly class PasskeyService
     }
 
     /**
-     * Refuse a binding that names another identity, another application, or no
-     * session (a key of 1 to 255 characters).
+     * Refuse a binding that names another identity, another application or no
+     * session.
      *
      * @param  \SineMacula\Laravel\Authentication\Proofs\ProofBinding  $binding
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $owner
@@ -615,8 +480,7 @@ final readonly class PasskeyService
     }
 
     /**
-     * Refuse names a browser cannot show: a blank user name, or a display name
-     * that is given but blank.
+     * Refuse a blank user name or a given but blank display name.
      *
      * @param  string  $userName
      * @param  ?string  $displayName
@@ -632,8 +496,7 @@ final readonly class PasskeyService
     }
 
     /**
-     * Answer a reservation the limiter refused with a 429 that says how long to
-     * wait, its message translated.
+     * Answer a reservation the limiter refused with a 429.
      *
      * @param  \SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation  $reservation
      * @return void
@@ -650,8 +513,8 @@ final readonly class PasskeyService
     }
 
     /**
-     * Dispatch the event, once the writes on the passkey model's connection are
-     * committed, to the dispatcher the guard has then.
+     * Dispatch the event once the writes on the passkey's connection are
+     * committed.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\Passkey  $passkey
      * @param  object  $event

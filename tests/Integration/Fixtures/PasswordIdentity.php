@@ -24,11 +24,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
- * 2D identity fixture for the password helpers, stored in
- * `password_identities`: a normalised email address and phone number, each with
- * a verification time, a password, a nickname a test leaves dirty, an activity
- * flag, a "tokens valid after" cutoff, sessions of the shipped model, and
- * Laravel's password reset notification.
+ * 2D identity for the password helpers, with a password, verifiable
+ * identifiers, sessions and the reset notification.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

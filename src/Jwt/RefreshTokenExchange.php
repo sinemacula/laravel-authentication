@@ -48,63 +48,8 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyCheck;
 use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyVerdict;
 
 /**
- * Refresh-token exchange service.
- *
- * The session's owner is reloaded through the guard's identity provider, so the
- * provider's scopes apply and an owner the guard does not serve is rejected. A
- * token is honoured only for a session of the guard exchanging it, and only
- * while the application policy still lets the method that started the session
- * start one and still admits the owner as the principal; none of these failures
- * revokes the session. The principal the token names must be the one the
- * session records: after the session switched principal, the refresh tokens of
- * the principal it left fail as `session_principal_mismatch`, without revoking
- * the session. The next idle deadline follows the lifetimes the policy gives
- * the guard.
- *
- * Every exchange then asks the authentication policy of the session's active
- * tenant: a session that must have been established through a connection it
- * was not is revoked (`tenant_policy_changed`) and refused as `sso_required`;
- * one that lacks a further factor returns to pending and the exchange hands out
- * a pending credential instead of a pair; one that meets it records the version
- * answered in the rotation.
- *
- * Failed exchanges are counted against the token's session and the client's IP
- * address; once either count is full the exchange is refused as `rate_limited`
- * before the session is looked up.
- *
- * A validly signed token for a live session carries one of three rotation ids:
- * - the current one: the exchange rotates it to its successor with a
- *   compare-and-swap that also moves the session's idle deadline;
- * - the one the current one replaced, inside the grace window: the exchange
- *   hands back the current credential (a fresh pair whose refresh token carries
- *   the current rotation id) and writes no rotation state, so retries
- *   neither extend the window nor disturb the swap;
- * - any other: the token was rotated before, so it is a replay, and the session
- *   is revoked (`rotation_reuse`). A session that holds no refresh credential
- *   cannot tell a replay from anything else, so its tokens are rejected without
- *   revoking it.
- *
- * The exchange of a session it finds runs in one transaction on the session's
- * connection (a savepoint inside one of the caller's), which first writes the
- * session's issuance guard (`IssuanceGuard`): a refresh that overlaps another
- * issuance of the session, or a change of its proofs, waits for it and then
- * reads what it committed, so its access token never carries an older
- * `auth_time` or fewer `amr` values than one committed before it; where the
- * transaction reads a snapshot taken before the other committed (PostgreSQL's
- * REPEATABLE READ), the guard fails to serialise instead, for the caller to
- * retry. The session is then read again with a lock, and only the row read
- * there is judged: a revocation, a return to pending or a switch the guard
- * waited for is seen, so a grace retry, which writes no compare-and-swap, never
- * hands out a pair for a session that changed before the exchange held it. A
- * session whose row is gone by then fails as `session_unknown`. Its tenant's
- * policy is judged on the session's proofs and provenance read current too
- * (`SessionProofs`), so the judgement, like the token, counts every proof
- * committed before it and none voided by then.
- *
- * Every check uses one time per exchange, taken once the guard is written and
- * cut to the whole second. A failure is returned as the `AuthenticationFailed`
- * event that reports it, with a machine-readable reason and as much context as
- * the exchange established, for the caller to dispatch.
+ * Exchanges a session's refresh token for a new pair, revoking the session on a
+ * replay.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -130,7 +75,7 @@ final readonly class RefreshTokenExchange
         /** Token service for parsing and issuing tokens. */
         private JwtTokenService $tokens,
 
-        /** The context of the guard whose refresh tokens the exchange accepts: its name, provider, resolver and dispatcher. */
+        /** The context of the guard whose refresh tokens the exchange accepts. */
         private GuardContext $context,
 
         // Connection resolver for the session's refresh state writes.
@@ -144,15 +89,8 @@ final readonly class RefreshTokenExchange
     }
 
     /**
-     * Exchange a refresh token for a new access + refresh token pair. On any
-     * failure the `AuthenticationFailed` event that reports it is returned, not
-     * dispatched, and the failure is counted against the token's session and
-     * the client's IP address.
-     *
-     * Refreshing cannot guess a secret, so only failures are counted. Once
-     * either count is full the exchange stops before looking the session up and
-     * fails as `rate_limited`, carrying the seconds until the full count's
-     * window ends; that failure is not counted itself.
+     * Exchange a refresh token for a new access and refresh token pair, or the
+     * undispatched `AuthenticationFailed` event that reports why it failed.
      *
      * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $refreshToken
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
@@ -189,12 +127,8 @@ final readonly class RefreshTokenExchange
     }
 
     /**
-     * Revoke a session with the given reason: its tokens stop working at once,
-     * on the bearer path and on refresh. Idempotent: an already revoked session
-     * keeps its first revocation's time and reason. Returns whether this call
-     * revoked the session; when it did, the revocation is mirrored on the
-     * in-memory session and `SessionRevoked`, carrying the client, is
-     * dispatched once the revocation is committed on the session's connection.
+     * Revoke a session with the given reason, and report whether this call
+     * revoked it.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $record
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
@@ -209,16 +143,8 @@ final readonly class RefreshTokenExchange
     }
 
     /**
-     * Run the exchange for the parsed claims: the session the token names and
-     * its guard, then, in one transaction that first writes its issuance guard
-     * and reads the session again with a lock, the rotation id against the row
-     * read there, its owner and principal, and the application policy, then the
-     * rotation or the grace reissue. Returns the `AuthenticationFailed` event
-     * of the first check that fails. A session of another guard (or of none),
-     * read on the write connection, fails as `session_guard_mismatch` before
-     * anything else is judged or written, so a token of one guard never
-     * revokes, or writes anything to, another guard's session; the guard a
-     * session records never changes.
+     * Run the exchange for the parsed claims in one transaction on the
+     * session's connection, refusing a session of another guard first.
      *
      * @param  ?array<string, mixed>  $claims
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
@@ -270,8 +196,7 @@ final readonly class RefreshTokenExchange
     }
 
     /**
-     * Run the exchange on the session of this guard the token names. A failure
-     * that proves a replay revokes the session; no other one does.
+     * Run the exchange on the session of this guard the token names.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $record
      * @param  string  $rotationId
@@ -311,10 +236,8 @@ final readonly class RefreshTokenExchange
     }
 
     /**
-     * Judge the admitted session against its tenant's authentication policy
-     * and, when it meets it, rotate the current rotation id (recording the
-     * version answered) or hand a grace retry the current credential;
-     * otherwise answer the shortfall.
+     * Judge the admitted session against its tenant's authentication policy,
+     * then rotate or reissue when it meets it.
      *
      * @formatter:off
      *
@@ -358,18 +281,8 @@ final readonly class RefreshTokenExchange
     }
 
     /**
-     * Answer a session that no longer meets its tenant's authentication policy:
-     * one that must be established through a connection it was not can never
-     * meet it, so it is revoked (`tenant_policy_changed`) and the exchange
-     * refused as `sso_required`; one that lacks a further factor returns to
-     * pending, recording the version answered, and the client gets a pending
-     * credential instead of a pair. Both writes apply only to the row as it was
-     * judged: the revocation while it is still active with the refresh digest,
-     * principal and active tenant it was loaded with, so a session a concurrent
-     * switch moved to another tenant is never revoked for this one. A write
-     * that misses judges the row again, as after a lost rotation, but never
-     * hands out a pair: the policy this exchange asked said the session falls
-     * short.
+     * Answer a session that no longer meets its tenant's authentication policy
+     * by revoking it or returning it to pending.
      *
      * @formatter:off
      *
@@ -420,10 +333,7 @@ final readonly class RefreshTokenExchange
     }
 
     /**
-     * Extract and shape-check the refresh-token claims. `parse()` has already
-     * rejected a token missing `sid` or `jti`, so what remains is a `jti` that
-     * is not a string. Returns the `token_invalid` failure for any malformed
-     * payload.
+     * Extract and shape-check the refresh-token claims.
      *
      * @param  ?array<string, mixed>  $claims
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
@@ -448,9 +358,7 @@ final readonly class RefreshTokenExchange
     }
 
     /**
-     * The `AuthenticationFailed` event of a refresh that failed for the reason,
-     * with the context the exchange established, and the wait of a rate-limited
-     * failure.
+     * The `AuthenticationFailed` event of a refresh that failed for the reason.
      *
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
      * @param  \SineMacula\Laravel\Authentication\Events\EventContext  $context
@@ -463,12 +371,8 @@ final readonly class RefreshTokenExchange
     }
 
     /**
-     * The context of an exchange on the session: the guard exchanging, the
-     * client, the session and the method it records, and whatever of the
-     * session's identity, principal and tenant the exchange resolved. A failure
-     * before the owner was read (the row's own state, an owner that no longer
-     * loads) is about the row, so it names the owner and principal the row
-     * records.
+     * The context of an exchange on the session, with whatever of its identity,
+     * principal and tenant the exchange resolved.
      *
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $record
@@ -507,9 +411,8 @@ final readonly class RefreshTokenExchange
     }
 
     /**
-     * Revoke the session at the given time, and report it when this call did,
-     * once the revocation is committed on the session's own connection. The
-     * event's guard is the session's own.
+     * Revoke the session at the given time, and report it once committed when
+     * this call revoked it.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $record
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
@@ -525,9 +428,8 @@ final readonly class RefreshTokenExchange
     }
 
     /**
-     * Report the revocation of the session when this exchange revoked it, once
-     * it is committed on the session's own connection, and pass on whether it
-     * did. The event's guard is the session's own.
+     * Report the revocation once it commits when this exchange revoked it, and
+     * pass on whether it did.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $record
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
@@ -550,11 +452,8 @@ final readonly class RefreshTokenExchange
     }
 
     /**
-     * Hydrate identity + principal from a verified session row, and hold them
-     * to the application policy (see `RefreshAdmission`); the principal must be
-     * the one the session records (`session_principal_mismatch`). Returns what
-     * was admitted (the identity, the principal, the session's active tenant,
-     * and the session), or the failure with as much of it as was resolved.
+     * Admit the session's identity and principal, which must be the principal
+     * the session records.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $record
      * @param  mixed  $principalHint
@@ -582,16 +481,6 @@ final readonly class RefreshTokenExchange
     /**
      * Rotate the presented current rotation id to its successor and issue the
      * pair for it.
-     *
-     * The new idle deadline is the idle lifetime the application policy gives
-     * the guard, from `$now`, never past the absolute deadline when the session
-     * has one, which a rotation never moves (and never adds). Both tokens are
-     * issued at `$now`, the time the session was judged at, before the swap is
-     * written, so a failure while issuing (signing, randomness, an identifier
-     * that cannot be read) rolls the exchange's transaction back, its guard
-     * with it, and leaves the presented refresh token valid. The pair is only
-     * returned once the compare-and-swap has applied; when the swap misses, the
-     * row changed under the exchange and is judged again.
      *
      * @formatter:off
      *
@@ -640,27 +529,7 @@ final readonly class RefreshTokenExchange
 
     /**
      * Judge the presented rotation id again against the row as it now is, after
-     * the compare-and-swap missed, with the same `$now`. There is never a
-     * second swap.
-     *
-     * The exchange holds the row from its issuance guard, so no other
-     * transaction changes it before the swap; a miss means its own transaction
-     * wrote the row meanwhile (a contract it asked that writes the session),
-     * and the row is judged by the rules a parallel exchange that wrote first
-     * calls for. A rotation whose successor is this exchange's makes this one a
-     * grace retry, which gets the current credential. A replay is revoked, and
-     * a session that was revoked, deleted, or ended in between fails for that
-     * reason. A token that is still the current one means other security state
-     * changed in between (a deadline, say): that proves nothing, so it fails as
-     * `rotation_conflict` without revoking, and the client can retry. Before
-     * any success the fresh row must still belong to the identity the exchange
-     * hydrated and still record the principal and the active tenant it
-     * admitted: a switch written in between moved the session to a context this
-     * exchange never judged, so its retry fails as `session_principal_mismatch`
-     * or `session_tenant_mismatch` instead. When the write that missed was for
-     * a session this exchange found short of its tenant's policy, a grace retry
-     * fails as `rotation_conflict` instead of getting the pair that policy
-     * refused it, and the client's next refresh is judged afresh.
+     * the compare-and-swap missed; there is never a second swap.
      *
      * @formatter:off
      *
@@ -708,11 +577,7 @@ final readonly class RefreshTokenExchange
     }
 
     /**
-     * Why the presented rotation id, judged again as still current or as a
-     * grace retry of the fresh row, gets no pair: still current, it is a
-     * conflict; a retry must find the row still the hydrated identity's,
-     * recording the principal and active tenant admitted, and not follow a
-     * write for a session that fell short of its tenant's policy. `null` when
+     * Why the presented rotation id, judged again, gets no pair, or `null` when
      * the retry gets the current credential.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $fresh
@@ -736,11 +601,8 @@ final readonly class RefreshTokenExchange
     }
 
     /**
-     * Hand a grace retry the session's current credential: a new pair, issued
-     * at `$now`, whose refresh token carries the current rotation id (the
-     * successor of the presented one) and expires at the stored idle deadline.
-     * No rotation state is written, so the grace window stays anchored at the
-     * rotation that opened it.
+     * Hand a grace retry the session's current credential without writing any
+     * rotation state.
      *
      * @formatter:off
      *
@@ -766,8 +628,7 @@ final readonly class RefreshTokenExchange
     }
 
     /**
-     * The exchanged session, with its new pair: the identity, principal and
-     * tenant it was admitted as, and the method the session records.
+     * The exchanged session, with its new pair.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $record
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $session

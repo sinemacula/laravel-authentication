@@ -5,11 +5,8 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Exceptions;
 
 /**
- * Thrown when a `Secret` is cast to a string, encoded as JSON, serialised or
- * unserialised instead of being revealed. Each of those would send or keep the
- * secret without anyone having asked for it, so it is a bug in the calling
- * code: it fails loudly rather than carrying the secret on, or carrying a
- * placeholder where a client expected it.
+ * Thrown when a `Secret` is cast, encoded, serialised or unserialised instead
+ * of being revealed.
  *
  * @api
  *
@@ -19,8 +16,7 @@ namespace SineMacula\Laravel\Authentication\Exceptions;
 final class SecretNotRevealedException extends \LogicException
 {
     /**
-     * The exception for a secret used in the way named, such as `cast to a
-     * string`.
+     * Build the exception for a secret used in the way named.
      *
      * @param  string  $use
      * @return self

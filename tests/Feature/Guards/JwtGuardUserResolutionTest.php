@@ -32,10 +32,7 @@ use Tests\Unit\Stubs\StubModel;
 use Tests\Unit\Stubs\StubSession;
 
 /**
- * Feature tests for the bearer-token `user()` resolution path on `JwtGuard`.
- *
- * Split out of the original JwtGuardTest so each class stays focused on a
- * single behavioural slice.
+ * Feature tests for bearer-token `user()` resolution on `JwtGuard`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -73,10 +70,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * A request whose `Authorization: Bearer` header carries an empty string
-     * token returns null without firing any events. Mutation guard: pins the
-     * `$token === ''` arm in `JwtGuard::resolveUserFromRequest()` separately
-     * from the `null` arm above.
+     * An empty bearer token returns null without firing any events.
      *
      * @return void
      *
@@ -93,9 +87,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * When the token service cannot parse a token (malformed / bad signature /
-     * expired), `user()` reports `token_invalid` once, and nothing else, then
-     * returns null.
+     * A token the service cannot parse is reported once as `token_invalid` and
+     * `user()` returns null.
      *
      * @return void
      *
@@ -113,9 +106,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * A rejected token is attempted once per request: repeated `user()`,
-     * `check()`, accessor and authentication context calls neither re-run the
-     * lookups nor report the failure again.
+     * A rejected token is attempted and reported once per request, however
+     * often the guard is asked.
      *
      * @return void
      *
@@ -309,9 +301,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * The resolver's `UnresolvableIdentityException` is a misconfiguration: it
-     * propagates out of `user()` as a server error instead of being reported as
-     * a failed bearer token.
+     * The resolver's `UnresolvableIdentityException` propagates out of `user()`
+     * instead of being reported.
      *
      * @return void
      *
@@ -459,8 +450,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * When `sub` resolves to a real identity but a fail-closed `principal`
-     * branch rejects the token, the failure is still attributed to the resolved
+     * A token the `principal` check rejects is attributed to the resolved
      * identity, with no principal.
      *
      * @return void
@@ -500,9 +490,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * Fail-closed: when the token carries a `principal` hint but the resolver
-     * returns `null` (the hinted principal cannot be resolved), `user()`
-     * rejects the token rather than falling back to the default principal.
+     * `user()` rejects a token whose `principal` hint the resolver cannot
+     * resolve.
      *
      * @return void
      *
@@ -533,9 +522,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * Fail-closed: when the token carries a `principal` hint but the resolver
-     * returns a *different* principal (because it fell through to the default),
-     * `user()` returns null rather than silently downgrading the active
+     * `user()` rejects a token whose `principal` hint resolves to a different
      * principal.
      *
      * @return void
@@ -572,11 +559,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * Fail-closed: when the resolver returns a principal whose identifier
-     * stringifies to `null` (e.g. an unsaved Eloquent model returned from a
-     * misbehaving custom resolver), the guard MUST reject the token rather than
-     * bind a transient actor. Pins the fail-closed `null` arm of
-     * `IdentifierCoercion::matches()`.
+     * A resolved principal whose identifier is `null` rejects the token instead
+     * of binding a transient actor.
      *
      * @return void
      *
@@ -612,9 +596,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * Fail-closed: when the token carries a `sid` hint but the session lookup
-     * fails, `user()` returns null rather than silently binding the identity
-     * with no session.
+     * `user()` rejects a token whose `sid` hint cannot be resolved.
      *
      * @return void
      *
@@ -668,9 +650,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * Fail-closed: a `sid` naming a revoked session is rejected as
-     * `session_revoked`, from the single lookup that loaded it, attributed to
-     * the resolved identity and the session.
+     * A `sid` naming a revoked session is rejected as `session_revoked` from
+     * the single lookup that loaded it.
      *
      * @return void
      *
@@ -700,9 +681,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * Fail-closed: a `sid` naming a session that has ended is rejected as
-     * `session_expired`, from the single lookup that loaded it, whatever the
-     * token's own expiry.
+     * A `sid` naming an ended session is rejected as `session_expired`,
+     * whatever the token's own expiry.
      *
      * @param  ?int  $idleIn
      * @param  ?int  $absoluteIn
@@ -725,8 +705,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
 
     /**
      * A `sid` naming a session loaded without its revocation column is reported
-     * as a misconfiguration rather than read as "not revoked", so no user is
-     * bound.
+     * as a misconfiguration.
      *
      * @return void
      *
@@ -771,9 +750,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * A `sid` looked up through a `sessions()` relation over a model that is
-     * not an `EloquentSession` is reported as the misconfiguration it is,
-     * before the relation is queried, rather than read as an unknown session.
+     * A `sessions()` relation over a model that is not an `EloquentSession` is
+     * reported before it is queried.
      *
      * @return void
      *
@@ -815,9 +793,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * The identity's sessions relation is built while reads are pinned to the
-     * write connection, so a relation that queries while it is built cannot
-     * read a lagging replica.
+     * The sessions relation is built with reads pinned to the write connection,
+     * so it cannot read a lagging replica.
      *
      * @return void
      *
@@ -865,9 +842,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * A `sid` that cannot be a key of the identity's session model is rejected
-     * as `session_unknown` without querying the sessions relation, attributed
-     * to the resolved identity and principal and to the id the token named.
+     * A `sid` that cannot be a session key is rejected as `session_unknown`
+     * without querying the sessions relation.
      *
      * @return void
      *
@@ -979,9 +955,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * When the `sid` fail-closed branch rejects a token after `sub` already
-     * resolved, the failure carries that resolved identity and principal, and
-     * the session id the token named, for attribution.
+     * A token the `sid` check rejects is attributed to the resolved identity,
+     * principal and named session.
      *
      * @return void
      *
@@ -1038,11 +1013,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * A valid token whose claims include `sub`, `principal`, and `sid` results
-     * in the guard binding the identity, principal, and session and dispatching
-     * only `Authenticated`, `PrincipalAssigned` and `SessionAuthenticated`: a
-     * request's token is an authentication, not a sign-in, so no `Attempting`,
-     * `Validated` or `Login`.
+     * A valid token binds the identity, principal and session and dispatches
+     * only the bind events.
      *
      * @return void
      *
@@ -1108,8 +1080,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * A valid token without a `sid` claim binds identity + principal and does
-     * NOT fire `SessionAuthenticated`.
+     * A valid token without a `sid` binds the identity and principal without
+     * firing `SessionAuthenticated`.
      *
      * @return void
      *
@@ -1156,9 +1128,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * Assert a bearer token whose `sid` names the supplied session is rejected
-     * for the reason from the single lookup that loaded it, attributed to the
-     * resolved identity and the session.
+     * Assert a token whose `sid` names the session is rejected for the reason
+     * from the single lookup.
      *
      * @param  \Tests\Unit\Stubs\StubSession  $session
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
@@ -1218,9 +1189,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * Expect the request's token to be reported once as rejected for the
-     * reason, with nothing else dispatched, and its context to pass the check
-     * when one is given.
+     * Expect the token to be reported once as rejected for the reason, with its
+     * context passing the check.
      *
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
      * @param  ?\Closure(\SineMacula\Laravel\Authentication\Events\EventContext): bool  $context

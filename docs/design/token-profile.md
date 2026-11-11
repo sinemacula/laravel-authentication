@@ -72,8 +72,7 @@ are told apart, which claims are checked on every parse, and which the bearer pa
 
 ## Failure / Edge Cases
 
-- A token in the profile the package used before (a `typ` claim, `pid`, `did`, `grd`, no header type) fails the parse:
-  nothing reads the old names.
+- A token with a `typ` claim, `pid`, `did` or `grd` and no header type fails the parse: nothing reads those names.
 - A token whose header type is the other type's, or that breaks the access shape (`sub_type` not matching `cid`,
   `auth_time` or `amr` without `sid`, a malformed `amr`, an `auth_time` after `iat` plus the leeway, an empty
   `tenant_id`), fails as `token_invalid`.
@@ -92,7 +91,7 @@ are told apart, which claims are checked on every parse, and which the bearer pa
   session names only the principal's own tenant), `sessionTenant()` (a session's token names only its active tenant).
 - `src/Guards/BearerAuthentication.php`: `onSession()`, `contextRefusal()` (the tenant, principal and switched-at
   checks), `inActiveTenant()`.
-- `src/Jwt/JwtTokenService.php`: `encode()` (the header), `issueAccess()`, `sessionClaims()`, `parse()`,
+- `src/Jwt/JwtTokenService.php`: `encode()` (the header), `issueAccessToken()`, `sessionClaims()`, `parse()`,
   `parseRefreshProof()`, `issueGuardedAccessToken()` and `accessClaims()` (the claims and the `exp` they carry).
 - `src/Jwt/IssuedAccessToken.php`; `src/Jwt/SessionTokens.php`: `pair()` (a session's pair with its access token's
   expiry); `src/Sessions/ProofIssuance.php` (a step-up's or reauthentication's `expiresAt`).

@@ -37,10 +37,7 @@ use Tests\Integration\Fixtures\MachineClient;
 use Tests\TestCase;
 
 /**
- * Feature tests for the OAuth 2.0 client credentials exchange over HTTP: the
- * RFC 6749 request it reads, the token and error responses it answers with,
- * every reason a client is refused, which failures are counted, and the access
- * token it grants.
+ * Feature tests for the OAuth 2.0 client credentials exchange over HTTP.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -110,8 +107,7 @@ final class ClientCredentialsExchangeTest extends TestCase
 
     /**
      * A client authenticated with HTTP Basic gets an access token in RFC 6749's
-     * shape, never cached, granting every scope its key grants; the grant is
-     * reported with the key and scopes, and the key's use recorded.
+     * shape.
      *
      * @return void
      */
@@ -233,9 +229,7 @@ final class ClientCredentialsExchangeTest extends TestCase
     }
 
     /**
-     * A request not in form is refused with the RFC 6749 error, reported as
-     * invalid credentials, and not counted against any limit; `invalid_client`
-     * answers 401 with a Basic challenge, whatever the client tried.
+     * A request not in form is refused with the RFC 6749 error and not counted.
      *
      * @param  string  $body
      * @param  array<string, string>  $server
@@ -298,10 +292,8 @@ final class ClientCredentialsExchangeTest extends TestCase
     }
 
     /**
-     * Every failure to authenticate the client answers `invalid_client` (401, a
-     * Basic challenge for a Basic client), alike, is counted against the IP
-     * address, and is reported with its own reason and, once a key was found,
-     * the key.
+     * Every failure to authenticate the client answers `invalid_client` and is
+     * counted.
      *
      * @param  string  $case
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
@@ -343,8 +335,7 @@ final class ClientCredentialsExchangeTest extends TestCase
 
     /**
      * Rows of `[what is sent for the key and its secret, refusal set up by the
-     * closure, status, error]`: a whole key sent as the client id, or the id
-     * and the secret swapped, refused at each step that reports the client.
+     * closure, status, error]`.
      *
      * @return iterable<string, array{0: \Closure(string, string): array{0: string, 1: string}, 1: \Closure(self): void, 2: int, 3: string}>
      */
@@ -375,11 +366,8 @@ final class ClientCredentialsExchangeTest extends TestCase
     }
 
     /**
-     * A client id that is not a key's public part in form, such as a whole key
-     * or a secret sent in its place, is reported with no identifier by every
-     * refusal that reports the client (an unknown client, a guard that does not
-     * allow the grant, an address past its limit), so the secret reaches no
-     * event.
+     * A client id that is not a key's public part is reported with no
+     * identifier.
      *
      * @param  \Closure(string, string): array{0: string, 1: string}  $sent
      * @param  \Closure(self): void  $refusal
@@ -410,9 +398,8 @@ final class ClientCredentialsExchangeTest extends TestCase
     }
 
     /**
-     * A client authenticated in the body that fails gets the Basic challenge
-     * too: every 401 carries one (RFC 7235 section 3.1), and Basic is the
-     * method every client may use.
+     * A failing client authenticated in the body gets the Basic challenge too
+     * (RFC 7235 section 3.1).
      *
      * @return void
      */
@@ -425,11 +412,8 @@ final class ClientCredentialsExchangeTest extends TestCase
     }
 
     /**
-     * A guard whose application does not set `client_secret_post`, the shipped
-     * default, refuses credentials in the body as `invalid_client` (401, the
-     * Basic challenge) before any query, reported as invalid credentials and
-     * counted against nothing; the same client authenticated with Basic gets
-     * its token.
+     * Body credentials are refused unless the application sets
+     * `client_secret_post`.
      *
      * @return void
      */
@@ -465,8 +449,7 @@ final class ClientCredentialsExchangeTest extends TestCase
 
     /**
      * Empty client parameters beside Basic credentials are treated as omitted
-     * (RFC 6749 section 3.1), so they are not a second authentication, and an
-     * empty scope asks for every granted scope.
+     * (RFC 6749 section 3.1).
      *
      * @return void
      */
@@ -492,9 +475,8 @@ final class ClientCredentialsExchangeTest extends TestCase
     }
 
     /**
-     * A guard whose application does not list `client_credentials` refuses
-     * every client as `unauthorized_client`, before the key is looked at, and
-     * counts nothing.
+     * A guard whose application does not list `client_credentials` refuses the
+     * grant.
      *
      * @param  ?array<string, mixed>  $application
      * @return void
@@ -560,11 +542,8 @@ final class ClientCredentialsExchangeTest extends TestCase
     }
 
     /**
-     * A key whose principal moved tenant, to another tenant or to a tenant of
-     * another type under the same id, whose recorded principal or owner type
-     * changed under the same ids, or whose principal or tenant is no longer
-     * active authenticates no client: `invalid_client`, counted, with the
-     * reason on the event.
+     * A key no longer bound to its principal, owner or tenant authenticates no
+     * client.
      *
      * @param  string  $case
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
@@ -642,9 +621,8 @@ final class ClientCredentialsExchangeTest extends TestCase
     }
 
     /**
-     * A key that grants no scope gets a token whose response has no `scope`
-     * member, as RFC 6749 has no empty scope value; the token's own `scope`
-     * claim is empty.
+     * A token granting no scope has no `scope` member, as RFC 6749 has no empty
+     * scope value.
      *
      * @return void
      */
@@ -671,9 +649,7 @@ final class ClientCredentialsExchangeTest extends TestCase
     }
 
     /**
-     * A client id is not a secret, so by default failures are not counted
-     * against it: wrong secrets sent from one address for a real client id
-     * leave the real client, calling from another, its token.
+     * Failures for a client id are not counted against it by default.
      *
      * @return void
      */
@@ -691,9 +667,7 @@ final class ClientCredentialsExchangeTest extends TestCase
     }
 
     /**
-     * Past its limit an address is answered 429 `slow_down` with `Retry-After`,
-     * whether or not the client id names a key, without the secret being
-     * checked.
+     * An address past its limit is answered 429 `slow_down` with `Retry-After`.
      *
      * @return void
      */
@@ -721,9 +695,8 @@ final class ClientCredentialsExchangeTest extends TestCase
     }
 
     /**
-     * A guard that opts in to a limit per client id gets it, from any address:
-     * the trade-off the default avoids, since anyone who knows the id can then
-     * hold the client back.
+     * A guard that opts in to a limit per client id holds the client back from
+     * any address.
      *
      * @return void
      */
@@ -782,12 +755,7 @@ final class ClientCredentialsExchangeTest extends TestCase
 
     /**
      * The exchange judges what it is handed before any query and without
-     * counting it: an error `extract()` answered is refused with it, reported
-     * as invalid credentials with the client given; a client authenticated in
-     * the body, built as plain values, is refused as `invalid_client` where the
-     * application does not allow `client_secret_post`, and granted where it
-     * does; any other string is the caller's error, nothing dispatched, and its
-     * message never repeats what was handed in, which may be a secret.
+     * counting it.
      *
      * @return void
      *
@@ -848,9 +816,8 @@ final class ClientCredentialsExchangeTest extends TestCase
     }
 
     /**
-     * A string handed in that is not an error `extract()` answers may be a
-     * credential, so the exception it is refused with records it in no frame of
-     * its trace, even where arguments are kept in traces.
+     * A string handed in may be a credential, so no trace frame of its
+     * exception records it.
      *
      * @return void
      *
@@ -957,9 +924,8 @@ final class ClientCredentialsExchangeTest extends TestCase
     }
 
     /**
-     * A client acting as a membership within a tenant gets a token naming the
-     * client in `sub` as a machine, and the tenant the exchange's admission
-     * loaded in `tenant_id`.
+     * A tenant principal's token names the client in `sub` and the tenant in
+     * `tenant_id`.
      *
      * @return void
      */

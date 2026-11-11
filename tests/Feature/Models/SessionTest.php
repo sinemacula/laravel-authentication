@@ -19,11 +19,7 @@ use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Integration\Fixtures\SeparateConnectionSession;
 
 /**
- * Feature tests for the shipped Session Eloquent model.
- *
- * Uses Orchestra Testbench with an in-memory sqlite connection and a
- * manually-created `authentication_sessions` table, so the test does not
- * transitively depend on the package migration file.
+ * Feature tests for the shipped `Session` Eloquent model.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -66,10 +62,8 @@ final class SessionTest extends TestCase
     }
 
     /**
-     * Asserts that swapping `authentication.session.table` at runtime is
-     * observed by the next Session instantiation. The model reads the config
-     * lazily in its constructor, so no cache priming is required - tests and
-     * runtime tenancy swaps pick up the new value immediately.
+     * A change to `authentication.session.table` applies to the next instance
+     * built.
      *
      * @return void
      */
@@ -83,9 +77,8 @@ final class SessionTest extends TestCase
     }
 
     /**
-     * The model takes the storage connection, read on each instantiation,
-     * unless its class names a connection of its own; a storage connection that
-     * is not a name fails closed rather than falling back to the default.
+     * The model takes the storage connection unless its class names its own,
+     * and fails closed on one that is not a name.
      *
      * @return void
      */
@@ -107,8 +100,7 @@ final class SessionTest extends TestCase
     }
 
     /**
-     * Asserts the Session model populates the `id` column with a 36-character
-     * UUID v7 on insert via HasUuids.
+     * An inserted session gets a UUID v7 primary key.
      *
      * @return void
      */
@@ -142,8 +134,7 @@ final class SessionTest extends TestCase
     }
 
     /**
-     * Asserts the string columns are cast to strings when read back, so scalar
-     * values assigned to them never leak through with their original type.
+     * String columns read back as strings, whatever scalar type was assigned.
      *
      * @return void
      */
@@ -191,10 +182,8 @@ final class SessionTest extends TestCase
     }
 
     /**
-     * Only the client-described metadata is mass assignable: ownership, the
-     * request-derived columns, and the session state are set with `forceFill()`
-     * or by the package's own writes, so a new session keeps the status it
-     * starts with whatever it is given.
+     * Only client-described metadata is mass assignable, so a new session keeps
+     * the status it starts with.
      *
      * @return void
      */
@@ -257,7 +246,7 @@ final class SessionTest extends TestCase
     }
 
     /**
-     * Asserts `authenticatable()` returns a polymorphic MorphTo relation.
+     * `authenticatable()` is a `MorphTo` relation.
      *
      * @return void
      */
@@ -283,8 +272,7 @@ final class SessionTest extends TestCase
     }
 
     /**
-     * Asserts the shipped model satisfies the explicit Eloquent-backed session
-     * persistence boundary used by refresh rotation and last-use writes.
+     * The shipped model implements the `EloquentSession` contract.
      *
      * @return void
      */
@@ -294,10 +282,7 @@ final class SessionTest extends TestCase
     }
 
     /**
-     * Asserts the model falls back to the literal `'authentication_sessions'`
-     * table when the configured table value is the empty string. The
-     * conditional collapses the empty value to the default rather than letting
-     * Eloquent issue queries against the empty table name.
+     * An empty configured table falls back to `authentication_sessions`.
      *
      * @return void
      */
@@ -311,8 +296,7 @@ final class SessionTest extends TestCase
     }
 
     /**
-     * Asserts the model takes the `'authentication_sessions'` table when the
-     * session block has no `table` key at all.
+     * A session block with no `table` key takes `authentication_sessions`.
      *
      * @return void
      */
@@ -325,8 +309,8 @@ final class SessionTest extends TestCase
     }
 
     /**
-     * Asserts the model falls back to `'authentication_sessions'` when the
-     * Config facade throws while reading `session.table`.
+     * The model falls back to `authentication_sessions` when the Config facade
+     * throws.
      *
      * @return void
      *
@@ -357,9 +341,8 @@ final class SessionTest extends TestCase
     }
 
     /**
-     * Asserts `getLastUsedAt()` returns the Carbon instance when the attribute
-     * holds a datetime, and null when the attribute is null, through the
-     * shipped model.
+     * `getLastUsedAt()` returns the Carbon instance, or null when the attribute
+     * is null.
      *
      * @return void
      */
@@ -395,8 +378,7 @@ final class SessionTest extends TestCase
     }
 
     /**
-     * Asserts `getRefreshKey()` returns null when the attribute is null.
-     * Exercises the null branch in `ActsAsSession::getRefreshKey()`.
+     * `getRefreshKey()` returns null when the attribute is null.
      *
      * @return void
      */

@@ -48,10 +48,8 @@ final class SignedOutEverywhereTest extends TestCase
     }
 
     /**
-     * The event holds no model, serialises as it is for queued listeners and
-     * survives a round trip, and it does not ask the dispatcher to wait for a
-     * transaction: the package dispatches it once the session connection
-     * commits.
+     * The event holds no model, survives a round trip and leaves its dispatch
+     * to the package.
      *
      * @return void
      */

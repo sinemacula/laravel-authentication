@@ -12,14 +12,7 @@ use Tests\Fixtures\Database\ShippedMigrations;
 
 /**
  * Builds a read/write split connection whose read replica lags behind the
- * primary.
- *
- * The default connection becomes `split`, which writes to one SQLite file (the
- * primary) and reads from another (the replica). The schema is created on both,
- * and every row written through `split` lands on the primary only, so a read
- * served by the replica does not see it. Tests can therefore prove that a read
- * went to the write connection by seeding through `split` and asserting the row
- * is found.
+ * primary, so a row written through it is found only by a read on the primary.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -64,9 +57,8 @@ trait InteractsWithLaggingReplica
     }
 
     /**
-     * Register a second lagging split connection, `landlord`, with its own
-     * primary and replica files, for models that live outside the default
-     * connection.
+     * Register a second lagging split connection, `landlord`, for models that
+     * live outside the default connection.
      *
      * @param  \Illuminate\Config\Repository  $config
      * @return void
@@ -77,9 +69,8 @@ trait InteractsWithLaggingReplica
     }
 
     /**
-     * Run the shipped migrations (sessions, pending sign-ins, rate limits, and
-     * the sessions' proofs and provenance, and any other shipped migration
-     * files named) against the primary and the replica.
+     * Run the shipped session migrations, and any others named, against the
+     * primary and the replica.
      *
      * @param  string  ...$others
      * @return void
@@ -126,8 +117,7 @@ trait InteractsWithLaggingReplica
 
     /**
      * Copy a row as it stands on a primary into its replica (the default pair
-     * unless others are named), so the replica holds that version until the
-     * test changes the primary again.
+     * unless others are named).
      *
      * @param  string  $table
      * @param  mixed  $key
@@ -191,8 +181,7 @@ trait InteractsWithLaggingReplica
             'prefix'   => '',
         ]);
 
-        // The top-level `database` is what Testbench inspects; Laravel uses the
-        // `read` and `write` entries for the two PDOs.
+        // Testbench inspects the top-level `database`; Laravel uses read/write.
         $config->set('database.connections.' . $split, [
             'driver'   => 'sqlite',
             'database' => $primary,

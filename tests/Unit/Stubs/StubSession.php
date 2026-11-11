@@ -11,10 +11,7 @@ use SineMacula\Laravel\Authentication\Concerns\ActsAsSession;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 
 /**
- * Eloquent stub implementing the package's explicit Eloquent session boundary.
- *
- * Configurable table for in-memory sqlite tests; defaults to `stub_sessions` so
- * it never collides with the package's own `authentication_sessions` table.
+ * Eloquent session stub on the `stub_sessions` table unless one is given.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

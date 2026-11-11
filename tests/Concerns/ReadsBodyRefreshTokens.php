@@ -20,8 +20,7 @@ trait ReadsBodyRefreshTokens
 {
     /**
      * The refresh token a body application's tokens carry, as a controller
-     * reads it from a request body (`PresentedRefreshToken::fromBody()`) to
-     * hand on to the session service.
+     * reads it from a request body.
      *
      * @param  ?\SineMacula\Laravel\Authentication\Jwt\TokenPair  $tokens
      * @return \SineMacula\Laravel\Authentication\Http\PresentedRefreshToken

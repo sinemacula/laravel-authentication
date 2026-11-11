@@ -16,14 +16,7 @@ use Tests\Integration\Fixtures\PasswordIdentity;
 use Tests\Integration\Fixtures\PasswordMachine;
 
 /**
- * Shared set-up for tests of the password helpers: the `password_identities`
- * table, identities seeded in it, and guards over them, built on the session
- * tests' helpers.
- *
- * Guards: `web` and `admin` allow `password` over `PasswordIdentity`, so a
- * password change or reset through one ends the sessions of both; `machines`
- * allows `password` over `PasswordMachine`; `console` also requires verified
- * identifiers.
+ * Shared set-up for tests of the password helpers.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -35,8 +28,8 @@ trait InteractsWithPasswords
     use InteractsWithSessions;
 
     /**
-     * Create the `password_identities` table on the given connection, or the
-     * default one.
+     * Create the `password_identities` table on the given or default
+     * connection.
      *
      * @param  ?string  $connection
      * @return void
@@ -68,8 +61,8 @@ trait InteractsWithPasswords
     }
 
     /**
-     * Register the guards and providers, a cheap password hash, and a timebox
-     * short enough not to slow the suite.
+     * Register the guards and providers, a cheap password hash and a short
+     * timebox.
      *
      * @param  \Illuminate\Config\Repository  $config
      * @return void
@@ -89,8 +82,7 @@ trait InteractsWithPasswords
     }
 
     /**
-     * Freeze every clock the package reads (Carbon, `CarbonImmutable` and the
-     * JWT library's) at the time, or release them.
+     * Freeze every clock the package reads at the time, or release them.
      *
      * @param  ?\Carbon\CarbonImmutable  $time
      * @return void
@@ -127,8 +119,7 @@ trait InteractsWithPasswords
     }
 
     /**
-     * Sign the identity with the email in through the guard's password method,
-     * as a fresh request, and return the session.
+     * Sign the identity with the email in by password and return the session.
      *
      * @param  string  $guard
      * @param  string  $email

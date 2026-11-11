@@ -8,10 +8,7 @@ use SineMacula\Laravel\Authentication\Events\EventContext;
 
 /**
  * Implemented by every event the package dispatches, so one listener can take
- * them all (`Event::listen(AuthenticationEvent::class, ...)`) and attribute
- * each through the same context. Laravel's own auth events (`Attempting`,
- * `Validated`, `Login`, `Authenticated`, `Failed`, `Logout`) do not implement
- * it.
+ * them all.
  *
  * @api
  *

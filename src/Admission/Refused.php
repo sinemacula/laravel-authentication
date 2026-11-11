@@ -11,8 +11,7 @@ use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 
 /**
- * What the guard refused, whichever flow asked: why, and the context the flow
- * had established by then, which the failure events carry.
+ * Why a guard flow was refused, with the context it had established by then.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

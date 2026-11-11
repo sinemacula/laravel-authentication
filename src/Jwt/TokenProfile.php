@@ -14,10 +14,7 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
- * The shape rules of the package's token profile that go beyond a claim being
- * present: the header type a token's `typ` names, what an access token's claims
- * must say about its subject, its session and its tenant, and which tenant one
- * may name when it is issued.
+ * The shape rules of the package's token profile beyond a claim being present.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -26,7 +23,7 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  */
 final class TokenProfile
 {
-    /** @var string The media type prefix a header type may carry (RFC 7515 §4.1.9). */
+    /** @var string The media type prefix a header type may carry (RFC 7515 section 4.1.9). */
     private const string MEDIA_TYPE_PREFIX = 'application/';
 
     /**
@@ -36,9 +33,7 @@ final class TokenProfile
 
     /**
      * The token type a JOSE header's `typ` names, or `null` for a missing,
-     * unknown or malformed one. Compared without regard to case and with an
-     * optional `application/` prefix removed, as RFC 7515 §4.1.9 and RFC 9068
-     * §4 allow (`at+jwt` or `application/at+jwt`).
+     * unknown or malformed one.
      *
      * @param  mixed  $typ
      * @return ?\SineMacula\Laravel\Authentication\Jwt\Enums\TokenType
@@ -55,12 +50,8 @@ final class TokenProfile
     }
 
     /**
-     * The `tenant_id` an access token without a session may carry for the
-     * principal: the tenant identifier given, once it is known to be the one of
-     * the principal's own tenant (its `getTenant()`, read on the write
-     * connection). Without a session a principal acts only in its own tenant,
-     * so such a token never names another. A principal whose tenant cannot be
-     * loaded throws the `TenantUnavailableException` its `getTenant()` does.
+     * The `tenant_id` an access token without a session may carry: the given
+     * identifier, once it is known to be the principal's own tenant.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  string  $tenantId
@@ -72,14 +63,18 @@ final class TokenProfile
      */
     public static function ownTenant(Principal $principal, string $tenantId): string
     {
-        return self::matchingTenant(WriteConnection::during($principal, static fn (): ?Tenant => $principal->getTenant()), $tenantId);
+        $own = WriteConnection::during($principal, static fn (): ?Tenant => $principal->getTenant());
+
+        if (!IdentifierCoercion::matches($own?->getTenantIdentifier(), $tenantId)) {
+            throw new \InvalidArgumentException('Cannot issue a token naming a tenant the principal does not act within: pass the tenant its admission loaded.');
+        }
+
+        return $tenantId;
     }
 
     /**
      * Refuse to issue an access token for the session naming another tenant
-     * than the one the session acts in: the identifier given must be the one
-     * the session records, or both none, so a token of a session always names
-     * its active tenant, never the principal's own when the two differ.
+     * than the one the session acts in.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  ?string  $tenantId
@@ -98,12 +93,7 @@ final class TokenProfile
 
     /**
      * Why an access token's claims break the profile, or `null` when they keep
-     * it: the API key a client credentials token names must be well formed, and
-     * its subject type `machine` exactly when it names one (`person`
-     * otherwise); a token that names a session carries an integer `auth_time`
-     * not after its issue time plus the leeway and an `amr` that is a list of
-     * non-empty strings, possibly empty, and one that names none carries
-     * neither; a `tenant_id` is a non-empty string.
+     * it.
      *
      * @param  array<string, mixed>  $claims
      * @param  int  $leewaySeconds
@@ -125,8 +115,7 @@ final class TokenProfile
 
     /**
      * Why a refresh token's claims break the profile, or `null` when they keep
-     * it: a refresh token names a session, so it can never name an API key, and
-     * one that does is malformed.
+     * it.
      *
      * @param  array<string, mixed>  $claims
      * @return ?string
@@ -193,24 +182,5 @@ final class TokenProfile
         $tenant = $claims[Claims::TENANT_ID->value];
 
         return is_string($tenant) && $tenant !== '';
-    }
-
-    /**
-     * The tenant identifier given, once it is the identifier of the tenant the
-     * principal acts within (`null` for none, which no identifier matches).
-     *
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $own
-     * @param  string  $tenantId
-     * @return string
-     *
-     * @throws \InvalidArgumentException
-     */
-    private static function matchingTenant(?Tenant $own, string $tenantId): string
-    {
-        if (!IdentifierCoercion::matches($own?->getTenantIdentifier(), $tenantId)) {
-            throw new \InvalidArgumentException('Cannot issue a token naming a tenant the principal does not act within: pass the tenant its admission loaded.');
-        }
-
-        return $tenantId;
     }
 }

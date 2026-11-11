@@ -20,8 +20,7 @@ use SineMacula\Laravel\Authentication\Passkeys\PasskeyRemoval;
 final class PasskeyRemovalTest extends TestCase
 {
     /**
-     * A removal carries the factor package's completion it was given, that very
-     * object, and none unless it was given one.
+     * A removal carries only the completion it was given.
      *
      * @return void
      */

@@ -6,9 +6,10 @@ namespace SineMacula\Laravel\Authentication\Identifiers;
 
 /**
  * The names identifier types go by: `email`, `phone`, or any other a normaliser
- * is registered under. A type also names the identity's column holding the
- * identifier and the `<type>_verified_at` column recording its verification, so
- * a name is restricted to what is safe as a column name.
+ * is registered under.
+ *
+ * A type also names the identity's columns, so it is restricted to what is safe
+ * as a column name.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

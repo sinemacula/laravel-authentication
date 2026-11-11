@@ -21,8 +21,7 @@ use SineMacula\Laravel\Authentication\Passkeys\PasskeyFactorAssociation;
 final class PasskeyFactorAssociationTest extends TestCase
 {
     /**
-     * The association carries the factor package's reference, of 1 to 255
-     * characters, multibyte ones counted as one.
+     * The association carries a reference of 1 to 255 characters.
      *
      * @return void
      */
@@ -34,8 +33,7 @@ final class PasskeyFactorAssociationTest extends TestCase
     }
 
     /**
-     * An association carries no completion unless the gate gives it one, and
-     * then carries that very object.
+     * An association carries only the completion the gate gives it.
      *
      * @return void
      */

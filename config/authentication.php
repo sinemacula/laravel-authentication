@@ -13,21 +13,9 @@ return [
     | Storage
     |---------------------------------------------------------------------------
     |
-    | The connection every package table lives on (`null` for the default):
-    | sessions (pending ones among them), their proofs and provenance, one-time
-    | codes, passkeys and their challenges, API keys, identifier changes, and
-    | the rate limit counters unless `rate_limits.connection` names their own.
-    | The models read and write them there, and the published migrations create
-    | them there. They share one connection because a session, the activation of
-    | a pending one, a password reset and an identifier change each write
-    | several of them in one transaction, which two connections cannot commit as
-    | one: a custom session model must live on it too, or every session flow
-    | fails closed, and password resets and identifier changes need the identity
-    | there as well. A value that is neither a connection name nor `null` or
-    | empty fails closed when a model is built, and `authentication:check`
-    | reports it, as it does a name `database.connections` does not configure.
-    | Keep it fixed while the application runs: moving the tables is a deploy,
-    | with a migration the application performs and a worker restart.
+    | The connection every package table lives on (`null` for the default). The
+    | tables share one connection because several flows write more than one of
+    | them in a single transaction. Keep it fixed while the application runs.
     |
     */
 
@@ -40,45 +28,15 @@ return [
     | Session tracking
     |---------------------------------------------------------------------------
     |
-    | Configures the package's default Eloquent session adapter. JWT refresh
-    | lookup and rotation require `session.model` to be an Eloquent model
-    | implementing the package `EloquentSession` contract, on the storage
-    | connection (the shipped model takes it, unless a subclass names its own).
-    | Column names come from that contract's accessors (e.g.
-    | `getRefreshKeyName()`); the shipped migration and model use the default
-    | names, so a custom model that renames a column ships its own migration.
-    | Every authentication that binds a persisted EloquentSession records when,
-    | from which IP address, and with which user agent it was last used, at most
-    | once per `last_used_throttle_seconds` (0 records every use). Laravel's
-    | `model:prune` deletes sessions that ended (revoked, or past their idle or
-    | absolute deadline) more than `prune_after_days` ago (0 to 3650, counted
-    | from that end, not from creation; 0 prunes them as soon as they end; an
-    | integer, or a digit string as `env()` returns one; anything else fails
-    | closed when pruning runs, and `authentication:check` reports it).
-    | The shipped model opts in with the `PrunesSessions` trait, as a custom
-    | model does.
+    | The default Eloquent session adapter. `session.model` must implement the
+    | package `EloquentSession` contract and live on the storage connection.
+    | Ended sessions are pruned by `model:prune` after `prune_after_days`.
     |
-    | A session is pending while it waits on requirements (a further factor,
-    | a choice of principal): it holds a pending credential, handed out once in
-    | a response body, and no token. The credential, and the pending session
-    | with it, expires `pending_ttl_seconds` after it is issued (30 to 3600; an
-    | integer, or a digit string as `env()` returns one; anything else fails
-    | closed when a session becomes pending, and `authentication:check` reports
-    | it), never after the session's absolute deadline. An expired pending
-    | session has ended, so it is pruned like any other ended session. An active
-    | session that falls short of a further factor during a refresh or a switch
-    | returns to pending with a new credential of the same lifetime.
+    | A pending session holds a pending credential, read from the body field
+    | `pending_credential_field`, that expires after `pending_ttl_seconds`.
     |
-    | A route that authenticates with the pending credential
-    | (`authentication.pending:<action>`) has `Auth::caller()` read it from
-    | the body field `pending_credential_field` (a JSON or form body, never
-    | the query string or a header): a field name without `.`, spaces or
-    | brackets; anything else fails closed when the caller is read, and
-    | `authentication:check` reports it.
-    |
-    | `table` may be up to 47 characters: the migration names its indexes
-    | after it (`<table>_owner_index` and so on), and PostgreSQL cuts a longer
-    | index name short.
+    | `table` may be up to 47 characters, as PostgreSQL truncates longer index
+    | names.
     |
     */
 
@@ -96,26 +54,10 @@ return [
     | Proofs
     |---------------------------------------------------------------------------
     |
-    | Every session records the proofs it was established and kept with: the
-    | first factor at sign-in, a reauthentication with it, a reauthentication at
-    | the external provider the session began with (through the link that
-    | established it), and a further factor or a recovery code an adapter
-    | verified, each with its method, channel, factor, what was observed, the
-    | adapter's evaluation, its `amr` values, its time, its binding and, for an
-    | external provider's proof, the evidence the provider asserted once the
-    | bound `ExternalEvidencePolicy` accepted it (which by default it never
-    | does), in `table`. A session an external provider established also records
-    | how it began (the connection and its tenant, the provider's authentication
-    | time and session deadline, the policy version checked, the id of the link
-    | it came through, and the accepted evidence) in `provenance_table`. Both
-    | live on the storage connection, are read from the write connection, and
-    | are pruned with their sessions by the session model's `model:prune`. A
-    | code proof's destination is personal data, kept no longer than its
-    | session. A sign-in through a connection and each revocation of its
-    | sessions write the connection's guards in `guards_table` (at most 64
-    | rows per connection, naming no identity, link or session, never pruned),
-    | so neither misses the other at any isolation level. Each table name may
-    | be up to 47 characters, as the migrations name their indexes after it.
+    | The tables that record each session's proofs, the provenance of a session
+    | an external provider established, and the per-connection guards that keep
+    | sign-ins and revocations from missing each other. Each table name may be
+    | up to 47 characters.
     |
     */
 
@@ -130,14 +72,9 @@ return [
     | Revocation by connection
     |---------------------------------------------------------------------------
     |
-    | The session service's `connectionDisabled()` and `connectionDeleted()`
-    | end every live session an external provider's connection established,
-    | and `linkRemoved()` an identity's sessions through one link, found
-    | through the provenance (`connection_disabled`, `connection_deleted`,
-    | `link_removed`). Each is on unless its setting here is `false`, when it
-    | returns `0` and writes nothing. A value that is not a boolean fails
-    | closed when the method is first called, and `authentication:check`
-    | reports it. `linkScopeWidened()` has no setting: it is mandatory.
+    | Whether the session service ends sessions when a connection is disabled or
+    | deleted, or a link is removed. One set to `false` returns `0` and writes
+    | nothing.
     |
     */
 
@@ -152,14 +89,9 @@ return [
     | Sign-in
     |---------------------------------------------------------------------------
     |
-    | The password sign-in method looks identities up by the column named in
-    | `password_identifier`, which is also the identifier type the attempt
-    | limits count and a guard that requires verified identifiers checks. A
-    | guard whose identities are found by another column names its own in
-    | `auth.guards.<name>.sign_in.password_identifier` (the only key a guard's
-    | `sign_in` block may set). Either must be a lower-case column name (a
-    | letter, then letters, digits, or underscores) that does not contain
-    | `password`; anything else fails closed when a password sign-in runs.
+    | The identity column the password sign-in method looks identities up by. A
+    | guard may name its own in
+    | `auth.guards.<name>.sign_in.password_identifier`.
     |
     */
 
@@ -172,12 +104,8 @@ return [
     | Credential validation timing
     |---------------------------------------------------------------------------
     |
-    | Microsecond budget passed to Illuminate\Support\Timebox around the
-    | credential checks in a guard's `attempt()` and `validate()`, around a
-    | session service `signIn()` from its sign-in method to its admission,
-    | around a password reset submission, and around the password check that
-    | reauthenticates an identifier change. Must exceed the worst-case hasher
-    | cost (bcrypt cost 12 ≈ 150–250ms) or timing-safety breaks down.
+    | Microsecond budget for the Timebox around credential checks. It must
+    | exceed the worst-case hasher cost (bcrypt cost 12 takes about 150-250ms).
     |
     */
 
@@ -190,12 +118,9 @@ return [
     | Credential redaction in events
     |---------------------------------------------------------------------------
     |
-    | Laravel's `Attempting` and `Failed` events receive the credentials passed
-    | to a guard's `attempt()`, and any listener, queued job, or log can capture
-    | them. The guards remove every key whose name contains `password`
-    | (case-insensitive) before dispatching, always, and keep the rest, the
-    | identifier included, for throttling and audit listeners. List further
-    | key-name fragments to remove (for example `secret` or `code`) here.
+    | Laravel's `Attempting` and `Failed` events carry the credentials passed to
+    | `attempt()`. Keys containing `password` are always removed; list further
+    | key-name fragments to remove here.
     |
     */
 
@@ -208,40 +133,17 @@ return [
     | JWT
     |---------------------------------------------------------------------------
     |
-    | Stateless JWT defaults consumed by JwtTokenService and JwtGuard. Access
-    | tokens are self-verifying and are not backed by a server-side access-token
-    | store, but JwtGuard still rehydrates identity, principal, and optional
-    | session state on bearer authentication. A resolved, persisted session may
-    | still trigger normal session-authenticated side effects such as debounced
-    | last-use writes. Signing material is always a `kid => secret` map in
-    | `keys` plus the `active_kid` that signs new tokens; every token carries
-    | its kid, and any kid in the map verifies. Signing is HMAC only:
-    | `algorithm` must be HS256, HS384, or HS512, and every key must be at
-    | least 32, 48, or 64 bytes respectively. Invalid signing material fails
-    | closed when a JWT guard or token service is resolved. Every token carries
-    | a `client_id` claim naming the guard (the application) that issued it,
-    | and a guard rejects tokens issued by any other guard, even with a shared
-    | key. `issuer` and `audience` are required, with no default: every token
-    | carries them as `iss` and `aud`, every parse checks them strictly, and a
-    | guard that has neither a package value nor an override fails closed
-    | (`authentication:check` reports it), so a fresh install must set
-    | AUTHENTICATION_JWT_ISSUER and AUTHENTICATION_JWT_AUDIENCE. Each must be
-    | a non-empty string, and `algorithm` a string, here and in a guard
-    | override; any other value fails closed rather than being ignored. Each
-    | guard's token service is built from these values once and kept while the
-    | token service factory lives, so a change needs a worker restart under
-    | Octane or a queue worker (see Configuration lifetimes in
-    | docs/guides/operations.md).
+    | Signing and lifetime defaults for the JWT guards, each overridable per
+    | guard. Signing is HMAC only. `issuer` and `audience` have no default and
+    | must be set. A change needs a worker restart under Octane or a queue
+    | worker.
     |
     */
 
     'jwt' => [
 
-        // `kid => secret` map. Out of the box it holds one key, `default`, read
-        // from AUTHENTICATION_JWT_KEY. To rotate, add a new kid backed by its
-        // own env var (e.g. AUTHENTICATION_JWT_KEY_2026_05), point `active_kid`
-        // at it, and remove the old kid once every token signed under it has
-        // expired.
+        // To rotate, add a kid, point `active_kid` at it, and remove the old
+        // kid once every token it signed has expired.
         'keys' => [
             'default' => env('AUTHENTICATION_JWT_KEY'),
         ],
@@ -251,38 +153,20 @@ return [
 
         'algorithm' => env('AUTHENTICATION_JWT_ALGORITHM', 'HS256'),
 
-        // Lifetimes, in minutes, each overridable per guard. An access token
-        // lives `access_ttl_minutes` (1 to 1440). A session ends
-        // `refresh_idle_ttl_minutes` after its last refresh, and in any case
-        // `refresh_absolute_ttl_minutes` after it started (each 1 to 5256000,
-        // ten years), or earlier at a deadline its sign-in supplied. Set
-        // `refresh_absolute_ttl_minutes` to `null` explicitly (here, in a
-        // guard's override, or AUTHENTICATION_JWT_REFRESH_ABSOLUTE_TTL_MINUTES
-        // =null) for no absolute limit: such a session ends only when it goes
-        // idle or reaches its sign-in's deadline. The idle lifetime is always
-        // required. No token outlives its session: a refresh token, and an
-        // access token whose lifetime is longer, expire when it would. Values
-        // must be integers, or digit strings as `env()` returns them; anything
-        // else, a missing absolute lifetime included, fails closed when the
-        // guard is resolved.
+        // Minutes. Set the absolute lifetime to `null` explicitly for no limit.
         'access_ttl_minutes'           => env('AUTHENTICATION_JWT_ACCESS_TTL_MINUTES', 5),
         'refresh_idle_ttl_minutes'     => env('AUTHENTICATION_JWT_REFRESH_IDLE_TTL_MINUTES', 60 * 24 * 90),
         'refresh_absolute_ttl_minutes' => env('AUTHENTICATION_JWT_REFRESH_ABSOLUTE_TTL_MINUTES', 60 * 24 * 180),
 
-        // Seconds (0 to 300) after a refresh during which the refresh token it
-        // replaced still gets the session's current credential, so a lost
-        // response or a parallel refresh does not sign the client out. After
-        // the window, or with 0, presenting a replaced refresh token is treated
-        // as theft and revokes the session. Overridable per guard.
+        // Seconds a replaced refresh token still works, so a lost response or a
+        // parallel refresh does not sign the client out.
         'refresh_grace_seconds' => env('AUTHENTICATION_JWT_REFRESH_GRACE_SECONDS', 30),
 
-        // Clock-skew tolerance, in seconds (0 to 300), on every token's `exp`
-        // and `iat`. It never stretches a session: a session past its idle or
-        // absolute deadline is rejected however recent its access token.
+        // Clock-skew tolerance in seconds on `exp` and `iat`; it never extends
+        // a session.
         'leeway_seconds' => env('AUTHENTICATION_JWT_LEEWAY_SECONDS', 30),
 
-        // The `iss` (who issues the tokens, such as https://auth.example.com)
-        // and the `aud` (the API they are for) of every token. Required.
+        // Required: the `iss` and `aud` of every token.
         'issuer'   => env('AUTHENTICATION_JWT_ISSUER'),
         'audience' => env('AUTHENTICATION_JWT_AUDIENCE'),
     ],
@@ -292,36 +176,9 @@ return [
     | Applications
     |---------------------------------------------------------------------------
     |
-    | An application is a guard: each app being signed into (`admin`,
-    | `console`, `mobile`) is one. These are the defaults every application
-    | starts from; a guard overrides any of them in an `application` block on
-    | its `config/auth.php` entry, where a key that is present wins, `null`
-    | included. `methods` lists the sign-in methods that may start the
-    | application's sessions, by the lower-case names they are registered under
-    | (or, for a session the application starts itself, the name it passes to
-    | `start()`), `external_provider` for sign-in with a result an external
-    | identity provider verified (`signInExternally()`), and the machine
-    | credentials it accepts (`api_key`, `client_credentials`). It is empty by
-    | default, so each application lists what it uses: an empty list refuses
-    | every sign-in, refresh, code and password reset request as
-    | `method_not_allowed` (and every client credentials exchange as
-    | `unauthorized_client`, or as `invalid_client` for a client that sends its
-    | credentials in the body where `client_secret_post` does not allow them),
-    | and `authentication:check` warns about a `jwt` guard that lists nothing,
-    | or only `api_key`, which a `jwt` guard never accepts.
-    | `require_verified_identifier` refuses a sign-in with an identifier (an
-    | email address, say) the identity has not verified; sign-ins that use no
-    | identifier, such as SSO, are not affected. `client_secret_post` lets a
-    | client credentials exchange accept a client authenticated in the form
-    | body (`client_secret_post`); off, only HTTP Basic is accepted (RFC 6749
-    | requires every server to accept it) and a client authenticated in the
-    | body is refused as `invalid_client`, however its `PresentedClient` was
-    | built. A malformed value, or an unknown key, fails closed with an
-    | `InvalidArgumentException` naming the guard and the key when the guard's
-    | policy is first used. Which principals may use an application, and which
-    | tenants they may act in, are not settings here but the `ApplicationAccess`
-    | and `TenantAccess` contracts: by default any principal may use any
-    | application, in its own tenant only.
+    | The defaults every application (guard) starts from; a guard overrides any
+    | of them in an `application` block on its `config/auth.php` entry.
+    | `methods` is empty by default, which refuses every sign-in.
     |
     */
 
@@ -336,19 +193,9 @@ return [
     | Identifiers
     |---------------------------------------------------------------------------
     |
-    | Normalisers bring an identifier a person types to the one form it is
-    | stored and looked up in, keyed by identifier type (a lower-case name).
-    | Designate an identity attribute with the `NormalizedIdentifier` cast
-    | (`'email' => NormalizedIdentifier::using('email')`) and the attribute is
-    | normalised when it is set, the `model` provider normalises it before it
-    | looks an identity up, and attempts are counted against its normal form.
-    | Each value is a container abstract resolving to an
-    | `IdentifierNormalizer`; the email normaliser trims and lower-cases. The
-    | phone normaliser accepts only numbers already in E.164 form (`+` and up
-    | to 15 digits) and refuses anything else: an application that takes
-    | mobile or free-form numbers binds its own normaliser under `phone`,
-    | backed by `giggsey/libphonenumber-for-php` (see
-    | docs/guides/identity-models.md).
+    | Normalisers keyed by identifier type, applied by the
+    | `NormalizedIdentifier` cast and the `model` provider. The phone normaliser
+    | accepts only E.164 numbers (see docs/guides/identity-models.md).
     |
     */
 
@@ -364,53 +211,11 @@ return [
     | Rate limits
     |---------------------------------------------------------------------------
     |
-    | Limits on each flow, per identifier and per IP address, counted in the
-    | `table` on the write PDO of `connection` (`null` for the storage
-    | connection), so they hold across servers without a cache. Each limit
-    | allows `max` attempts (at least 1) in each window of `decay_seconds` (1 to
-    | 86400), windows aligned to the clock; `null` turns it off. Sign-in counts
-    | every attempt and gives a successful one back; a secret a method checks
-    | against an account also counts against that account under
-    | `per_identifier`, however the account was found, in one count the account
-    | keeps across guards, which each guard holds to its own limit, so the guard
-    | with the most permissive limit bounds the account's guesses. An IPv6
-    | address counts by its /64 network, and one that carries an IPv4 client's
-    | address (IPv4-mapped, or the NAT64 well-known prefix `64:ff9b::/96`) as
-    | that IPv4 address. Refresh, which cannot guess a secret, counts only
-    | failures, per session and per IP address. A request for a one-time code
-    | counts every request, per identifier and per IP address, and never gives
-    | one back. A request for passkey sign-in options counts every request per
-    | IP address (it names no identifier, so its `per_identifier` must stay
-    | `null`). A client credentials exchange counts only failures, per IP
-    | address; not per client id by default, since a client id is not a secret
-    | and a count on it would let anyone who knows it lock the client out. A
-    | request for a password reset link or code counts every request, per
-    | identifier and per IP address, and never gives one back
-    | (`password_reset_request`); a reset submission counts every submission,
-    | per the identifier it names and per IP address, before anything else is
-    | checked, and gives a successful one back (`password_reset`); both count an
-    | identifier no one holds the same. A request to change an identifier counts
-    | every request against the new identifier, under `per_identifier`, the
-    | identity's own account under the same limit, and the IP address, and gives
-    | them back only when it is refused under the identity's lock, and a
-    | confirmation by code counts against the identity's account and the IP
-    | address and gives them back when the code is accepted
-    | (`identifier_change`). A check of a code that verifies an identifier
-    | counts against the identity's account, under `per_identifier`, and the IP
-    | address, and gives a correct one back (`identifier_verification`). A check
-    | of a factor package's code counts per IP address and gives a verified one
-    | back; the factor package counts per factor and per identity, so its
-    | `per_identifier` must stay `null` (`factor_code`). A request for a factor
-    | package's code counts under `code_request` on the destination, the
-    | identity's account and the IP address. Counts on `connection` are rolled
-    | back with any transaction a caller opened there around a sign-in. A guard
+    | Per-identifier and per-IP limits on each flow, counted in `table` so they
+    | hold across servers without a cache. `null` turns a limit off. A guard
     | overrides any limit in a `rate_limits` block on its `config/auth.php`
-    | entry, where a scope that is present wins, `null` included, and a flow set
-    | to `null` turns both of its limits off. A malformed limit or an unknown
-    | key fails closed with an `InvalidArgumentException` naming the guard and
-    | the key. Counters are stored under digests keyed from `app.key`, so
-    | rotating it starts every window afresh. Prune ended windows with
-    | `model:prune`.
+    | entry. Counters are keyed from `app.key`, so rotating it resets every
+    | window.
     |
     */
 
@@ -474,41 +279,10 @@ return [
     | Refresh token transport
     |---------------------------------------------------------------------------
     |
-    | How each application's refresh token travels: `transport` is `body` (the
-    | `body_field` of the JSON or form body, never the query string, or the
-    | `header` when one is set; `null` for the body field only) or `cookie` (an
-    | `HttpOnly` cookie only, for a browser application, which no script can
-    | read). A sign-in, refresh, switch or activation of a cookie application
-    | never hands its result the refresh token: its pair carries a
-    | `RefreshCookie` to attach instead. Every request is read in all three
-    | carriers whatever the transport: a token in more than one of them, or the
-    | cookie twice, is refused (`refresh_token_conflict`), and one in a carrier
-    | that is not the application's transport is refused
-    | (`refresh_transport_mismatch`), so the cookie's cross-site checks cannot
-    | be side-stepped by sending the token another way. A token read from the
-    | cookie must come with an `Origin` that is the request's own or one of
-    | `allowed_origins` (each exactly `scheme://host[:port]`, in lower case) and
-    | a non-empty `csrf_header` header (a custom one: a header a browser sends
-    | on its own is refused), else `cross_site_request`; a cookie
-    | application's sign-in, `start()`, `satisfy()` and `choose()` are held to
-    | the same checks before anything is read or written (an external
-    | provider's sign-in, a cross-site callback by design, is exempt and
-    | relies on the provider flow's browser-bound state). The cookie is host-only
-    | (no `Domain`). Its `name` is the application's own:
-    | `__Host-<guard>_refresh_token` for a cookie application whose `path` is
-    | `/`, otherwise `__Secure-<guard>_refresh_token`, unless a name is set (a
-    | cookie application whose guard name makes no cookie name needs one; a body
-    | application with such a name looks for no cookie); two cookie applications
-    | with the same name fail closed. The `path`, the path every route that
-    | reads the cookie lives under (sign-in, refresh, switch, the logout route
-    | that signs out by it, and every `authentication.refresh` route), is
-    | required for a cookie application, and a `__Host-` name needs it to be
-    | `/`. Names PHP renames in a request are refused: a `.` in a header or
-    | cookie name, and a `.`, a space or a bracket in `body_field`. A guard
-    | overrides any key in a `refresh_token` block on its `config/auth.php`
-    | entry, where a key that is present wins, inside `cookie` too. A malformed
-    | value or an unknown key fails closed with an `InvalidArgumentException`
-    | naming the guard and the key, and `authentication:check` reports it.
+    | How each application's refresh token travels: `body` (the body field or
+    | `header`) or `cookie` (an `HttpOnly` cookie, for a browser application). A
+    | cookie application needs a `path`. A guard overrides any key in a
+    | `refresh_token` block on its `config/auth.php` entry.
     |
     */
 
@@ -530,22 +304,10 @@ return [
     | API keys
     |---------------------------------------------------------------------------
     |
-    | Keys non-human identities authenticate with, on an `api_key` guard (as
-    | `Authorization: Bearer <key>`) or, as an OAuth client's id and secret, in
-    | a `jwt` guard's client credentials exchange. Stored in `table`, on the
-    | storage connection. A key is `<prefix>_<public>_<secret>`: `prefix` (a
-    | lower-case letter, then up to 15 lower-case letters or digits) marks the
-    | keys an application issues, so they are recognisable in logs and secret
-    | scanners; changing it leaves existing keys working. Only the secret's
-    | SHA-256 digest is stored. A rotation keeps the replaced key working for
-    | `rotation_overlap_seconds` (0 to `max_rotation_overlap_seconds`, itself 0
-    | to 2592000, 30 days) unless the rotation names its own overlap within the
-    | maximum; the replacement expires only when the rotation names an expiry. A
-    | key's last use is recorded at most once per `last_used_throttle_seconds`
-    | (0 to 86400; 0 records every use). Laravel's `model:prune` deletes keys
-    | revoked or expired more than `prune_after_days` ago (0 to 3650). Each
-    | value is an integer, or a digit string as `env()` returns one; anything
-    | else fails closed when it is used, and `authentication:check` reports it.
+    | Keys non-human identities authenticate with, as
+    | `<prefix>_<public>_<secret>`. Only the secret's SHA-256 digest is stored.
+    | Revoked or expired keys are pruned by `model:prune` after
+    | `prune_after_days`.
     |
     */
 
@@ -563,10 +325,7 @@ return [
     | Identifier verification
     |---------------------------------------------------------------------------
     |
-    | How long a signed verification link stays valid, in minutes (1 to 10080,
-    | a week); `VerificationLinks::create()` may set a lifetime of its own in
-    | the same range. A value of another type or out of range fails closed when
-    | a link is created.
+    | How long a signed verification link stays valid, in minutes (1 to 10080).
     |
     */
 
@@ -579,31 +338,9 @@ return [
     | Passwords
     |---------------------------------------------------------------------------
     |
-    | The policy `Auth::passwords()->check()` and `set()` apply to a new
-    | password (never to the automatic rehash on sign-in). A password has at
-    | least `min_length` characters (8 to 128) and at most `max_length`
-    | (`min_length` to 4096), counted as Laravel's `min` and `max` rules count
-    | them; each is an integer, or a digit string as `env()` returns one. The
-    | default minimum of 15 is NIST SP 800-63B's for a password that is the only
-    | factor; an application that always requires a further factor may lower it
-    | to 8. While the hashing driver is bcrypt, which reads only 72 bytes, a
-    | longer password is refused as too long and `min_length` may be at most 72,
-    | and a password holding a null character, which bcrypt cannot hash, is
-    | refused as well. `letters`, `mixed_case`, `numbers` and `symbols`
-    | (booleans, off by default, as NIST advises) turn on the composition rules
-    | of Laravel's `Password` rule. A password that passes is then given to the
-    | bound `BreachedPasswordChecker`: the default one blocks nothing, and NIST
-    | expects a blocklist check, so bind one of your own. When the checker
-    | cannot answer (it throws `BreachedPasswordCheckUnavailableException`) the
-    | exception is reported and `breached.when_unavailable` decides: `reject`
-    | refuses the password (fail closed, the default), `allow` lets it through
-    | (fail open). A password reset link works for `reset.link_ttl_seconds` (300
-    | to 86400) after it is requested; a reset code lives as long as any
-    | one-time code (see `codes`), and both share the codes' table, key and
-    | resend cooldown. Requests for either are limited by the
-    | `password_reset_request` rate limits, and submissions by the
-    | `password_reset` ones. A malformed value fails closed when a password is
-    | first checked, and `authentication:check` reports it.
+    | The policy applied to a new password. The default minimum of 15 is NIST SP
+    | 800-63B's for a single-factor password. Bind a `BreachedPasswordChecker`;
+    | `breached.when_unavailable` decides what happens when it cannot answer.
     |
     */
 
@@ -629,22 +366,8 @@ return [
     | Identifier changes
     |---------------------------------------------------------------------------
     |
-    | `Auth::identifierChanges($guard)` changes an identity's email address or
-    | phone number only once the new one is proven, by a one-time code sent to
-    | it or a signed link the application sends it; until then the identity
-    | keeps the current one. A request must be made from a session with a proof
-    | fresh enough for the `identifier_change` operation (see Freshness), or
-    | give the current password when that freshness takes a first-factor
-    | reauthentication. It waits in `table`, on the storage connection, for at
-    | most `ttl_seconds` (300 to 86400; a code request also no longer than its
-    | code), and a newer request for the same identity and type replaces it.
-    | Requests are limited by the `identifier_change` rate limits, counted on
-    | the new identifier and on the identity. The number is an integer, or a
-    | digit string as `env()` returns one; anything else fails closed when a
-    | change is first requested or confirmed, and `authentication:check`
-    | reports it. The application binds an `IdentifierChangeNotifier` to tell
-    | the old identifier; the change stands if that notice fails. Prune expired
-    | changes with `model:prune`.
+    | Pending identifier changes wait in `table` for at most `ttl_seconds` until
+    | the new identifier is proven. Prune expired changes with `model:prune`.
     |
     */
 
@@ -658,30 +381,10 @@ return [
     | Freshness
     |---------------------------------------------------------------------------
     |
-    | How fresh a session's authentication must be for each operation, judged
-    | on the newest of its proofs that meets the operation's requirement, never
-    | on the latest `auth_time`: one of the `proofs` kinds, made within
-    | `max_age_seconds` (1 to 86400; an integer, or a digit string as `env()`
-    | returns one), and, when an entry sets `multifactor` or
-    | `phishing_resistant` to true, reported multifactor or observed to resist
-    | phishing. The kinds are `first_factor`, `first_factor_reauthentication`,
-    | `external_reauthentication`, `additional_factor` and `recovery_code`.
-    | Operations are named by this package (below), the application or another
-    | package (`mfa.add_factor`, `sso.reauthenticate`: lower-case segments
-    | separated by dots, read as array keys, never as configuration paths). A
-    | caller may pass a requirement of its own, and the stricter of the two
-    | applies; an operation with neither is never fresh. A guard overrides any
-    | operation in a `freshness` block on its `config/auth.php` entry, where
-    | `null` removes it. A malformed entry fails closed when it is read, and
-    | `authentication:check` reports it. Changing a factor or generating
-    | recovery codes takes a fresh step-up, so `factor_change` takes only a
-    | further factor or a recovery code: neither a sign-in nor a
-    | reauthentication renews the evidence of a further factor. An identity's
-    | first additional factor has no factor to step up with, so
-    | `first_additional_factor` takes a fresh reauthentication instead, with
-    | the first factor or at an external provider, never the sign-in itself:
-    | whoever holds a session must prove the first factor again before they
-    | enrol a factor on it.
+    | How recent a session's qualifying proof must be for each operation. A
+    | guard overrides any operation in a `freshness` block on its
+    | `config/auth.php` entry, where `null` removes it. An operation with no
+    | requirement is never fresh.
     |
     */
 
@@ -709,31 +412,10 @@ return [
     | One-time codes
     |---------------------------------------------------------------------------
     |
-    | The `phone_code` and `email_code` sign-in methods, verifying an
-    | identifier, password resets, identifier changes, and a factor package's
-    | further-factor (`mfa`) and enrolment (`enrollment`) codes each send a
-    | challenge: a code of `length` digits (6 to 10) that works once, for
-    | `ttl_seconds` (60 to 3600), and for at most `max_attempts` checks (1 to
-    | 20), after which it is locked until another is requested. Each challenge
-    | has an id the request answers and the check must name, and a factor's is
-    | bound to its session, factor and purpose as well. Another code for the
-    | same destination may be requested `resend_cooldown_seconds` (0 to
-    | `ttl_seconds`) after the last: a resend of the live challenge keeps its id
-    | and its attempts, and its new code replaces the previous one at once.
-    | Deliveries to one destination (for one owner, where the purpose has one)
-    | are capped at `max_deliveries` (1 to 10) in each delivery window of
-    | `delivery_window_seconds` (`ttl_seconds` to 86400) from its first delivery,
-    | across every challenge the window holds, and no code outlives its window
-    | (none is delivered with less than the cooldown left of it).
-    | Each number is an integer, or a digit string as `env()` returns one. Codes
-    | are stored in `table`, on the storage connection, as an HMAC keyed with
-    | `key` (at least 32 bytes), or with a key derived from `app.key` when `key`
-    | is not set; rotating either only invalidates the codes outstanding.
-    | Requests for codes are limited by the `code_request` rate limits. Delivery
-    | is a queued job (see `delivery`). The application binds its
-    | `OneTimeCodeSender`. A malformed value fails closed when a code is first
-    | issued, and `authentication:check` reports it. Prune expired codes whose
-    | delivery window has ended with `model:prune`.
+    | One-time codes for sign-in, verification, password resets, identifier
+    | changes and factor packages. Codes are stored as an HMAC keyed with `key`
+    | (at least 32 bytes) or a key derived from `app.key`. Prune expired codes
+    | with `model:prune`.
     |
     */
 
@@ -753,17 +435,8 @@ return [
     | Delivery
     |---------------------------------------------------------------------------
     |
-    | Everything the package sends (one-time codes, password reset links and
-    | codes, identifier change codes and notices) is a queued job, never part
-    | of the request, pushed once the write it reports has committed to the
-    | `queue` connection and queue named (`null` for the defaults; the
-    | connection must be configured in `queue.connections`). On a `sync`
-    | connection it runs after the response is sent, and a `failover`
-    | connection that can fall back to `sync` is pushed to after the response;
-    | `authentication:check` warns about both while any `jwt` guard is
-    | configured, since a worker is the production setting. A malformed value
-    | fails closed before anything is counted or sent, and
-    | `authentication:check` reports it.
+    | The queue connection and name every package delivery is pushed to (`null`
+    | for the defaults). A `sync` connection runs the job after the response.
     |
     */
 
@@ -779,29 +452,13 @@ return [
     | Passkeys
     |---------------------------------------------------------------------------
     |
-    | Passkeys (WebAuthn credentials) are kept in `table` and the ceremonies'
-    | single-use challenges in `challenges_table`, both on the package's storage
-    | connection. A challenge lives `challenge_ttl_seconds` (30 to 600; an
-    | integer, or a digit string as `env()` returns one), which is also the
-    | `timeout` the options give the browser. A used challenge is kept, not
-    | deleted, so a late response is told it was used; prune challenges with
-    | `model:prune`, which removes one once it has been expired, used or not,
-    | for one more lifetime.
+    | Passkey and challenge tables, and the challenge lifetime. Prune challenges
+    | with `model:prune`.
     |
-    | `relying_party` is the default every guard starts from; a guard
-    | overrides any of its keys in a `passkeys` block on its `config/auth.php`
-    | entry, where a key that is present wins. `id` is the relying party id: a
-    | lower-case host name (not an IP address), required on every guard that
-    | uses passkeys, which every credential is scoped to. `name` is the name
-    | the browser shows, by default `app.name`. `origins` lists the exact
-    | origins the ceremonies may run on, each `https://host[:port]` (or
-    | `http://localhost[:port]` for development), in lower case, whose host is
-    | the relying party id or a subdomain of it; the package does not consult
-    | the public suffix list, so never name a public suffix as the id. A
-    | malformed value or an unknown key fails closed with an
-    | `InvalidArgumentException` naming the guard and the key when the guard's
-    | passkeys are first used, and `authentication:check` reports it for every
-    | guard whose application allows `passkey` or that sets a `passkeys` block.
+    | `relying_party` is the default every guard starts from; a guard overrides
+    | it in a `passkeys` block on its `config/auth.php` entry. The package does
+    | not consult the public suffix list, so never name a public suffix as the
+    | id.
     |
     */
 

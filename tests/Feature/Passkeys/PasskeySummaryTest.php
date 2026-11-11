@@ -12,8 +12,8 @@ use SineMacula\Laravel\Authentication\Passkeys\PasskeySummary;
 use Tests\TestCase;
 
 /**
- * Feature tests for what a passkey list shows of a passkey: its id, name,
- * transports, AAGUID, backup state and times, and never its key material.
+ * Feature tests for what a passkey list shows of a passkey, never its key
+ * material.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -24,9 +24,8 @@ use Tests\TestCase;
 final class PasskeySummaryTest extends TestCase
 {
     /**
-     * A passkey is summarised by what it shows, as immutable times; the array
-     * and JSON forms use snake_case keys and ISO-8601 times, and hold no
-     * credential id, public key, user handle or count.
+     * A passkey is summarised without its key material, with snake_case keys
+     * and ISO-8601 times.
      *
      * @return void
      *

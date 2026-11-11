@@ -8,16 +8,8 @@ use Carbon\CarbonImmutable;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
 
 /**
- * A one-time code, or a reset link's token, just issued: the secret in clear,
- * which exists only here and in the encrypted delivery job, the issuance it
- * belongs to, the challenge it was delivered for, when it expires, and when
- * another may be delivered to its destination.
- *
- * The secret is held as a private `Secret`, so no dump of the object, nor of a
- * trace that holds it, shows it. Unlike a `Secret` the issued code serialises,
- * because it travels inside the delivery job, whose payload is encrypted
- * (`ShouldBeEncrypted`): serialising writes the plaintext explicitly for that
- * payload, and nothing else serialises it.
+ * A one-time code, or a reset link's token, just issued, with the issuance and
+ * challenge it belongs to.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

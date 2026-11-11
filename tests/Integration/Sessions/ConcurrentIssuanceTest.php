@@ -36,25 +36,7 @@ use Tests\TestCase;
 
 /**
  * Races every issuer of a session's access token against a step-up of that
- * session on PostgreSQL and MySQL, on two connections to one database, with the
- * issuer inside a caller's transaction at READ COMMITTED and at REPEATABLE READ
- * that read before the step-up committed, as an adapter's transaction does that
- * read first and issues after another request stepped the session up. The
- * step-up's proof adds `hwk` and `mfa` an hour after the sign-in.
- *
- * Every issuer writes the session's issuance guard before it reads the
- * session's proofs, and reads them current: at READ COMMITTED, and on MySQL at
- * REPEATABLE READ (whose plain reads return the snapshot of the transaction's
- * first read, so only the shared lock the read takes there sees the step-up),
- * the token carries the step-up's `auth_time` and `amr`. On PostgreSQL's
- * REPEATABLE READ no read can see past the snapshot, so the guard (or the
- * issuer's own lock of the row the step-up's guard wrote) fails to serialise
- * instead, and once the caller retries the whole transaction the token carries
- * them. Without the guard, PostgreSQL's REPEATABLE READ would issue from the
- * snapshot, and without the shared lock, MySQL's would.
- *
- * Skipped on SQLite, whose in-memory database each connection would have to
- * itself.
+ * session, on two connections to one database.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -128,8 +110,7 @@ final class ConcurrentIssuanceTest extends TestCase
     }
 
     /**
-     * Rows of `[issuer, isolation level]`: every issuer of a session's access
-     * token, at READ COMMITTED and at REPEATABLE READ.
+     * Rows of `[issuer, isolation level]`.
      *
      * @return iterable<string, array{0: string, 1: string}>
      */
@@ -143,10 +124,8 @@ final class ConcurrentIssuanceTest extends TestCase
     }
 
     /**
-     * An issuer in a caller's transaction that read before a step-up of the
-     * session committed issues a token with the step-up's `auth_time` and its
-     * `hwk` and `mfa`, directly or, on PostgreSQL's REPEATABLE READ, once the
-     * caller has retried the transaction its guard failed to serialise.
+     * An issuer that read before a step-up committed never issues an older
+     * token.
      *
      * @param  string  $issuer
      * @param  string  $level
@@ -210,8 +189,7 @@ final class ConcurrentIssuanceTest extends TestCase
     }
 
     /**
-     * Issue an access token for the session through the issuer named, on the
-     * default connection, and return it.
+     * Issue an access token for the session through the named issuer.
      *
      * @param  string  $issuer
      * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
@@ -257,8 +235,7 @@ final class ConcurrentIssuanceTest extends TestCase
     }
 
     /**
-     * Step the session up with a hardware key, as multifactor authentication,
-     * on the second connection, committing at once.
+     * Step the session up with a hardware key on the second connection.
      *
      * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session

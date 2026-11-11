@@ -7,15 +7,7 @@ namespace SineMacula\Laravel\Authentication\Contracts;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 
 /**
- * What a session flow may do to its guard's bound state: read what the request
- * is authenticated as, bind a session it started or refreshed, and forget the
- * binding when it signs the session out. The package's guards implement it
- * through `AbstractGuard`, so a session flow needs no guard class.
- *
- * The four readers resolve lazily, as the guard's own accessors do: the first
- * of them to be called on a request resolves the request's credential, at most
- * once per request, so a sign-out reads the session the request carries without
- * having authenticated it first.
+ * What a session flow may do to its guard's bound state.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -54,8 +46,7 @@ interface GuardBinding
     public function session(): ?Session;
 
     /**
-     * Return the active tenant, if any, resolving the request on first access,
-     * as `ContextualGuard::tenant()` does.
+     * Return the active tenant, if any, resolving the request on first access.
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Tenant
      *
@@ -65,9 +56,7 @@ interface GuardBinding
     public function tenant(): ?Tenant;
 
     /**
-     * Bind a session the flow started as a sign-in (`Validated`, `Login` and
-     * the bind events), whose events describe the client given (see
-     * `loginVerified()`).
+     * Bind a session the flow started as a sign-in.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -80,16 +69,8 @@ interface GuardBinding
     public function login(Identity $identity, Principal $principal, ?Session $session = null, ?ClientContext $client = null): void;
 
     /**
-     * Bind a session the flow verified itself as a sign-in (`Validated`,
-     * `Login` and the bind events), with the tenant the flow's activity check
-     * loaded and the sign-in method it reports, as a refresh binds the session
-     * it rotated.
-     *
-     * The client is the one the bind's own events describe (`PrincipalAssigned`
-     * and `SessionAuthenticated`, and so the session's last use), for a flow
-     * acting for a client it was given as plain values; `null` for the guard's
-     * request. It describes this bind only: the guard keeps no client, and its
-     * later events describe its request.
+     * Bind a session the flow verified itself as a sign-in, as a refresh binds
+     * the session it rotated.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -102,11 +83,8 @@ interface GuardBinding
     public function loginVerified(Identity $identity, Principal $principal, ?Session $session, ?Tenant $tenant, ?string $method, ?ClientContext $client = null): void;
 
     /**
-     * Bind a session the flow moved as the request's authentication, not as a
-     * sign-in (the bind events only), in the active tenant given, or, with none
-     * given, the one the session records (the principal's own without a
-     * session). The client is the one the bind's events describe, as for
-     * `loginVerified()`; `null` for the guard's request.
+     * Bind a session the flow moved as the request's authentication, without
+     * the sign-in events.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -138,8 +116,7 @@ interface GuardBinding
 
     /**
      * Forget the binding as `forgetUser()` does when it is bound to the
-     * session, without resolving the request: a flow that takes the session out
-     * of the active state calls it, so the request stops acting in it.
+     * session, without resolving the request.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @return void
@@ -148,9 +125,7 @@ interface GuardBinding
 
     /**
      * Forget the binding as `forgetUser()` does when it is bound to the
-     * identity, whichever session it acts in, without resolving the request: a
-     * flow that ends every session of the identity calls it, so the request
-     * stops acting as it.
+     * identity, without resolving the request.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @return void
@@ -158,10 +133,8 @@ interface GuardBinding
     public function forgetIdentity(Identity $identity): void;
 
     /**
-     * Forget the authentication context the guard holds, keeping the binding,
-     * when it is bound to the session, without resolving the request: a flow
-     * that changed the session's proofs calls it once the change commits or
-     * rolls back, so the next ask builds the context from them.
+     * Forget the authentication context the guard holds for the session,
+     * keeping the binding.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @return void

@@ -12,9 +12,8 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
- * Misconfigured identity fixture: an `Identity` that is neither a `Principal`
- * nor `HasPrincipals`, so the default resolver cannot resolve a principal for
- * it and throws `UnresolvableIdentityException`.
+ * Misconfigured identity that is neither a `Principal` nor `HasPrincipals`, so
+ * no principal can be resolved for it.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

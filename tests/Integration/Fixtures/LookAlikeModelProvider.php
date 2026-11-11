@@ -10,10 +10,8 @@ use Illuminate\Support\Str;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 
 /**
- * The `model` provider with the lookup a case- and accent-insensitive collation
- * gives (MySQL's `utf8mb4_unicode_ci`, for one) on every driver: an identity is
- * found by any look-alike of its identifier, such as `alice@examplé.com` for
- * `alice@example.com`.
+ * The `model` provider with the lookup of a case- and accent-insensitive
+ * collation, such as MySQL's `utf8mb4_unicode_ci`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

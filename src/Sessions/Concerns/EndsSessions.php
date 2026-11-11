@@ -26,18 +26,9 @@ use SineMacula\Laravel\Authentication\Sessions\TenantPolicyChanges;
 
 /**
  * The session service's session list, and its sign-out, revocation and
- * security-change methods, which `SessionRevocations` carries out: signing out
- * and signing out everywhere for the binding the service is given, the rest for
- * whatever identity, principal or tenant they are given; signing out by refresh
- * credential, from plain values, which `SessionSignOut` carries out; the
- * removal and reset of the factor package's factors, and the judgement of the
- * current session again after an addition to them, which `FactorRevocations`
- * carries out; and the application of a tenant's changed authentication policy,
- * which `TenantPolicyChanges` carries out.
+ * security-change methods.
  *
- * They are delegations with no state of their own but those four; they sit in a
- * trait only so the service stays within the number of methods one class may
- * declare.
+ * Kept in a trait only to hold the service under the per-class method limit.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -59,13 +50,8 @@ trait EndsSessions
     private readonly FactorRevocations $factorRevocations;
 
     /**
-     * One page of the identity's active sessions, of every guard, for a session
-     * list: most recently used first (never used last), then newest first, each
-     * summarised without its digests, revocation or principal, and marked when
-     * it is the session this guard is authenticated with for the request. Read
-     * on the write connection through the identity's `sessions()` relation.
-     * `$perPage` is 1 to 100; the page is the request's `page` parameter unless
-     * given.
+     * One page of the identity's active sessions, of every guard, most recently
+     * used first.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  int  $perPage
@@ -81,16 +67,8 @@ trait EndsSessions
     }
 
     /**
-     * Sign the request's session out: revoke the session the guard is bound to
-     * (`signed_out`), dispatch Laravel's `Logout` when an identity was bound,
-     * and forget the guard's state for the rest of the request. Returns whether
-     * this call revoked a session.
-     *
-     * An access-only token, which names no stored session, has nothing to
-     * revoke and is only forgotten; a guest request does nothing. To sign out a
-     * client whose access token has expired, and to clear a cookie
-     * application's refresh cookie, use `signOutWith()` with the refresh
-     * credential and the client as plain values.
+     * Sign the request's session out and forget the guard's state, returning
+     * whether a session was revoked.
      *
      * @return bool
      *
@@ -106,48 +84,7 @@ trait EndsSessions
 
     /**
      * Sign out by the refresh credential presented, so a client whose access
-     * token has expired, or that holds none, can still sign out: what
-     * `RefreshTokenTransport::extract()` answered from the request (the cookie
-     * of a cookie application; the body field or header of a body application),
-     * or a `PresentedRefreshToken` the application built as its trusted
-     * description of a request it read itself, and the request's
-     * `ClientContext`. Valid on a cookie and a body application alike; nothing
-     * is read from the guard's request.
-     *
-     * It signs out by the refresh credential alone: the guard's binding is not
-     * consulted, and only a binding to the session it revokes is forgotten, so
-     * a guard bound to another session stays bound to it. Signing out by the
-     * access token is `signOut()`'s: a controller calls it first, and this
-     * unless it revoked a session. The package judges the token again
-     * (`RefreshTokenTransport::judge()`: `refresh_token_conflict`,
-     * `refresh_transport_mismatch`, `cross_site_request` for a cookie whose
-     * client fails the same-site check, as a context without its `Origin`,
-     * scheme and host or custom header does); a reason `extract()` answered is
-     * reported as one of these is, and any other is a caller's error
-     * (`InvalidArgumentException`), nothing dispatched. `null` signs nothing
-     * out; a refusal, or a session the token does not prove (as a refresh would
-     * refuse it, short of rotating it, a replay revoking the session as
-     * `rotation_reuse`), is reported by `AuthenticationFailed` with the flow
-     * `sign_out` and by no `Failed`; and the session it proves, inside the
-     * grace window too, is revoked (`signed_out`, reported by `SessionRevoked`
-     * once committed), Laravel's `Logout` firing for its owner when the guard's
-     * provider still returns it. Every package event this call dispatches
-     * carries the client. A cookie application's result carries the expired
-     * cookie that clears the browser's (`SignOutResult::attachTo()`) when the
-     * client passes the cookie's same-site checks and the token was not refused
-     * as `refresh_token_conflict`, so a cross-site page cannot clear it.
-     *
-     * A route scoped to one session (`DELETE /sessions/{session}`) passes that
-     * session's id as `$expectedSession`, so a token proving another session is
-     * refused as `session_mismatch` (reported with the flow `sign_out`) and
-     * nothing is revoked. The check follows the proof of the token, so a replay
-     * still revokes the session as `rotation_reuse`, and a token that fails any
-     * of the token's own checks reports that reason instead; it precedes the
-     * owner's lookup, so a mismatch revokes nothing and changes no binding. The
-     * refusal carries no expired cookie, so refusing a request about another
-     * session never signs the browser out of its own. The id compares as a
-     * string, so `42` matches `'42'` and `'042'` does not; only `null` accepts
-     * any session.
+     * token has expired can still sign out.
      *
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Http\PresentedRefreshToken|null  $presented
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
@@ -170,20 +107,8 @@ trait EndsSessions
     }
 
     /**
-     * End every session of the request's identity, of every guard, with reason
-     * `signed_out_everywhere`, keeping the request's own session when asked.
-     * Returns how many sessions this call revoked; `0` for a guest request.
-     *
-     * The request's session is kept by leaving it unrevoked. An access-only
-     * token, which names no session, is kept by leaving the identity's "tokens
-     * valid after" cutoff where it is, since a session-less token can only be
-     * ended through it: its sessions are still revoked, but the identity's
-     * other session-less tokens then also keep working until they expire. The
-     * identity's pending identifier changes are cancelled either way, since
-     * none records the session it was requested from.
-     *
-     * The guard stays bound for the rest of the request either way; call
-     * `signOut()` as well to end the request's own session.
+     * End every session of the request's identity, of every guard, keeping the
+     * request's own session when asked.
      *
      * @param  bool  $keepCurrentSession
      * @return int
@@ -200,10 +125,7 @@ trait EndsSessions
     }
 
     /**
-     * Revoke one session of the owner, found through the owner's `sessions()`
-     * relation on the write connection, so another identity's session is not
-     * found: `false`, without saying whether it exists. Returns whether this
-     * call revoked it (`false` too for a session already revoked).
+     * Revoke one session of the owner, returning whether this call revoked it.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $owner
      * @param  mixed  $sessionId
@@ -221,14 +143,7 @@ trait EndsSessions
 
     /**
      * Revoke every session of the identity, of every guard, except the given
-     * one (its pending sessions among them), and cancel its pending identifier
-     * changes (a change link needs no session); when the identity records a
-     * "tokens valid after" cutoff, move it to now first, so its access tokens
-     * issued without a session stop as well. Returns how many sessions this
-     * call revoked. Called inside a transaction on the storage connection, it
-     * runs as a savepoint there and reports once that commits, so a change of
-     * the application's rolled back with it revokes nothing; the identity must
-     * live on that connection too for its cutoff to roll back as well.
+     * one, and cancel its pending identifier changes.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
@@ -246,10 +161,7 @@ trait EndsSessions
     }
 
     /**
-     * Revoke every session that acts as the principal, except the given one,
-     * pending sessions that record it among them; when the principal records a
-     * "tokens valid after" cutoff, move it to now first. Returns how many
-     * sessions this call revoked.
+     * Revoke every session that acts as the principal, except the given one.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
@@ -265,10 +177,8 @@ trait EndsSessions
     }
 
     /**
-     * The identity's password was changed: end its sessions
-     * (`password_changed`), except the given session, the one the change was
-     * made from when the application keeps it signed in. Never call it for an
-     * automatic rehash.
+     * End the identity's sessions after a password change, except the given
+     * session. Never call it for an automatic rehash.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $except
@@ -285,8 +195,7 @@ trait EndsSessions
     }
 
     /**
-     * The identity's password was reset: end every session it has
-     * (`password_reset`).
+     * End every session of the identity after a password reset.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @return int
@@ -302,10 +211,8 @@ trait EndsSessions
     }
 
     /**
-     * A first-factor credential of the identity (a passkey, or a phone number
-     * or email address it signs in with) was removed: end its sessions
-     * (`factor_removed`), except the given session.
-     * `RevokeSessionsOnPasskeyRemoval` calls it for a removed passkey.
+     * End the identity's sessions after a first-factor credential was removed,
+     * except the given session.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $except
@@ -322,28 +229,8 @@ trait EndsSessions
     }
 
     /**
-     * The factor package removed the identity's factor `$factor` (its reference
-     * to it, 1 to 255 characters): end every session of the identity but
-     * `$current`, pending ones included (`factor_removed`), and judge
-     * `$current` again without the factor. Its proofs made with the factor stop
-     * counting; it stays active while it still meets the identity's factor
-     * policy and its tenant's policy, returns to pending (flow `factor_change`)
-     * while it falls short of a further factor only, its tokens stopping at
-     * once, and is revoked (`factor_removed`) when it is no longer admitted as
-     * a refresh admits it or its tenant now requires a connection. A current
-     * session that is pending has its proofs made with the factor voided too
-     * and stays pending, its next action judged without them; one that was
-     * meanwhile revoked or ended is left as it is. When this guard is bound to
-     * it and it is returned to pending or revoked, the binding is forgotten
-     * once the removal commits; with no `$current`, every session of the
-     * identity ends, and a binding to the identity is forgotten then.
-     *
-     * Mandatory: the factor package calls it inside the transaction that
-     * removes the factor, after taking its own locks, so both commit or roll
-     * back together; it runs as a savepoint there and its events follow the
-     * commit. `$current`, when given, must be a session of this guard the
-     * identity owns, and the identity must live on the storage connection, or
-     * nothing is written and an exception is thrown.
+     * End every session of the identity but `$current` after the factor package
+     * removed a factor, and judge `$current` again without it.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $factor
@@ -360,36 +247,8 @@ trait EndsSessions
     }
 
     /**
-     * The factor package made a change to the identity's factors from
-     * `$current` that removes none of them (a factor confirmed, a passkey
-     * associated as a factor): judge `$current` again exactly as
-     * `factorRemoved()` judges it, without voiding any proof or touching any
-     * other session. It stays active while it still meets the identity's factor
-     * policy and its tenant's policy (`active`); returns to pending (flow
-     * `factor_change`) while it falls short of a further factor only, its
-     * tokens stopping from the commit and the result carrying the pending
-     * session and the new pending credential for the client (`pending`); and is
-     * revoked when it is no longer admitted as a refresh admits it or its
-     * tenant now requires a connection (`revoked`, `factor_changed`, or
-     * `factor_removed` for `FACTOR_REMOVED`). A session that is no longer the
-     * one given, or no longer live and active (a pending one is judged at its
-     * next action), is left as it is (`skipped`), which says nothing of whether
-     * it is usable. When this guard is bound to it and it is returned to
-     * pending or revoked, the binding is forgotten once the change commits.
-     *
-     * The factor package calls it inside the transaction that makes the change,
-     * on the storage connection, after taking its own locks, so both commit or
-     * roll back together: it runs as a savepoint there, locks the session's
-     * row, writes its issuance guard before anything reads its proofs, and its
-     * events follow the commit. Called with no transaction on the storage
-     * connection, it commits on its own. `$current` must be a session of this
-     * guard the identity owns, or nothing is written and an exception is
-     * thrown. Never call it in place of `factorRemoved()` or `factorReset()`: a
-     * replacement removes the factor it replaces, so it calls `factorRemoved()`
-     * for that factor, and a removal needs nothing more. `FACTOR_REMOVED`,
-     * after it, judges a session the removal kept again at this call's own
-     * time, so it can still return it to pending: the client's credential is
-     * then this result's, not the removal's.
+     * Judge `$current` again after the factor package changed the identity's
+     * factors without removing one.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Factors\Enums\FactorChangeMade  $change
@@ -406,11 +265,8 @@ trait EndsSessions
     }
 
     /**
-     * The factor package reset the identity's further factors: end every
-     * session it has, the current one included (`factor_reset`), and, when this
-     * guard is bound to the identity, forget the binding once the reset
-     * commits. Mandatory, as `factorRemoved()` is, and called the same way; the
-     * identity must live on the storage connection.
+     * End every session of the identity after the factor package reset its
+     * further factors.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @return int
@@ -426,13 +282,7 @@ trait EndsSessions
     }
 
     /**
-     * The identity was deactivated: end every session it has
-     * (`identity_deactivated`). Made inside a transaction (on the storage
-     * connection, or on the changed model's), it ends the same sessions again
-     * once that commits, reporting only `SessionRevoked` for each that pass
-     * ends, which the count returned does not include: the transaction may have
-     * read the sessions before a sign-in, choice or switch that admitted the
-     * model committed one.
+     * End every session of the deactivated identity.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @return int
@@ -448,9 +298,7 @@ trait EndsSessions
     }
 
     /**
-     * The principal was deactivated: end every session acting as it
-     * (`principal_deactivated`), and again after the commit when made inside a
-     * transaction, as `identityDeactivated()` does.
+     * End every session acting as the deactivated principal.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return int
@@ -464,23 +312,8 @@ trait EndsSessions
     }
 
     /**
-     * The tenant was deactivated: end every session acting as one of the
-     * principals the application lists for it, and every session whose active
-     * tenant it is, whatever principal it acts as (`tenant_deactivated`). Every
-     * principal must belong to the tenant (the same class and identifier, read
-     * on the write connection), or nothing is written and an
-     * `InvalidArgumentException` is thrown; a principal listed twice counts
-     * once, and so does a session both find. A tenant that opts into activation
-     * (`CanBeActive`) and is already deleted or soft-deleted works too: a
-     * principal whose `getTenant()` throws the `TenantUnavailableException`
-     * naming it (its class, key name and key, as `ActsAsPrincipal` does) acts
-     * within it. A tenant that does not opt in reads as no tenant once it
-     * cannot be loaded, so call this inside the transaction that deletes it,
-     * before the delete: the sessions are then ended again once that commits,
-     * as `identityDeactivated()` does, which a call made before the delete
-     * outside a transaction does not do. All sessions, pending ones among them,
-     * are ended in one transaction, after each principal's cutoff moved, with
-     * one `SignedOutEverywhere` per principal.
+     * End every session acting in the deactivated tenant or as one of the given
+     * principals.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @param  iterable<\SineMacula\Laravel\Authentication\Contracts\Principal>  $principals
@@ -497,19 +330,7 @@ trait EndsSessions
 
     /**
      * Apply a change of the tenant's authentication policy to the live sessions
-     * acting in it, on every guard, at once: an active session that no longer
-     * meets the policy is revoked (`tenant_policy_changed`) and one that meets
-     * it records the version answered; a pending one is revoked only when it
-     * would need another connection; a session recorded at the very version
-     * answered (neither `null`) is skipped, and one that has already ended is
-     * left for pruning. Returns how many sessions were revoked.
-     *
-     * Call it in the transaction that publishes the change, on the storage
-     * connection, so both commit or roll back together (it runs as a savepoint
-     * there and never commits on its own), and for a strict cut-off once more
-     * after that commits: a session that entered the tenant while the first
-     * call ran is then judged too, and every session the first call recorded is
-     * skipped. `SessionRevoked` reports each revocation once committed.
+     * acting in it, returning how many were revoked.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @return int

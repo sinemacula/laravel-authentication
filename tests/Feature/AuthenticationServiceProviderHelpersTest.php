@@ -24,11 +24,7 @@ use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 final class AuthenticationServiceProviderHelpersTest extends TestCase
 {
     /**
-     * `registerPublishing()` short-circuits when the application is not running
-     * in the console: invoking the protected method directly with
-     * `runningInConsole()` returning false must NOT register a publish path,
-     * checked against an emptied registry so the paths the boot registered
-     * cannot hide one.
+     * `registerPublishing()` registers nothing outside the console.
      *
      * @return void
      *
@@ -57,8 +53,7 @@ final class AuthenticationServiceProviderHelpersTest extends TestCase
     }
 
     /**
-     * The `auth` binding is a singleton: resolving it twice returns the same
-     * object instance so guards are not reconstructed mid-request.
+     * The `auth` binding is a singleton.
      *
      * @return void
      */
@@ -71,11 +66,8 @@ final class AuthenticationServiceProviderHelpersTest extends TestCase
     }
 
     /**
-     * `mergeConfigFrom()` seeds the package defaults without clobbering values
-     * the consumer has already set. The test confirms the consumer's key map
-     * from `defineEnvironment` survives the provider's `mergeConfigFrom` call,
-     * while a key the consumer did NOT set (`session.table`) takes the package
-     * default.
+     * `mergeConfigFrom()` seeds the package defaults without overwriting values
+     * the consumer has already set.
      *
      * @return void
      */
@@ -90,8 +82,7 @@ final class AuthenticationServiceProviderHelpersTest extends TestCase
     }
 
     /**
-     * `composer.json` `require` block contains zero `sinemacula/laravel-*` IAM
-     * sibling packages. Standalone installability guard.
+     * `composer.json` requires no `sinemacula/laravel-*` sibling package.
      *
      * @return void
      */
@@ -135,8 +126,7 @@ final class AuthenticationServiceProviderHelpersTest extends TestCase
     }
 
     /**
-     * Define the Testbench environment with package config so the merge-config
-     * test can verify consumer values survive.
+     * Set consumer config values the merge must keep.
      *
      * @param  mixed  $app
      * @return void

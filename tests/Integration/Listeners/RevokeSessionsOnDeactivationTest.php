@@ -34,12 +34,8 @@ use Tests\Integration\Fixtures\RecheckedMembership;
 use Tests\TestCase;
 
 /**
- * End-to-end tests of the optional `RevokeSessionsOnDeactivation` observer
- * against a real database, registered on both models as an application
- * registers it, for a sign-in that admitted the member before the deactivation
- * committed: once the identity or principal is reactivated, no session of that
- * sign-in works at the `auth` middleware or refreshes, whether the sign-in was
- * refused or answered inside a caller's transaction and ended at its commit.
+ * End-to-end tests of the `RevokeSessionsOnDeactivation` observer for a sign-in
+ * admitted before the deactivation committed.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -113,9 +109,7 @@ final class RevokeSessionsOnDeactivationTest extends TestCase
     }
 
     /**
-     * Rows of `[the deactivation made after the sign-in admitted the member,
-     * before its session was written, the reactivation, the reason the
-     * sign-in is refused for]`.
+     * Rows of `[deactivation after admission, reactivation, refusal reason]`.
      *
      * @formatter:off
      *
@@ -142,10 +136,7 @@ final class RevokeSessionsOnDeactivationTest extends TestCase
     }
 
     /**
-     * A sign-in that admitted the member before a deactivation committed, the
-     * observer's revocation finding no session of it, is refused once its
-     * session is written, so once the identity or principal is reactivated no
-     * session of it works: the member signs in afresh.
+     * A sign-in admitted before a deactivation never outlives the reactivation.
      *
      * @formatter:off
      *
@@ -184,9 +175,8 @@ final class RevokeSessionsOnDeactivationTest extends TestCase
     }
 
     /**
-     * Rows of `[the deactivation made inside the sign-in's transaction after the
-     * sign-in admitted the member, the reactivation, the reason the answered
-     * session is revoked with]`.
+     * Rows of `[deactivation inside the sign-in's transaction, reactivation,
+     * revocation reason]`.
      *
      * @formatter:off
      *
@@ -213,10 +203,8 @@ final class RevokeSessionsOnDeactivationTest extends TestCase
     }
 
     /**
-     * A sign-in inside a caller's transaction that admitted the member before a
-     * deactivation made in that transaction is answered with its session, which
-     * is ended once the transaction commits: after the reactivation neither its
-     * access token nor its refresh token works.
+     * A sign-in answered inside the deactivation's transaction is ended at its
+     * commit.
      *
      * @formatter:off
      *

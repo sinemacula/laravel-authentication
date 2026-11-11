@@ -106,9 +106,8 @@ final class ProvidesDeactivationTimeTest extends TestCase
     }
 
     /**
-     * A model selected without its deactivation column is a misconfiguration:
-     * the trait throws rather than reading the missing attribute as active or
-     * inactive.
+     * A model selected without its deactivation column throws instead of
+     * reading as active or inactive.
      *
      * @return void
      */
@@ -127,9 +126,8 @@ final class ProvidesDeactivationTimeTest extends TestCase
     }
 
     /**
-     * A subclass overriding the protected `getDeactivatedAtName()` hook, here
-     * deriving its column from the parent's, remaps the column the trait reads
-     * and checks for.
+     * A subclass overriding `getDeactivatedAtName()` remaps the column the
+     * trait reads and checks for.
      *
      * @return void
      */

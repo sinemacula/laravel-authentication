@@ -34,11 +34,7 @@ use Tests\Integration\Fixtures\CodeIdentity;
 use Tests\TestCase;
 
 /**
- * Feature tests for signing in with a one-time code sent to an email address,
- * through `Auth::sessions($guard)->signIn('email_code', ...)`: the address in
- * its normal form throughout (case, surrounding whitespace, invalid UTF-8), a
- * code only for a verified address, the guard's verified-identifier
- * requirement, verifying an address by code, and the routes over HTTP.
+ * Feature tests for signing in with a one-time code sent to an email address.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -224,9 +220,7 @@ final class EmailCodeSignInTest extends TestCase
     }
 
     /**
-     * A code goes only to a verified address; the right code for an unverified
-     * one, which only a guess could find, is `identifier_unverified`, and
-     * verifies nothing.
+     * A code goes only to a verified address.
      *
      * @return void
      *
@@ -274,9 +268,8 @@ final class EmailCodeSignInTest extends TestCase
     }
 
     /**
-     * On a guard that requires verified identifiers, an email code signs in an
-     * identity whose address is verified even when its phone number is not: the
-     * requirement checks the identifier the sign-in used.
+     * The verified-identifier requirement checks the identifier the sign-in
+     * used.
      *
      * @return void
      *
@@ -326,11 +319,7 @@ final class EmailCodeSignInTest extends TestCase
     }
 
     /**
-     * A code requested for a look-alike of a verified address, which a case-
-     * and accent-insensitive lookup matches to its holder, is delivered to no
-     * one, and even the right code for the look-alike signs in no one, nor
-     * counts against the holder's account; the holder's own address is
-     * unaffected.
+     * A look-alike of a verified address reaches no one and signs in no one.
      *
      * @return void
      *
@@ -361,9 +350,7 @@ final class EmailCodeSignInTest extends TestCase
     }
 
     /**
-     * An identity whose stored address differs from the requested one only in
-     * what the address's normal form folds (its case) holds it: it receives the
-     * code at its address in normal form and signs in with it.
+     * An address stored in another case is still its holder's.
      *
      * @return void
      *
@@ -387,9 +374,8 @@ final class EmailCodeSignInTest extends TestCase
     }
 
     /**
-     * On MySQL, whose `utf8mb4_unicode_ci` collation matches an address with an
-     * accented look-alike, the package's own `model` provider finds the holder
-     * by the look-alike, and still no code reaches it and no session starts.
+     * On MySQL, a look-alike the collation matches still reaches and signs in
+     * no one.
      *
      * @return void
      *

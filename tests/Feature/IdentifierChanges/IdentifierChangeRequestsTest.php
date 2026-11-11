@@ -43,11 +43,7 @@ use Tests\Integration\Fixtures\ChangeableIdentity;
 use Tests\TestCase;
 
 /**
- * Feature tests for requesting a change of identifier through
- * `Auth::identifierChanges($guard)`: what a request proven by code or by link
- * writes, queues and answers, how a newer request replaces an older one through
- * any guard, the limits it is held to, the refusals it reports, and the pending
- * change it leaves, which `pending()` reads and `cancel()` removes.
+ * Feature tests for requesting, reading and cancelling a change of identifier.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -66,8 +62,7 @@ final class IdentifierChangeRequestsTest extends TestCase
     use ChangesIdentifiers, InteractsWithRateLimits;
 
     /**
-     * Start every test from a known moment, with the fakes bound and a route
-     * for change links.
+     * Freeze the clock and bind the fakes and a route for change links.
      *
      * @return void
      */
@@ -97,10 +92,8 @@ final class IdentifierChangeRequestsTest extends TestCase
     }
 
     /**
-     * A change proven by code issues a code bound to the request, writes the
-     * pending change, and queues the code's delivery to the new identifier;
-     * the identity keeps its address. It waits as long as the code works, the
-     * shorter of the two lifetimes, and `IdentifierChangeRequested` reports it.
+     * A change by code writes the pending change and queues the code to the new
+     * identifier.
      *
      * @return void
      *
@@ -170,10 +163,8 @@ final class IdentifierChangeRequestsTest extends TestCase
     }
 
     /**
-     * A change proven by link signs a link to the application's route, keeping
-     * its parameters, that names the guard, the identity, the type, the
-     * purpose, the request and the new identifier's digest, and expires with
-     * the change; no code is issued or queued.
+     * A change by link signs a link to the application's route that expires
+     * with the change.
      *
      * @return void
      *
@@ -214,10 +205,8 @@ final class IdentifierChangeRequestsTest extends TestCase
     }
 
     /**
-     * A newer request replaces the identity's pending change of the type,
-     * through any guard, on that guard's own session: its request, guard,
-     * identifier and times are written over the old ones, and the old request's
-     * code is invalidated. A change of another type is a change of its own.
+     * A newer request through any guard replaces the pending change of its type
+     * and invalidates the old code.
      *
      * @return void
      *
@@ -249,9 +238,7 @@ final class IdentifierChangeRequestsTest extends TestCase
     }
 
     /**
-     * A concurrent request that inserts the identity's pending change between
-     * this request's read, which found none, and its insert, which then finds
-     * one, is written over: the newest request wins.
+     * A request racing a first request writes over the change it inserted.
      *
      * @return void
      *
@@ -290,10 +277,8 @@ final class IdentifierChangeRequestsTest extends TestCase
     }
 
     /**
-     * A first request inserts its pending change without trying an update of
-     * the missing key, and a replacing one updates the change it read in place
-     * without trying an insert: on MySQL an update of a missing key inside the
-     * transaction would lock a gap another request's insert waits on.
+     * A first request inserts its change and a replacing one updates it in
+     * place.
      *
      * @return void
      *
@@ -321,9 +306,7 @@ final class IdentifierChangeRequestsTest extends TestCase
     }
 
     /**
-     * A pending change deleted between this request's read, which found it, and
-     * its update, which then finds none (a revocation cancelling it), is
-     * inserted again: the request still leaves its change pending.
+     * A request whose replaced change is deleted meanwhile inserts its own.
      *
      * @return void
      *
@@ -354,8 +337,8 @@ final class IdentifierChangeRequestsTest extends TestCase
     }
 
     /**
-     * A code request whose binding already has a live code (only a repeated
-     * request id could) is rate limited for the cooldown, and writes nothing.
+     * A code request whose binding already has a live code is rate limited and
+     * writes nothing.
      *
      * @return void
      *
@@ -388,9 +371,8 @@ final class IdentifierChangeRequestsTest extends TestCase
     }
 
     /**
-     * A new identifier the type's normaliser rejects is invalid, and one that
-     * is the identity's current one in its normal form is unchanged; each is
-     * reported with the identifier as given, and nothing is counted or written.
+     * Invalid and unchanged identifiers are refused as given, with nothing
+     * counted or written.
      *
      * @return void
      *
@@ -420,8 +402,7 @@ final class IdentifierChangeRequestsTest extends TestCase
     }
 
     /**
-     * A request without a recent authentication is refused for that before its
-     * identifier is looked at.
+     * The proof is checked before the identifier.
      *
      * @return void
      *
@@ -437,10 +418,7 @@ final class IdentifierChangeRequestsTest extends TestCase
     }
 
     /**
-     * A request made with an instance loaded before its row changed is decided
-     * on the row as stored: the row's current address is unchanged, with
-     * nothing counted, and a new one records the row's address and that it is
-     * not verified, not what the instance says.
+     * A request made with a stale instance is decided on the row as stored.
      *
      * @return void
      *
@@ -464,9 +442,7 @@ final class IdentifierChangeRequestsTest extends TestCase
     }
 
     /**
-     * A request made with an instance loaded before its password changed is
-     * proven by the password the row holds: the lock finds the hash the
-     * password was checked against.
+     * A stale instance is proven by the password the row holds.
      *
      * @return void
      *
@@ -492,10 +468,8 @@ final class IdentifierChangeRequestsTest extends TestCase
     }
 
     /**
-     * A password written between a request's check and its lock (another
-     * request's change committing meanwhile) is found under the lock: the
-     * password no longer stands, reauthentication is required, nothing is
-     * written, and every slot taken is given back.
+     * A password written before the lock refuses the request and gives every
+     * slot back.
      *
      * @return void
      *
@@ -517,9 +491,8 @@ final class IdentifierChangeRequestsTest extends TestCase
     }
 
     /**
-     * A session revoked between a request's check and its lock is found under
-     * the lock: reauthentication is required, nothing is written, and the slots
-     * are given back.
+     * A session revoked before the lock refuses the request and gives the slots
+     * back.
      *
      * @return void
      *
@@ -541,9 +514,8 @@ final class IdentifierChangeRequestsTest extends TestCase
     }
 
     /**
-     * An identifier confirmed between a request's check and its lock, the one
-     * the request asks for, is found under the lock: the identifier is
-     * unchanged, nothing is written, and the slots are given back.
+     * An identifier confirmed before the lock is unchanged, and the slots are
+     * given back.
      *
      * @return void
      *
@@ -563,8 +535,7 @@ final class IdentifierChangeRequestsTest extends TestCase
     }
 
     /**
-     * An identity whose stored identifier its normaliser rejects (a legacy
-     * value) may change it: it is not taken for the new one.
+     * An identity whose stored identifier its normaliser rejects may change it.
      *
      * @return void
      *
@@ -583,10 +554,7 @@ final class IdentifierChangeRequestsTest extends TestCase
     }
 
     /**
-     * The current identifier is compared in its canonical form, so an address
-     * stored in another case (a legacy row written past the cast) is still the
-     * current one: a request for it in normal form is `identifier_unchanged`,
-     * with nothing written.
+     * An address stored in another case is still the current one.
      *
      * @return void
      *
@@ -606,10 +574,7 @@ final class IdentifierChangeRequestsTest extends TestCase
     }
 
     /**
-     * Requests are counted on the new identifier and on the identity, so one
-     * identity cannot spray codes at many addresses, and on the IP address;
-     * once the limit is used up the request is refused with the wait, before
-     * anything is written.
+     * Requests are limited per new identifier, identity and IP address.
      *
      * @return void
      *
@@ -638,8 +603,7 @@ final class IdentifierChangeRequestsTest extends TestCase
     }
 
     /**
-     * The client the caller names is the one the events carry, instead of the
-     * request the guard is serving.
+     * The client the caller names is the one the events carry.
      *
      * @return void
      *
@@ -662,8 +626,7 @@ final class IdentifierChangeRequestsTest extends TestCase
     }
 
     /**
-     * Inside a transaction the caller opened, the event and the delivery wait
-     * for its commit, and a rollback undoes the request and dispatches neither.
+     * Inside a caller's transaction the event and delivery wait for its commit.
      *
      * @return void
      *
@@ -696,9 +659,8 @@ final class IdentifierChangeRequestsTest extends TestCase
     }
 
     /**
-     * `pending()` reports the identity's live change of the type through this
-     * guard, read on the write connection, and nothing for another guard's
-     * change, an expired one, or none.
+     * `pending()` reports only this guard's live change, read on the write
+     * connection.
      *
      * @return void
      *
@@ -727,9 +689,7 @@ final class IdentifierChangeRequestsTest extends TestCase
     }
 
     /**
-     * `cancel()` removes this guard's pending change and ends its code, so
-     * neither it nor its link confirms anything; it reports whether there was
-     * one, and leaves another guard's change alone.
+     * `cancel()` removes this guard's pending change and ends its code.
      *
      * @return void
      *
@@ -767,8 +727,8 @@ final class IdentifierChangeRequestsTest extends TestCase
     }
 
     /**
-     * Run the change once, as the request's transaction begins, after its check
-     * and before its lock, as a write committed in between would land.
+     * Run the change once as the request's transaction begins, between its
+     * check and its lock.
      *
      * @param  \Closure(): mixed  $change
      * @return void

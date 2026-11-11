@@ -19,10 +19,7 @@ use SineMacula\Laravel\Authentication\Guards\Concerns\BindsContextualState;
 use Tests\Fixtures\Events\EventContextAssertions;
 
 /**
- * Feature tests for the context every bind reports: the whole triple is bound
- * before any event fires, the events carry the guard, the request's client, the
- * tenant and the session's sign-in method, and `authenticateAs()` binds without
- * reporting a sign-in.
+ * Feature tests for the context every bind sets and reports in its events.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -34,9 +31,8 @@ use Tests\Fixtures\Events\EventContextAssertions;
 final class AbstractGuardEventContextTest extends AbstractGuardTestCase
 {
     /**
-     * `authenticateAs()` binds the triple and fires only `Authenticated`,
-     * `PrincipalAssigned` and `SessionAuthenticated`: no `Validated`, no
-     * `Login`.
+     * `authenticateAs()` binds the triple and fires only the bind events, with
+     * no `Validated` or `Login`.
      *
      * @return void
      */
@@ -57,9 +53,7 @@ final class AbstractGuardEventContextTest extends AbstractGuardTestCase
     }
 
     /**
-     * `authenticateAs()` replaces whatever was bound before and settles the
-     * request, so a session bound earlier never survives a bind without one and
-     * the request's own credential is not resolved afterwards.
+     * `authenticateAs()` replaces the prior bind and settles the request.
      *
      * @return void
      */
@@ -82,9 +76,7 @@ final class AbstractGuardEventContextTest extends AbstractGuardTestCase
     }
 
     /**
-     * Every bind sets the whole triple before its first event, so a listener on
-     * `Authenticated` already reads the principal and the session the bind
-     * reports.
+     * Every bind sets the whole triple before its first event.
      *
      * @return void
      */
@@ -111,10 +103,8 @@ final class AbstractGuardEventContextTest extends AbstractGuardTestCase
     }
 
     /**
-     * `PrincipalAssigned` and `SessionAuthenticated` of one bind carry the same
-     * context: the guard, the request's client, the identity, principal, the
-     * tenant the session records (the principal's own), the session, and the
-     * method the session records.
+     * `PrincipalAssigned` and `SessionAuthenticated` of one bind carry the
+     * same, whole context.
      *
      * @return void
      */
@@ -195,9 +185,8 @@ final class AbstractGuardEventContextTest extends AbstractGuardTestCase
     }
 
     /**
-     * A principal loaded without its tenant's key is a misconfiguration, and
-     * its `LogicException` propagates from a trusted bind instead of being
-     * reported as no tenant.
+     * A principal loaded without its tenant's key throws its `LogicException`
+     * from a trusted bind.
      *
      * @return void
      */
@@ -215,9 +204,8 @@ final class AbstractGuardEventContextTest extends AbstractGuardTestCase
     }
 
     /**
-     * `setPrincipal()` and `setSession()` report the context bound with them:
-     * the session's method once a session is bound, and the tenant of the bound
-     * principal.
+     * `setPrincipal()` and `setSession()` report the session's method and the
+     * bound principal's tenant.
      *
      * @return void
      */

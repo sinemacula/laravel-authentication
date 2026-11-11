@@ -12,9 +12,7 @@ use SineMacula\Laravel\Authentication\Callers\Enums\CallerCredential;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingAction;
 
 /**
- * Unit tests for the credential a route declares its caller is read from: the
- * default guard's access credential unless a route declares the refresh or the
- * pending one, once.
+ * Unit tests for the credential a route declares its caller is read from.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

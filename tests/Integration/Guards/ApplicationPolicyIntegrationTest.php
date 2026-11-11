@@ -34,15 +34,8 @@ use Tests\Integration\Fixtures\TypedTenant;
 use Tests\TestCase;
 
 /**
- * Integration tests for an application over stored principals: every principal
- * is admitted whatever its own columns say, and the tokens and sessions a guard
- * issues follow that guard's lifetimes and carry nothing about the principal's
- * kind, through sign-in, refresh, switch and the `auth` middleware.
- *
- * The `api` guard issues two-minute access tokens and one-day sessions; the
- * `other` guard keeps the package's fifteen minutes and thirty days.
- * Memberships and tenants have `type` and `category` columns of the
- * application's own.
+ * Application policy over stored principals: every principal is admitted and
+ * tokens and sessions follow the issuing guard's lifetimes.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -106,9 +99,8 @@ final class ApplicationPolicyIntegrationTest extends TestCase
     }
 
     /**
-     * The package's application access lets every stored principal use the
-     * application, in a tenant or not, whatever its `type` or its tenant's
-     * `category`, without reading the tenant.
+     * The package's application access admits every stored principal without
+     * reading the tenant.
      *
      * @return void
      */
@@ -130,9 +122,7 @@ final class ApplicationPolicyIntegrationTest extends TestCase
     }
 
     /**
-     * An access token expires after its guard's access lifetime, whatever the
-     * principal, so the middleware rejects the `api` token once its two minutes
-     * are up while the `other` token, issued at the same moment, still passes.
+     * An access token expires after its guard's access lifetime.
      *
      * @return void
      *
@@ -156,9 +146,7 @@ final class ApplicationPolicyIntegrationTest extends TestCase
     }
 
     /**
-     * A session stamped from the policy's lifetimes for the guard takes the
-     * guard's absolute lifetime, and a refresh of it returns an access token on
-     * the guard's access lifetime, never past the absolute deadline.
+     * A session and its refresh follow the guard's lifetimes.
      *
      * @return void
      *
@@ -202,10 +190,7 @@ final class ApplicationPolicyIntegrationTest extends TestCase
     }
 
     /**
-     * No token the guard issues carries a principal type: not the pair a
-     * sign-in starts, nor the pair a refresh rotates to, nor the pair a switch
-     * to another principal issues, for memberships whose own `type` columns
-     * differ.
+     * No token the guard issues carries a principal type.
      *
      * @return void
      *
@@ -245,8 +230,7 @@ final class ApplicationPolicyIntegrationTest extends TestCase
     }
 
     /**
-     * An access token signed with the guard's key that carries a `pty` claim
-     * authenticates a bearer request as any other: nothing reads the claim.
+     * A `pty` claim on a signed access token is ignored.
      *
      * @return void
      *
@@ -303,9 +287,8 @@ final class ApplicationPolicyIntegrationTest extends TestCase
     }
 
     /**
-     * Persist an identity with one membership whose `type` column is the one
-     * given, in a tenant whose `category` is the one given when one is given,
-     * and return the membership read back without its tenant.
+     * Persist an identity with one typed membership and return the membership
+     * without its tenant.
      *
      * @param  ?string  $type
      * @param  ?string  $category

@@ -12,10 +12,8 @@ use SineMacula\Laravel\Authentication\Models\Passkey;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
- * Who a passkey or a ceremony belongs to, recorded as sessions record their
- * owner: the identity's morph class and its key as a string, so a passkey can
- * only be registered for, listed for and used by an Eloquent identity, and is
- * found again through the guard's provider only as that very model.
+ * Who a passkey or a ceremony belongs to: the identity's morph class and its
+ * key as a string.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -31,9 +29,7 @@ final class PasskeyOwner
 
     /**
      * The identity as the owner of passkeys: an Eloquent identity that is not a
-     * machine identity. A machine identity has no interactive sign-in, so it
-     * holds no passkey (`InvalidArgumentException`); an identity that is not a
-     * model cannot be recorded as an owner (`LogicException`).
+     * machine identity.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @return \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity
@@ -55,8 +51,7 @@ final class PasskeyOwner
     }
 
     /**
-     * The recorded type and key of the owner, which must be saved: an identity
-     * without a key cannot hold a passkey (`LogicException`).
+     * The recorded type and key of the owner, which must be saved.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $owner
      * @return array{0: string, 1: string}
@@ -89,8 +84,7 @@ final class PasskeyOwner
 
     /**
      * Load the passkey's owner through the guard's provider, when the provider
-     * returns that very model, whether or not it is still active (the session
-     * service decides activity).
+     * returns that very model.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\Passkey  $passkey
      * @param  \SineMacula\Laravel\Authentication\Contracts\IdentityProvider  $provider

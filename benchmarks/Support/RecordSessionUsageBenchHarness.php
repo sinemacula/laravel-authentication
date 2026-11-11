@@ -21,10 +21,8 @@ use Tests\Unit\Stubs\StubRequestResolvingGuard;
 use Tests\Unit\Stubs\StubSession;
 
 /**
- * Runtime benchmark fixtures for session last-use writes, on the path every
- * request takes: each session is the one a guard the auth manager already
- * resolved has bound, under its own guard name, so the listener writes it in
- * place and reads nothing.
+ * Runtime benchmark fixtures for session last-use writes, on sessions already
+ * bound to a resolved guard.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -138,9 +136,7 @@ final class RecordSessionUsageBenchHarness
 
     /**
      * Run each benchmarked path once and throw unless it reaches the outcome
-     * its name describes: a session used within the throttle writes nothing,
-     * and one never used writes its last use, neither reading anything. Both
-     * run on sessions of their own, so the benchmark's sessions are untouched.
+     * its name describes.
      *
      * @return void
      *

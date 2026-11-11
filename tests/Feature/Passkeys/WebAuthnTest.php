@@ -16,11 +16,8 @@ use Webauthn\CredentialRecord;
 use Webauthn\PublicKeyCredential;
 
 /**
- * Tests for the package's use of the WebAuthn library: the options it builds,
- * the responses it parses, and the registration and assertion ceremonies it
- * runs against a relying party, with real keys from the virtual authenticator.
- * Run in the application, whose error handler turns what the library's parsing
- * of malformed input raises into exceptions, as it does for every request.
+ * Tests for the package's use of the WebAuthn library, with real keys from the
+ * virtual authenticator.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -72,11 +69,8 @@ final class WebAuthnTest extends TestCase
     }
 
     /**
-     * Registration options ask for a discoverable credential with user
-     * verification and no attestation, name the relying party and the user
-     * under the handle given, offer the algorithms, exclude the credentials
-     * given with their transports, and carry the challenge and the timeout,
-     * binary members in base64url and no null members.
+     * Registration options ask for a discoverable, user-verified, unattested
+     * credential.
      *
      * @return void
      *
@@ -107,9 +101,8 @@ final class WebAuthnTest extends TestCase
     }
 
     /**
-     * Request options require user verification, name the relying party and the
-     * credentials allowed (none for a usernameless sign-in), and carry the
-     * challenge and the timeout.
+     * Request options require user verification and name the credentials
+     * allowed.
      *
      * @return void
      *
@@ -152,9 +145,7 @@ final class WebAuthnTest extends TestCase
     }
 
     /**
-     * Rows of `[credential]`: responses that are not a well-formed WebAuthn
-     * credential, given as JSON or decoded, each made from a valid registration
-     * or assertion response as far as it goes.
+     * Rows of `[credential]`: malformed WebAuthn responses, as JSON or decoded.
      *
      * @return iterable<string, array{0: \Closure(array<string, mixed>, array<string, mixed>): (array<array-key, mixed>|string)}>
      */
@@ -253,12 +244,8 @@ final class WebAuthnTest extends TestCase
     }
 
     /**
-     * A registration verifies for every algorithm offered and both statement
-     * formats, and the credential it registers carries the authenticator's id,
-     * the options' user handle, the transports, a count of 0, the backup state
-     * and user verification; an assertion with it then verifies, moves its
-     * count, and shows what its flags showed, resistant to phishing since its
-     * origin and relying party were verified.
+     * A registration verifies for every algorithm and format, and its
+     * credential then asserts.
      *
      * @param  int  $algorithm
      * @param  string  $format
@@ -329,9 +316,8 @@ final class WebAuthnTest extends TestCase
     }
 
     /**
-     * A registration from the wrong origin or relying party, without user
-     * verification or presence, framed, or with inconsistent backup bits, is
-     * refused without an exception.
+     * A registration that fails a ceremony check is refused without an
+     * exception.
      *
      * @param  \Closure(\Tests\Fixtures\Passkeys\VirtualAuthenticator): void  $fault
      * @return void
@@ -439,8 +425,7 @@ final class WebAuthnTest extends TestCase
     }
 
     /**
-     * An assertion from the wrong origin or relying party, without user
-     * verification or presence, or framed, is refused.
+     * An assertion that fails a ceremony check is refused.
      *
      * @param  \Closure(\Tests\Fixtures\Passkeys\VirtualAuthenticator): void  $fault
      * @return void
@@ -482,9 +467,8 @@ final class WebAuthnTest extends TestCase
     }
 
     /**
-     * Usernameless, the response must carry the credential's own user handle;
-     * for a known identity, the handle given must be the credential's, and a
-     * response that carries none is accepted.
+     * The response's user handle must be the credential's, and may be left out
+     * for a known identity.
      *
      * @return void
      *

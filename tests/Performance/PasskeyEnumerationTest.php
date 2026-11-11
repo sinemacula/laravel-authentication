@@ -23,14 +23,7 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\Performance\Fixtures\SlowModelProvider;
 
 /**
- * Holds passkey sign-in to the enumeration criteria: usernameless, so there is
- * no identifier to probe, and every refusal that could tell one passkey or
- * account from another (an unknown passkey, another relying party's, one whose
- * owner is gone, a forged signature, another user handle, a regressed counter,
- * a locked account) gives the same result and takes the whole credential
- * timebox, whether or not an owner was looked up, through a provider whose
- * lookup takes a known time when it finds the owner. Sign-in options do no
- * identity work at all.
+ * Holds usernameless passkey sign-in to the enumeration criteria.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -85,8 +78,7 @@ final class PasskeyEnumerationTest extends PerformanceContractTestCase
 
     /**
      * Rows of `[looks the owner up, preparation]`: every way a passkey sign-in
-     * is refused after its challenge was used. The closure brings the state
-     * about and returns the sign-in's input, all before the timed sign-in.
+     * is refused after its challenge was used.
      *
      * @return iterable<string, array{0: bool, 1: \Closure(self): array<string, mixed>}>
      */
@@ -120,9 +112,8 @@ final class PasskeyEnumerationTest extends PerformanceContractTestCase
     }
 
     /**
-     * Each refusal is the same result, `invalid_credentials` with no wait, and
-     * its sign-in alone takes at least the timebox, whether or not it looked
-     * the owner up.
+     * Each refusal gives the same result and takes at least the timebox,
+     * whether or not it looked the owner up.
      *
      * @param  bool  $looksUp
      * @param  \Closure(self): array<string, mixed>  $prepare

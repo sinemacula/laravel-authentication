@@ -6,13 +6,7 @@ namespace SineMacula\Laravel\Authentication\Proofs;
 
 /**
  * The authentication method reference values a proof carries (RFC 8176's `amr`
- * values, or private ones), as a method or an adapter reports them.
- *
- * A list of at most `MAX_VALUES` values, each of 1 to `MAX_LENGTH` printable
- * ASCII characters other than a quote or a backslash (the registered values and
- * URNs are), so the stored list fits its column. `mfa` is reserved: it is never
- * a proof's own value, and the token's `amr` gains it only from an accepted
- * evaluation that reports multifactor authentication.
+ * values, or private ones).
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -68,8 +62,7 @@ final class AuthenticationMethods
     }
 
     /**
-     * The values a stored proof kept, as a list of its strings; anything else a
-     * row holds is no value at all.
+     * The string values a stored proof kept.
      *
      * @param  mixed  $methods
      * @return list<string>

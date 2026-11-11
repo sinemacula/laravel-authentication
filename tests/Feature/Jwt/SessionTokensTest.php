@@ -27,10 +27,7 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\StubIdentity;
 
 /**
- * Feature tests of issuing a session's token pair against a real session: the
- * access token for what was admitted and the refresh token carrying the
- * rotation id, with the access token's expiry and lifetime as the claims it was
- * signed with give them, capped as the token is by the session's deadlines.
+ * Feature tests of issuing a session's token pair against a real session.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -86,10 +83,8 @@ final class SessionTokensTest extends TestCase
     }
 
     /**
-     * The pair says when its access token expires and how long it lives as the
-     * token's `exp` and `iat` do, the guard's access lifetime for a long
-     * session, in the timezone of the time it was issued at; its refresh token
-     * carries the rotation id and the principal, in the body.
+     * The pair's access expiry and lifetime match the token's `exp` and `iat`,
+     * and its refresh token carries the rotation id.
      *
      * @return void
      *
@@ -117,9 +112,7 @@ final class SessionTokensTest extends TestCase
     }
 
     /**
-     * An access token is never issued past the end of its session, so the pair
-     * says it expires at the session's idle deadline, or its absolute one, when
-     * that comes before the access lifetime ends.
+     * The pair's expiry is capped by the session's idle or absolute deadline.
      *
      * @return void
      *
@@ -139,9 +132,7 @@ final class SessionTokensTest extends TestCase
     }
 
     /**
-     * The expiry is the one the access token was signed with, read once: a
-     * session whose idle deadline comes nearer each time it is read still gets
-     * a pair whose expiry is its access token's `exp`.
+     * The expiry is the one the access token was signed with, read once.
      *
      * @return void
      *
@@ -181,9 +172,8 @@ final class SessionTokensTest extends TestCase
     }
 
     /**
-     * A pair for a session its issuer's transaction inserted reads the
-     * session's proofs as that transaction sees them, without the shared lock a
-     * pair for any other session reads them with on MySQL.
+     * A pair for a session its issuer's transaction inserted reads its proofs
+     * without the shared lock.
      *
      * @return void
      */

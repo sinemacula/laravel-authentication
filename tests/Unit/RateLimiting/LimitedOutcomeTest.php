@@ -11,9 +11,7 @@ use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeOu
 use SineMacula\Laravel\Authentication\RateLimiting\LimitedOutcome;
 
 /**
- * Unit tests for the outcome of a flow that may be rate limited: it carries the
- * outcome and the wait it was given, and says which outcome it is only for that
- * very case.
+ * Unit tests for the outcome of a flow that may be rate limited.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

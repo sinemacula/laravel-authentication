@@ -8,9 +8,7 @@ use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalizers;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierType;
 
 /**
- * Reads what a password reset request or submission carries, as strings:
- * anything else under a key reads as missing, so no list, number of the wrong
- * kind or object reaches a lookup or a hash.
+ * Reads what a password reset request or submission carries, as strings.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -37,9 +35,8 @@ final class ResetInput
     private function __construct() {}
 
     /**
-     * Refuse a type a reset code cannot be bound to: one that is not a valid
-     * identifier type, or has no registered normaliser to bring it to the one
-     * form a code is bound to.
+     * Refuse a type that is not a valid identifier type or has no registered
+     * normaliser.
      *
      * @param  \SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalizers  $normalizers
      * @param  string  $type
@@ -57,9 +54,7 @@ final class ResetInput
     }
 
     /**
-     * The identifier the input names under the type, when it is a string, a
-     * `Stringable` or an integer (a numeric identifier sent as a JSON number),
-     * as a string.
+     * The identifier the input names under the type, as a string, or `null`.
      *
      * @param  array<array-key, mixed>  $input
      * @param  string  $type

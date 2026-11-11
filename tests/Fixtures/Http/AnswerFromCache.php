@@ -9,9 +9,8 @@ use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * An application's middleware that answers a request itself, before the route's
- * controller runs, with a response it lets be cached: a secret of another
- * package, say, served from somewhere of its own.
+ * An application middleware that answers a request itself, before the
+ * controller runs, with a cacheable response.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

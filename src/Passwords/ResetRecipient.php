@@ -20,18 +20,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
 
 /**
- * Who may reset a password with a link or code bound to an identifier: the
- * identity the guard's provider finds by it, read on the write connection, when
- * it is a stored Eloquent model that is not a machine identity, holds exactly
- * that identifier, is active, and, when the guard requires verified
- * identifiers, has it verified. The delivery job sends only to that identity,
- * and a reset sets only its password.
- *
- * Whether the identity holds the identifier is decided here, byte for byte and
- * in constant time on its canonical form, never by the lookup (see
- * `CodeIdentifiers`): through `HasVerifiableIdentifiers` when the identity
- * implements it, otherwise from the model attribute named by the type. Anyone
- * else is refused with the reason the failure event reports.
+ * Who may reset a password with a link or code bound to an identifier.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -47,9 +36,7 @@ final class ResetRecipient
 
     /**
      * The identity that may reset its password with the binding, or why there
-     * is none: `invalid_credentials` (no one, or no one holding exactly the
-     * identifier), `machine_identity`, `identity_inactive` or
-     * `identifier_unverified`.
+     * is none.
      *
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Contracts\IdentityProvider  $provider
@@ -68,8 +55,7 @@ final class ResetRecipient
 
     /**
      * The identity found, when it may reset its password with the binding, or
-     * why it may not (see `find()`): a reset calls it again on the row it
-     * locked, so a deactivation committed since the lookup is not missed.
+     * why it may not.
      *
      * @param  string  $guard
      * @param  mixed  $found
@@ -93,13 +79,8 @@ final class ResetRecipient
     }
 
     /**
-     * The identity's own identifier of the type, read on the write connection,
-     * in canonical form: through `HasVerifiableIdentifiers` when the identity
-     * implements it, otherwise from the model attribute named by the type;
-     * `null` when it has none, or the model has no such attribute. An identity
-     * whose verification cannot report the type at all may throw a
-     * `LogicException` (`ProvidesIdentifierVerification` does, for a column the
-     * model has not loaded).
+     * The identity's own identifier of the type in canonical form, read on the
+     * write connection, or `null`.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $type

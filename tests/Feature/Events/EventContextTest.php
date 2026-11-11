@@ -16,11 +16,7 @@ use Tests\Unit\Stubs\PlainTenantFixture;
 use Tests\Unit\Stubs\StubSession;
 
 /**
- * EventContext feature tests: for an event about the session row itself, the
- * owner and principal an Eloquent session row records stand in for an identity
- * or principal that was not loaded, read from the columns of the session's
- * relations, the owner's morph class included; any other event names only what
- * it holds.
+ * Feature tests for the snapshots an event context takes from a session row.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -31,11 +27,8 @@ use Tests\Unit\Stubs\StubSession;
 final class EventContextTest extends TestCase
 {
     /**
-     * For an event about the session row, a loaded row stands in for an
-     * identity, principal or tenant that was not loaded: the snapshots take the
-     * owner, the principal and the active tenant's identifier it records (with
-     * no morph class for the tenant, which the row does not record). A part
-     * that was loaded wins over the row.
+     * For an event about the session row, the row stands in for an identity,
+     * principal or tenant that was not loaded.
      *
      * @return void
      */
@@ -86,11 +79,7 @@ final class EventContextTest extends TestCase
     }
 
     /**
-     * An event that is not about the session row names only what it holds, even
-     * when it carries a session that records an owner and a principal: an
-     * identity's sign-out everywhere keeping a session, a pending choice with
-     * the session the client proved, or a switch refused for its target must
-     * not read as acting for the principal the session records.
+     * An event that is not about the session row names only what it holds.
      *
      * @return void
      */
@@ -123,10 +112,8 @@ final class EventContextTest extends TestCase
     }
 
     /**
-     * Even for an event about the session row, a row that records no owner or
-     * principal, or a session that is not an Eloquent row (a session of another
-     * kind, or one that only declares the Eloquent contract), gives no
-     * snapshot.
+     * A row that records no owner or principal, or a session that is not an
+     * Eloquent row, gives no snapshot.
      *
      * @return void
      */

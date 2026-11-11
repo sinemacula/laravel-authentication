@@ -44,9 +44,8 @@ final class PendingRequirementTest extends TestCase
     }
 
     /**
-     * The actions' stable names: the further-factor package's, prefixed `mfa.`
-     * and spelt the American way as every identifier is, then this package's
-     * own two, unprefixed.
+     * The actions' stable names: the further-factor package's, prefixed `mfa.`,
+     * then this package's own.
      *
      * @return void
      */
@@ -64,10 +63,8 @@ final class PendingRequirementTest extends TestCase
     }
 
     /**
-     * A further factor allows the five further-factor actions, a bootstrap
-     * enrolment's among them, and nothing about principals; a choice allows
-     * listing and choosing principals and nothing else. Every action belongs to
-     * exactly one requirement.
+     * Each requirement allows its own actions, and every action belongs to
+     * exactly one.
      *
      * @return void
      */

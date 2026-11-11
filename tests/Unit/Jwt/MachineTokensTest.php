@@ -11,8 +11,7 @@ use SineMacula\Laravel\Authentication\Exceptions\InvalidScopeException;
 use SineMacula\Laravel\Authentication\Jwt\MachineTokens;
 
 /**
- * Unit tests for how a non-human identity's tokens differ from a session's: no
- * session token, and the key and scopes a client credentials token carries.
+ * Unit tests for how a machine identity's tokens differ from a session's.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -41,8 +40,8 @@ final class MachineTokensTest extends TestCase
     }
 
     /**
-     * The claims of a client token are the key's id and its scopes, normalised
-     * and space-separated; the id must be a UUID and every scope well-formed.
+     * A client token's claims are the key's id and its normalised,
+     * space-separated scopes.
      *
      * @return void
      */

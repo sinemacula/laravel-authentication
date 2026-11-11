@@ -12,21 +12,6 @@ use SineMacula\Laravel\Authentication\Http\Enums\Transport;
  * An application's refresh token transport: its guard's `refresh_token` block
  * over the package defaults in `authentication.refresh_token`.
  *
- * A key the guard's block sets wins over the package's, inside `cookie` too.
- * Nothing falls back to a literal: a value missing at both levels where one is
- * required, a malformed value, or an unknown key fails closed with an
- * `InvalidArgumentException` naming the guard and the key.
- *
- * The `transport` is `body` (the body field, or the header when one is set) or
- * `cookie`. The cookie is always host-only. Its name, unless the application
- * sets one, is derived from the guard, so two applications on one host never
- * share a cookie: `__Host-<guard>_refresh_token` for a cookie application on
- * the path `/`, otherwise `__Secure-<guard>_refresh_token`. A body application
- * derives a name too, since it refuses its own cookie when a request brings
- * one; when its guard's name makes no cookie name and it sets none, it looks
- * for no cookie, since it never sets one. Two cookie applications whose names
- * are equal fail closed, naming both guards.
- *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
@@ -40,7 +25,7 @@ final readonly class RefreshTokenSettings
     /** @var list<string> Keys of a `refresh_token` block's `cookie` block. */
     private const array COOKIE_KEYS = ['name', 'path', 'allowed_origins', 'csrf_header'];
 
-    /** @var string A header or cookie name: an HTTP token without `.`, which PHP files as `_`, so the name would never be found. */
+    /** @var string A header or cookie name: an HTTP token without `.`, which PHP files as `_`. */
     private const string NAME_PATTERN = '/^[!#$%&\'*+^_`|~0-9A-Za-z-]+$/D';
 
     /** @var string A cookie path: starts with `/`, with no separator, space or control character. */
@@ -154,12 +139,7 @@ final readonly class RefreshTokenSettings
 
     /**
      * The cookie's name: the one the application sets, or the one derived from
-     * its guard, `__Host-` only for a cookie application on the path `/`. A
-     * cookie application needs a name: one whose guard's name makes none must
-     * set one, a `__Host-` name it sets needs that path too, or the browser
-     * would not keep the cookie, and no other cookie application may use it. A
-     * body application never sets the cookie, so when its guard's name makes
-     * none and it sets none, it looks for no cookie (`null`).
+     * its guard.
      *
      * @param  string  $guard
      * @param  mixed  $value
@@ -208,10 +188,7 @@ final readonly class RefreshTokenSettings
 
     /**
      * Refuse a cookie name another `jwt` guard that also travels by cookie
-     * uses, naming both guards: two applications on one host would overwrite
-     * each other's cookie. Only the other guards' `transport`, `cookie.name`
-     * and `cookie.path` are read; a value of theirs that is malformed fails
-     * when their own transport is read.
+     * uses.
      *
      * @param  string  $guard
      * @param  string  $name
@@ -234,9 +211,8 @@ final readonly class RefreshTokenSettings
     }
 
     /**
-     * The cookie name a guard that travels by cookie uses, read leniently from
-     * its `transport`, `cookie.name` and `cookie.path`, or `null` for a guard
-     * that does not.
+     * The cookie name a guard that travels by cookie uses, read leniently, or
+     * `null` for a guard that does not.
      *
      * @param  string  $guard
      * @param  \Illuminate\Config\Repository  $config
@@ -334,10 +310,8 @@ final readonly class RefreshTokenSettings
     }
 
     /**
-     * The CSRF header: a header name, and, in any letter case, none that a
-     * cross-site form or simple request can carry without the page setting it.
-     * A `_` is read as `-`, as Symfony's header bag reads it, so `Content_Type`
-     * is refused as `Content-Type` is.
+     * The CSRF header: a header name a cross-site form or simple request cannot
+     * carry without the page setting it.
      *
      * @param  string  $guard
      * @param  mixed  $value
@@ -378,8 +352,8 @@ final readonly class RefreshTokenSettings
     }
 
     /**
-     * The header that may carry a body application's token: `null` for the body
-     * field only, or a header name PHP keeps as it is.
+     * The header that may carry a body application's token, or `null` for the
+     * body field only.
      *
      * @param  string  $guard
      * @param  mixed  $value
@@ -416,8 +390,7 @@ final readonly class RefreshTokenSettings
     }
 
     /**
-     * The allowed origins: a list of exact `scheme://host[:port]` origins, in
-     * lower case, as a browser sends them.
+     * The allowed origins: exact lower-case `scheme://host[:port]` origins.
      *
      * @param  string  $guard
      * @param  mixed  $value
@@ -436,8 +409,7 @@ final readonly class RefreshTokenSettings
     }
 
     /**
-     * Whether the value is an exact `http` or `https` origin in lower case,
-     * with no path, query, fragment or credentials.
+     * Whether the value is an exact lower-case `http` or `https` origin.
      *
      * @param  mixed  $value
      * @return bool

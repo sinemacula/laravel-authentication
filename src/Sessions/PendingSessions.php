@@ -40,36 +40,7 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
 
 /**
  * Acts on the pending sessions of a guard through their pending credentials:
- * reads one for an action, satisfies its further factor with a proof, records
- * the choice of principal, and discards it.
- *
- * A credential is `<session key>.<secret>`. It names a live pending session of
- * the guard only while the session is this guard's, pending, not revoked and
- * not ended (its idle deadline is the credential's expiry), its digest matches
- * the secret (compared in constant time), the guard's provider returns its very
- * owner, and the principal it records, if any, still resolves through the
- * hinted path as that principal of that owner. Anything else is not found,
- * without saying why. The credential is told apart from every other kind by its
- * path: only these operations read it, and none of them reads a token.
- *
- * Satisfying, choosing and discarding lock the session's row and find it again
- * under the lock, so two calls with one credential serialise: the second finds
- * the session changed and fails as `pending_invalid`. Each runs the gate
- * (`PendingEvaluation`) under the lock: the identity, the method, the principal
- * and its tenant are admitted again, and what the session still waits on is
- * judged again, its proofs and provenance read current (`SessionProofs`), so
- * the session activates, stays pending, or moves on to the choice. Satisfying
- * and choosing, once the action is admitted, also lock the session the
- * sign-in's client proved it holds, whenever the sign-in recorded one, before
- * checking whether an activation may supersede it, and before the session's
- * issuance guard and any read of its proofs: every session row is locked before
- * any proof row, as the package's lock order puts them. A refusal writes
- * nothing (a proof given with it is not stored) and never revokes the session,
- * which waits until its credential expires; only `discard()` ends one early.
- * Once a proof `satisfy()` stored commits, or rolls back, every resolved guard
- * bound to the session forgets the authentication context it holds. A choice
- * has the call's check (`AdmissionRecheck`) read the principal and tenant
- * chosen again once it commits, and the activation's reports wait for it.
+ * reads, satisfies, chooses for and discards them.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -111,19 +82,8 @@ final readonly class PendingSessions
     }
 
     /**
-     * The live pending session the credential names, or `null`; with an action,
-     * also `null` when its first outstanding requirement does not allow the
-     * action now. Also `null` whenever the gate would refuse it: its identity
-     * (a machine identity, an inactive one, or one the application no longer
-     * admits with the identifier type the sign-in used), its method no longer
-     * allowed, or the principal it records, if any, no longer one that may hold
-     * it in the active tenant it records (the principal inactive, its own
-     * tenant inactive, `ApplicationAccess` refusing it, or that tenant
-     * unresolvable, inactive or refused by `TenantAccess`). Such a session can
-     * never activate, so nothing (a code sent, an enrolment begun) is done for
-     * it. The tenant described is the one the gate admitted. The principals to
-     * choose from are listed only while the choice is that requirement. Reads
-     * only, on the write connection, with no lock.
+     * The live pending session the credential names, or `null` when the action
+     * is not allowed now or the gate would refuse it.
      *
      * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $credential
      * @param  ?\SineMacula\Laravel\Authentication\Sessions\Enums\PendingAction  $action
@@ -170,21 +130,7 @@ final readonly class PendingSessions
 
     /**
      * Satisfy the pending session's further factor with the proof an adapter
-     * verified, in one transaction under the row lock: the further factor must
-     * be its first outstanding requirement (`pending_action_not_allowed`); the
-     * proof must be accepted for it (see
-     * `ProofAcceptance::forPendingSession()`: `proof_invalid`,
-     * `proof_binding_mismatch`); the gate admits the identity,
-     * the method, and the principal and tenant the session records, if any;
-     * then the proof is stored, after the session's issuance guard
-     * (`IssuanceGuard`), and what the session still waits on is judged again:
-     * nothing, and it activates; the further factor still, and it stays
-     * pending; or the choice, and it moves on to it, listing the principals. A
-     * proof is stored once per call, also when the session stays pending: a
-     * verification is single use on the adapter's side. The call's client is
-     * the one the activation records and reports; its check has nothing to
-     * check, since the session already records what it acts as, which every
-     * revocation of those finds.
+     * verified, under the row lock.
      *
      * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $credential
      * @param  \SineMacula\Laravel\Authentication\Proofs\ProofResult  $proof
@@ -196,8 +142,7 @@ final readonly class PendingSessions
      */
     public function satisfy(#[\SensitiveParameter] Secret|string $credential, ProofResult $proof, CarbonImmutable $now, AdmissionRecheck $call): Refused|SignInResult
     {
-        // `#[\SensitiveParameter]` does not cover what a closure captures,
-        // which a dump of the trace shows.
+        // `#[\SensitiveParameter]` does not cover what a closure captures.
         $held = new \SensitiveParameterValue($credential);
 
         return $this->atomically(function () use ($held, $proof, $now, $call): Refused|SignInResult {
@@ -229,20 +174,8 @@ final readonly class PendingSessions
     }
 
     /**
-     * Record the identity's choice of principal on the pending session, and the
-     * tenant it is to be active in (the principal's own unless one is named),
-     * in one transaction under the row lock: the choice must be its first
-     * outstanding requirement (`pending_action_not_allowed`); the gate admits
-     * the identity and the method; the principal must be the identity's,
-     * resolved through the hinted path as that very one (`principal_mismatch`),
-     * and admitted by the application, and the tenant one it may act in and
-     * active; then what the session still waits on is judged again: nothing,
-     * and it activates as the principal; a further factor (the identity's
-     * policy now asks for one), and it records the principal and tenant and
-     * waits for it. Either way the principal and the tenant chosen are checked
-     * again once the choice commits (`AdmissionRecheck`), and the activation's
-     * reports wait for that check: a choice that admitted them before a
-     * deactivation or deletion of either committed ends the session instead.
+     * Record the identity's choice of principal and tenant on the pending
+     * session, under the row lock.
      *
      * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $credential
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $chosen
@@ -288,10 +221,8 @@ final readonly class PendingSessions
     }
 
     /**
-     * End the live pending session the credential names: revoke it as
-     * `signed_out`, under the row lock, and report `SessionRevoked` once
-     * committed, for the client given. Returns whether the credential named
-     * one, which this call ended.
+     * Revoke the live pending session the credential names as `signed_out`,
+     * returning whether this call ended one.
      *
      * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $credential
      * @param  \Carbon\CarbonImmutable  $now
@@ -327,11 +258,7 @@ final readonly class PendingSessions
 
     /**
      * The tenant the pending session records, admitted again, when the session
-     * may be acted on for the requirement: the requirement is its
-     * first outstanding one; a proof, when one is given, is accepted for it;
-     * the identity is admitted with the identifier type the sign-in used and
-     * the method is still allowed; and the principal it records, if any, may
-     * still hold it in that tenant. Otherwise why not.
+     * may be acted on for the requirement, or why not.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -366,9 +293,8 @@ final readonly class PendingSessions
     }
 
     /**
-     * Why the pending session may not be acted on for the requirement: it is
-     * not the first outstanding one, or the proof given is not accepted for
-     * it; `null` when it may.
+     * Why the pending session may not be acted on for the requirement; `null`
+     * when it may.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement  $requirement
@@ -388,8 +314,7 @@ final readonly class PendingSessions
     }
 
     /**
-     * The principal chosen, as the identity's own principal the application
-     * admits, with the tenant it is to be active in; or why not.
+     * The principal chosen, with the tenant it is to be active in, or why not.
      *
      * @formatter:off
      *
@@ -422,20 +347,8 @@ final readonly class PendingSessions
     }
 
     /**
-     * Judge what the admitted pending session still waits on, and act on it:
-     * with a principal, the tenant's authentication policy is asked first, and
-     * a session it requires to be established through a connection is refused
-     * (`sso_required`), while a further factor it requires is owed as the
-     * identity's own is; activate it, recording the policy's version, when
-     * nothing is outstanding; otherwise keep it pending, writing what it waits
-     * on (and the principal and tenant it records) when that changed, and
-     * listing the principals to choose from when the choice is now first. A
-     * session left with the choice and no principal to choose from is refused
-     * with the reason the last was refused, or `principal_unresolved`. The
-     * factor policy is told of the session the sign-in's client proved it
-     * holds, as the caller found it still is; when that session changed before
-     * the activation could supersede it, the session is judged again without
-     * it, factor policy included.
+     * Activate the admitted pending session when nothing is outstanding, or
+     * keep it pending on what it still waits on.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -496,8 +409,8 @@ final readonly class PendingSessions
     }
 
     /**
-     * Record what the locked pending session now waits on, and the principal
-     * and tenant it records, and mirror it on the session.
+     * Record what the locked pending session now waits on, with its principal
+     * and tenant.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -524,10 +437,8 @@ final readonly class PendingSessions
     }
 
     /**
-     * What the pending session's authentication still falls short of, the
-     * strictest of the identity-level requirement while it is owed and the
-     * requirement of the tenant it records while that is unmet, with the first
-     * factor both were judged on, read once.
+     * What the pending session's authentication still falls short of, with the
+     * first factor it was judged on.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -551,9 +462,7 @@ final readonly class PendingSessions
     }
 
     /**
-     * Describe the pending session, with what it waits on, what its
-     * authentication still falls short of, its first factor, and the principals
-     * to choose from while the choice is its first requirement.
+     * Describe the pending session.
      *
      * @formatter:off
      *
@@ -596,13 +505,10 @@ final readonly class PendingSessions
     }
 
     /**
-     * The session the sign-in's client proved it holds, when it still is that
-     * session as proven: of this guard and owner, active, unrevoked, and
-     * holding the refresh digest it was proven against; else `null`. One that
-     * returned to pending keeps that digest, so its status is checked too. With
-     * `$lock`, its row is read locked until the transaction ends, before any of
-     * these checks, so the activation's supersede that may follow takes no row
-     * after them; a session that proved none locks nothing.
+     * The session the sign-in's client proved it holds, while it is still that
+     * session as proven; `null` otherwise.
+     *
+     * One that returned to pending keeps its digest, so its status is checked.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  bool  $lock
@@ -637,9 +543,7 @@ final readonly class PendingSessions
     }
 
     /**
-     * When the pending session began waiting for what it waits on now: the
-     * later of its start and its last change of context (a return to pending
-     * moves it), so no proof made before then satisfies it.
+     * When the pending session began waiting for what it waits on now.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @return \Carbon\CarbonImmutable
@@ -655,15 +559,8 @@ final readonly class PendingSessions
     }
 
     /**
-     * Run the work in one transaction on the session model's connection,
-     * committing what it wrote unless it answers with a refusal, which rolls
-     * back everything it wrote, the proof it stored among it; an exception
-     * rolls back too, and is thrown on. Inside a caller's transaction a
-     * deadlock, serialisation failure or lock wait timeout is thrown on as
-     * Laravel's `DeadlockException` with the caller's transaction level
-     * restored (on MySQL and MariaDB a deadlock has already rolled the caller's
-     * whole transaction back, its savepoints with it), for the caller to roll
-     * back and retry whole.
+     * Run the work in one transaction, rolling it back when it answers with a
+     * refusal.
      *
      * @param  \Closure(): (\SineMacula\Laravel\Authentication\Admission\Refused|\SineMacula\Laravel\Authentication\Sessions\SignInResult)  $work
      * @return \SineMacula\Laravel\Authentication\Admission\Refused|\SineMacula\Laravel\Authentication\Sessions\SignInResult

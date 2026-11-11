@@ -29,11 +29,7 @@ use Tests\Integration\Fixtures\CodeIdentity;
 use Tests\TestCase;
 
 /**
- * Feature tests of the documented one-time code routes, registered as an
- * application would and driven over HTTP: request a code, sign in with it, and
- * authenticate through `auth:mobile` with the access token; request and confirm
- * a code that verifies the signed-in identity's number; with the code-sender
- * fake, on the `sync` connection and on a faked queue.
+ * Feature tests of the documented one-time code routes, driven over HTTP.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -104,9 +100,7 @@ final class CodeRoutesTest extends TestCase
     }
 
     /**
-     * The code a request sends arrives once the response is sent, signs in
-     * through the route, and the access token authenticates as the holder of
-     * the number.
+     * A code sent by a request signs in through the route.
      *
      * @return void
      */
@@ -254,9 +248,7 @@ final class CodeRoutesTest extends TestCase
     }
 
     /**
-     * The documented code request route: validate, send, answer a rate-limited
-     * request 429 with the wait, an invalid number 422, and every sent code
-     * 202, whether or not anyone has the number.
+     * The documented code request route.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\JsonResponse

@@ -8,23 +8,8 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 
 /**
- * Application policy contract.
- *
- * An application is a guard: each decides which sign-in methods may start its
- * sessions and which machine credentials (`api_key`, `client_credentials`) it
- * accepts, whether the identifier a sign-in used must be verified, and how long
- * its sessions last. The session service consults it before it issues anything,
- * and the refresh exchange before it rotates. Every method takes the
- * application by its guard's name. Which principals may use the application is
- * not the policy's question but `ApplicationAccess`'s, and which tenants they
- * may act in `TenantAccess`'s.
- *
- * The package asks `admitIdentifier()` inside `WriteConnection::during()` for
- * the identity, so a model read the policy makes there, and a query-builder
- * read on the identity's connection, sees the primary rather than a replica
- * that may lag behind a withdrawn verification. Any other read that decides
- * admission (a query-builder read on another connection, or one made from
- * `allowsMethod()`) pins itself with `WriteConnection::query()`.
+ * Decides which sign-in methods and machine credentials an application accepts,
+ * which identifiers it admits and how long its sessions last.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -44,12 +29,8 @@ interface ApplicationPolicy
     public function allowsMethod(string $guard, string $method): bool;
 
     /**
-     * Whether a client credentials exchange of the application (its guard) may
-     * read the client's id and secret from the request body
-     * (`client_secret_post`). HTTP Basic is always accepted, as RFC 6749
-     * section 2.3.1 requires; credentials in the body are refused as
-     * `invalid_client` unless this allows them. Fail closed: a policy with no
-     * rule returns `false`.
+     * Whether a client credentials exchange may read the client's id and secret
+     * from the request body (`client_secret_post`).
      *
      * @param  string  $guard
      * @return bool
@@ -60,16 +41,7 @@ interface ApplicationPolicy
 
     /**
      * Decide whether the identity may sign in to the application with an
-     * identifier of the type, whichever principal it then acts as: `null` when
-     * it may, otherwise why not (`identifier_unverified` for an identifier the
-     * application requires verified). Every sign-in asks it once the identity
-     * is known to be active and before any principal is resolved or listed, and
-     * a switch asks it with the type the session's sign-in used, so a refusal
-     * here is the same whether the identity has principals or not and says
-     * nothing about which it has. An identifier type of `null` (a sign-in that
-     * used no identifier) is not subject to the verified-identifier
-     * requirement. A policy with no rule about the identity as a whole returns
-     * `null`; one that wraps another asks it.
+     * identifier of the type: `null` when it may, otherwise why not.
      *
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity

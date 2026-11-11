@@ -13,24 +13,7 @@ use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 
 /**
  * Takes a result an external identity provider verified to the identity it is
- * linked to and the proof its session starts with, before the session service
- * starts that session as it starts any other.
- *
- * In order: the application policy must allow `external_provider`
- * (`method_not_allowed`), so an application that does not allow external
- * sign-in never has the link contract asked; then the link contract must link
- * the connection, issuer and subject to an identity. A result it links to none
- * dispatches `ExternalResultUnlinked` and is refused as
- * `external_result_unlinked`; one that names a link id the contract's answer
- * does not have, `link_mismatch`. A linked one is the link's identity and the
- * provider's proof: the connection as its channel, the private
- * external-provider `amr` value and the provider's time (see
- * `SignInProof::external()`), with the provenance the session records, the
- * link's id and the result's provider context included. Evidence the result
- * carries is judged for the link's identity by the evidence contract: accepted,
- * the first proof carries the acceptance and the provenance the evidence (dated
- * no later than now), so the identity-level requirement and a tenant's are
- * judged against it at sign-in; otherwise neither carries anything of it.
+ * linked to and the proof its session starts with.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

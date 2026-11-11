@@ -19,9 +19,7 @@ use Tests\TestCase;
 
 /**
  * Feature tests for how the acting context finds what it acts on through the
- * application's guards: the package guard named or the default one, the
- * resolver's default principal, and the owner and principal a session records,
- * each refused with what could not be found.
+ * application's guards.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

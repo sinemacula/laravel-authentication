@@ -21,15 +21,8 @@ use Tests\Integration\Fixtures\SeparatePasswordIdentity;
 use Tests\TestCase;
 
 /**
- * Integration tests for asking the additional-factor policy on `attempt()`
- * against a read/write split whose replica lags behind its primary: the policy
- * is asked on the identity's writer, so a factor enrolled on the primary that
- * the replica has not seen yet still holds the attempt back. It is told of the
- * password as the attempt's first factor.
- *
- * The policy asks for a further factor only when its read on the identity's
- * connection finds a row written through the split connection, which exists on
- * the primary only: a refused attempt shows the read was served by the writer.
+ * Tests that `attempt()` asks the additional-factor policy on the identity's
+ * writer when the replica lags.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -51,9 +44,8 @@ final class SignsInWithCredentialsTest extends TestCase
     private const string FACTORS = 'factors';
 
     /**
-     * Create the identity, its password and the factors table on the primary
-     * and the replica, seed the identity on both, and bind a policy that asks
-     * for a factor only when the identity's connection finds one.
+     * Seed the identity on the primary and the replica, and bind a policy that
+     * asks for a factor only when the identity's connection finds one.
      *
      * @return void
      */
@@ -116,9 +108,7 @@ final class SignsInWithCredentialsTest extends TestCase
     }
 
     /**
-     * A factor enrolled on the primary only is found, so the attempt is held
-     * back for it, and the identity's connection reads from its replica again
-     * afterwards.
+     * A factor enrolled on the primary only holds the attempt back.
      *
      * @return void
      *
@@ -146,8 +136,7 @@ final class SignsInWithCredentialsTest extends TestCase
     }
 
     /**
-     * The policy is told of the password as the attempt's first factor: a
-     * password channel and the `pwd` method.
+     * The policy is told of the password as the attempt's first factor.
      *
      * @return void
      *

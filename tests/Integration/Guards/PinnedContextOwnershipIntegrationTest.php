@@ -30,11 +30,8 @@ use Tests\Unit\Stubs\Stub3dPrincipal;
 use Tests\Unit\Stubs\StubSession;
 
 /**
- * A principal or session pinned on `attempt()`, as an endpoint might load it
- * from request input, is bound only when it belongs to the identity whose
- * credentials were checked: another member's membership or session, or a model
- * of another class that shares an identifier, fails the attempt, even when the
- * guard's resolver does not scope its hinted lookup to the identity.
+ * A principal or session pinned on `attempt()` is bound only when it belongs to
+ * the identity whose credentials were checked.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -134,9 +131,8 @@ final class PinnedContextOwnershipIntegrationTest extends TestCase
     }
 
     /**
-     * Another member's membership fails the attempt even on a guard whose
-     * resolver finds a hinted membership by key alone, without scoping it to
-     * the identity, while the member's own membership is still bound there.
+     * Another member's membership fails the attempt when the resolver is not
+     * scoped to the identity.
      *
      * @return void
      *
@@ -159,10 +155,8 @@ final class PinnedContextOwnershipIntegrationTest extends TestCase
     }
 
     /**
-     * Another member's membership fails the attempt even on a guard whose
-     * resolver finds a hinted membership by key alone and sets the identity as
-     * its owner relation: the owner is read from the membership's stored key,
-     * not from that relation.
+     * Another member's membership fails the attempt when the resolver sets the
+     * identity as its owner relation.
      *
      * @return void
      *
@@ -185,9 +179,7 @@ final class PinnedContextOwnershipIntegrationTest extends TestCase
     }
 
     /**
-     * Another member's membership whose owner has been deleted fails the
-     * attempt, with `Failed` dispatched, on a guard whose resolver is not
-     * scoped: an owner that cannot be loaded is not the identity signing in.
+     * A membership whose owner has been deleted fails the attempt.
      *
      * @return void
      *
@@ -215,9 +207,7 @@ final class PinnedContextOwnershipIntegrationTest extends TestCase
     }
 
     /**
-     * The member's own membership, hydrated as one of several rows with lazy
-     * loading prevented (Eloquent's strict mode), is still bound: the owner the
-     * package re-reads from the stored key is not a lazy-loading violation.
+     * The member's own membership is bound with lazy loading prevented.
      *
      * @return void
      *
@@ -394,7 +384,7 @@ final class PinnedContextOwnershipIntegrationTest extends TestCase
 
     /**
      * Persist a member with a membership in its own tenant and a live session
-     * acting as that membership in its tenant, as a sign-in records one.
+     * acting as that membership.
      *
      * @formatter:off
      *

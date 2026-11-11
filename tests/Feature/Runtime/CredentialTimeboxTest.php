@@ -16,11 +16,8 @@ use Tests\Fixtures\Passwords\RecordingTimebox;
 use Tests\TestCase;
 
 /**
- * Feature tests of the credential timebox of one guard instance, which serves a
- * whole request, console command or queue worker: a check that succeeds ends
- * its own wait early, and every check after it waits out the box again when it
- * fails, whether it is `validate()`, `attempt()` or a check run in the
- * context's timebox (a password reset, a reauthentication).
+ * Feature tests of the credential timebox of one guard instance, which every
+ * later failed check on the guard waits out.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -93,9 +90,8 @@ final class CredentialTimeboxTest extends TestCase
     }
 
     /**
-     * A failed `attempt()` after a successful one on the same guard waits out
-     * the box, and so does a failed `validate()` after a successful
-     * `attempt()`.
+     * A failed `attempt()` or `validate()` after a successful `attempt()` on
+     * the same guard waits out the box.
      *
      * @return void
      *
@@ -114,9 +110,8 @@ final class CredentialTimeboxTest extends TestCase
     }
 
     /**
-     * A check run in the context's timebox that does not end the box early
-     * waits it out, though an earlier one on the same guard ended its own
-     * early.
+     * A timeboxed check that does not end the box early waits it out after an
+     * earlier one ended early.
      *
      * @return void
      *

@@ -5,9 +5,8 @@ declare(strict_types = 1);
 namespace Tests\Fixtures\Passkeys;
 
 /**
- * The subset of CBOR (RFC 8949) an authenticator writes: integers, byte
- * strings, text strings and maps, in definite lengths. Strings are byte strings
- * unless wrapped with `text()`.
+ * The subset of CBOR (RFC 8949) an authenticator writes; strings are byte
+ * strings unless wrapped with `text()`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -55,9 +54,8 @@ final class Cbor
     }
 
     /**
-     * Encode the value: an integer, a byte string, a text string, or a map
-     * given as a list of `[key, value]` pairs, so keys keep their order and
-     * type.
+     * Encode an integer, byte string, text string or map given as a list of
+     * `[key, value]` pairs.
      *
      * @param  int|list<array{0: int|string|\Stringable, 1: mixed}>|string|\Stringable  $value
      * @return string

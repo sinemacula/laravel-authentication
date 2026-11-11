@@ -45,18 +45,8 @@ use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\TestCase;
 
 /**
- * Feature tests of the routes an application registers behind its guard to show
- * one of the signed-in identity's sessions or principals, driven over HTTP:
- * `Auth::sessions('api')->session()` answers the session's summary, marked when
- * it is the one the request is authenticated with, and nothing for a session
- * that is another identity's or no longer active; and
- * `Auth::sessions('members')->principal()` answers one of the principals the
- * identity may use the application as, and nothing for another identity's or
- * one no longer admitted; and `Auth::sessions('api')->proofs()` and
- * `firstFactor()` answer the counting proofs and first factor, and
- * `provenance()` the provenance, of any of the guard's active sessions, named
- * by key or given as the instance while its key still holds it, and nothing for
- * one of another guard, revoked or pending.
+ * Feature tests of the routes that show one of the signed-in identity's
+ * sessions, principals or proofs.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -134,9 +124,7 @@ final class LooksUpSessionsTest extends TestCase
     }
 
     /**
-     * The route shows the session the request is authenticated with as the
-     * current one, another of the identity's sessions as not current, and one
-     * of another guard as well, each with the keys the list gives.
+     * The route shows one of the identity's sessions and marks the current one.
      *
      * @return void
      *
@@ -161,8 +149,7 @@ final class LooksUpSessionsTest extends TestCase
     }
 
     /**
-     * Another identity's session, a revoked one and a pending one are not
-     * found, and the route answers `404` for each alike.
+     * Another identity's, a revoked or a pending session answers `404`.
      *
      * @return void
      *
@@ -187,11 +174,7 @@ final class LooksUpSessionsTest extends TestCase
     }
 
     /**
-     * The route answers the request's own session's counting proofs, the
-     * step-up newest, then its first factor, narrowed by kind and by time, and
-     * another identity's active session of the guard alike, since no identity
-     * is checked; once the session is refreshed, the proofs hold none of its
-     * tokens and neither of its refresh digests.
+     * The route answers an active session's counting proofs and first factor.
      *
      * @return void
      *
@@ -269,10 +252,7 @@ final class LooksUpSessionsTest extends TestCase
     }
 
     /**
-     * The time a session's proofs are read from is the same instant in
-     * whichever time zone it is given, mutable or not: a step-up made at it is
-     * read and one made before it is not, as when it is given in the
-     * application's zone.
+     * The time given is the same instant in any time zone.
      *
      * @param  string  $zone
      * @return void
@@ -307,9 +287,7 @@ final class LooksUpSessionsTest extends TestCase
     }
 
     /**
-     * A session of another guard, a revoked one and a pending one answer no
-     * proofs and no first factor through the guard, alike, while the pending
-     * session's own `proofs()` still reads its first factor.
+     * Another guard's, a revoked or a pending session answers no proofs.
      *
      * @return void
      *
@@ -341,9 +319,7 @@ final class LooksUpSessionsTest extends TestCase
 
     /**
      * The guard answers the provenance of an active session a provider
-     * established, by key and as an instance, and nothing for one no provider
-     * established, one of another guard, a revoked one or a pending one, whose
-     * provenance stays on its pending session.
+     * established.
      *
      * @return void
      *
@@ -387,12 +363,7 @@ final class LooksUpSessionsTest extends TestCase
     }
 
     /**
-     * A session given as an instance answers only while its key still holds it:
-     * the request's own session, as the guard bound it, answers its proofs and
-     * first factor over HTTP, and so does its instance; once another sign-in of
-     * the same owner reuses its key, the earlier instance answers nothing, with
-     * one read of the row, while the key, and the new session's instance,
-     * answer the new session's first factor.
+     * A session given as an instance answers only while its key still holds it.
      *
      * @return void
      *
@@ -438,11 +409,8 @@ final class LooksUpSessionsTest extends TestCase
     }
 
     /**
-     * Read inside a transaction, then stepped up and judged again after a
-     * factor change in the same transaction, a session is locked only on its
-     * own row, each time: the step-up is issued, the session stays active, and
-     * the read after them returns the step-up, which commits with the
-     * transaction.
+     * A read, a step-up and a factor change in one transaction lock only the
+     * session's row.
      *
      * @return void
      *
@@ -512,9 +480,8 @@ final class LooksUpSessionsTest extends TestCase
     }
 
     /**
-     * The route shows each of the member's memberships the application admits,
-     * the one the session acts as among them, and answers `404` for another
-     * member's and for one whose tenant was deactivated.
+     * The route shows a principal the application admits and `404` for any
+     * other.
      *
      * @return void
      *
@@ -618,8 +585,7 @@ final class LooksUpSessionsTest extends TestCase
     }
 
     /**
-     * Ask the route for one session's proofs and first factor, with the access
-     * token and the query given.
+     * Ask the route for one session's proofs and first factor.
      *
      * @param  string  $token
      * @param  string  $id

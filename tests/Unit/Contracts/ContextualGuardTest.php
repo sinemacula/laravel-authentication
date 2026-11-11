@@ -16,16 +16,8 @@ use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 
 /**
- * Reflection-based structural tests for the ContextualGuard contract.
- *
- * Verifies that the published interface exposes the documented contextual
- * surface (accessors, setters, contextual `attempt`/`login`) and that it
- * inherits from Laravel's `Guard` contract. No instance of the interface is
- * constructed - the assertions run against interface metadata only.
- *
- * Marked `#[CoversNothing]` because PHPUnit cannot attribute coverage to a bare
- * interface; the interface's structural shape is asserted via reflection rather
- * than line execution.
+ * Reflection tests for the `ContextualGuard` contract; `#[CoversNothing]` as
+ * PHPUnit cannot attribute coverage to an interface.
  *
  * @internal
  *

@@ -27,9 +27,7 @@ use Tests\TestCase;
 
 /**
  * End-to-end tests of signing out everywhere else from a request whose token
- * names no session: the request's own access-only token is kept by leaving the
- * identity's "tokens valid after" cutoff where it is, while every session is
- * revoked; without the keep, the cutoff ends that token too.
+ * names no session.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -96,9 +94,8 @@ final class ManagesSessionsTest extends TestCase
     }
 
     /**
-     * Keeping an access-only token leaves the cutoff where it is: the request's
-     * token keeps working, as does the identity's other session-less token,
-     * while its session is revoked.
+     * Keeping a session-less token leaves the cutoff and still revokes the
+     * sessions.
      *
      * @return void
      *
@@ -124,8 +121,7 @@ final class ManagesSessionsTest extends TestCase
     }
 
     /**
-     * Without the keep, the cutoff moves and ends the request's session-less
-     * token with the rest.
+     * Without the keep, the cutoff moves and ends the session-less token.
      *
      * @return void
      *
@@ -146,8 +142,7 @@ final class ManagesSessionsTest extends TestCase
     }
 
     /**
-     * Keeping a token that names a session keeps that session and still moves
-     * the cutoff, which only session-less tokens are held to.
+     * Keeping a token that names a session still moves the cutoff.
      *
      * @return void
      *
@@ -208,8 +203,7 @@ final class ManagesSessionsTest extends TestCase
     }
 
     /**
-     * Sign the identity in on a new session and return the session's access
-     * token.
+     * Sign the identity in and return the session's access token.
      *
      * @param  \Tests\Integration\Fixtures\CutoffIdentity  $identity
      * @return string

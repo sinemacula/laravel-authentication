@@ -31,13 +31,7 @@ use Tests\TestCase;
 
 /**
  * A revoked session loaded without its revocation column fails every
- * authentication path loudly instead of reading the missing value as "not
- * revoked", so a partial select surfaces as a misconfiguration rather than
- * admitting a revoked session.
- *
- * The bearer and pinned-session paths load the session through an identity
- * whose `sessions()` relation leaves `revoked_at` out; the refresh path loads
- * it through a session model whose global scope does.
+ * authentication path loudly.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -103,9 +97,8 @@ final class PartiallySelectedSessionIntegrationTest extends TestCase
     }
 
     /**
-     * A bearer request naming a revoked session the relation loads without its
-     * revocation column answers with a server error carrying the report, not
-     * with the identity.
+     * A bearer request for a partially selected revoked session answers with a
+     * server error.
      *
      * @return void
      *
@@ -128,8 +121,7 @@ final class PartiallySelectedSessionIntegrationTest extends TestCase
     }
 
     /**
-     * Pinning a revoked session the relation loads without its revocation
-     * column reports the misconfiguration instead of signing in.
+     * Pinning a partially selected revoked session reports a misconfiguration.
      *
      * @return void
      *
@@ -153,9 +145,8 @@ final class PartiallySelectedSessionIntegrationTest extends TestCase
     }
 
     /**
-     * Refreshing with the refresh token of a revoked session that the session
-     * model loads without its revocation column reports the misconfiguration,
-     * and leaves the stored digest untouched.
+     * Refreshing a partially selected revoked session reports the
+     * misconfiguration and leaves the digest untouched.
      *
      * @return void
      *

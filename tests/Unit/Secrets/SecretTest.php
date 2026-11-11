@@ -104,10 +104,8 @@ final class SecretTest extends TestCase
     }
 
     /**
-     * No dump shows the plaintext: PHP's own (`print_r`, and the debug
-     * information it shares with `var_dump`; `var_export`), Symfony's VarDumper
-     * behind Laravel's `dump` and `dd`, nor an array cast; the dumps that use
-     * the debug information show the placeholder.
+     * No dump shows the plaintext, and those that use the debug information
+     * show the placeholder.
      *
      * @return void
      */
@@ -134,9 +132,8 @@ final class SecretTest extends TestCase
     }
 
     /**
-     * A secret passed into a frame that throws is recorded in the trace as the
-     * object, never as its plaintext, and the constructor's own parameter is
-     * sensitive, so even building one leaves no plaintext in a trace.
+     * A trace records a secret as the object, never its plaintext, even when
+     * one is built.
      *
      * @return void
      */

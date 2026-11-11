@@ -5,9 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Support;
 
 /**
- * Moves the closures one object registered on itself onto the object that
- * replaces it, as the package's auth manager does with what was registered on
- * the framework manager it replaces.
+ * Moves closures an object registered on itself onto the object replacing it.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -22,9 +20,7 @@ final class ClosureRebinding
     private function __construct() {}
 
     /**
-     * The closure, bound to the replacement when it is an anonymous one bound
-     * to the replaced object; any other is returned as it is (a first-class
-     * callable keeps the object whose method it is).
+     * Rebind an anonymous closure from the replaced object to the replacement.
      *
      * @param  object  $replaced
      * @param  object  $replacement

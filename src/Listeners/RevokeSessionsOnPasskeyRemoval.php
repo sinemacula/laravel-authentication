@@ -12,33 +12,8 @@ use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\PasskeyRemoved;
 
 /**
- * Optional listener: ends every session of an identity that removed a passkey,
- * with reason `factor_removed`, through the session service of the guard the
- * passkey was removed through. `PasskeyRemoved` is dispatched only once the
- * removal is committed, so a removal that is rolled back revokes nothing.
- * Registering it is the opt-in:
- *
- * `Event::listen(PasskeyRemoved::class, RevokeSessionsOnPasskeyRemoval::class);`
- *
- * Every session is revoked, the one the passkey was removed from included; an
- * application that keeps that session signed in calls
- * `Auth::sessions()->credentialRemoved($identity, Auth::session())` itself
- * instead of registering the listener. A passkey the factor package associated
- * as a factor has its removal judged by the factor package, which calls
- * `factorRemoved()` itself; registered alongside it, the listener still ends
- * every session on any passkey's removal.
- *
- * The event names the identity by its type and identifier only, so the identity
- * is loaded again by them, on the write connection and with none of the model's
- * global scopes: a passkey only ever belongs to an Eloquent identity, and an
- * identity a scope hides (soft-deleted, or outside the tenant or application a
- * request is scoped to) must still lose the sessions it signed in with, or they
- * would be live again once it is visible. Its sessions are ended only when the
- * type names an Eloquent identity model, through the morph map or directly, and
- * a row of it has the identifier; an event that names none, or an identity that
- * is gone, ends nothing. The session service comes from the application now
- * serving, not from the container that built the listener, which under Octane
- * is the application the worker booted rather than the request's sandbox.
+ * Optional listener that ends every session of an identity that removed a
+ * passkey, with reason `factor_removed`.
  *
  * @api
  *
@@ -74,11 +49,8 @@ final readonly class RevokeSessionsOnPasskeyRemoval
     }
 
     /**
-     * The identity the type and identifier name, read by its auth identifier
-     * (the column `ModelProvider` looks it up by, which need not be the key) on
-     * the write connection with none of the model's global scopes, or `null`
-     * when the type names no Eloquent identity model or no row has the
-     * identifier.
+     * The identity the type and identifier name, read on the write connection
+     * without global scopes, or `null` for none.
      *
      * @param  ?string  $type
      * @param  ?string  $id

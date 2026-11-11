@@ -5,13 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Concerns;
 
 /**
- * The `ActsAsSession` accessors for what a session started with: the guard, the
- * sign-in method and the type of identifier it used, the name and platform the
- * client gave, and the IP address and user agent it came from. These are
- * informational, so a value that was not loaded reads as `null`, apart from the
- * identifier type: a switch is held to it, and `null` there means a sign-in
- * that used no identifier, which is held to none, so it must be loaded.
- * Override the `*Name()` methods to remap columns.
+ * The `ActsAsSession` accessors for what a session started with.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -64,8 +58,7 @@ trait RecordsSessionOrigin
 
     /**
      * Return the type of identifier the sign-in that started the session used,
-     * or `null` when it used none or none was recorded. A session loaded
-     * without the column is reported, not read as a sign-in that used none.
+     * or `null` when it used none or none was recorded.
      *
      * @return ?string
      *

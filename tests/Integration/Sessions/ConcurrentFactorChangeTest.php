@@ -26,18 +26,8 @@ use Tests\Concerns\InteractsWithSessions;
 use Tests\TestCase;
 
 /**
- * Races the factor-change gate against a revocation of the session it is asked
- * about, and against a factor's removal that voids the step-up it would count,
- * on PostgreSQL and MySQL, each in a process with a database connection of its
- * own: the gate's lock on the session's row is held until the caller's
- * transaction commits, so a revocation started meanwhile waits for the change,
- * a gate started while a revocation holds the row waits and then finds the
- * session revoked, and a gate started while a removal holds it waits and then
- * judges the session's proofs as committed, whatever its caller's transaction
- * read first.
- *
- * Skipped on SQLite, where each process would have an in-memory database of its
- * own, and where `pcntl` is not available.
+ * Races the factor-change gate against a revocation of its session and against
+ * a factor removal, each in its own process.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -62,8 +52,8 @@ final class ConcurrentFactorChangeTest extends TestCase
     private string $outcomes;
 
     /**
-     * Skip where processes cannot share the database, freeze the clocks so both
-     * processes see one moment, and create the tables.
+     * Skip where processes cannot share the database, freeze the clocks and
+     * create the tables.
      *
      * @return void
      *
@@ -119,8 +109,7 @@ final class ConcurrentFactorChangeTest extends TestCase
     }
 
     /**
-     * A revocation that waits on a change the gate allowed finds the change
-     * committed first, then revokes the session.
+     * A revocation waits on an allowed change, then revokes the session.
      *
      * @return void
      *
@@ -143,8 +132,7 @@ final class ConcurrentFactorChangeTest extends TestCase
     }
 
     /**
-     * A change asked while a revocation holds the session's row waits on it,
-     * then finds the session revoked and is refused.
+     * A change waiting on a revocation is refused.
      *
      * @return void
      *
@@ -166,14 +154,7 @@ final class ConcurrentFactorChangeTest extends TestCase
     }
 
     /**
-     * A change asked inside a caller's transaction that read the session's
-     * proofs first, while a removal of the step-up's factor on another
-     * connection holds the session's row, waits on it, then never counts the
-     * step-up the removal voided: it is refused (`step_up_required`) with no
-     * proof. At PostgreSQL's REPEATABLE READ the gate's lock fails to serialise
-     * first, and the caller's retry of its whole transaction is refused the
-     * same way. A gate that judged the caller's snapshot would allow the change
-     * on a proof that no longer counts.
+     * A change waiting on a factor removal never counts the step-up it voided.
      *
      * @param  string  $level
      * @return void
@@ -239,7 +220,7 @@ final class ConcurrentFactorChangeTest extends TestCase
 
     /**
      * Sign the seeded identity in and step its session up with a further
-     * factor, so the gate allows changing one from it.
+     * factor.
      *
      * @return \SineMacula\Laravel\Authentication\Sessions\SignedInSession
      *
@@ -260,12 +241,8 @@ final class ConcurrentFactorChangeTest extends TestCase
     }
 
     /**
-     * Run the first call here inside a transaction, start the second in another
-     * process once the first has taken its locks, hold the transaction open
-     * while the second waits on them, then commit, and return the first's
-     * outcome and the second's, with how long it waited. Work to prepare the
-     * second, given, runs in the other process before the first starts (a
-     * caller's transaction opened and read first, say).
+     * Run the first call in an open transaction, start the second in another
+     * process and commit once it waits.
      *
      * @param  \Closure(): mixed  $first
      * @param  \Closure(): array<string, mixed>  $second
@@ -314,9 +291,8 @@ final class ConcurrentFactorChangeTest extends TestCase
     }
 
     /**
-     * In the forked process: run the preparation, if any, and say so, wait to
-     * be started, run the call on a connection of its own, report its outcome
-     * and how long it took, and end without running the parent's shutdown.
+     * Prepare and run the call in the forked process, report its outcome and
+     * exit without the parent's shutdown.
      *
      * @param  \Closure(): array<string, mixed>  $call
      * @param  ?\Closure(): void  $prepare

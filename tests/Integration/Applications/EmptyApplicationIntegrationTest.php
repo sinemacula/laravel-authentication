@@ -26,15 +26,8 @@ use Tests\Fixtures\Proofs\UndescribedFirstFactor;
 use Tests\TestCase;
 
 /**
- * End-to-end tests of an application that lists no method, the package default,
- * against a real database on whichever engine the suite runs on: every sign-in
- * and refresh is refused as `method_not_allowed` without a write, an attempt
- * slot or a revocation, and access tokens already issued keep authenticating,
- * since the list decides admission, not revocation.
- *
- * The `api` guard has no `application` block, so it takes the shipped
- * `authentication.application`; a test that needs a session first lists the
- * password method on the guard, then removes the block again.
+ * Integration tests of an application that lists no method, the package
+ * default.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -95,11 +88,8 @@ final class EmptyApplicationIntegrationTest extends TestCase
     }
 
     /**
-     * Without an `application` block, `attempt()` and `signIn()` are refused as
-     * `method_not_allowed` before anything is read, the identity, an attempt
-     * slot or the password: no query runs. `start()`, which reloads the
-     * identity it is given first, is refused the same way, and nothing is
-     * counted or written.
+     * Without an `application` block every sign-in is refused as
+     * `method_not_allowed` and nothing is written.
      *
      * @return void
      *
@@ -126,10 +116,8 @@ final class EmptyApplicationIntegrationTest extends TestCase
     }
 
     /**
-     * A session started while the method was listed no longer refreshes once
-     * the application lists nothing, through the route, and is not revoked; its
-     * access token still authenticates until it expires; once the method is
-     * listed again the same refresh token refreshes.
+     * Emptying the list stops refreshes without revoking the session or its
+     * access token.
      *
      * @return void
      *
@@ -157,8 +145,7 @@ final class EmptyApplicationIntegrationTest extends TestCase
     }
 
     /**
-     * Configure the guards and drop the `api` guard's `application` block, so
-     * it lists what the package does: nothing.
+     * Configure the guards and drop the `api` guard's `application` block.
      *
      * @param  mixed  $app
      * @return void

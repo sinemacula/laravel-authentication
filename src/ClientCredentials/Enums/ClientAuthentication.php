@@ -5,8 +5,8 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\ClientCredentials\Enums;
 
 /**
- * How a client credentials token request authenticated the client, by the
- * client authentication method names RFC 7591 registers.
+ * How a client credentials token request authenticated the client, by the RFC
+ * 7591 method names.
  *
  * @api
  *
@@ -15,11 +15,9 @@ namespace SineMacula\Laravel\Authentication\ClientCredentials\Enums;
  */
 enum ClientAuthentication: string
 {
-    // HTTP Basic, the id and secret each form-url-encoded (RFC 6749 section
-    // 2.3.1)
+    // HTTP Basic, the id and secret each form-url-encoded
     case BASIC = 'client_secret_basic';
 
-    // `client_id` and `client_secret` in the form body, which the application
-    // must allow
+    // `client_id` and `client_secret` in the form body
     case POST = 'client_secret_post';
 }

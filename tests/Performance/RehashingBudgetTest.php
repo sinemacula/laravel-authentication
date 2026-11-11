@@ -18,9 +18,8 @@ use SineMacula\Laravel\Authentication\Sessions\Methods\Rehashing;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 
 /**
- * Performance contract for the rehash mark: it runs on every auth event and on
- * every saved password, so it must touch no database, and the hash checks it
- * makes (the costly part) are bounded by the open attempts of the user saved.
+ * Performance contract for the rehash mark: no query, and hash checks bounded
+ * by the user's open attempts.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -88,11 +87,8 @@ final class RehashingBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * With an attempt open for the user, the mark costs no query and at most
-     * two hash checks per save of the instance the attempt validated: two for
-     * the rehash, one for a new password (the saved hash fails first), and two
-     * for a save back to the attempt's password over another; a save through
-     * another instance costs none.
+     * With an attempt open, a save of the attempt's instance costs at most two
+     * hash checks and no query.
      *
      * @return void
      */
@@ -129,9 +125,8 @@ final class RehashingBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Rows of `[whether every attempt validates the one instance the command
-     * keeps, as a provider that caches its users returns, rather than a fresh
-     * instance nothing holds once the next attempt starts]`.
+     * Rows of `[whether every attempt validates the same instance, as a caching
+     * provider returns]`.
      *
      * @return iterable<string, array{0: bool}>
      */
@@ -142,10 +137,8 @@ final class RehashingBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Attempts abandoned one after another (an `attemptWhen()` whose callback
-     * threw, in a long-running command) are let go of rather than kept for the
-     * rest of the command: the guard keeps one attempt, so a later save of
-     * another password costs at most the two hash checks of that one.
+     * Attempts abandoned one after another are let go of, so the guard keeps
+     * only one.
      *
      * @param  bool  $kept
      * @return void
@@ -168,10 +161,8 @@ final class RehashingBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Attempts for one account abandoned one after another, each after a save
-     * taken for its rehash whose change captures the instance saved, as the
-     * password-change observer's does, keep one held save and one attempt: a
-     * later held save replaces the earlier, which lets its instance go.
+     * Abandoned attempts with held saves keep one held save and one attempt for
+     * the account.
      *
      * @return void
      */
@@ -203,9 +194,7 @@ final class RehashingBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * The package's own rehash, run for one account after another with nothing
-     * to rehash, as a long-running command signing users in does, keeps nothing
-     * for any of them.
+     * The package's own rehash keeps nothing when nothing is held.
      *
      * @return void
      */
@@ -223,9 +212,8 @@ final class RehashingBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * An attempt still closes at its end once a change of its user's password
-     * has run inside it, as when an `attemptWhen()` callback saves a new
-     * password and refuses the attempt.
+     * An attempt closes at its end even after its user's password changed
+     * inside it.
      *
      * @return void
      */

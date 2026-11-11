@@ -12,10 +12,8 @@ use Tests\Concerns\InteractsWithChangeableIdentities;
 use Tests\TestCase;
 
 /**
- * Integration tests for the identity's row lock that every transaction writing
- * an identity with its proofs takes first: one read of the row by key, locked
- * where the engine has row locks, which a second writer of the row then waits
- * on until the transaction ends.
+ * Integration tests for the identity row lock taken by every transaction that
+ * writes an identity with its proofs.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -60,9 +58,7 @@ final class IdentityLockTest extends TestCase
     }
 
     /**
-     * `IdentityLock` is a utility container, not to be instantiated: its
-     * constructor is private. Reflection invokes it so the line is covered
-     * while still documenting the access modifier.
+     * The constructor is private.
      *
      * @return void
      *
@@ -83,8 +79,7 @@ final class IdentityLockTest extends TestCase
     }
 
     /**
-     * The lock is one read of the identity's row by its key, limited to one
-     * row, with the engine's row lock (none on SQLite).
+     * The lock is one read of the row by key with the engine's row lock.
      *
      * @return void
      */
@@ -108,8 +103,7 @@ final class IdentityLockTest extends TestCase
     }
 
     /**
-     * The row comes back as stored, not as the instance given holds it, and as
-     * a new instance; a row no longer stored comes back as `null`.
+     * The row comes back as stored, as a new instance, or `null` when gone.
      *
      * @return void
      *
@@ -134,8 +128,8 @@ final class IdentityLockTest extends TestCase
     }
 
     /**
-     * Another process that writes the row while the lock is held waits until
-     * the transaction that took it commits.
+     * Another process that writes the row waits until the transaction holding
+     * the lock commits.
      *
      * @return void
      *

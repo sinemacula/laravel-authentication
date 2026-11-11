@@ -11,9 +11,7 @@ use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
 
 /**
- * Unit tests for a presented refresh token built from plain values: the token a
- * body application's own code read from its body is presented from the body,
- * its only carrier, held as a secret, and an empty one is refused.
+ * Unit tests for a refresh token presented from the body as plain values.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

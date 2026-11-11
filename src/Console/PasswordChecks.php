@@ -13,15 +13,8 @@ use SineMacula\Laravel\Authentication\Passwords\PasswordSettings;
 use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
 
 /**
- * The password checks of `authentication:check`: the policy settings, each of
- * which otherwise fails only when a password is first checked, and warnings,
- * not problems, about each `jwt` guard checked whose password resets would
- * refuse to run, since the reset helpers are optional. A guard is warned about
- * when its provider's model lives on another connection than the storage
- * connection (see `SharedConnection`; identifier changes need the same), and
- * when its password identifier is not `email` while Laravel's notification is
- * the reset link sender. Settings the guard's own checks report are left to
- * them. Configuration is read only: no database connection is opened.
+ * The password checks of `authentication:check`: the policy settings, and
+ * warnings about guards whose password resets would refuse to run.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -46,9 +39,7 @@ final readonly class PasswordChecks
     ) {}
 
     /**
-     * The checks of the password policy settings: the lengths, the composition
-     * rules, what an unavailable breached check does and the reset link
-     * lifetime.
+     * The checks of the password policy settings.
      *
      * @return list<\Closure(): mixed>
      */
@@ -114,8 +105,7 @@ final readonly class PasswordChecks
 
     /**
      * What keeps Laravel's notification from delivering the guard's reset
-     * links, or `null`: the guard identifies passwords by something other than
-     * `email`.
+     * links, or `null`.
      *
      * @param  string  $guard
      * @return ?string

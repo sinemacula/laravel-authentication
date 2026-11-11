@@ -23,8 +23,7 @@ use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
 final class PasskeyFactorAssertionTest extends TestCase
 {
     /**
-     * It carries the passkey's ids, what the assertion showed, when, and the
-     * passkey's summary.
+     * It carries the passkey's ids and what the assertion showed.
      *
      * @return void
      */

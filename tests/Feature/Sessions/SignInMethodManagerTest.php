@@ -20,9 +20,7 @@ use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
 use Tests\TestCase;
 
 /**
- * Feature tests for the sign-in method registry: the container binding, the
- * built-in password method, methods registered with `extend()`, and the
- * refusals for a method that is unknown, not a sign-in method, or not named.
+ * Feature tests for the sign-in method registry.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -133,10 +131,8 @@ final class SignInMethodManagerTest extends TestCase
     }
 
     /**
-     * A manager resolved by one application builds its methods with the one now
-     * serving, as an Octane sandbox is: the password method reads the sandbox's
-     * configuration rather than the booted application's, and the booted
-     * application, serving again, gets a method of its own once more.
+     * A manager builds its methods with the application now serving, as under
+     * an Octane sandbox.
      *
      * @return void
      */
@@ -200,9 +196,8 @@ final class SignInMethodManagerTest extends TestCase
     }
 
     /**
-     * A manager built with a container other than the application serving keeps
-     * building its methods with that container and its configuration, whichever
-     * application serves later.
+     * A manager built with its own container keeps building with it, whichever
+     * application serves.
      *
      * @return void
      */
@@ -226,9 +221,8 @@ final class SignInMethodManagerTest extends TestCase
     }
 
     /**
-     * A manager given a container with `setContainer()` stops following the
-     * application serving: a method registered on it is built with the
-     * container given, not with the sandbox now serving.
+     * A manager given a container with `setContainer()` builds with it, not the
+     * application serving.
      *
      * @return void
      */
@@ -257,8 +251,7 @@ final class SignInMethodManagerTest extends TestCase
     }
 
     /**
-     * The package's `password` method cannot be replaced, since `attempt()` and
-     * `validate()` use it directly; the manager still builds the shipped one.
+     * The package's `password` method cannot be replaced.
      *
      * @return void
      */
@@ -279,8 +272,7 @@ final class SignInMethodManagerTest extends TestCase
     }
 
     /**
-     * Rows of `[name, class]`: every method the package registers itself, and
-     * the class it resolves to.
+     * Rows of `[name, class]`: every method the package registers itself.
      *
      * @return iterable<string, array{0: string, 1: class-string<\SineMacula\Laravel\Authentication\Contracts\SignInMethod>}>
      */
@@ -332,8 +324,8 @@ final class SignInMethodManagerTest extends TestCase
     }
 
     /**
-     * A machine credential kind is not a sign-in method: it cannot be
-     * registered as one, and never resolves to one.
+     * A machine credential kind cannot be registered as, or resolve to, a
+     * sign-in method.
      *
      * @param  string  $name
      * @return void
@@ -370,10 +362,8 @@ final class SignInMethodManagerTest extends TestCase
     }
 
     /**
-     * `external_provider` is the method external sign-ins are recorded under,
-     * not a sign-in method: it cannot be registered as one, never resolves to
-     * one, so `signIn()` can never take an external result as input, and is no
-     * registered name.
+     * `external_provider` cannot be registered as, or resolve to, a sign-in
+     * method.
      *
      * @return void
      */
@@ -401,9 +391,8 @@ final class SignInMethodManagerTest extends TestCase
     }
 
     /**
-     * The registered names are the package's own methods, then those registered
-     * with `extend()`, in the order they were registered, and no credential
-     * kind.
+     * The registered names are the package's own methods, then extensions in
+     * registration order.
      *
      * @return void
      */
@@ -447,10 +436,8 @@ final class SignInMethodManagerTest extends TestCase
     }
 
     /**
-     * Rows of `[name]`: spellings of the registered `password` and `sso`
-     * methods that differ in case, punctuation or spacing, which Laravel's
-     * manager would otherwise resolve through the case-insensitive creator
-     * method it builds from the name.
+     * Rows of `[name]`: spellings of `password` and `sso` that differ in case,
+     * punctuation or spacing.
      *
      * @return iterable<string, array{0: string}>
      */
@@ -467,9 +454,7 @@ final class SignInMethodManagerTest extends TestCase
     }
 
     /**
-     * A method resolves only by the exact name it was registered under, so a
-     * guard cannot allow, and a session cannot record, a second spelling of one
-     * method; `driver()` holds to the same rule as `method()`.
+     * A method resolves only by the exact name it was registered under.
      *
      * @param  string  $name
      * @return void
@@ -562,8 +547,7 @@ final class SignInMethodManagerTest extends TestCase
     }
 
     /**
-     * There is no default method: asking for one fails rather than signing in
-     * with a method nobody named.
+     * Asking for a default method fails.
      *
      * @return void
      */

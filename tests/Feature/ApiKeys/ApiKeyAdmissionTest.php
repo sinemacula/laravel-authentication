@@ -20,8 +20,7 @@ use Tests\TestCase;
 
 /**
  * Feature tests of admitting a live key's owner as the principal it was issued
- * for, once the key's binding holds: `ApplicationAccess` decides whether that
- * principal may use the application the key authenticates for.
+ * for.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -35,9 +34,7 @@ final class ApiKeyAdmissionTest extends TestCase
     private const string GUARD = 'machines';
 
     /**
-     * A key whose owner and principal still hold, and whose principal the
-     * application access lets use the guard, admits them, in no tenant; the
-     * access is asked about that principal for that guard.
+     * A key whose principal may use the application is admitted in no tenant.
      *
      * @return void
      *
@@ -87,9 +84,8 @@ final class ApiKeyAdmissionTest extends TestCase
     }
 
     /**
-     * A key whose binding no longer holds (here it records a tenant the
-     * principal is not in) is refused as `principal_mismatch` before the
-     * application access is asked, so a refusing access never hides it.
+     * A key whose binding no longer holds is a mismatch before the access is
+     * asked.
      *
      * @return void
      *

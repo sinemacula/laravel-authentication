@@ -12,17 +12,6 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
  * A committed change of identifier to tell the old identifier about: what
  * `IdentifierChangeNotifier::notify()` is given.
  *
- * `previous` is the destination: the identifier the identity held when the
- * change was requested, exactly as it was stored. `previousVerified` says
- * whether the identity had verified it then: one never verified (an address
- * mistyped at registration, say) may belong to a stranger, whom a notice naming
- * the new identifier would tell that the account exists and where its owner now
- * is, so decide what to send it, if anything. `identifier` is the one that
- * replaced it, in its normal form, for a message that names it (or, better,
- * only part of it). Neither is a secret, and no code, link or token is carried.
- * The identity survives queueing as Laravel's `SerializesModels` keeps a model:
- * it is fetched again, in its state then, when the notice is delivered.
- *
  * @api
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>

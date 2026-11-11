@@ -48,9 +48,7 @@ use Tests\TestCase;
 
 /**
  * Feature tests of the gate the factor package asks before it changes an
- * identity's further factors, through the session service against a real
- * database: which proof each change takes, from which sessions, until when, and
- * that it writes and reports nothing.
+ * identity's further factors.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -101,8 +99,8 @@ final class FactorChangeGateTest extends TestCase
     }
 
     /**
-     * Rows of `[change, factor]`: every change but an identity's first
-     * additional factor, with the factor it names, if any.
+     * Rows of `[change, factor]` for every change but a first additional
+     * factor.
      *
      * @return iterable<string, array{0: \SineMacula\Laravel\Authentication\Factors\Enums\FactorChange, 1: ?string}>
      */
@@ -115,10 +113,7 @@ final class FactorChangeGateTest extends TestCase
     }
 
     /**
-     * A change of a further factor takes a fresh step-up: a session signed in
-     * with its first factor alone is refused as `step_up_required`, and one
-     * stepped up within 15 minutes is allowed, with that step-up as its proof
-     * and fresh until it is 15 minutes old.
+     * A change of a further factor takes a step-up within 15 minutes.
      *
      * @param  \SineMacula\Laravel\Authentication\Factors\Enums\FactorChange  $change
      * @param  ?string  $factor
@@ -149,11 +144,8 @@ final class FactorChangeGateTest extends TestCase
     }
 
     /**
-     * An identity's first additional factor takes a fresh reauthentication with
-     * the first factor: the sign-in's own first factor, however fresh, never
-     * allows it (`reauthentication_required`), nor does a further factor's
-     * step-up, while a password reauthentication within 15 minutes does, until
-     * it is 15 minutes old.
+     * An identity's first additional factor takes a fresh first-factor
+     * reauthentication.
      *
      * @return void
      *
@@ -185,9 +177,7 @@ final class FactorChangeGateTest extends TestCase
     }
 
     /**
-     * The factor a removal or a replacement names never authorises its own
-     * change: a step-up made with it alone is refused, and a step-up made with
-     * another factor allows it.
+     * The factor changed never authorises its own change.
      *
      * @return void
      *
@@ -207,9 +197,8 @@ final class FactorChangeGateTest extends TestCase
     }
 
     /**
-     * A caller's requirement makes the configured one stricter: a step-up two
-     * minutes old meets the configured 15 minutes but not the caller's one, and
-     * the deadline follows the stricter age.
+     * A caller's requirement is applied with the configured one, the stricter
+     * winning.
      *
      * @return void
      *
@@ -230,8 +219,7 @@ final class FactorChangeGateTest extends TestCase
     }
 
     /**
-     * An operation the configuration removes, with no requirement of the
-     * caller's, is never fresh: the change is refused.
+     * An operation with no requirement refuses the change.
      *
      * @return void
      *
@@ -250,9 +238,7 @@ final class FactorChangeGateTest extends TestCase
     }
 
     /**
-     * The bound freshness policy is the one asked, about the change's operation
-     * on the session's application, with the caller's requirement and the
-     * factor changed; its proof's time and the effective age give the deadline.
+     * The bound freshness policy is asked about the change.
      *
      * @return void
      *
@@ -279,8 +265,7 @@ final class FactorChangeGateTest extends TestCase
     }
 
     /**
-     * Rows of what makes the session unable to have a factor changed from it,
-     * and the reason.
+     * Rows of `[what makes the session unable to change a factor, reason]`.
      *
      * @return iterable<string, array{0: string, 1: \SineMacula\Laravel\Authentication\Events\Enums\FailureReason}>
      */
@@ -296,9 +281,7 @@ final class FactorChangeGateTest extends TestCase
     }
 
     /**
-     * A session that is gone or replaced, not one of this guard's live, active
-     * sessions, or a machine's, has no factor changed from it, however fresh it
-     * is.
+     * A session that is not live and active, or a machine's, is refused.
      *
      * @param  string  $state
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
@@ -329,9 +312,7 @@ final class FactorChangeGateTest extends TestCase
     }
 
     /**
-     * A pending session's bootstrap enrolment never goes through the gate: the
-     * gate refuses every pending session, while the pending credential allows
-     * the bootstrap enrolment actions while the factor is outstanding.
+     * A pending session enrols through its credential, never the gate.
      *
      * @return void
      *
@@ -354,9 +335,7 @@ final class FactorChangeGateTest extends TestCase
     }
 
     /**
-     * Rows of `[change, factor]` the gate refuses before reading anything: a
-     * replacement or removal that names no factor, or one empty or too long,
-     * and any other change that names one.
+     * Rows of `[change, factor]` the gate refuses before reading anything.
      *
      * @return iterable<string, array{0: \SineMacula\Laravel\Authentication\Factors\Enums\FactorChange, 1: ?string}>
      */
@@ -372,8 +351,7 @@ final class FactorChangeGateTest extends TestCase
     }
 
     /**
-     * A change that misnames its factor is a programming error, refused with an
-     * `InvalidArgumentException` before anything is read.
+     * A misnamed factor is refused before anything is read.
      *
      * @param  \SineMacula\Laravel\Authentication\Factors\Enums\FactorChange  $change
      * @param  ?string  $factor
@@ -420,8 +398,7 @@ final class FactorChangeGateTest extends TestCase
     }
 
     /**
-     * The gate locks the session's row and writes nothing: no session column,
-     * no proof and no event changes, inside or outside a caller's transaction.
+     * The gate locks the session's row and writes nothing.
      *
      * @return void
      *
@@ -466,11 +443,7 @@ final class FactorChangeGateTest extends TestCase
     }
 
     /**
-     * The gate judges freshness on the session's proofs as committed: inside
-     * its lock, the package's policy reads the session's row again with a
-     * locking read and its proofs with a shared lock (on MySQL and MariaDB, the
-     * marked SQLite included). A bound policy is asked current too, and one
-     * that passes that on to the package's reads the same way.
+     * The gate judges freshness on the session's proofs as committed.
      *
      * @return void
      *
@@ -541,8 +514,7 @@ final class FactorChangeGateTest extends TestCase
     }
 
     /**
-     * Step the session up with the factor, at the time given, through the
-     * session service.
+     * Step the session up with the factor at the time given.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $signedIn
      * @param  string  $factor

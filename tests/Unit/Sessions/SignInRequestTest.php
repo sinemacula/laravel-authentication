@@ -53,9 +53,8 @@ final class SignInRequestTest extends TestCase
     }
 
     /**
-     * The input holds the client's secrets, so no dump of the request shows
-     * them (Laravel's VarDumper, `print_r`, `var_export`), serialising the
-     * request throws, and the constructor's parameter is sensitive.
+     * No dump of the request shows the client's secrets, and serialising it
+     * throws.
      *
      * @return void
      */
@@ -86,9 +85,8 @@ final class SignInRequestTest extends TestCase
     }
 
     /**
-     * A check counted through the request is the sign-in's: the request
-     * reserves it on the account through the sign-in's account attempts, and
-     * reports a refusal; a request built without them counts nothing.
+     * A check counted through the request is reserved through the sign-in's
+     * account attempts.
      *
      * @return void
      */
@@ -113,9 +111,7 @@ final class SignInRequestTest extends TestCase
     }
 
     /**
-     * A method's own test can build a request whose accounts have no attempts
-     * left, with a callback that refuses, and see the identity it was asked
-     * about.
+     * A request can be built whose accounts have no attempts left.
      *
      * @return void
      */

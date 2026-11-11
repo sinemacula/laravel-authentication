@@ -24,9 +24,7 @@ use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SwitchResult;
 
 /**
- * Unit tests for the shape a refresh's and a switch's results share: a refusal
- * with its reason and wait, a copy that says where the refresh token was read
- * from, and whether the call failed.
+ * Unit tests for the shape a refresh's and a switch's results share.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -62,9 +60,8 @@ final class HoldsARotatedSessionTest extends TestCase
     }
 
     /**
-     * A refused call carries its reason and, when given, the wait, and no
-     * session or source, and did not succeed; a call that succeeded did, and
-     * did not fail.
+     * A refused call carries its reason and any wait and did not succeed; a
+     * call that succeeded did not fail.
      *
      * @formatter:off
      *

@@ -44,11 +44,7 @@ use Tests\Unit\Stubs\StubTenant;
 
 /**
  * Feature tests of a guard's session revocations on their own, without a
- * session service: signing out the binding they are given and signing it out
- * everywhere, each security change ending the sessions with its reason, a
- * tenant's deactivation ending only its principals' sessions, a deferred report
- * reaching the guard's dispatcher as it is at the commit, and the guard's
- * `logout()` signing out through them alone.
+ * session service.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -88,10 +84,8 @@ final class SessionRevocationsTest extends TestCase
     }
 
     /**
-     * Signing out the binding resolves the session the request carries, then
-     * revokes it (`signed_out`), reports `SessionRevoked` and then `Logout`
-     * under the guard's name, and forgets the binding; signing out again
-     * revokes and reports nothing.
+     * Signing out revokes the binding's session, reports `SessionRevoked` then
+     * `Logout`, and forgets the binding.
      *
      * @return void
      *
@@ -128,9 +122,8 @@ final class SessionRevocationsTest extends TestCase
     }
 
     /**
-     * Signing out a binding that holds only a session (no identity) revokes it
-     * without `Logout`, and the revocation names the owner and the principal
-     * the session row records.
+     * Signing out a session bound without an identity skips `Logout` and names
+     * what its row records.
      *
      * @return void
      *
@@ -158,9 +151,8 @@ final class SessionRevocationsTest extends TestCase
     }
 
     /**
-     * Signing out a trusted bind whose session acts in a tenant that no longer
-     * resolves still revokes and reports it: the event carries no tenant model,
-     * and the tenant the row records as its snapshot.
+     * Signing out a trusted bind whose tenant no longer resolves reports the
+     * tenant its row records.
      *
      * @return void
      *
@@ -188,9 +180,8 @@ final class SessionRevocationsTest extends TestCase
     }
 
     /**
-     * Signing out a binding whose session is an Eloquent model but not a
-     * package session only forgets it: nothing is revoked, and only `Logout`
-     * reports the sign-out.
+     * Signing out a model session that is not a package session only forgets
+     * it.
      *
      * @return void
      *
@@ -215,8 +206,7 @@ final class SessionRevocationsTest extends TestCase
     }
 
     /**
-     * A guest binding has nothing to sign out: nothing is revoked or reported,
-     * and signing it out everywhere revokes nothing.
+     * A guest binding has nothing to sign out.
      *
      * @return void
      *
@@ -239,10 +229,7 @@ final class SessionRevocationsTest extends TestCase
     }
 
     /**
-     * Signing the binding out everywhere ends the identity's other sessions and
-     * keeps the binding's own when asked, with the binding still bound, each
-     * revoked session reported with the principal its row records; without
-     * keeping it, the binding's session ends too.
+     * Signing out everywhere keeps the binding's own session only when asked.
      *
      * @return void
      *
@@ -361,9 +348,8 @@ final class SessionRevocationsTest extends TestCase
     }
 
     /**
-     * Rows of `[a revocation of the seeded member's identity, principal or
-     * tenant, whether it ends the scopes again once the transaction it ran in
-     * commits]`.
+     * Rows of `[revocation of the member's identity, principal or tenant,
+     * whether it ends the scopes again at the commit]`.
      *
      * @formatter:off
      *
@@ -434,12 +420,8 @@ final class SessionRevocationsTest extends TestCase
     }
 
     /**
-     * A deactivation's or deletion's revocation made inside a transaction ends
-     * the same scopes again once it commits, so a session committed in the
-     * meantime (here, by a sign-in the transaction made after the first pass
-     * read the sessions) ends too: reported by its own `SessionRevoked`, with
-     * no second `SignedOutEverywhere`, and not counted in what the call
-     * returned. Any other revocation runs once.
+     * A deactivation or deletion inside a transaction ends its scopes again
+     * once the transaction commits.
      *
      * @formatter:off
      *
@@ -513,9 +495,7 @@ final class SessionRevocationsTest extends TestCase
 
     /**
      * A listener that throws on the first pass's report at the commit cannot
-     * skip the second pass: the session a sign-in committed after the first
-     * pass read the sessions is still ended, and the listener's exception is
-     * thrown.
+     * skip the second pass.
      *
      * @formatter:off
      *
@@ -570,10 +550,8 @@ final class SessionRevocationsTest extends TestCase
     }
 
     /**
-     * Revoking one session of its owner, or every session acting as a principal
-     * on its deactivation, ends those sessions with the reason given or the
-     * principal's; the one session's revocation names the principal its row
-     * records.
+     * Revoking one session, or a principal's sessions on its deactivation, ends
+     * them with the reason given.
      *
      * @return void
      *
@@ -601,10 +579,8 @@ final class SessionRevocationsTest extends TestCase
     }
 
     /**
-     * Revoking an identity's sessions for a client given reports it on every
-     * `SessionRevoked` and the `SignedOutEverywhere`, while the guard serves a
-     * request from another address; without one they carry the guard's
-     * request's client.
+     * Revoking an identity's sessions for a client given reports that client on
+     * every event.
      *
      * @return void
      *
@@ -678,9 +654,8 @@ final class SessionRevocationsTest extends TestCase
     }
 
     /**
-     * Revoking every session of an identity whose identifiers can be changed
-     * cancels its pending changes; another identity's, whose identifiers cannot
-     * be changed, keeps the row its key would name.
+     * Ending an identity's sessions cancels its pending changes only when its
+     * identifiers can change.
      *
      * @return void
      *
@@ -708,10 +683,8 @@ final class SessionRevocationsTest extends TestCase
     }
 
     /**
-     * A tenant's deactivation ends the sessions of the principals listed for
-     * it, principals of two types with one identifier each, and reports one
-     * `SignedOutEverywhere` per principal, however often one is listed, and a
-     * session both find is ended once.
+     * A tenant's deactivation ends each listed principal's sessions once, with
+     * one `SignedOutEverywhere` each.
      *
      * @return void
      *
@@ -738,10 +711,8 @@ final class SessionRevocationsTest extends TestCase
     }
 
     /**
-     * With no principal listed, a tenant's deactivation still ends every
-     * session acting in the tenant, whatever its principal, reporting each
-     * revocation with the tenant and signing no one out everywhere; a session
-     * acting in another tenant is left alone, and a second call ends nothing.
+     * With no principal listed, a tenant's deactivation ends every session
+     * acting in the tenant.
      *
      * @return void
      *
@@ -769,9 +740,8 @@ final class SessionRevocationsTest extends TestCase
     }
 
     /**
-     * Rows of `[the tenant to deactivate, from the member's own, the principal
-     * listed after the member, if any]`: in each, one of them does not act
-     * within the tenant.
+     * Rows of `[tenant to deactivate, member's own, principal listed after the
+     * member]`, one acting outside the tenant.
      *
      * @formatter:off
      *
@@ -841,9 +811,7 @@ final class SessionRevocationsTest extends TestCase
     }
 
     /**
-     * A revocation inside a transaction reports `SessionRevoked` once it
-     * commits, to the guard's dispatcher as it is then: a dispatcher swapped in
-     * before the commit receives it, and the one replaced receives nothing.
+     * A deferred report reaches the guard's dispatcher as it is at the commit.
      *
      * @return void
      *
@@ -875,9 +843,8 @@ final class SessionRevocationsTest extends TestCase
     }
 
     /**
-     * A JWT guard's `logout()` signs the session out through session
-     * revocations it builds on its own context for the sign-out, with no
-     * session service, and the session is revoked and reported before `Logout`.
+     * A JWT guard's `logout()` signs the session out without a session service,
+     * revoking before `Logout`.
      *
      * @return void
      *

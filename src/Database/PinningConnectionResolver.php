@@ -9,13 +9,8 @@ use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\ConnectionResolverInterface;
 
 /**
- * Connection resolver that hands each connection Eloquent resolves through it
- * to a callback before returning it.
- *
- * `WriteConnection::during()` installs it as the model connection resolver for
- * the length of its callback, so every model read inside, on whichever
- * connection the model lives (a tenant in a separate landlord database, say),
- * can be pinned to that connection's write PDO.
+ * Connection resolver that pins each connection Eloquent resolves through it to
+ * its write PDO.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

@@ -7,8 +7,7 @@ namespace SineMacula\Laravel\Authentication\Contracts;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 
 /**
- * A guard that runs its flows on a `GuardContext`: the package's own guards,
- * and any guard built on `AbstractGuard`.
+ * A guard that runs its flows on a `GuardContext`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -18,8 +17,7 @@ use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 interface HasGuardContext
 {
     /**
-     * Return the context the guard's flows run with, the one its setters
-     * rebind.
+     * Return the context the guard's flows run with.
      *
      * @return \SineMacula\Laravel\Authentication\Runtime\GuardContext
      */

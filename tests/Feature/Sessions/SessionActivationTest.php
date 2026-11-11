@@ -57,10 +57,7 @@ use Tests\TestCase;
 
 /**
  * Feature tests of activating a pending session on its own, against a real
- * database: what the first activation of a sign-in writes, issues, supersedes
- * and reports; a proven session superseded only while it is as it was proven;
- * a later activation moving the session's floor; and a row that changed under
- * the lock refused loudly.
+ * database.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -153,14 +150,8 @@ final class SessionActivationTest extends TestCase
     }
 
     /**
-     * A sign-in's first activation makes the session active in place: nothing
-     * outstanding, the pending credential consumed, the digest of the pair's
-     * rotation id with no previous one, the idle deadline restored to the
-     * configured idle lifetime from the activation, the client as its last use,
-     * the principal, tenant and policy version recorded, and the proven session
-     * and slots forgotten; the pair authenticates, and the activation is
-     * reported as the sign-in (`SessionCreated`, then `SignedIn`, which no
-     * refresh renewed), not as a reactivation.
+     * A sign-in's first activation makes the session active in place and
+     * reports it as the sign-in.
      *
      * @return void
      *
@@ -208,8 +199,7 @@ final class SessionActivationTest extends TestCase
 
     /**
      * The activation's write of the locked pending row is the session's
-     * issuance guard: it comes before the proofs are read for the pair, and the
-     * pair is issued without a further write to the row.
+     * issuance guard.
      *
      * @return void
      *
@@ -241,10 +231,8 @@ final class SessionActivationTest extends TestCase
     }
 
     /**
-     * A first activation supersedes the session its sign-in's client proved it
-     * holds while that session is as it was proven, reporting the revocation
-     * before the sign-in, with the session it was given now holding its
-     * revocation as stored.
+     * A first activation supersedes the proven session while it is as it was
+     * proven.
      *
      * @return void
      *
@@ -291,9 +279,8 @@ final class SessionActivationTest extends TestCase
     }
 
     /**
-     * A proven session that is no longer as it was proven is not superseded,
-     * and the activation writes, issues and reports nothing, so its caller can
-     * judge the session again without it: both rows stay as they were.
+     * A proven session that changed is not superseded, and the activation
+     * writes nothing.
      *
      * @param  \Closure(\SineMacula\Laravel\Authentication\Models\Session): array<string, mixed>  $change
      * @return void
@@ -334,11 +321,8 @@ final class SessionActivationTest extends TestCase
     }
 
     /**
-     * A first activation inside a transaction queues its reports, and nothing
-     * is reported before the commit; it gives nothing back itself, but hands
-     * up, with the session, each slot its sign-in held, as reserved: for the
-     * guard's sign-in flow, the identifier type and IP address the session
-     * records, with the windows stored. A sign-in that held none hands up none.
+     * A first activation queues its reports and hands up the slots its sign-in
+     * held.
      *
      * @param  bool  $held
      * @return void
@@ -396,10 +380,8 @@ final class SessionActivationTest extends TestCase
     }
 
     /**
-     * Activating a session that returned to pending moves its floor past every
-     * token from before the return, keeps what its first activation forgot, and
-     * is reported as `SessionActivated` alone; within the second the floor
-     * already reaches, it moves one second further.
+     * A later activation moves the floor past every token from before the
+     * return.
      *
      * @return void
      *
@@ -432,9 +414,7 @@ final class SessionActivationTest extends TestCase
     }
 
     /**
-     * A row that is no longer pending with the credential it was found by,
-     * under the lock its activation holds, is a fault: the activation throws
-     * rather than write over it.
+     * A row that changed under the lock makes the activation throw.
      *
      * @return void
      *
@@ -526,9 +506,8 @@ final class SessionActivationTest extends TestCase
     }
 
     /**
-     * Start the seeded member's session as the membership, by a method that
-     * checks no credential, waiting on a further factor, and return its pending
-     * session as stored.
+     * Start the member's session as the membership waiting on a further factor,
+     * and return the pending session.
      *
      * @param  \Tests\Integration\Fixtures\ActivatableTenantMember  $member
      * @param  \Tests\Integration\Fixtures\ActivatableTenantMembership  $membership

@@ -34,28 +34,8 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
- * A guard's API keys, `Auth::apiKeys($guard)`: issue a key to a non-human
- * identity for one of its principals, rotate it with a bounded overlap, revoke
- * it, and list what may be shown about a principal's keys.
- *
- * The guard is the one application a key authenticates for: an `api_key` guard,
- * whose requests present the key, or a `jwt` guard, whose client credentials
- * exchange takes the key's public part and secret as an OAuth client's id and
- * secret. Every keyed operation names the principal the key must belong to, and
- * the key's guard and principal are matched exactly, whatever the columns'
- * collation: a key of another principal or guard is treated as absent. Managing
- * keys is privileged: the application authorises its caller to manage the
- * principal's keys first; this package decides no permission.
- *
- * Issuing and rotating are trusted, programmatic actions, so a principal the
- * identity does not act as, one the application does not admit, a malformed or
- * rejected scope, a past expiry or an overlap out of range is an
- * `InvalidArgumentException` (`InvalidScopeException` for scopes) rather than a
- * failed authentication. Each write is one conditional statement on the key's
- * own connection, and its event is dispatched once it is committed there.
- *
- * Holds the guard's context and reads the provider, resolver, dispatcher and
- * request from it each time it runs, so it keeps nothing between calls.
+ * A guard's API keys, `Auth::apiKeys($guard)`: issue, rotate, revoke and list a
+ * principal's keys.
  *
  * @api
  *
@@ -79,7 +59,7 @@ final readonly class ApiKeyService
         /** The context of the guard whose keys these are. */
         private GuardContext $context,
 
-        /** Container the application policy, the scope registry and the transactions manager are resolved from. */
+        /** Container the scope registry and the transactions manager are resolved from. */
         private Container $container,
 
         /** Draws a new public part under a prefix; the package's secure generator unless given. */
@@ -88,11 +68,7 @@ final readonly class ApiKeyService
 
     /**
      * Issue a key to the non-human identity, acting as the principal, granting
-     * the scopes, optionally named and expiring. The principal must be one the
-     * identity acts as on the guard, and admitted by the application; the key
-     * records it, the identity and the principal's tenant, which must be
-     * loadable, and authenticates only as them. `ApiKeyIssued` follows once
-     * committed.
+     * the scopes.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\MachineIdentity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -133,13 +109,8 @@ final readonly class ApiKeyService
     }
 
     /**
-     * Rotate the principal's live key: issue its replacement, with the same
-     * guard, owner, principal, tenant, name and scopes (held to the scope
-     * registry again) and the given expiry (none by default), and end the
-     * replaced key once the overlap passes, or at its own expiry when that
-     * comes sooner. Both keys authenticate during the overlap. `null` when the
-     * principal has no such key on the guard, or it is revoked, expired or
-     * already rotated. `ApiKeyRotated` follows once committed.
+     * Rotate the principal's live key, ending it once the overlap passes, or
+     * `null` when it has no such key.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  string  $keyId
@@ -189,11 +160,7 @@ final readonly class ApiKeyService
     }
 
     /**
-     * Revoke the principal's key: it stops authenticating at once, as does
-     * every access token a client credentials exchange issued from it. Whether
-     * this call revoked it: `false` when the principal has no such key on the
-     * guard or it was already revoked. `ApiKeyRevoked` follows once committed,
-     * only from the call that revoked it.
+     * Revoke the principal's key, and whether this call revoked it.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  string  $keyId
@@ -273,14 +240,8 @@ final readonly class ApiKeyService
     }
 
     /**
-     * Replace the previous key inside the rotation's transaction: end it at the
-     * deadline, or at its own expiry when sooner, in one conditional statement
-     * that only a live, unrotated key matches, then insert its replacement.
-     * `null` when another rotation, a revocation or its expiry got there first.
-     *
-     * An explicit `CASE` sets the new expiry, since `LEAST()` over a key that
-     * never expires is `NULL` on some engines, which would leave it valid
-     * forever.
+     * End the previous key at the deadline and insert its replacement, or
+     * `null` when another write got there first.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\ApiKey  $previous
      * @param  \Carbon\CarbonImmutable  $deadline
@@ -317,9 +278,8 @@ final readonly class ApiKeyService
     }
 
     /**
-     * Insert a key from its row with a new public part and secret, drawing a
-     * new public part while one collides with a stored key's, and return the
-     * model the row holds and the issued key.
+     * Insert a key with a new secret, redrawing its public part while it
+     * collides with a stored key's.
      *
      * @param  array<string, mixed>  $row
      * @param  \Carbon\CarbonImmutable  $now
@@ -354,26 +314,12 @@ final readonly class ApiKeyService
             }
         }
 
-        self::collided();
-    }
-
-    /**
-     * Give up issuing a key whose public parts kept colliding with stored
-     * keys', which a secure generator makes practically impossible.
-     *
-     * @return never
-     *
-     * @throws \UnexpectedValueException
-     */
-    private static function collided(): never
-    {
         throw new \UnexpectedValueException(sprintf('Could not draw an API key public part that no stored key has in %d attempts.', self::ISSUE_ATTEMPTS));
     }
 
     /**
-     * The principal, as the guard's resolver returns it for the identity, that
-     * `ApplicationAccess` lets use the application; a key may only be issued
-     * for that.
+     * The principal as the guard's resolver returns it, once
+     * `ApplicationAccess` lets it use the application.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\MachineIdentity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -393,8 +339,7 @@ final readonly class ApiKeyService
     }
 
     /**
-     * The guard's keys of the principal, by its recorded type and identifier,
-     * read on the write connection.
+     * The guard's keys of the principal, read on the write connection.
      *
      * @param  string  $type
      * @param  string  $id
@@ -410,8 +355,7 @@ final readonly class ApiKeyService
 
     /**
      * The principal's key with the id on the guard, or `null` when it has no
-     * such key. An id that cannot name a key (not a UUID), or a principal with
-     * no identifier, costs no query.
+     * such key.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  string  $keyId
@@ -432,10 +376,8 @@ final readonly class ApiKeyService
     }
 
     /**
-     * Whether the key records exactly the guard and the principal's morph type
-     * and identifier. The statement that found it compares under the columns'
-     * collation, which may count distinct values, such as `alice` and `Alice`
-     * or guards `api` and `API`, as equal.
+     * Whether the key records exactly the guard and principal, which a
+     * case-insensitive collation would not guarantee.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\ApiKey  $key
      * @param  string  $guard
@@ -449,8 +391,8 @@ final readonly class ApiKeyService
     }
 
     /**
-     * The key's owner, reloaded through the guard's provider when it is still
-     * the very identity the key records, for the events about it.
+     * The key's owner, reloaded through the guard's provider, when it is still
+     * the identity the key records.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\ApiKey  $key
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
@@ -479,8 +421,7 @@ final readonly class ApiKeyService
     }
 
     /**
-     * Dispatch the event, once the key's writes are committed on its own
-     * connection, to the dispatcher the guard has then.
+     * Dispatch the event once the key's writes are committed.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\ApiKey  $key
      * @param  \SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent  $event
@@ -506,8 +447,7 @@ final readonly class ApiKeyService
     }
 
     /**
-     * The tenant the principal acts within, read on the write connection, or
-     * `null` when it names none or the tenant cannot be loaded.
+     * The principal's tenant, or `null` when it names none or cannot be loaded.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Tenant

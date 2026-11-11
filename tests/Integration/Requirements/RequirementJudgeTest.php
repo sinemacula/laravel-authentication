@@ -23,13 +23,8 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
 
 /**
- * Integration tests for asking the requirement check on the write connection,
- * against a read/write split whose replica lags behind its primary: the
- * identity's (`landlord`).
- *
- * The check finds the requirement met only when its query-builder read on that
- * connection finds a row written through the split connection, which exists on
- * the primary only: a met requirement shows the read was served by the writer.
+ * Integration tests of asking the requirement check on the identity's write
+ * connection over a lagging split.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -46,7 +41,7 @@ final class RequirementJudgeTest extends TestCase
 
     /**
      * Create the factors table on the landlord primary and replica, and bind a
-     * check that finds a factor only on the identity's connection.
+     * check that reads it.
      *
      * @return void
      */
@@ -90,9 +85,8 @@ final class RequirementJudgeTest extends TestCase
     }
 
     /**
-     * A factor recorded on the primary only is found, so the requirement is
-     * met, and the identity's connection reads from its replica again
-     * afterwards.
+     * A factor only the primary holds meets the requirement, and the replica is
+     * read again afterwards.
      *
      * @return void
      *
@@ -141,8 +135,8 @@ final class RequirementJudgeTest extends TestCase
     protected function defineDatabaseMigrations(): void {}
 
     /**
-     * Judge a sign-in's evidence, for an identity stored on the landlord
-     * connection, against a requirement of a further factor.
+     * Judge a landlord identity's sign-in against a requirement of a further
+     * factor.
      *
      * @return bool
      *

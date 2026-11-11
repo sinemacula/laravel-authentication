@@ -27,12 +27,8 @@ use Tests\Integration\Fixtures\CutoffMembership;
 use Tests\TestCase;
 
 /**
- * End-to-end tests of revocation in access-only mode, against a database that
- * has none of the package's tables: an identity without `HasSessions`, and a
- * principal owned by one, can hold no session, pending or active, so revoking
- * their sessions only moves their "tokens valid after" cutoff, which is how
- * their session-less tokens end; a principal whose owner can no longer be read
- * has its sessions looked for all the same.
+ * End-to-end tests of revocation in access-only mode, without the package's
+ * tables.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -49,7 +45,7 @@ final class RevocationScopeTest extends TestCase
     private array $reported = [];
 
     /**
-     * Freeze the clock, create the application's tables only, and record the
+     * Freeze the clock, create the application's tables only and record the
      * bulk revocations.
      *
      * @return void
@@ -109,8 +105,7 @@ final class RevocationScopeTest extends TestCase
     }
 
     /**
-     * Every security change of an access-only identity moves its cutoff and
-     * reports it, without touching the session table, which does not exist.
+     * An access-only identity's security changes only move its cutoff.
      *
      * @return void
      *
@@ -135,9 +130,8 @@ final class RevocationScopeTest extends TestCase
     }
 
     /**
-     * A principal whose owner holds no sessions has none to revoke either: its
-     * deactivation moves its cutoff, reports its owner, and touches neither of
-     * the package's tables.
+     * A principal of an access-only identity only moves its cutoff when
+     * deactivated.
      *
      * @return void
      *
@@ -159,9 +153,7 @@ final class RevocationScopeTest extends TestCase
     }
 
     /**
-     * An access-only identity's deletion moves its cutoff while its row exists,
-     * and once a hard delete has removed the row it moves none; neither touches
-     * the session table, which does not exist.
+     * An access-only identity's deletion needs no session table.
      *
      * @return void
      *
@@ -185,10 +177,8 @@ final class RevocationScopeTest extends TestCase
     }
 
     /**
-     * A principal whose access-only owner can still be read is deleted without
-     * the session table: its deletion reports its owner, before its own delete
-     * and after it, and moves its cutoff while its row exists, and none once a
-     * hard delete has removed the row.
+     * A principal of an access-only identity is deleted without the session
+     * table.
      *
      * @return void
      *
@@ -215,10 +205,8 @@ final class RevocationScopeTest extends TestCase
     }
 
     /**
-     * A principal whose access-only owner was deleted first might have belonged
-     * to an identity that holds sessions, so they are looked for, in a session
-     * table that does not exist: the revocation throws, its cutoff already
-     * moved, and reports nothing.
+     * A principal whose access-only owner was deleted looks for sessions and
+     * throws.
      *
      * @return void
      *
@@ -246,9 +234,7 @@ final class RevocationScopeTest extends TestCase
     }
 
     /**
-     * An access-only identity's session-less access token passes the `auth`
-     * middleware until the identity is deactivated, and is refused from then
-     * on, while a token issued afterwards passes: the cutoff alone ends it.
+     * The cutoff alone ends an access-only identity's token on deactivation.
      *
      * @return void
      *
@@ -300,8 +286,7 @@ final class RevocationScopeTest extends TestCase
     }
 
     /**
-     * Run none of the package's migrations: an access-only deployment needs no
-     * table of the package.
+     * Run none of the package's migrations.
      *
      * @return void
      */
@@ -309,8 +294,7 @@ final class RevocationScopeTest extends TestCase
     protected function defineDatabaseMigrations(): void {}
 
     /**
-     * A session-less access token of the `api` guard for the identity, issued
-     * now.
+     * A session-less `api` access token for the identity, issued now.
      *
      * @param  \Tests\Integration\Fixtures\AccessOnlyCutoffIdentity  $identity
      * @return string
@@ -327,8 +311,8 @@ final class RevocationScopeTest extends TestCase
     }
 
     /**
-     * Send a request with the bearer token to the protected route, on guards
-     * resolved afresh.
+     * Send a request with the bearer token to the protected route on fresh
+     * guards.
      *
      * @param  string  $token
      * @return \Illuminate\Testing\TestResponse<\Symfony\Component\HttpFoundation\Response>

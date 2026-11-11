@@ -21,11 +21,8 @@ use SineMacula\Laravel\Authentication\Sessions\RecentAuthentication;
 use SineMacula\Laravel\Authentication\Testing\FakeBreachedPasswordChecker;
 
 /**
- * Pins `#[\SensitiveParameter]` on every parameter through which a plaintext
- * password, a reset token or code, or the input holding one passes on its way
- * to the hasher, the breached checker or the code engine: an exception thrown
- * below any of them (a breached checker's bug, which propagates, say) must not
- * carry the secret in its trace's arguments.
+ * Pins `#[\SensitiveParameter]` on every parameter a password, reset token or
+ * code passes through.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

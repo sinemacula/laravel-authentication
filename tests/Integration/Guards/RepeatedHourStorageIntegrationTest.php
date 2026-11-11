@@ -37,28 +37,8 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
 
 /**
- * End-to-end tests for session times stored around the hour that repeats when
- * the clocks go back, on the shipped sessions table of each engine.
- *
- * The times are stored as wall-clock times in the application timezone, as
- * Laravel stores `datetime` columns. With UTC, the documented setting, they
- * round-trip exactly. With a timezone that observes daylight saving, both
- * passes through the repeated hour store the same value, which reads back as
- * the first pass, so a session can end early or a refresh fail, but a session
- * never ends late and a grace window never stays open late. In
- * `America/New_York` the clocks go back at 06:00 UTC on 1 November 2026, so
- * 01:00 to 01:59 local is 05:00 to 05:59 UTC the first time and 06:00 to 06:59
- * UTC the second; in `Europe/London` they go back at 01:00 UTC on 25 October
- * 2026, so 01:00 to 01:59 local is 00:00 to 00:59 UTC and then 01:00 to 01:59
- * UTC.
- *
- * Carbon's test clock reads a time in the repeated hour as PHP does, as the
- * first pass in New York and as the second in London, so the clock is only
- * moved to times it reads correctly, and rotations in the repeated hour are
- * written through the store with their time given.
- *
- * The `api` guard has a 1-hour idle lifetime, a 10-hour absolute lifetime, and
- * a 30-second grace window.
+ * Tests session times stored around the hour that repeats when the clocks go
+ * back, on the shipped sessions table of each engine.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -128,9 +108,7 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
 
     /**
      * Rows of `[timezone, a time (UTC), the wall-clock time stored, seconds
-     * early it reads back]`: either side of the repeated hour and in each pass
-     * through it, in a timezone where PHP reads the repeated hour as the first
-     * pass and in one where it reads it as the second.
+     * early it reads back]` around the repeated hour.
      *
      * @return iterable<string, array{0: string, 1: string, 2: string, 3: int}>
      */
@@ -148,11 +126,8 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
     }
 
     /**
-     * With a timezone that observes daylight saving, a rotation stores its time
-     * and the new idle deadline as wall-clock times without an offset, so both
-     * passes through the repeated hour store the same value, which reads back
-     * as the first pass: one in the second pass reads back an hour early. No
-     * time reads back late.
+     * With daylight saving, times stored in the repeated hour read back as the
+     * first pass.
      *
      * @param  string  $timezone
      * @param  string  $utc
@@ -181,10 +156,8 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
     }
 
     /**
-     * With the application timezone at UTC, a rotation at the end of the hour
-     * that repeats elsewhere round-trips exactly, and a retry of the rotated
-     * token fifteen seconds later is a grace retry that gets the current
-     * credential.
+     * With UTC, a rotation at the end of the repeated hour keeps its grace
+     * window.
      *
      * @return void
      *
@@ -199,11 +172,8 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
     }
 
     /**
-     * With a timezone that observes daylight saving, a rotation in the second
-     * pass of the repeated hour reads back an hour early, so a retry of the
-     * rotated token fifteen seconds later is past the grace window: it is a
-     * replay and revokes the session. This is why the application timezone must
-     * not observe daylight saving.
+     * With daylight saving, a rotation in the second pass reads back an hour
+     * early and leaves no grace window.
      *
      * @return void
      *
@@ -218,11 +188,8 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
     }
 
     /**
-     * In a timezone where PHP reads the repeated hour as the second pass, a
-     * rotation in the first pass still reads back at its own time, so a replay
-     * of the rotated token fifty minutes later, when the clocks have gone back,
-     * is past the grace window: it revokes the session rather than being handed
-     * the current credential.
+     * With daylight saving, a replay fifty minutes after a first-pass rotation
+     * is not a grace retry.
      *
      * @return void
      *
@@ -244,11 +211,8 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
     }
 
     /**
-     * With a timezone that observes daylight saving and an idle lifetime of an
-     * hour, a refresh in the first pass of the repeated hour sets an idle
-     * deadline in the second pass, which reads back at the refresh's own time:
-     * no token can be issued for it, so the refresh fails with an exception
-     * before anything is written, and the presented token stays current.
+     * With daylight saving, a refresh whose idle deadline falls in the second
+     * pass fails without writing.
      *
      * @return void
      *
@@ -275,10 +239,8 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
     }
 
     /**
-     * With a timezone that observes daylight saving, an idle deadline in the
-     * second pass of the repeated hour ends the session an hour early: tokens
-     * issued before it expire at the deadline it reads back, and none can be
-     * issued after that, although the deadline that was stored is still ahead.
+     * With daylight saving, an idle deadline in the second pass ends the
+     * session an hour early.
      *
      * @return void
      *
@@ -303,10 +265,7 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
     }
 
     /**
-     * With a timezone that observes daylight saving, a last use recorded in the
-     * second pass of the repeated hour reads back an hour early, so the next
-     * bearer request is outside the throttle window and is recorded too: for
-     * that hour every use is written.
+     * With daylight saving, every use in the second pass is recorded.
      *
      * @return void
      *
@@ -378,9 +337,7 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
     }
 
     /**
-     * Persist an identity signed in on a new session holding `ROTATION_ID`,
-     * with an idle deadline at the given time (five hours from now by default)
-     * and an absolute deadline nine hours from now.
+     * Persist an identity signed in on a new session holding `ROTATION_ID`.
      *
      * @param  \Carbon\Carbon  $now
      * @param  ?\Carbon\Carbon  $idle
@@ -415,10 +372,8 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
     }
 
     /**
-     * Sign in at 07:00:05 UTC with the given application timezone, rotate the
-     * session at 06:59:50 UTC (01:59:50 in the second pass in New York), and
-     * return the rotated token, for a retry fifteen seconds later, and the
-     * session.
+     * Rotate a new session at 06:59:50 UTC, the end of New York's repeated
+     * hour, and return its replaced token and the session.
      *
      * @param  string  $timezone
      * @return array{0: string, 1: \SineMacula\Laravel\Authentication\Models\Session}

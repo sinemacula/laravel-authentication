@@ -85,9 +85,8 @@ final class IdentifierVerifierTest extends TestCase
     }
 
     /**
-     * Proving the current identifier, in any casing the normaliser folds,
-     * verifies it and dispatches `IdentifierVerified` once with the guard, the
-     * identity, the type and the client; nothing is signed in.
+     * Proving the current identifier in any casing verifies it and dispatches
+     * `IdentifierVerified` once, without signing anyone in.
      *
      * @return void
      */
@@ -134,8 +133,7 @@ final class IdentifierVerifierTest extends TestCase
 
     /**
      * A proof for another identifier, a value the normaliser rejects, or an
-     * identity with no identifier of the type is a mismatch: nothing is
-     * recorded or dispatched.
+     * identity with no identifier of the type is a mismatch.
      *
      * @return void
      */
@@ -155,9 +153,8 @@ final class IdentifierVerifierTest extends TestCase
     }
 
     /**
-     * An identifier's canonical form is its type's normal form when a
-     * normaliser is registered, `null` when the normaliser rejects it, and the
-     * identifier as given otherwise.
+     * The canonical form is the normaliser's output, `null` when it rejects the
+     * identifier, or the identifier as given when no normaliser is registered.
      *
      * @return void
      */
@@ -185,9 +182,7 @@ final class IdentifierVerifierTest extends TestCase
     }
 
     /**
-     * An identifier changed after the identity was loaded, while the proof was
-     * checked, is not verified, and is reported as a mismatch rather than as
-     * verified before.
+     * An identifier changed after the identity was loaded is a mismatch.
      *
      * @return void
      */

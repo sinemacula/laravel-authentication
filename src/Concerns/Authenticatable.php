@@ -7,12 +7,8 @@ namespace SineMacula\Laravel\Authentication\Concerns;
 use Illuminate\Auth\Authenticatable as IlluminateAuthenticatable;
 
 /**
- * Stateless re-export of Laravel's Authenticatable trait.
- *
- * Overrides the three remember-token accessors to inert no-ops because the
- * package is stateless-only. Without the explicit overrides
- * `EloquentUserProvider::retrieveByToken` would still attempt to query the
- * literal `""` column.
+ * Laravel's `Authenticatable` with the remember-token accessors made inert, as
+ * the package is stateless.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -22,7 +18,7 @@ trait Authenticatable
     use IlluminateAuthenticatable;
 
     /**
-     * Stateless package: there is no remember-token column.
+     * Return an empty name, as there is no remember-token column.
      *
      * @return string
      */
@@ -32,7 +28,7 @@ trait Authenticatable
     }
 
     /**
-     * Stateless package: no-op, returns empty string.
+     * Return an empty string, as there is no remember token.
      *
      * @return string
      *
@@ -44,7 +40,7 @@ trait Authenticatable
     }
 
     /**
-     * Stateless package: explicit no-op.
+     * Ignore the value, as there is no remember token.
      *
      * @param  mixed  $value
      * @return void

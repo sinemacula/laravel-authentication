@@ -21,10 +21,6 @@ use Tests\Unit\Stubs\StubAuthenticatableModel;
  * Unit tests for the ModelProvider credential filtering, password validation,
  * and password rehashing paths.
  *
- * Covers credential-key sanitisation edge cases, validateCredentials type
- * guarding, hasher delegation, and the rehashPasswordIfRequired lifecycle.
- * Constructor validation and basic retrieval tests live in ModelProviderTest.
- *
  * @internal
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -204,10 +200,7 @@ final class ModelProviderCredentialTest extends TestCase
     }
 
     /**
-     * Multiple scalar credential entries compose as AND-combined `where()`
-     * clauses - the query builder receives one `where()` call per entry in
-     * declaration order. Pins the iteration path through
-     * `applyCredentialClauses`.
+     * Several scalar credentials each add a `where()` clause, in order.
      *
      * @return void
      */
@@ -255,8 +248,7 @@ final class ModelProviderCredentialTest extends TestCase
     }
 
     /**
-     * Data provider for
-     * `testValidateCredentialsReturnsFalseWhenPasswordNotString`.
+     * Passwords that are not a non-empty string.
      *
      * @return \Generator<string, array{0: mixed}>
      */
@@ -275,10 +267,8 @@ final class ModelProviderCredentialTest extends TestCase
     }
 
     /**
-     * validateCredentials returns false when the password is not a string
-     * (integer, array, object, boolean, or null). Uses a data provider so each
-     * non-string variant is its own assertion row and a mutation that loosens
-     * the type check fails a single row cleanly.
+     * validateCredentials returns false when the password is not a non-empty
+     * string.
      *
      * @param  mixed  $password
      * @return void
@@ -397,9 +387,7 @@ final class ModelProviderCredentialTest extends TestCase
     }
 
     /**
-     * Build a ModelProvider whose createModel() returns an Eloquent model whose
-     * newQuery() yields the supplied builder mock, so collaborators can be
-     * asserted without a real database connection.
+     * Build a ModelProvider whose model queries through the given builder.
      *
      * @param  \Mockery\MockInterface  $builder
      * @return \SineMacula\Laravel\Authentication\Providers\ModelProvider
@@ -438,7 +426,7 @@ final class ModelProviderCredentialTest extends TestCase
             }
 
             /**
-             * Create model.
+             * Return the pre-built model.
              *
              * @return \Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model
              */

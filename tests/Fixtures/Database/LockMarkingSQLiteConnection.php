@@ -7,10 +7,8 @@ namespace Tests\Fixtures\Database;
 use Illuminate\Database\SQLiteConnection;
 
 /**
- * A SQLite connection whose query grammar writes each locking read's lock into
- * its SQL as a comment (`LockMarkingSQLiteGrammar`). Configured with MySQL as
- * its driver, it has the package take every lock it takes only on MySQL, and a
- * test on SQLite see it, while SQLite still runs every statement.
+ * A SQLite connection that writes each locking read's lock into its SQL;
+ * configured with the MySQL driver, it takes MySQL's locks.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

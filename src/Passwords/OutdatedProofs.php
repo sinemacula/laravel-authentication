@@ -18,28 +18,7 @@ use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
 
 /**
  * The proofs a new password outdates, so setting it can invalidate them in its
- * own transaction: a link or code someone else obtained before (a forwarded
- * mail, a mailbox read while it was compromised) then cannot take the account
- * back once its owner has recovered it.
- *
- * Whatever the flow, the password reset links and codes are outdated: the
- * password they would set is set. A change or a reset, which end sessions (see
- * `SessionRevocations`, whose revocation also cancels the identity's pending
- * identifier changes), also outdates the sign-in codes, which would open a new
- * one. A registration ends no session, so it leaves them. Each is outdated
- * through every `jwt` guard whose provider can return the identity (see
- * `JwtGuards::namesFor()`), for each identifier the identity holds, in
- * canonical form (see `ResetRecipient`), of a type a proof can be bound to: a
- * guard's password identifier, and any type with a registered normaliser. The
- * identifiers are read from the identity's row as it is stored, on the write
- * connection inside the transaction, never from the caller's model, which may
- * have loaded only some columns or be older than the row: a reset finds the
- * identity by its row, so an identifier left out would leave its links working.
- * A type the row cannot report at all (its `HasVerifiableIdentifiers` throws a
- * `LogicException`, as `ProvidesIdentifierVerification` does for a column the
- * table does not have) has nothing to outdate: a reset of it fails the same way
- * before its proof is checked. Misconfiguration (an `InvalidArgumentException`,
- * a normaliser that cannot be built, say) still fails closed.
+ * own transaction.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -61,8 +40,7 @@ final readonly class OutdatedProofs
 
     /**
      * Invalidate every proof the identity's new password, set in the flow,
-     * outdates, in one statement on the codes' connection, once its stored row
-     * is read.
+     * outdates.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow  $flow
@@ -106,8 +84,7 @@ final readonly class OutdatedProofs
 
     /**
      * The identifier types a proof can be bound to: every type with a
-     * registered normaliser, and each guard's password identifier. A type may
-     * be named twice, which binds nothing more.
+     * registered normaliser, and each guard's password identifier.
      *
      * @param  list<string>  $guards
      * @return list<string>

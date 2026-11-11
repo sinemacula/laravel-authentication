@@ -12,10 +12,6 @@ use PhpBench\Attributes\Warmup;
 /**
  * PHPBench suite for JwtGuard bearer-auth paths.
  *
- * Exercises the full bearer-token resolution pipeline across 2D access-only,
- * session-bearing, 3D principal, tenant-aware, and multi-guard coexistence
- * scenarios.
- *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */

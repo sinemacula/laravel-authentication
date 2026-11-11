@@ -7,15 +7,7 @@ namespace SineMacula\Laravel\Authentication\Jwt;
 use Firebase\JWT\Key;
 
 /**
- * JWT key configuration value object.
- *
- * Built from a `kid -> secret` map plus an active kid (`fromKeyMap()`). Every
- * issued token carries the active kid in its header; verification accepts any
- * kid present in the map, which is what makes graceful key rotation possible. A
- * map with a single entry is the minimal configuration.
- *
- * Fails closed: empty maps, empty or short secrets, and unknown active kids
- * raise `InvalidJwtConfigurationException` at construction.
+ * The JWT signing keys: the active kid signs, and any kid in the map verifies.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -45,14 +37,10 @@ final readonly class JwtKeyring
     ) {}
 
     /**
-     * Construct a keyring with an active signing key and a verification map for
-     * graceful rotation.
+     * Build a keyring from a `kid -> secret` map and its active kid.
      *
-     * Typed `array<array-key, mixed>` because this factory is the fail-closed
-     * boundary at which empty kids and null, empty, non-string, or short
-     * secrets are rejected with typed exceptions. A purely numeric kid such as
-     * `'2026'` arrives as an integer key (PHP casts numeric string keys) and is
-     * matched by its string form, which is how `firebase/php-jwt` looks it up.
+     * A numeric kid such as `'2026'` arrives as an integer key (PHP casts
+     * numeric string keys) and is matched by its string form.
      *
      * @param  array<array-key, mixed>  $keys
      * @param  string  $activeKid
@@ -110,8 +98,7 @@ final readonly class JwtKeyring
 
     /**
      * Return the `kid -> Key` verification map in the form `firebase/php-jwt`
-     * expects. A purely numeric kid is keyed by its integer form; PHP resolves
-     * the header's string kid to that key when `firebase/php-jwt` looks it up.
+     * expects.
      *
      * @return array<array-key, \Firebase\JWT\Key>
      */
@@ -121,9 +108,7 @@ final readonly class JwtKeyring
     }
 
     /**
-     * Reject any signing algorithm not on the allow-list. Run first so weak or
-     * typo'd settings fail when the keyring is built (when a guard or token
-     * service is resolved) rather than on the first encode or decode.
+     * Reject any signing algorithm not on the allow-list.
      *
      * @param  string  $algorithm
      * @return void
@@ -144,11 +129,7 @@ final readonly class JwtKeyring
     }
 
     /**
-     * Validate the supplied kid -> secret map and convert it into a kid -> Key
-     * map. Kids must be non-empty (a purely numeric kid arrives as an integer
-     * key) and secrets non-empty strings, and every secret must meet the
-     * algorithm's minimum length; fail-closed regardless of the caller's static
-     * type hint.
+     * Validate the `kid -> secret` map and convert it into a `kid -> Key` map.
      *
      * @param  array<array-key, mixed>  $keys
      * @param  string  $algorithm
@@ -188,10 +169,7 @@ final readonly class JwtKeyring
     }
 
     /**
-     * Reject secret material shorter than the algorithm's minimum key length
-     * (the HMAC digest size: 32, 48, or 64 bytes), so a weak key fails when the
-     * keyring is built (when a guard or token service is resolved) rather than
-     * on the first encode or decode.
+     * Reject secret material shorter than the algorithm's digest size.
      *
      * @param  int|string  $kid
      * @param  string  $material

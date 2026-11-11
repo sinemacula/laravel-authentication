@@ -14,13 +14,8 @@ use SineMacula\Laravel\Authentication\Http\SignedLink;
 use Tests\TestCase;
 
 /**
- * Feature tests for a signed link held as plain values: it captures the address
- * a request arrived at, behind the application's trusted proxies, and the raw
- * query string as received, and the request it rebuilds from them alone passes
- * the framework's signature check exactly when the link was signed so: a query
- * changed on the way fails, an expired link is still authentic but expired, and
- * a link signed with a key since rotated passes while that key is a previous
- * key.
+ * Feature tests for a signed link captured from a request and checked from its
+ * plain values.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -57,9 +52,8 @@ final class SignedLinkTest extends TestCase
     }
 
     /**
-     * A link captured from the request to it holds the address without its
-     * query and the raw query string, and the request rebuilt from them passes
-     * the signature and expiry checks.
+     * A link captured from its request rebuilds a request that passes the
+     * signature and expiry checks.
      *
      * @return void
      */
@@ -80,7 +74,7 @@ final class SignedLinkTest extends TestCase
 
     /**
      * Behind a trusted proxy the link is captured at the address the client
-     * used, which it was signed for, not the one the proxy forwarded to.
+     * used.
      *
      * @return void
      */
@@ -112,8 +106,8 @@ final class SignedLinkTest extends TestCase
     }
 
     /**
-     * An application served from a subdirectory signs its links under its base
-     * path, and the link is captured with it, so it stays authentic.
+     * A link under the application's base path is captured with it and stays
+     * authentic.
      *
      * @return void
      */
@@ -146,9 +140,7 @@ final class SignedLinkTest extends TestCase
     }
 
     /**
-     * The raw query string is checked as it was sent: a link whose query
-     * encodes its fields otherwise than the framework would re-encode them
-     * stays authentic, and one whose query was changed on the way does not.
+     * The raw query string is checked as it was sent.
      *
      * @return void
      */
@@ -186,8 +178,8 @@ final class SignedLinkTest extends TestCase
     }
 
     /**
-     * A link signed with a key since rotated passes while that key is one of
-     * the previous keys, and fails once it is not.
+     * A link signed with a rotated key passes only while that key is a previous
+     * key.
      *
      * @return void
      */
@@ -207,9 +199,8 @@ final class SignedLinkTest extends TestCase
     }
 
     /**
-     * The raw query string Vapor hands over is the one captured, not the query
-     * string the server re-encoded: the link stays authentic through it, and
-     * fails from the re-encoded one alone.
+     * Vapor's raw query string is captured in place of the server's re-encoded
+     * one.
      *
      * @return void
      */
@@ -233,8 +224,7 @@ final class SignedLinkTest extends TestCase
     }
 
     /**
-     * A request without a query string is captured with an empty one, as is a
-     * request whose server gives none at all.
+     * A request without a query string is captured with an empty one.
      *
      * @return void
      */
@@ -253,9 +243,8 @@ final class SignedLinkTest extends TestCase
     }
 
     /**
-     * The query string, which carries the link's signature, is kept out of a
-     * dump, an export and a JSON encoding of the link, and a link cannot be
-     * serialised; only `query()` reveals it.
+     * The query string is kept out of dumps, exports and JSON, and the link
+     * cannot be serialised.
      *
      * @return void
      */

@@ -11,9 +11,7 @@ use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 
 /**
- * Unit tests for the evidence an external provider asserted: what it keeps, the
- * bounds it checks, its time cut to the whole second, and the stored form it
- * writes and reads back, where anything malformed is no evidence at all.
+ * Unit tests for the evidence an external provider asserted.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -24,9 +22,8 @@ use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 final class ExternalEvidenceTest extends TestCase
 {
     /**
-     * The evidence keeps the provider's method references in its order, its
-     * context and its time cut to the whole second; none of either is allowed,
-     * and each bound is reached in characters, not bytes.
+     * The evidence keeps what the provider asserted, its time cut to the second
+     * and its bounds counted in characters.
      *
      * @return void
      */
@@ -90,10 +87,8 @@ final class ExternalEvidenceTest extends TestCase
     }
 
     /**
-     * Evidence whose stored JSON, every character outside ASCII escaped (twelve
-     * bytes for one outside the basic plane), takes exactly the most bytes it
-     * may is kept; a byte more, though every value fits in characters, is
-     * refused, as is evidence that is not valid UTF-8.
+     * Evidence whose stored JSON takes exactly the most bytes it may is kept,
+     * and a byte more is refused.
      *
      * @return void
      */
@@ -119,9 +114,8 @@ final class ExternalEvidenceTest extends TestCase
     }
 
     /**
-     * The stored form holds the methods, the context and the time in UTC as ISO
-     * 8601, whatever the time zone it was given in, and reads back as the same
-     * evidence.
+     * The stored form holds the time in UTC as ISO 8601 and reads back as the
+     * same evidence.
      *
      * @return void
      */

@@ -12,15 +12,7 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
  * The slots one sign-in takes on the limits of the accounts whose secret it
- * checks, held for as long as the sign-in lasts: given back when it starts a
- * session, kept by a pending session until it first activates, and left counted
- * when it fails, exactly as the sign-in's own identifier and IP slots are. A
- * check whose slot is given back as soon as the secret matches would let every
- * spelling of an identifier that finds the account mint a pending session, and
- * so a guess at a further factor, outside the account's limit.
- *
- * It remembers when an account had no attempts left, so the failure events can
- * say so. Made for one sign-in and dropped with it.
+ * checks, held for as long as the sign-in lasts.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -51,9 +43,8 @@ final class AccountAttempts
     ) {}
 
     /**
-     * Take a slot on the identity's account limit before its secret is checked,
-     * and hold it. Returns `false`, holding nothing, when the account has no
-     * attempts left.
+     * Take and hold a slot on the identity's account limit, or return `false`
+     * when the account has no attempts left.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @return bool
@@ -93,10 +84,8 @@ final class AccountAttempts
     }
 
     /**
-     * The windows of each reservation held, one entry per reservation, for a
-     * pending session to keep until it activates and then give back as they
-     * were taken: two reservations of one account (a method that checks two
-     * secrets) give back two slots.
+     * The windows of each reservation held, for a pending session to keep until
+     * it activates.
      *
      * @return list<array<string, string>>
      */
@@ -106,12 +95,8 @@ final class AccountAttempts
     }
 
     /**
-     * What identifies the identity's account to its limit: for an Eloquent
-     * model, the row it is stored in (its connection, that connection's
-     * database, its table and its key), so every model class that reads the
-     * table (an `Admin` that extends `User`, say) counts in the account's one
-     * counter, and the same key in another database (another tenant's) counts
-     * apart; for any other identity, its class and auth identifier.
+     * What identifies the identity's account to its limit: the row it is stored
+     * in for an Eloquent model, otherwise its class and auth identifier.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @return string

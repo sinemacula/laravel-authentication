@@ -13,14 +13,6 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  * Decide whether two session rows are one session, by the generation each
  * records.
  *
- * The generation is a random identifier the session service writes when it
- * inserts a session and nothing changes (see
- * `EloquentSession::getGenerationName()`). A session model that reissues keys
- * can put another session under the key a caller holds, of the same owner and
- * started in the same second; that session has another generation, so the two
- * are told apart with no query, where the key, the owner and the start cannot.
- * A row that records no generation is never the same session as any row.
- *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
@@ -35,9 +27,7 @@ final class SessionGeneration
 
     /**
      * Whether the row stored under the key of the session given is that
-     * session: the session given is an Eloquent session, and both record the
-     * same generation. A session that is not an Eloquent session records none,
-     * so it is never the stored one; nor is a key that holds no row.
+     * session.
      *
      * @formatter:off
      *

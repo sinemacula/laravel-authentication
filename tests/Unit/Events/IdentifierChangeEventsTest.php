@@ -30,9 +30,8 @@ use Tests\Unit\Stubs\PlainIdentityFixture;
 final class IdentifierChangeEventsTest extends TestCase
 {
     /**
-     * A request keeps its context, the type, the new identifier and when it
-     * expires, through a round trip, and leaves the timing of its dispatch to
-     * the package.
+     * A request keeps its snapshots through a round trip and leaves its
+     * dispatch to the package.
      *
      * @return void
      */
@@ -55,9 +54,8 @@ final class IdentifierChangeEventsTest extends TestCase
     }
 
     /**
-     * A change keeps its context, the type, both identifiers and when it was
-     * made, through a round trip; an identity that had none has no previous
-     * identifier.
+     * A change keeps its snapshots through a round trip, with no previous
+     * identifier when there was none.
      *
      * @return void
      */

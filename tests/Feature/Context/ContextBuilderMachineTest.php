@@ -21,10 +21,7 @@ use Tests\TestCase;
 
 /**
  * Feature tests of the authentication context of a machine's request, over HTTP
- * behind `auth`: an API key and a client credentials token each name the
- * machine, the credential's kind and the scopes it grants, with no session and
- * so no proof; a service account's names the membership it acts as and its
- * tenant.
+ * behind `auth`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -71,9 +68,8 @@ final class ContextBuilderMachineTest extends TestCase
     }
 
     /**
-     * An API key's request is a machine's acting as itself, with the key as the
-     * credential and the scopes it grants, and no session, proof or
-     * authentication time.
+     * An API key's context is the machine acting as itself, with the key's
+     * scopes and no session.
      *
      * @return void
      */

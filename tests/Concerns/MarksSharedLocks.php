@@ -9,13 +9,7 @@ use Tests\Fixtures\Database\LockMarkingSQLiteConnection;
 
 /**
  * Shows which reads of a session's proofs and provenance take a shared lock, on
- * every engine a test runs on. On SQLite the default connection is swapped, on
- * the same in-memory database, for one that names MySQL as its driver and marks
- * each lock in its SQL (`LockMarkingSQLiteConnection`): only `SessionProofs`
- * branches on the driver, so the package then takes every shared lock it takes
- * on MySQL, and the test sees it while SQLite runs the reads. On MySQL and
- * MariaDB the SQL carries the lock itself; on PostgreSQL the package takes
- * none, and every read is expected plain.
+ * every engine a test runs on.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -26,8 +20,7 @@ trait MarksSharedLocks
 {
     /**
      * On SQLite, swap the default connection for one on the same database that
-     * names MySQL as its driver and marks its locks. Call it once the tables
-     * exist; it is undone when the application is.
+     * names MySQL as its driver and marks its locks.
      *
      * @return void
      */
@@ -54,7 +47,7 @@ trait MarksSharedLocks
 
     /**
      * Whether the package takes a shared lock where it reads current on the
-     * default connection: on MySQL and MariaDB, the marked SQLite included.
+     * default connection.
      *
      * @return bool
      */
@@ -77,8 +70,7 @@ trait MarksSharedLocks
 
     /**
      * Run the callback and return the statements it sent the default
-     * connection, in order, each in lower case with its bindings, from the
-     * connection's query log, left as it was.
+     * connection, in lower case with their bindings.
      *
      * @param  \Closure(): mixed  $callback
      * @return list<array{0: string, 1: array<array-key, mixed>}>

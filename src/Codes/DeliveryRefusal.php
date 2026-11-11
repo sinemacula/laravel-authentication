@@ -7,9 +7,7 @@ namespace SineMacula\Laravel\Authentication\Codes;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 
 /**
- * Why the engine delivered no code for a key, and for how long: the resend
- * cooldown since the last delivery has not passed, or the key's delivery window
- * has had all the deliveries it allows.
+ * Why the engine delivered no code for a key, and for how long.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

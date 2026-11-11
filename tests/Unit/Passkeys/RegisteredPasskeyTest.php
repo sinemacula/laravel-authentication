@@ -22,8 +22,8 @@ use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
 final class RegisteredPasskeyTest extends TestCase
 {
     /**
-     * It carries the row's id, the credential id, the relying party, what the
-     * registration showed and when.
+     * It carries the row's id, the credential id, the relying party and what
+     * was shown.
      *
      * @return void
      */

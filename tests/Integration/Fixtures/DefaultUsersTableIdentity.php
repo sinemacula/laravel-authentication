@@ -14,11 +14,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
- * 2D fixture shaped like the documented adoption example on Laravel's default
- * `users` table: no `is_active` column and no `CanBeActive` capability.
- *
- * Exists to prove that activation is opt-in, so an ordinary user signs in,
- * authenticates bearer requests, and refreshes.
+ * 2D identity on Laravel's default `users` table with no activation capability,
+ * as in the documented adoption example.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

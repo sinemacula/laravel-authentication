@@ -6,17 +6,7 @@ namespace SineMacula\Laravel\Authentication\Database;
 
 /**
  * The work `AfterCommit` holds for a commit that must run whatever the reports
- * of that commit do (a session's check, a revocation's second pass).
- *
- * Laravel runs a commit's callbacks in turn and stops at the first that throws,
- * so a listener that throws on a report would otherwise skip the work
- * registered after it. Every callback `AfterCommit` registers runs the work
- * held here that is due (its transactions ended, and it has not run) before an
- * exception it throws leaves it, so the report's exception is still thrown,
- * after the work.
- *
- * One instance is shared through the container, scoped, so nothing one request
- * or job holds is run by the next.
+ * of that commit do.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -29,10 +19,8 @@ final class RequiredWork
     private array $held = [];
 
     /**
-     * Hold the work until the closure returned to run it is called, or until it
-     * is due and a callback of the commit throws, whichever is first: it runs
-     * once. The second closure returned lets it go unrun (its transaction
-     * rolled back).
+     * Hold the work, returning a closure that runs it once and one that lets it
+     * go unrun.
      *
      * @param  \Closure(): bool  $due
      * @param  \Closure(): void  $work
@@ -55,9 +43,8 @@ final class RequiredWork
     }
 
     /**
-     * Run every work held that is due, each once, in the order it was held. An
-     * exception one of them throws does not keep the others from running, and
-     * is not thrown: the exception that made the commit stop is.
+     * Run every work held that is due, each once, in the order it was held,
+     * swallowing their exceptions.
      *
      * @return void
      */

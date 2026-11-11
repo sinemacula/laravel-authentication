@@ -14,10 +14,7 @@ use SineMacula\Laravel\Authentication\Testing\FakeIdentifierChangeNotifier;
 use SineMacula\Laravel\Authentication\Testing\FakeOneTimeCodeSender;
 
 /**
- * The set-up feature and integration tests of identifier changes start from:
- * frozen clocks, the `changeable_identities` table, known codes, the sender and
- * notifier fakes, and a faked queue, on top of the changeable identities'
- * helpers.
+ * The set-up the identifier change tests start from.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -38,9 +35,8 @@ trait ChangesIdentifiers
     protected FakeIdentifierChangeNotifier $notifier;
 
     /**
-     * Freeze the clocks, create the table, issue known codes, fake the sender
-     * and the notifier, and fake a queue that a worker would run, so a delivery
-     * is pushed as soon as it is dispatched.
+     * Freeze the clocks, create the table, issue known codes and fake the
+     * sender, notifier and queue.
      *
      * @return void
      */

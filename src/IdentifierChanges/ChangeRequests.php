@@ -38,37 +38,7 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
 
 /**
- * Requests changes of identifier for the identifier change service, once it has
- * checked the configuration.
- *
- * First, in order, on the identity's row as stored (read again by key on the
- * write connection): the proof of a recent authentication (fresh enough for the
- * `identifier_change` operation, see `RecentAuthentication`), the new
- * identifier (one the type's normaliser accepts, and not the current one), and
- * a slot of the `identifier_change` limits, counted on the new identifier, on
- * the identity and on the IP address. Each refusal is answered and reported by
- * `AuthenticationFailed` (flow `identifier_change`, with the identifier as
- * given), and writes nothing. Whether another identity holds the new identifier
- * is not looked at, so the answer says nothing about it. The limiter counts
- * before the transaction below opens, never inside it (see
- * `RecentAuthentication`).
- *
- * Then, in one transaction on the identity's connection that first locks the
- * identity's row (see `IdentityLock`), the proof must still stand and the new
- * identifier still differ from the current one, both as the locked row reads: a
- * password write, which cancels the pending changes, and a bulk revocation,
- * which waits on the lock of the session that proves the request, fall before
- * that check or after the change is written, never in between. A refusal there
- * gives the `identifier_change` slots back. The current identifier, and whether
- * it is verified, are read from the row as locked (the instance given, once it
- * is no longer stored).
- *
- * Then a code is issued, for a change proven by code; the pending change is
- * written in place of any the identity had for the type, through any guard, and
- * the code of the one it replaced is invalidated, so the newest request wins;
- * and the code's delivery is queued, or the link signed. Once committed,
- * `IdentifierChangeRequested` is dispatched. A change proven by code waits no
- * longer than its code works.
+ * Requests changes of identifier for the identifier change service.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -137,8 +107,7 @@ final readonly class ChangeRequests
             return $checked;
         }
 
-        // `#[\SensitiveParameter]` does not cover what a closure captures,
-        // which a dump of the trace shows.
+        // `#[\SensitiveParameter]` does not cover what a closure captures.
         $given   = new \SensitiveParameterValue($identifier);
         $stands  = static fn (Identity $stored): bool => $recent->stands($before, $stored, $proof);
         $expires = $now->addSeconds($settings->ttlSeconds());
@@ -171,9 +140,8 @@ final readonly class ChangeRequests
     }
 
     /**
-     * Check the request before its transaction, as the class describes, on the
-     * identity's row as read before the proof: the refusal, or the slots of the
-     * `identifier_change` limits it took.
+     * Check the request before its transaction: the refusal, or the slots of
+     * the `identifier_change` limits it took.
      *
      * @formatter:off
      *
@@ -267,9 +235,8 @@ final readonly class ChangeRequests
     }
 
     /**
-     * The new identifier in its normal form, or the refusal of one the type's
-     * normaliser rejects, or that, in its normal form, is the identity's
-     * current one in its canonical form.
+     * The new identifier in its normal form, or the refusal of one that is
+     * invalid or unchanged.
      *
      * @param  string  $type
      * @param  ?string  $current
@@ -300,9 +267,8 @@ final readonly class ChangeRequests
     }
 
     /**
-     * Take a slot of the `identifier_change` limits for the new identifier, the
-     * identity and the IP address: the slots taken, or the refusal when one has
-     * none left.
+     * Take a slot of the `identifier_change` limits: the slots taken, or the
+     * refusal when one has none left.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $type
@@ -335,8 +301,8 @@ final readonly class ChangeRequests
     }
 
     /**
-     * Write the change as the class describes; when the engine refuses to issue
-     * the code, nothing is written and the seconds until it would are returned.
+     * Write the change, or return the seconds until the engine would issue its
+     * code.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\IdentifierChanges\RequestedChange  $change

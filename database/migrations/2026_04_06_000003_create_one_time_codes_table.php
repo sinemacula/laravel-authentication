@@ -33,36 +33,25 @@ return new class extends Migration {
         (new MigrationCollisionGuard($schema))->ensureNotExists($table, 'codes.table');
 
         $schema->create($table, static function (Blueprint $blueprint): void {
-            // HMAC-SHA256 hex digest of the delivery key (purpose, guard,
-            // identifier type or channel kind, destination in normal form, and
-            // the owner where the purpose has one), so there is one challenge
-            // per key, the delivery cap and the cooldown are counted on it, and
-            // the table holds no identifier.
+            // HMAC digest of the delivery key, so there is one challenge per
+            // key and the table holds no identifier.
             $blueprint->char('id', 64)->primary();
 
-            // The challenge's public id: kept across resends, new for each new
-            // challenge. A check finds the row by its key and compares this, so
+            // Kept across resends; compared after the row is found by key, so
             // it needs no index.
             $blueprint->uuid('challenge_id');
 
-            // HMAC-SHA256 hex digest of the transaction the key leaves out (an
-            // `mfa` challenge's session, factor and proof purpose; an
-            // `enrollment` one's session, pending factor and grant), or null
-            // for a purpose that has none.
+            // HMAC digest of the transaction the key leaves out, if any.
             $blueprint->char('context', 64)->nullable();
 
             $blueprint->string('purpose', 32);
             $blueprint->string('guard');
 
-            // Random per issuance, and hashed with the code: every check, use
-            // and delivery is bound to it, since a resend can draw the same
-            // digits as the code it replaces.
+            // Hashed with the code, since a resend can draw the same digits.
             $blueprint->uuid('issue_id');
             $blueprint->char('code_hash', 64);
             $blueprint->unsignedSmallInteger('attempts');
 
-            // Deliveries to the key since its delivery window began, across
-            // every challenge the window held.
             $blueprint->unsignedSmallInteger('deliveries');
             $blueprint->dateTime('window_started_at', 0);
 
@@ -83,8 +72,7 @@ return new class extends Migration {
     }
 
     /**
-     * The connection the package's tables live on (see `StorageConnection`),
-     * the one the model reads and writes the table on.
+     * The connection the package's tables live on.
      *
      * @return ?string
      *

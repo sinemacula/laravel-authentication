@@ -5,11 +5,8 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Codes\Enums;
 
 /**
- * What a one-time code challenge was issued for. A challenge is bound to its
- * purpose, which is part of its key and stored on it, so one issued to verify
- * an identifier never signs anyone in, one issued to sign in never verifies an
- * identifier, neither resets a password, and an `mfa` challenge is never
- * accepted as an `enrollment` one, nor the reverse.
+ * What a one-time code challenge was issued for, part of its key so a challenge
+ * never serves another purpose.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

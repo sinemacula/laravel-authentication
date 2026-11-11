@@ -9,13 +9,13 @@ binding and what it takes over from the manager it replaces.
 ## Invariants
 
 - Every binding `AuthenticationServiceProvider::register()` makes is conditional (`singletonIf()`, `scopedIf()`,
-  `bindIf()`): `PrincipalResolver`, `ApplicationPolicy`, `AttemptLimiter`, `AdditionalFactorPolicy`,
+  `bindIf()`), among them `PrincipalResolver`, `ApplicationPolicy`, `AttemptLimiter`, `AdditionalFactorPolicy`,
   `PasskeyFactorGate`, `ScopeRegistry`, `BreachedPasswordChecker`, `PasswordResetLinkSender`, the
   `IdentifierNormalizers` and `SignInMethodManager` registries, the `auth` middleware, and the internal `WebAuthn`,
   `Rehashing` and `JwtTokenServiceFactory`. A binding made before the provider registers is kept, so a factor package's
   `AdditionalFactorPolicy` is never replaced by `NeverRequireAdditionalFactor`, nor an authorisation package's
   `ScopeRegistry` by `AcceptAnyScope`, whichever order the providers are listed in; a binding made after replaces the
-  default, as any later binding does. The internals are conditional so the rule has no exceptions, not because they are
+  default, as any later binding does. The internals are conditional so the rule has no exceptions; they are not
   extension points.
 - `Application::bound()` counts deferred services, so a deferred provider's service is never shadowed by a default the
   package binds once the deferred map is installed, and a default bound before it is replaced when the deferred provider

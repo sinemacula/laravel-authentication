@@ -78,8 +78,7 @@ final class RefreshTokenHasherTest extends TestCase
     }
 
     /**
-     * `verify()` returns false for empty inputs - neither side can meaningfully
-     * match an empty string.
+     * `verify()` returns false for empty inputs.
      *
      * @return void
      */
@@ -91,9 +90,8 @@ final class RefreshTokenHasherTest extends TestCase
     }
 
     /**
-     * An empty rotation id is refused even against the digest of the empty
-     * string, so a session row holding that digest cannot be matched by a token
-     * that carries no rotation id.
+     * An empty rotation id is refused, even against the digest of the empty
+     * string.
      *
      * @return void
      */
@@ -103,9 +101,7 @@ final class RefreshTokenHasherTest extends TestCase
     }
 
     /**
-     * `successor()` derives the next rotation id deterministically: the same id
-     * always has the same successor, which is shaped like a generated id (43
-     * URL-safe characters) and differs from the id and from its digest.
+     * `successor()` derives a deterministic id shaped like a generated one.
      *
      * @return void
      *
@@ -124,9 +120,8 @@ final class RefreshTokenHasherTest extends TestCase
     }
 
     /**
-     * `successor()` is an HMAC-SHA256 keyed by the id over the package's
-     * domain-separation label, so it matches a known vector and is not a plain
-     * hash of the id.
+     * `successor()` is an HMAC-SHA256 keyed by the id over the domain
+     * separation label.
      *
      * @return void
      */
@@ -139,8 +134,8 @@ final class RefreshTokenHasherTest extends TestCase
     }
 
     /**
-     * Different ids have different successors, and following a chain of
-     * successors does not return to an earlier id.
+     * Different ids have different successors, and a chain of successors does
+     * not repeat.
      *
      * @return void
      *
@@ -172,10 +167,7 @@ final class RefreshTokenHasherTest extends TestCase
     }
 
     /**
-     * The class is intentionally not instantiable - construction is forbidden
-     * via the private constructor so consumers cannot accidentally hold a
-     * stateful hasher instance. Reflection invokes the private constructor so
-     * the line is covered while still documenting the access modifier.
+     * The constructor is private; reflection invokes it for coverage.
      *
      * @return void
      *

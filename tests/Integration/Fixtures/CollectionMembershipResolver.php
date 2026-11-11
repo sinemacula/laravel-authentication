@@ -10,10 +10,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 
 /**
- * Principal resolver that loads every membership of the identity, with its
- * owner and tenant eager-loaded, and picks the hinted one from the collection,
- * so the membership it returns is one of several hydrated rows (which Eloquent
- * marks as preventing lazy loads under strict mode).
+ * Principal resolver that picks the hinted membership from a collection of the
+ * identity's memberships, which strict mode bars from lazy loading.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

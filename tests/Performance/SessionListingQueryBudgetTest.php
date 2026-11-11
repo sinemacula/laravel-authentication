@@ -14,10 +14,8 @@ use SineMacula\Laravel\Authentication\Sessions\SessionSummary;
 use Tests\Concerns\InteractsWithSessions;
 
 /**
- * Query-budget contracts for the session list: a page is one count and one
- * select, however many sessions it holds, and nothing is written; and for the
- * lookup of one session: one select, or none for an identifier that cannot be a
- * key.
+ * Query-budget contracts for listing a page of sessions and looking one session
+ * up.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

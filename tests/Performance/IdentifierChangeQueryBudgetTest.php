@@ -32,11 +32,8 @@ use Tests\Concerns\InteractsWithChangeableIdentities;
 use Tests\Concerns\InteractsWithProofs;
 
 /**
- * Query-budget contracts for changing identifiers: a request and a confirmation
- * each cost a fixed number of statements for each proof (a confirmation time,
- * the session, the password, right, wrong or rate limited, the last two waiting
- * out the credential timebox), and a new password cancels every pending change
- * in one.
+ * Query-budget contracts for requesting and confirming identifier changes, and
+ * for a new password cancelling the pending ones.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -91,14 +88,7 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A first request proven by the session it is made from reads the
-     * identity's row, reads the session (for its owner), then the freshness
-     * policy reads it again and its freshest proof, and counts the limits (an
-     * update, then an insert, for each of the identifier, the identity and the
-     * IP address); then, in its transaction, it locks the row, locks the
-     * session and has the policy read it and its freshest proof again, issues
-     * the code (an insert), reads the pending change it would replace, and
-     * inserts its own.
+     * A first request by code, proven by its session, has a fixed budget.
      *
      * @return void
      *
@@ -120,9 +110,8 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A request by link that replaces another issues no code and counts on the
-     * existing identity and IP address counters; it updates the pending change
-     * in place and invalidates the code of the one it replaced.
+     * A request by link that replaces another updates the pending change in
+     * place and issues no code.
      *
      * @return void
      *
@@ -146,10 +135,8 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A request proven by a session that signed in long ago and was stepped up
-     * many times since costs what one proven by a session just signed in does:
-     * the freshness policy reads the one freshest proof, however many the
-     * session holds.
+     * A request proven by a session with many proofs costs what one proven by a
+     * new session does.
      *
      * @return void
      *
@@ -203,12 +190,8 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A request proven by the identity's password takes a sign-in slot of the
-     * account and of the IP address (an update, then an insert, each), reads
-     * the identity again through the provider, and gives the two slots back,
-     * besides what the request itself runs (the identity's row read, then
-     * locked, the pending change read, and the code and change written); it
-     * returns as soon as the password is known to be right.
+     * A request proven by the password takes and gives back its sign-in slots
+     * and has a fixed budget.
      *
      * @return void
      *
@@ -234,9 +217,8 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A request with a wrong password takes the sign-in slots and reads the
-     * identity, keeps the slots, writes nothing else, and waits out the
-     * credential timebox.
+     * A wrong password keeps its sign-in slots, writes nothing else and waits
+     * out the timebox.
      *
      * @return void
      *
@@ -262,10 +244,8 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Once the account has no sign-in slot left, a request with a password
-     * stops at the limiter, which tries its counters and reads how long to
-     * wait, without reading the identity or checking the password, and still
-     * waits out the credential timebox.
+     * A rate-limited password stops at the limiter and still waits out the
+     * timebox.
      *
      * @return void
      *
@@ -297,12 +277,7 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A confirmation by code counts against the identity's account and the IP
-     * address, locks the identity's row first, then reads the pending change,
-     * the code and the holder of the new identifier and the row under its
-     * lock; it counts the attempt, uses the code up, deletes the change,
-     * invalidates the outdated proofs, writes the identifier and gives the two
-     * counts back.
+     * A confirmation by code has a fixed budget.
      *
      * @return void
      *
@@ -356,10 +331,7 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A change of password of an identity whose identifiers can change, with
-     * two changes pending, cancels them both in one `DELETE`, beside the
-     * password's `UPDATE`, the read of its row, the `UPDATE` that ends the
-     * codes it outdates and the read of its sessions.
+     * A new password cancels both pending changes in one `DELETE`.
      *
      * @return void
      *

@@ -16,11 +16,8 @@ use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
 use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
 
 /**
- * Freshness policy an application might bind in place of the package's: it
- * answers the requirement it was given for every operation, finds a proof for
- * every session it is asked about (or none), whatever the session's proofs and
- * state, and notes what it was asked, so a test sees that the package asks the
- * bound policy, plainly or current, and still judges the session itself.
+ * Freshness policy that answers a scripted requirement and proof, whatever the
+ * session, and notes what it was asked.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

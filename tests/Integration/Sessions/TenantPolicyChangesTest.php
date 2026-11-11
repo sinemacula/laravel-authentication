@@ -37,12 +37,7 @@ use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\TestCase;
 
 /**
- * Integration tests of the policy-change helper against real rows on each
- * supported database: chunked locking reads past one chunk, each session judged
- * once; the helper inside a caller's transaction on the storage connection,
- * committing or rolling back with it; and a refresh or a switch whose
- * compare-and-swap loses to the helper's write, judged again from the row it
- * left.
+ * Integration tests of the policy-change helper against real rows.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -63,8 +58,7 @@ final class TenantPolicyChangesTest extends TestCase
     private ScriptedTenantAuthenticationPolicy $policy;
 
     /**
-     * Freeze the clocks, the tokens' among them, create the tables and bind the
-     * scripted policy.
+     * Freeze the clocks, create the tables and bind the scripted policy.
      *
      * @return void
      */
@@ -104,14 +98,8 @@ final class TenantPolicyChangesTest extends TestCase
     }
 
     /**
-     * More sessions than two chunks are each judged once: their keys are read
-     * in three locking reads that page by key, and only then the sessions, in
-     * three locking reads of those keys; every one records the version
-     * answered, and a second call skips them all, writing nothing. The policy
-     * counts what it is asked rather than keeping every context, and keeps the
-     * first chunk's sessions only weakly: by the time the third chunk's first
-     * session is judged, none of them is held anywhere, since the helper keeps
-     * only the keys for the call and the sessions a chunk at a time.
+     * Every session past two chunks is judged once, and the helper holds only
+     * one chunk at a time.
      *
      * @return void
      *
@@ -146,9 +134,8 @@ final class TenantPolicyChangesTest extends TestCase
     }
 
     /**
-     * More sessions than two chunks that all fall short are all revoked, each
-     * counted and reported once. Only the identifier of each session reported
-     * is kept, so the test holds none of the sessions it revoked.
+     * Every session past two chunks that falls short is revoked and reported
+     * once.
      *
      * @return void
      *
@@ -178,8 +165,8 @@ final class TenantPolicyChangesTest extends TestCase
     }
 
     /**
-     * Inside a caller's transaction on the storage connection, the helper's
-     * work commits with the caller's, and is reported only once that commits.
+     * The helper commits with the caller's transaction and reports only on
+     * commit.
      *
      * @return void
      *
@@ -209,9 +196,7 @@ final class TenantPolicyChangesTest extends TestCase
     }
 
     /**
-     * Inside a caller's transaction on the storage connection that rolls back,
-     * the helper's revocations roll back with the caller's own work, and none
-     * is reported.
+     * The helper rolls back with the caller's transaction and reports nothing.
      *
      * @return void
      *
@@ -241,8 +226,8 @@ final class TenantPolicyChangesTest extends TestCase
     }
 
     /**
-     * A refresh that loses its rotation to a policy change revoking its session
-     * fails as `session_revoked`, and the revocation stands.
+     * A refresh losing to a policy change that revokes it fails as
+     * `session_revoked`.
      *
      * @return void
      *
@@ -268,9 +253,7 @@ final class TenantPolicyChangesTest extends TestCase
     }
 
     /**
-     * A refresh that loses its rotation to a policy change recording a new
-     * version on its session is a conflict the client can retry: the version
-     * stands, the token is still the current one, and nothing is revoked.
+     * A refresh losing to a recorded version is a retryable conflict.
      *
      * @return void
      *
@@ -307,9 +290,8 @@ final class TenantPolicyChangesTest extends TestCase
     }
 
     /**
-     * A switch that loses its write to a policy change revoking its session in
-     * the tenant it is leaving fails as `session_revoked`: the session is
-     * revoked where it was, never moved to the other tenant.
+     * A switch losing to a policy change that revokes it fails as
+     * `session_revoked`.
      *
      * @return void
      *
@@ -344,8 +326,7 @@ final class TenantPolicyChangesTest extends TestCase
     }
 
     /**
-     * A policy change after a switch away from the tenant finds nothing of the
-     * session to judge there: it stays active in the tenant it moved to.
+     * A policy change after a switch away leaves the session alone.
      *
      * @return void
      *
@@ -394,9 +375,8 @@ final class TenantPolicyChangesTest extends TestCase
     }
 
     /**
-     * Sign the seeded member in with its password, as the principal named, if
-     * one is: a member with more than one membership must name one, or it is
-     * held pending for the choice.
+     * Sign the seeded member in with its password, as the principal if one is
+     * given.
      *
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return \SineMacula\Laravel\Authentication\Sessions\SignedInSession
@@ -413,8 +393,8 @@ final class TenantPolicyChangesTest extends TestCase
     }
 
     /**
-     * Run the callback once, just before the next update of a session that
-     * names the column executes, as another request that commits first would.
+     * Run the callback once, just before the next session update that names the
+     * column.
      *
      * @param  string  $column
      * @param  \Closure(): void  $callback
@@ -439,8 +419,7 @@ final class TenantPolicyChangesTest extends TestCase
     }
 
     /**
-     * Insert the given number of live sessions of the member's membership,
-     * active in its tenant.
+     * Insert live sessions of the member's membership, active in its tenant.
      *
      * @param  \Tests\Integration\Fixtures\ActivatableTenantMember  $member
      * @param  \Tests\Integration\Fixtures\ActivatableTenantMembership  $membership
@@ -473,11 +452,8 @@ final class TenantPolicyChangesTest extends TestCase
     }
 
     /**
-     * Bind a tenant authentication policy that answers every tenant with the
-     * requirement and counts the sessions it judges, keeping none of them: it
-     * refers to the first chunk's weakly, and counts how many of those are
-     * still held, after a garbage collection, as it is asked about the third
-     * chunk's first session.
+     * Bind a tenant policy that answers with the requirement and counts the
+     * sessions it judges and still held.
      *
      * @param  \SineMacula\Laravel\Authentication\Tenancy\TenantRequirement  $requirement
      * @return object{judged: int, firstChunk: list<\WeakReference<object>>, firstChunkHeld: ?int}&\SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy
@@ -506,9 +482,8 @@ final class TenantPolicyChangesTest extends TestCase
             ) {}
 
             /**
-             * Count the question, refer weakly to a first chunk's session,
-             * count those still held when the third chunk begins, and answer
-             * with the requirement.
+             * Count the question, track the first chunk weakly and answer with
+             * the requirement.
              *
              * @param  \SineMacula\Laravel\Authentication\Tenancy\TenantPolicyContext  $context
              * @return \SineMacula\Laravel\Authentication\Tenancy\TenantRequirement
@@ -538,8 +513,7 @@ final class TenantPolicyChangesTest extends TestCase
     }
 
     /**
-     * The table's name as the default connection's grammar quotes it, in lower
-     * case as the statements are compared.
+     * The table name as the default grammar quotes it, lower-cased.
      *
      * @param  string  $table
      * @return string
@@ -550,8 +524,7 @@ final class TenantPolicyChangesTest extends TestCase
     }
 
     /**
-     * Collect the statements run from now on that the filter keeps,
-     * lower-cased.
+     * Collect the lower-cased statements run from now on that the filter keeps.
      *
      * @param  \Closure(string): bool  $filter
      * @return \ArrayObject<int, string>

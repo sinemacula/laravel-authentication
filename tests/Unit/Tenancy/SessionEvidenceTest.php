@@ -17,9 +17,7 @@ use SineMacula\Laravel\Authentication\Tenancy\SessionEvidence;
 use Tests\Fixtures\Proofs\UndescribedSignInProof;
 
 /**
- * Unit tests for the evidence a sign-in carries before its session is written:
- * its first factor under the id it will be recorded with, as its only proof,
- * and the connection an external provider established it through.
+ * Unit tests for the evidence a sign-in carries before its session is written.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -68,8 +66,7 @@ final class SessionEvidenceTest extends TestCase
     }
 
     /**
-     * An external sign-in whose evidence was accepted carries that evidence,
-     * for the requirements judged before its session is written; a sign-in no
+     * An external sign-in whose evidence was accepted carries it; a sign-in no
      * provider established carries none.
      *
      * @return void

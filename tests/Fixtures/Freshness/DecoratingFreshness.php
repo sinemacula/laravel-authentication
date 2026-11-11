@@ -12,9 +12,8 @@ use SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement;
 use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
 
 /**
- * Freshness policy an adapter might bind over the package's: it delegates every
- * question to `ConfiguredFreshness`, the read mode included, and notes what it
- * was asked.
+ * Freshness policy that delegates every question to `ConfiguredFreshness` and
+ * notes what it was asked.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

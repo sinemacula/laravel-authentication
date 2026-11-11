@@ -15,10 +15,10 @@ session holds; the token's claims and every freshness answer are worked out from
   `recovery_code`), method, channel, factor reference, observed properties (each `null` when not observed, which never
   counts as true), evaluation (accepted, multifactor, and whether it is an additional verification, in the
   `additional_verification` column: always for a further factor, never for a recovery code, and
-  `Evaluation::$additionalVerification` for an external proof), `amr` values,
-  time, binding (identity, application, session, purpose) and, for an external provider's proof, the evidence the
-  provider asserted once it was accepted. A proof is never changed once recorded; a voided one never counts, and a
-  further factor or recovery code counts only when its adapter accepted it.
+  `Evaluation::$additionalVerification` for an external proof), `amr` values, time, binding (identity, application,
+  session, purpose) and, for an external provider's proof, the evidence the provider asserted once it was accepted. A
+  proof is never changed once recorded; a voided one never counts, and a further factor or recovery code counts only
+  when its adapter accepted it.
 - Every session the package writes records a generation, a random UUID written when the row is inserted and never
   changed (`EloquentSession::getGenerationName()`, `SessionRecords\SessionGeneration`): it tells a session apart from
   any other a model that reissues keys puts under its key, of the same owner and in the same second included, which
@@ -30,8 +30,8 @@ session holds; the token's claims and every freshness answer are worked out from
   point and the `external_provider` channel.
 - Every session the package writes records a counting first factor in the transaction that writes the session; an
   external provider's session also records its provenance, once. Proofs and provenance carry unchanged from a pending
-  sign-in to its session and across every refresh and switch; a sign-in that replaces a session starts a
-  new session with its own.
+  sign-in to its session and across every refresh and switch; a sign-in that replaces a session starts a new session
+  with its own.
 - Every read of proofs is of the session's own: those recorded under its key and bound to its guard and its owner (the
   morph type and key the session records), so another identity's or application's proof under the same key never
   counts for it. The key, guard, owner and `amr` columns compare byte for byte (binary columns on MySQL and MariaDB,
@@ -95,11 +95,11 @@ session holds; the token's claims and every freshness answer are worked out from
   dated no later than the time it was judged at (`EvidenceAcceptance::asOf()`), and the proof carries the acceptance as
   its evaluation (multifactor when it was accepted for multifactor authentication, an additional verification when it
   was accepted for one or for multifactor authentication, neither for phishing resistance or a level alone), which
-  `amr` and the authentication context's `mfa` read (see `authentication-context.md`). The proof reads
-  back with no evaluation (`SessionProofs`, `SignInProof::recorded()`), so a `RequirementCheck` never takes the
-  application's acceptance of evidence of any age for a tenant's multifactor proof; only the evidence beside it, which
-  the evidence policy judges, says what it is worth. Evidence that is not accepted is recorded nowhere and counts for
-  nothing; there is no partial acceptance. A result's evidence is never dated after the provider's time the result gives
+  `amr` and the authentication context's `mfa` read (see `authentication-context.md`). The proof reads back with no
+  evaluation (`SessionProofs`, `SignInProof::recorded()`), so a `RequirementCheck` never takes the application's
+  acceptance of evidence of any age for a tenant's multifactor proof; only the evidence beside it, which the evidence
+  policy judges, says what it is worth. Evidence that is not accepted is recorded nowhere and counts for nothing; there
+  is no partial acceptance. A result's evidence is never dated after the provider's time the result gives
   (`ExternalResult` refuses it): the provider's time times the proof, the evidence's own time is what its acceptance and
   any requirement judged on it age. Evidence that is not valid UTF-8, or whose stored JSON (every character outside
   ASCII escaped, up to twelve bytes for one) would exceed `ExternalEvidence::STORED_MAX_BYTES` (65,535, a MySQL `TEXT`
@@ -286,24 +286,23 @@ session holds; the token's claims and every freshness answer are worked out from
   every bulk revocation (`RevocationWriter::revokeScopes()`, and `ConnectionRevocations` for a connection or a link)
   lock the sessions they cover in key order, the older first, while a pending action locks the pending session before
   the older one it proved, whether it then activates, stays pending, moves on to the choice or is refused. So such an
-  operation over both can deadlock with the pending action, as it could at a first activation's supersede before; the
-  database fails one, and its caller rolls its whole transaction back and retries it. The freshness judgements under
-  the lock keep the order too (the identity's row, then the session's, then its proofs), but two flows take session
-  rows after them: the factor package's removal calls `factorRemoved()` after the gate in its transaction, which
-  revokes the identity's other sessions, and an
+  operation over both can deadlock with the pending action; the database fails one, and its caller rolls its whole
+  transaction back and retries it. The freshness judgements under the lock keep the order too (the identity's row, then
+  the session's, then its proofs), but two flows take session rows after them: the factor package's removal calls
+  `factorRemoved()` after the gate in its transaction, which revokes the identity's other sessions, and an
   establishment's `PasswordWriter` ends the identity's other sessions after its judgement. On MySQL and MariaDB at
   REPEATABLE READ the judgement's read holds the gap at the edge of the judged session's proofs (below); a request on a
-  neighbouring session of the same identity that holds that session's row while recording a proof falling in that gap
-  (a step-up, a reauthentication, or a new session's first proof when the judged session is the newest) waits for it,
-  and the revocation then waits for that row: a deadlock, which the database breaks by failing one side, with nothing
-  half-written. A test reproduces it for the establishment (with the plain read it once made, the establishment
-  completes); the gate's case is the same mechanism. Neither is reordered: the removal follows the gate in the factor
-  package's transaction by design, and the establishment could avoid it only by a locking read of every live session of
-  the identity before each judgement, which at REPEATABLE READ also gap-locks the identity's range in the owner index
-  and holds up its every new sign-in on every establishment, refused ones included, a heavier and always-paid cost for a
-  cycle that needs a concurrent proof on a neighbouring session. Two removals from two sessions of one identity could
-  already deadlock on their rows the same way. At READ COMMITTED the establishment waits for the neighbour's row and
-  completes; at PostgreSQL's REPEATABLE READ it fails to serialise, and a retry of the whole transaction completes.
+  neighbouring session of the same identity that holds that session's row while recording a proof falling in that gap (a
+  step-up, a reauthentication, or a new session's first proof when the judged session is the newest) waits for it, and
+  the revocation then waits for that row: a deadlock, which the database breaks by failing one side, with nothing
+  half-written. A test reproduces it for the establishment; the gate's case is the same mechanism. Neither is reordered:
+  the removal follows the gate in the factor package's transaction by design, and the establishment could avoid it only
+  by a locking read of every live session of the identity before each judgement, which at REPEATABLE READ also gap-locks
+  the identity's range in the owner index and holds up its every new sign-in on every establishment, refused ones
+  included, a heavier and always-paid cost for a cycle that needs a concurrent proof on a neighbouring session. Two
+  removals from two sessions of one identity can deadlock on their rows the same way. At READ COMMITTED the
+  establishment waits for the neighbour's row and completes; at PostgreSQL's REPEATABLE READ it fails to serialise, and
+  a retry of the whole transaction completes.
 - A public read of an active session's proofs (`ActiveSessionProofs`) locks only inside a transaction on the session
   model's connection, whether or not the caller already holds the row, which cannot be observed portably and is taken
   again at no cost: it locks the session's row (`SessionLookup::lock()`, the lock every path takes on it, so a step-up
@@ -333,9 +332,9 @@ session holds; the token's claims and every freshness answer are worked out from
   commits: after the newest session's proofs falls every new session's, so a sign-in waits for an issuance or a
   judgement of the newest session (a refresh, a switch, a step-up, a reauthentication, an activation, a factor change, a
   pending action, a policy change, and the freshness judgements under the lock: a factor-change gate verdict, an
-  identifier change request, a password establishment); just before the next session's `first_factor`
-  entry falls its `additional_factor` or `external_reauthentication` proof, so a step-up, a `satisfy()` or a
-  reauthentication at the provider of the next session waits; and just after the previous session's last entry falls its
+  identifier change request, a password establishment); just before the next session's `first_factor` entry falls its
+  `additional_factor` or `external_reauthentication` proof, so a step-up, a `satisfy()` or a reauthentication at the
+  provider of the next session waits; and just after the previous session's last entry falls its
   `first_factor_reauthentication` or `recovery_code` proof, so a reauthentication with the first factor or a recovery
   code of the previous session waits. The wait alone never deadlocks, but a caller's transaction that goes on to take a
   lock the waiting side holds does, and MySQL fails one of them for the caller to retry: the guard row of the link a
@@ -361,22 +360,21 @@ session holds; the token's claims and every freshness answer are worked out from
 
   Each next-key lock comes with a record lock on the proof's row. In the last row no session had provenance, so the gap
   before the next provenance key ran to the supremum for the middle session too; when a later session was established
-  externally, that gap ends at its key, and a new external sign-in, whose key comes after it, does not wait. Before, the
-  judgement took none of these. A refresh's issuance (`history(true)`) of the same session takes the same records and
-  the same edge gap, so a judgement before a refresh's, a switch's, a step-up's, a reauthentication's or an activation's
-  issuance takes early what the issuance holds later, and adds only the provenance lock where the policy names
-  connections; `factorChanged()`, `factorRemoved()`, a pending action that leaves the session pending, a refresh or a
-  switch that returns it to pending, and a reauthentication at the provider its tenant refuses hold them without an
-  issuance. `tenantPolicyChanged()` over three sessions holds every judged session's records, the gap after the newest
-  and the gaps between them (and with a named connection the provenance gap) until it commits; it also holds every key
-  of the tenant's live sessions in memory for the call (for a thousand and one sessions its peak memory rose by about 70
-  KB, to 21.6 MB, measured on SQLite). The trade is right: the reads judge security state (whether a session keeps
-  acting or returns to pending, whether a voided factor still counts, whether a reused key still establishes through the
-  tenant's connection), and a stale read fails open in the void and reuse cases; the added waits fall where an
-  issuance's already do (the edges of each judged session's range, and the provenance only when connections are named),
-  happen only on MySQL and MariaDB at REPEATABLE READ, last as long as the judging transaction, and are of the class the
-  sessions guide already documents for an issuance inside a caller's transaction; and InnoDB gives no narrower current
-  read at REPEATABLE READ.
+  externally, that gap ends at its key, and a new external sign-in, whose key comes after it, does not wait. A refresh's
+  issuance (`history(true)`) of the same session takes the same records and the same edge gap, so a judgement before a
+  refresh's, a switch's, a step-up's, a reauthentication's or an activation's issuance takes early what the issuance
+  holds later, and adds only the provenance lock where the policy names connections; `factorChanged()`,
+  `factorRemoved()`, a pending action that leaves the session pending, a refresh or a switch that returns it to pending,
+  and a reauthentication at the provider its tenant refuses hold them without an issuance. `tenantPolicyChanged()` over
+  three sessions holds every judged session's records, the gap after the newest and the gaps between them (and with a
+  named connection the provenance gap) until it commits; it also holds every key of the tenant's live sessions in memory
+  for the call (for a thousand and one sessions its peak memory rose by about 70 KB, to 21.6 MB, measured on SQLite).
+  The trade is right: the reads judge security state (whether a session keeps acting or returns to pending, whether a
+  voided factor still counts, whether a reused key still establishes through the tenant's connection), and a stale read
+  fails open in the void and reuse cases; the added waits fall where an issuance's already do (the edges of each judged
+  session's range, and the provenance only when connections are named), happen only on MySQL and MariaDB at REPEATABLE
+  READ, last as long as the judging transaction, and are of the class the sessions guide already documents for an
+  issuance inside a caller's transaction; and InnoDB gives no narrower current read at REPEATABLE READ.
 - Measured the same way for a freshness judgement under the lock (a gate verdict, `freshProof()` asked current), the
   session's row held `X,REC_NOT_GAP`: for `factor_change` (its two kinds, `additional_factor` and `recovery_code`) on
   the middle of three sessions with a first factor and one step-up, a next-key lock on the session's own
@@ -387,10 +385,9 @@ session holds; the token's claims and every freshness answer are worked out from
   `identifier_change` and `password_establishment` take by default, with about sixty sessions, the gate's shape and a
   record lock on each row read; on a near-empty table (three sessions, six proofs) the optimiser scanned the primary key
   and next-key-locked every proof row and the supremum until the transaction ended, as any locking read of a tiny table
-  does (the requirement judgements' included). Before, the judgements took none of these; the trade is the requirement
-  judgements': a stale read fails open on a voided step-up, and the waits fall at the edges of the judged session's
-  range, only on MySQL and MariaDB at REPEATABLE READ, for as long as the judging transaction (the gate's, as long as
-  the factor package's).
+  does (the requirement judgements' included). The trade is the requirement judgements': a stale read fails open on a
+  voided step-up, and the waits fall at the edges of the judged session's range, only on MySQL and MariaDB at REPEATABLE
+  READ, for as long as the judging transaction (the gate's, as long as the factor package's).
 - An exception from the evidence policy or the link contract, and a database error (a serialization failure, a lock
   wait timeout or a deadlock included), propagates, and the package never retries. Laravel rethrows a concurrency error
   raised inside a savepoint without rolling the caller's transaction back, and MySQL rolls back only the statement on a
@@ -420,10 +417,10 @@ These parts are columns, kinds or values with nothing yet behind them; the guide
   meets a multifactor freshness requirement. The factor-change gate (`SessionService::factorChange()`) asks freshness
   for `factor_change`, or `first_additional_factor` for an identity's first additional factor, excluding the factor a
   replacement or removal names, before the change, under the session's lock and on its proofs as committed; once it is
-  made, a removal or replacement judges the current session
-  again with `factorRemoved()` and an addition with `factorChanged()`, which writes the session's issuance guard, then
-  reads the proofs current, whatever the caller's transaction read first, and voids none. A sibling that needs more
-  rebinds `FreshnessPolicy` until the value is extended.
+  made, a removal or replacement judges the current session again with `factorRemoved()` and an addition with
+  `factorChanged()`, which writes the session's issuance guard, then reads the proofs current, whatever the caller's
+  transaction read first, and voids none. A sibling that needs more rebinds `FreshnessPolicy` until the value is
+  extended.
 - A pending session records its first factor and provenance as any session does, when it is written; the further
   factor `satisfy()` accepts is stored with them (the requirement check reads it when the policy is asked again), and
   none counts for a token until the session activates.

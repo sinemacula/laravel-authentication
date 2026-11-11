@@ -10,11 +10,8 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Scopes\Scopes;
 
 /**
- * How a non-human identity's tokens differ from a session's: it gets no session
- * token at all, and the access token a client credentials exchange issues it
- * names the API key it was exchanged for in `cid` and carries that key's
- * granted scopes in `scope`. A token with `cid` must carry `scope` (the empty
- * string for none) and name no session.
+ * The `cid` and `scope` claims of a non-human identity's client credentials
+ * token, which never names a session.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -29,8 +26,7 @@ final class MachineTokens
     private function __construct() {}
 
     /**
-     * Refuse to issue a session's token to a non-human identity, which has no
-     * session, no refresh and no interactive sign-in.
+     * Refuse to issue a session's token to a non-human identity.
      *
      * @param  bool  $machine
      * @return void
@@ -65,8 +61,7 @@ final class MachineTokens
 
     /**
      * The API key id and scopes a token's claims name, `null` for a token that
-     * names no key, or `false` for claims that name one malformed: a `cid` that
-     * is not a UUID, a `scope` that is not a scope string, or a session.
+     * names no key, or `false` for malformed claims.
      *
      * @param  array<string, mixed>  $claims
      * @return array{0: string, 1: list<string>}|false|null

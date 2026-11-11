@@ -17,12 +17,7 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 
 /**
- * Shared base case for the `JwtTokenService` split tests.
- *
- * Owns the frozen Carbon + JWT clocks, the test secret/algorithm/TTL constants,
- * and the helper factories used by every concrete `JwtTokenServiceTest`
- * variant. Subclasses focus on a single behavioural slice (issuance, parse) so
- * each class stays focused on a single concern.
+ * Shared base case for the `JwtTokenService` tests.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -64,8 +59,7 @@ abstract class JwtTokenServiceTestCase extends TestCase
     protected Carbon $now;
 
     /**
-     * Freeze both Carbon and the JWT library clock so expiry assertions are
-     * deterministic and independent of wall time.
+     * Freeze the Carbon and JWT clocks.
      *
      * @return void
      */
@@ -97,8 +91,7 @@ abstract class JwtTokenServiceTestCase extends TestCase
     }
 
     /**
-     * Advance both the Carbon clock and the JWT library clock by the supplied
-     * number of minutes so expiry assertions remain in sync.
+     * Advance the Carbon and JWT clocks by the given minutes.
      *
      * @param  int  $minutes
      * @return void
@@ -113,7 +106,7 @@ abstract class JwtTokenServiceTestCase extends TestCase
     }
 
     /**
-     * Build a JwtTokenService instance configured with the test defaults.
+     * Build a `JwtTokenService` with the test defaults.
      *
      * @return \SineMacula\Laravel\Authentication\Jwt\JwtTokenService
      */
@@ -130,8 +123,7 @@ abstract class JwtTokenServiceTestCase extends TestCase
     }
 
     /**
-     * Build a single-key keyring holding the supplied secret under the shared
-     * test kid.
+     * Build a single-key keyring holding the secret under the test kid.
      *
      * @param  string  $secret
      * @return \SineMacula\Laravel\Authentication\Jwt\JwtKeyring
@@ -142,8 +134,7 @@ abstract class JwtTokenServiceTestCase extends TestCase
     }
 
     /**
-     * Build an Identity mock whose getAuthIdentifier() returns the supplied
-     * value.
+     * Build an identity mock with the given identifier.
      *
      * @param  mixed  $id
      * @return \SineMacula\Laravel\Authentication\Contracts\Identity
@@ -159,8 +150,7 @@ abstract class JwtTokenServiceTestCase extends TestCase
     }
 
     /**
-     * Build a Principal mock whose getPrincipalIdentifier() returns the
-     * supplied value, acting within no tenant.
+     * Build a principal mock with the given identifier, in no tenant.
      *
      * @param  mixed  $id
      * @return \SineMacula\Laravel\Authentication\Contracts\Principal
@@ -178,8 +168,7 @@ abstract class JwtTokenServiceTestCase extends TestCase
     }
 
     /**
-     * Build a Session mock whose getSessionIdentifier() returns the supplied
-     * value, started now with the default lifetimes.
+     * Build a session mock with the given identifier, started now.
      *
      * @param  mixed  $id
      * @return \SineMacula\Laravel\Authentication\Contracts\Session
@@ -190,8 +179,7 @@ abstract class JwtTokenServiceTestCase extends TestCase
     }
 
     /**
-     * Build a Session mock with the supplied identifier and deadlines, signed
-     * in now with a password, acting in no tenant.
+     * Build a session mock with the given identifier and deadlines.
      *
      * @param  mixed  $id
      * @param  ?\Carbon\CarbonInterface  $idle

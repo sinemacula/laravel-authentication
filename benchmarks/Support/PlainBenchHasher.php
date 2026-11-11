@@ -7,10 +7,8 @@ namespace Benchmarks\Support;
 use Illuminate\Contracts\Hashing\Hasher;
 
 /**
- * A hasher that costs next to nothing, for the benchmarks that check a
- * password: bcrypt or Argon2 is tuned to take tens of milliseconds, which would
- * bury the package's own work on a sign-in. It is not a password hash and is
- * never used outside the benchmarks.
+ * A hasher that costs next to nothing, for benchmarks that check a password. It
+ * is not a password hash.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

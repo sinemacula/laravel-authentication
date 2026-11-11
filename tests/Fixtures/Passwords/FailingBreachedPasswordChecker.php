@@ -7,9 +7,8 @@ namespace Tests\Fixtures\Passwords;
 use SineMacula\Laravel\Authentication\Contracts\BreachedPasswordChecker;
 
 /**
- * A breached-password checker with a bug: it throws an exception the contract
- * does not name, which the policy lets propagate, so a test can read the trace
- * that climbs through the password helpers.
+ * A breached-password checker that throws an exception the contract does not
+ * name.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

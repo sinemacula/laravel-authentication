@@ -7,12 +7,8 @@ namespace SineMacula\Laravel\Authentication\Console;
 use SineMacula\Laravel\Authentication\Console\Enums\FindingSeverity;
 
 /**
- * What a configuration check found: a severity, the guard it is about (`null`
- * for a package-wide setting), and a message.
- *
- * The message names the settings at fault, never their values: the command
- * prints it as it is given (less control characters), and its output reaches
- * deploy logs.
+ * What a configuration check found: a severity, the guard it is about and a
+ * message.
  *
  * @api
  *

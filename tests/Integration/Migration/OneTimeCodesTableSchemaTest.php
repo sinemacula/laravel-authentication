@@ -12,15 +12,8 @@ use PHPUnit\Framework\Attributes\CoversNothing;
 use Tests\TestCase;
 
 /**
- * Integration tests for the shape of the table the shipped one-time codes
- * migration creates, on whichever engine the suite runs against.
- *
- * The migration runs for a configured table name other than the default and
- * with the schema builder's default time precision raised, so the index name
- * and the whole-second precision are what the migration itself declares.
- *
- * Marked `#[CoversNothing]` because a migration is an anonymous class PHPUnit
- * cannot attribute coverage to.
+ * Integration tests for the shape of the table the one-time codes migration
+ * creates.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -76,12 +69,8 @@ final class OneTimeCodesTableSchemaTest extends TestCase
     }
 
     /**
-     * The table holds the delivery key's digest, the challenge's id and the
-     * digest of its transaction, the purpose and guard, the issuance, the
-     * code's hash, the attempts, the deliveries in the window and when it
-     * began, and when the code was issued, expires and was used; only the
-     * transaction and the use are nullable. No column holds an identifier or a
-     * code in clear.
+     * The table holds its columns, none holding an identifier or a code in
+     * clear.
      *
      * @return void
      */

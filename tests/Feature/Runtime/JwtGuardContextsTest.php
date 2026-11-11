@@ -15,9 +15,7 @@ use Tests\Concerns\InteractsWithSessions;
 use Tests\TestCase;
 
 /**
- * Feature tests of finding a jwt guard's context by its name, as the queued
- * delivery jobs do: the named guard's own context, and each refusal in the
- * order the guard is checked.
+ * Feature tests of finding a jwt guard's context by its name.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -30,8 +28,7 @@ final class JwtGuardContextsTest extends TestCase
     use InteractsWithSessions;
 
     /**
-     * A guard `auth.guards` configures with the `jwt` driver answers with its
-     * own context, the one its flows run on.
+     * A guard configured with the `jwt` driver answers with its own context.
      *
      * @return void
      */
@@ -57,8 +54,7 @@ final class JwtGuardContextsTest extends TestCase
     }
 
     /**
-     * A guard of another driver is not a jwt guard, whether or not it is one of
-     * the package's guards with a context of its own.
+     * A guard of another driver is not a jwt guard.
      *
      * @return void
      */
@@ -94,9 +90,7 @@ final class JwtGuardContextsTest extends TestCase
     }
 
     /**
-     * `JwtGuardContexts` is a utility container, not to be instantiated: its
-     * constructor is private. Reflection invokes it so the line is covered
-     * while still documenting the access modifier.
+     * `JwtGuardContexts` cannot be instantiated from outside.
      *
      * @return void
      *

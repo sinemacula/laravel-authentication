@@ -22,19 +22,8 @@ use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Verification\VerificationLinks;
 
 /**
- * Holds the package's services to the shape their actions take: one public
- * method per action, taking plain values and never an
- * `Illuminate\Http\Request`, with no request-reading or token-only twin, and
- * the client (or the sign-in context that carries it) a required value wherever
- * a method takes one, never read from a guard's request. Reading a request is
- * the helpers' alone (`RefreshTokenTransport::extract()`,
- * `ClientContext::fromRequest()`, `SignInContext::fromRequest()`,
- * `PendingCredential::extract()`, `SignedLink::fromRequest()`,
- * `ClientCredentialsRequest::extract()`, `RequestBody::fields()`).
- *
- * The test checks shape only: the behavioural tests of each action, with a
- * guard request that differs from the client given, prove that nothing is read
- * from the guard's request.
+ * Holds the package's services to one public method per action, taking plain
+ * values and never a request.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -153,9 +142,8 @@ final class PlainValueActionsTest extends TestCase
     }
 
     /**
-     * Each of the five session actions is one method, taking what was presented
-     * first, its own values, and then the client; the three refresh-credential
-     * actions end with the optional expected session.
+     * Each session action is one method taking what was presented, its own
+     * values and then the client.
      *
      * @param  string  $action
      * @param  list<string>  $parameters
@@ -170,9 +158,8 @@ final class PlainValueActionsTest extends TestCase
     }
 
     /**
-     * `start()` is one method: the first factor the application verified, the
-     * principal, the method name and the sign-in context that carries the
-     * client, with no variant taking an evaluation, provenance or time.
+     * `start()` is one method taking the first factor, the principal, the
+     * method name and the sign-in context.
      *
      * @return void
      */

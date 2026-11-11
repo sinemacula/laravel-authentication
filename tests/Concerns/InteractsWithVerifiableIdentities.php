@@ -40,8 +40,8 @@ trait InteractsWithVerifiableIdentities
     }
 
     /**
-     * Persist an identity with the given email address, unverified, and load it
-     * again from the write connection as stored.
+     * Persist an unverified identity and load it again from the write
+     * connection.
      *
      * @param  ?string  $email
      * @param  ?string  $phone

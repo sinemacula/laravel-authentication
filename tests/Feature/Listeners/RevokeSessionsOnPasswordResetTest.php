@@ -22,10 +22,7 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\PlainIdentityFixture;
 
 /**
- * Feature tests of the optional `RevokeSessionsOnPasswordReset` listener,
- * registered by the test as an application registers it: a reset through
- * Laravel's password broker revokes every session of the identity once the
- * reset commits.
+ * Feature tests of the optional `RevokeSessionsOnPasswordReset` listener.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -144,9 +141,8 @@ final class RevokeSessionsOnPasswordResetTest extends TestCase
     }
 
     /**
-     * A route guarded by another driver makes that driver's guard the default
-     * (`shouldUse()`); the listener still revokes, through the first jwt guard
-     * configured, and reports that guard as the acting one.
+     * Under a route whose guard is another driver, the listener revokes through
+     * the first jwt guard configured.
      *
      * @return void
      *

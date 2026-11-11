@@ -13,11 +13,8 @@ use Tests\Integration\Fixtures\RecheckedMember;
 use Tests\Integration\Fixtures\RecheckedMembership;
 
 /**
- * A 3D guard (`rechecked`) over `RecheckedMember`, whose identities and
- * memberships can each be deactivated, soft-deleted and restored and record a
- * "tokens valid after" cutoff, acting within activatable tenants: the tables
- * behind it and seeded members. For tests that sign in through the session
- * service alongside `InteractsWithSessions`, which creates the tenants' table.
+ * A 3D guard (`rechecked`) over members and memberships that can each be
+ * deactivated, soft-deleted and restored, with the tables behind it.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

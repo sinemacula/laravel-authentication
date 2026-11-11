@@ -12,10 +12,6 @@ use Tests\Unit\Stubs\StubPrincipal;
  * Model provider over `StubPrincipal` that serves only identities whose email
  * belongs to one domain.
  *
- * Stands in for an application provider that scopes identity lookups (for
- * example to one tenant or application), so tests can prove a refresh reloads
- * the session owner through the guard's provider and honours that scope.
- *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *

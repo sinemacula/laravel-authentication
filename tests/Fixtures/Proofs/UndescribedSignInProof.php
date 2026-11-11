@@ -12,10 +12,8 @@ use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use Tests\Unit\Stubs\PlainIdentityFixture;
 
 /**
- * Makes the sign-in proof of a first factor nothing described: an unknown
- * channel, no observed properties and no `amr` values, verified at the given
- * time. For tests that need some first factor and care about none of its
- * detail.
+ * Makes a first factor's sign-in proof with an unknown channel, no observed
+ * properties and no `amr` values.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

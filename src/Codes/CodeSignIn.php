@@ -22,41 +22,6 @@ use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
  * A one-time code sign-in method: an identifier of one type and the code
  * `Auth::codes($guard)->send()` sent to it.
  *
- * The package registers it as `phone_code`, for phone numbers, and as
- * `email_code`, for email addresses. The input carries the identifier under
- * the identifier type's name (`phone`, `email`), which is also the identity's
- * column it is looked up by, the code under `code`, and the challenge it was
- * sent for (the `challengeId` the send answered) under `challenge`.
- * An application registers it for another identifier type with
- * `extend('whatsapp_code', fn ($app) => $app->make(CodeSignIn::class, ['type' => 'whatsapp']))`,
- * given a normaliser for the type.
- *
- * The identifier is brought to its normal form by its type's normaliser, the
- * code must be exactly the configured number of digits, and the challenge must
- * be an id the engine issues; anything else is `invalid_credentials` with
- * nothing counted. A challenge id that is not the live challenge's is
- * `invalid_credentials` too, with no attempt spent. The code is checked against
- * the one issued for the guard and identifier whether or not an identity has
- * the identifier, so a guess at an unknown identifier counts against, and
- * locks, that code exactly as one at a known identifier does; for a known
- * identity the check also counts against the account's own limit first. An
- * identity the guard's provider finds holds the identifier only when its own
- * identifier of the type, in its normal form, is exactly the one the code is
- * bound to (see `CodeIdentifiers`), so an identity found by a look-alike is
- * treated as no identity at all. A code that expired or used up its attempts is
- * refused as `code_expired` or `code_exhausted`, which the sign-in's result
- * conceals as `invalid_credentials`. A correct code for an identity whose
- * identifier of the type is not verified is `identifier_unverified`: the code
- * proved the identifier is held, so this tells a guesser nothing, and a code is
- * never sent to an unverified identifier in the first place.
- *
- * A verified code is a proof over the channel it was sent through, with the
- * identifier in its normal form as the destination: an `email` channel and the
- * `otp` `amr` value for email addresses, an `sms` channel and the `sms` value
- * (RFC 8176) for phone numbers, and an `unknown` channel and `otp` for any
- * other type. Nothing about an authenticator is observed. A destination longer
- * than a channel reference holds is not recorded.
- *
  * @api
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -187,9 +152,8 @@ final readonly class CodeSignIn implements SignInMethod
     }
 
     /**
-     * The sign-in binding of the identifier the input names for the guard, in
-     * its normal form, or `null` when it names none the type's normaliser
-     * accepts.
+     * The sign-in binding of the identifier the input names, or `null` when it
+     * names none the type's normaliser accepts.
      *
      * @param  string  $guard
      * @param  array<array-key, mixed>  $input
@@ -224,9 +188,7 @@ final readonly class CodeSignIn implements SignInMethod
 
     /**
      * The identity the provider found, when it holds exactly the bound
-     * identifier, read on the write connection; `null` for none, or one found
-     * only by a look-alike. An identity that cannot report its identifiers is
-     * kept, as it can never be signed in by code anyway.
+     * identifier or cannot report its identifiers, otherwise `null`.
      *
      * @param  mixed  $found
      * @param  \SineMacula\Laravel\Authentication\Codes\CodeBinding  $binding
@@ -244,9 +206,8 @@ final readonly class CodeSignIn implements SignInMethod
     }
 
     /**
-     * The first factor a verified code proves: the identity, over the channel
-     * of the method's identifier type, to the bound identifier when a channel
-     * reference holds it.
+     * The first factor a verified code proves, over the channel of the method's
+     * identifier type.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Codes\CodeBinding  $binding
@@ -263,10 +224,8 @@ final readonly class CodeSignIn implements SignInMethod
     }
 
     /**
-     * The answer once the code was accepted: the identity, when there is one
-     * and it reports its identifier of the type verified (read on the write
-     * connection); `identifier_unverified` when it does not; and
-     * `invalid_credentials` when no identity has the identifier.
+     * The answer once the code was accepted: the identity when it reports its
+     * identifier of the type verified, otherwise why not.
      *
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @return \SineMacula\Laravel\Authentication\Contracts\Identity|\SineMacula\Laravel\Authentication\Events\Enums\FailureReason

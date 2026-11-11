@@ -7,8 +7,7 @@ namespace SineMacula\Laravel\Authentication\Tenancy;
 use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 
 /**
- * The default tenant authentication policy: no tenant requires a further factor
- * or a connection, and the answer has no version.
+ * The default tenant authentication policy, which requires nothing.
  *
  * @api
  *

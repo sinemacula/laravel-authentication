@@ -7,10 +7,7 @@ namespace SineMacula\Laravel\Authentication\IdentifierChanges;
 use Carbon\CarbonImmutable;
 
 /**
- * A change of identifier waiting for its proof, as `pending()` reports it: the
- * type, the new identifier in its normal form, and when the change was
- * requested and expires. The identity keeps its current identifier until the
- * change is confirmed.
+ * A change of identifier waiting for its proof, as `pending()` reports it.
  *
  * @api
  *

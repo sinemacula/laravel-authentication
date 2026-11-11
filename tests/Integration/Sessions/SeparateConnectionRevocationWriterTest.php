@@ -24,12 +24,8 @@ use Tests\Integration\Fixtures\SeparateConnectionSession;
 use Tests\TestCase;
 
 /**
- * End-to-end tests of a bulk revocation whose sessions, pending ones among
- * them, live on their own connection, apart from the identity on the default
- * connection: the identity's cutoff moves on its connection first, then its
- * sessions end, active and pending alike, in one transaction on the session
- * connection, reported once that commits, and a failure there leaves the cutoff
- * moved and every session live.
+ * End-to-end tests of a bulk revocation whose sessions live on their own
+ * connection.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -48,11 +44,10 @@ final class SeparateConnectionRevocationWriterTest extends TestCase
     private \ArrayObject $dispatched;
 
     /**
-     * Freeze the clock, create the identity table on the default connection and
-     * the session table on the session connection, and record the revocation
-     * events. The storage connection is set to the session connection once the
-     * shipped migrations have run on the default one, so the test's own table
-     * stands in for the shipped one there.
+     * Freeze the clock, create the identity and session tables on their
+     * connections, and record the revocation events.
+     *
+     * The storage connection switches after the shipped migrations run.
      *
      * @return void
      */
@@ -100,10 +95,8 @@ final class SeparateConnectionRevocationWriterTest extends TestCase
     }
 
     /**
-     * The sessions on the session connection end, the pending one among them,
-     * the same table on the default connection is untouched, and the reports
-     * come at once while only the identity's connection has a transaction open,
-     * which rolling back neither undoes nor withdraws.
+     * The sessions end on the session connection, reported at once regardless
+     * of the identity connection's transaction.
      *
      * @return void
      *
@@ -138,11 +131,8 @@ final class SeparateConnectionRevocationWriterTest extends TestCase
     }
 
     /**
-     * Inside a transaction on the session connection the revocation is reported
-     * only when that transaction commits, and a rollback there undoes the
-     * revocation of the active and the pending session alike and reports
-     * nothing, while the identity's cutoff, written on its own connection,
-     * stays moved.
+     * Reports wait for the session connection's commit, and a rollback there
+     * leaves the cutoff moved.
      *
      * @return void
      *
@@ -178,9 +168,8 @@ final class SeparateConnectionRevocationWriterTest extends TestCase
     }
 
     /**
-     * A failure in the session transaction after a session was revoked rolls
-     * every revocation back and propagates, and leaves the identity's cutoff
-     * moved: more is cut off, never less.
+     * A failing session transaction rolls back every revocation and leaves the
+     * cutoff moved.
      *
      * @return void
      *

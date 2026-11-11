@@ -2,10 +2,10 @@
 
 ## Purpose
 
-This note records what happens to a session after it starts: which sessions count as active and how an
-identity's sessions are listed, how sessions are signed out (by the access token or the refresh credential) and
-revoked, and when a session that ended is deleted. Starting a session is in
-`session-service.md`; refresh rotation and replay are in `refresh-rotation-and-replay.md`.
+This note records what happens to a session after it starts: which sessions count as active and how an identity's
+sessions are listed, how sessions are signed out (by the access token or the refresh credential) and revoked, and when a
+session that ended is deleted. Starting a session is in `session-service.md`; refresh rotation and replay are in
+`refresh-rotation-and-replay.md`.
 
 ## Invariants
 
@@ -74,18 +74,18 @@ revoked, and when a session that ended is deleted. Starting a session is in
   methods) is a list of `RevocationScope`s: (1) each scope's `HasTokensValidAfter` cutoff moved to `$now` on its own
   connection; (2) one transaction on the storage connection, which the session model must live on, that reads each
   scope's unrevoked sessions on the writer in key order (`lazyById`, chunks of 500), revokes each conditionally (pending
-  sessions among them) and, for an identity's scope whose identity implements
-  `HasChangeableIdentifiers`, its pending identifier changes (by key, every type with a registered normaliser: a change
-  link needs no session, so one requested from a session that ends must end with it); (3) once committed,
-  `SessionRevoked` per revoked session, then `SignedOutEverywhere` per scope, also when it revoked none. A failure in
-  (2) leaves (1) in place: fail-safe, and a retry is idempotent.
+  sessions among them) and, for an identity's scope whose identity implements `HasChangeableIdentifiers`, its pending
+  identifier changes (by key, every type with a registered normaliser: a change link needs no session, so one requested
+  from a session that ends must end with it); (3) once committed, `SessionRevoked` per revoked session, then
+  `SignedOutEverywhere` per scope, also when it revoked none. A failure in (2) leaves (1) in place: fail-safe, and a
+  retry is idempotent.
 - An identity's scope is every session its `sessions()` relation returns, of every guard; a principal's is every session
-  of the configured model whose principal columns record it. An identity without `HasSessions` can hold no
-  session, pending or active (no session starts for it), so its scope, and that of a principal whose owner (read
-  afresh on the writer through `WriteConnection::stored()`, whatever relation is loaded and in strict mode too) is such
-  an identity, reads and deletes nothing and only moves the cutoff: access-only mode needs none of the package's tables
-  to revoke. A principal whose owner cannot be read has its sessions looked for anyway; an unsaved principal has no
-  sessions. A principal scope's events carry that owner as their identity.
+  of the configured model whose principal columns record it. An identity without `HasSessions` can hold no session,
+  pending or active (no session starts for it), so its scope, and that of a principal whose owner (read afresh on the
+  writer through `WriteConnection::stored()`, whatever relation is loaded and in strict mode too) is such an identity,
+  reads and deletes nothing and only moves the cutoff: access-only mode needs none of the package's tables to revoke. A
+  principal whose owner cannot be read has its sessions looked for anyway; an unsaved principal has no sessions. A
+  principal scope's events carry that owner as their identity.
 - `signOutEverywhere(keepCurrentSession: true)` keeps the request's session; a request without one (a session-less
   token) is kept by leaving the identity's cutoff unmoved, so the identity's other session-less tokens survive too,
   until they expire.
@@ -98,12 +98,12 @@ revoked, and when a session that ended is deleted. Starting a session is in
   tenant that can no longer be loaded, the class and key the `TenantUnavailableException` carries, so a deleted or
   soft-deleted one still ends its principals' sessions; a tenant without `CanBeActive` reads as no tenant once it cannot
   be loaded, so the application calls it inside the transaction that deletes one, before the delete, which the second
-  pass below needs to cover a racing sign-in) before anything is written, de-duplicates by recorded type
-  and id, and ends all of them in one transaction on the session connection, with one `SignedOutEverywhere` each.
-  `factorRemoved()` and `factorReset()` are mandatory: no setting turns them off, and the factor package calls them
-  synchronously inside the transaction that makes its change (a savepoint here, reported after the outermost commit),
-  never through a listener; each forgets the request's binding once it commits, before anything is reported, when the
-  binding is to a session it ended or took back to pending (`factorRemoved()` with a current session) or to the identity
+  pass below needs to cover a racing sign-in) before anything is written, de-duplicates by recorded type and id, and
+  ends all of them in one transaction on the session connection, with one `SignedOutEverywhere` each. `factorRemoved()`
+  and `factorReset()` are mandatory: no setting turns them off, and the factor package calls them synchronously inside
+  the transaction that makes its change (a savepoint here, reported after the outermost commit), never through a
+  listener; each forgets the request's binding once it commits, before anything is reported, when the binding is to a
+  session it ended or took back to pending (`factorRemoved()` with a current session) or to the identity
   (`factorReset()`, and `factorRemoved()` with none, since both end every session of it, through
   `GuardBinding::forgetIdentity()`). `credentialRemoved()` stays per event, the optional listener's or the
   application's.
@@ -188,7 +188,7 @@ revoked, and when a session that ended is deleted. Starting a session is in
 - A session written while what it acts as was being deactivated or deleted. A sign-in, a pending session's choice of
   principal and a switch admit the identity, principal and tenant long before they write the session, so a deactivation
   or deletion committing in between is followed by a revocation that finds nothing. Closed without a lock (the sign-in
-  path takes none on the identity, principal or tenant rows, and the lock order is unchanged), by two parts. (A)
+  path takes none on the identity, principal or tenant rows, and adds nothing to the lock order), by two parts. (A)
   `Sessions\AdmissionRecheck`, one per call, built by the session service with the call's client and the second the call
   began (before verification): once the call's write is committed on the session's connection and the transaction open
   on any connection the identity, principal or tenant model lives on has ended, committed or rolled back
@@ -212,29 +212,29 @@ revoked, and when a session that ended is deleted. Starting a session is in
   failure after it (a caller's transaction) or of a session that existed before the call (choice, switch) reports
   `SessionRevoked` and forgets a guard binding to it. (B) The five deactivation and deletion revocations
   (`identityDeactivated()`, `identityDeleted()`, `principalDeactivated()`, `principalDeleted()`, `tenantDeactivated()`)
-  run their scopes again (`RevocationWriter::revokeAgain()`, `keepingCutoff()`, only `SessionRevoked` reported, not
-  counted) once the transactions open, when they ran, on the session model's connection and the changed model's own have
-  committed. The check and the second pass are required work (`Database\RequiredWork`, scoped): every callback
-  `AfterCommit` registers runs the required work that is due before an exception it throws leaves it, since Laravel
-  stops a commit's callbacks at the first that throws, so a listener on a report cannot skip them; an application's own
-  commit callback that throws still can. Proof: let W be the call's commit, C its check (after W, reading committed
-  state), D the change's commit, Rd the revocation's read (the observer's after D, or the second pass's after D). If Rd
-  sees the session it is ended; otherwise Rd's snapshot predates W, so D committed before W, hence before C, and C sees
-  the change, unless something undid it before C: then the revocation in between moved the cutoff past the call's start,
-  which C refuses. The residual is a change undone within the call's window for a subject without a cutoff (a tenant
-  always; a hard-deleted identity or principal whose key is inserted again before C), or one whose revocation ran within
-  the second the call began, whenever it was undone. Option (a) alone, judging every session against the cutoff, was
-  rejected: it does not cover an admission before the cutoff and a `signed_in_at` after it, it would end the sessions
-  `signOutEverywhere(keep current)` and the password changes keep, and it leaves subjects without a cutoff open. Option
-  (b) as row locks taken by the sign-in and waited on by the revocation was withdrawn: it adds a lock order (identity,
-  principal, tenants before session rows) with a deadlock against a switch's replacement, gap locks on MySQL, and
-  partial commits across connections. Costs: a sign-in reads the identity again (a 2D identity, its own principal, once)
-  and in 3D its principal and that principal's tenant; a choice and a switch to another principal its principal and
-  tenant; a switch of tenant alone its principal (the instance it admitted may hold its own tenant as loaded before the
-  change), that principal's tenant and the tenant switched to; the five revocations scan their scopes once more only
-  inside a transaction. The guarantee holds for Eloquent identity, principal and tenant models whose standing is read on
-  their own connection: what the check reads elsewhere (a non-Eloquent principal or tenant through its resolver, a
-  principal's own tenant on another connection, derived activity) is read as that connection gives it.
+  run their scopes again (`RevocationWriter::revokeAgain()`, `RevocationScope::keepingCutoff()`, only `SessionRevoked`
+  reported, not counted) once the transactions open, when they ran, on the session model's connection and the changed
+  model's own have committed. The check and the second pass are required work (`Database\RequiredWork`, scoped): every
+  callback `AfterCommit` registers runs the required work that is due before an exception it throws leaves it, since
+  Laravel stops a commit's callbacks at the first that throws, so a listener on a report cannot skip them; an
+  application's own commit callback that throws still can. Proof: let W be the call's commit, C its check (after W,
+  reading committed state), D the change's commit, Rd the revocation's read (the observer's after D, or the second
+  pass's after D). If Rd sees the session it is ended; otherwise Rd's snapshot predates W, so D committed before W,
+  hence before C, and C sees the change, unless something undid it before C: then the revocation in between moved the
+  cutoff past the call's start, which C refuses. The residual is a change undone within the call's window for a subject
+  without a cutoff (a tenant always; a hard-deleted identity or principal whose key is inserted again before C), or one
+  whose revocation ran within the second the call began, whenever it was undone. Judging every session against the
+  cutoff alone would not cover an admission before the cutoff and a `signed_in_at` after it, would end the sessions
+  `signOutEverywhere(keep current)` and the password changes keep, and would leave subjects without a cutoff open. Row
+  locks taken by the sign-in and waited on by the revocation would add a lock order (identity, principal, tenants before
+  session rows) with a deadlock against a switch's replacement, gap locks on MySQL, and partial commits across
+  connections. Costs: a sign-in reads the identity again (a 2D identity, its own principal, once) and in 3D its
+  principal and that principal's tenant; a choice and a switch to another principal its principal and tenant; a switch
+  of tenant alone its principal (the instance it admitted may hold its own tenant as loaded before the change), that
+  principal's tenant and the tenant switched to; the five revocations scan their scopes once more only inside a
+  transaction. The guarantee holds for Eloquent identity, principal and tenant models whose standing is read on their
+  own connection: what the check reads elsewhere (a non-Eloquent principal or tenant through its resolver, a principal's
+  own tenant on another connection, derived activity) is read as that connection gives it.
 - The password-change observer ignores a save of the user the container's scoped `Sessions\Methods\Rehashing` marks, and
   a save is a rehash only when it re-encodes the password signed in with: both the previous hash (the model's original,
   which Eloquent has not yet synced in `updated`) and the saved hash verify it (the hasher's `check()`; a hash it
@@ -284,7 +284,6 @@ revoked, and when a session that ended is deleted. Starting a session is in
   Each chunk is one conditional `DELETE`; nothing is read first.
 - A pruned session is indistinguishable from an unknown one: its tokens already failed once it was revoked or ended, so
   retention never changes who authenticates.
-
 - `tenantPolicyChanged($tenant)` (`Sessions\TenantPolicyChanges`) is the synchronous revocation for a tenant
   authentication policy that changed: in one transaction on the session model's connection (a savepoint inside the
   caller's), it reads the live sessions (unrevoked, before both deadlines) whose `tenant_id` is the tenant's, every
@@ -309,8 +308,7 @@ revoked, and when a session that ended is deleted. Starting a session is in
   when the revocation reads the proven session first, it is revoked with the bulk reason, the replacement's swap misses
   and the sign-in still creates its session; when the sign-in commits first, the proven session is already `superseded`
   (skipped as revoked) and the new session is revoked if the bulk read finds it. A pending session the bulk call revoked
-  cannot activate (`pending_invalid`). Holding sign-ins back during a security change belongs to mandatory, synchronous
-  revocation on security changes, which the package does not do yet. Revocation races with refresh, switch and
+  cannot activate (`pending_invalid`). Revocation races with refresh, switch and
   re-sign-in are safe: each of their compare-and-swaps requires `revoked_at IS NULL`, so one revocation of a row,
   sign-out or `superseded`, wins and the other changes nothing.
 - An exception between `logoutOtherDevices()`'s forced save and its `OtherDeviceLogout` (Laravel saves, queues the

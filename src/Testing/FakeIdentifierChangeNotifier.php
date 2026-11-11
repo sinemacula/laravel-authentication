@@ -13,16 +13,8 @@ use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeNotice;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
- * An identifier change notifier for tests: keeps every notice it is given
- * instead of delivering it, so a test can check that the old identifier was
- * told about a change.
- *
- * `FakeIdentifierChangeNotifier::fake()` binds a fresh instance as the
- * application's notifier and returns it. A notice is delivered by a queued job
- * once the change commits, so it arrives when the job runs: on a `sync`
- * connection, once the response is sent (`$this->app->terminate()` in a test),
- * or when the test runs the queued job. Assert on what it holds with the test
- * framework's own assertions.
+ * An identifier change notifier for tests that keeps every notice instead of
+ * delivering it.
  *
  * @api
  *
@@ -35,8 +27,7 @@ final class FakeIdentifierChangeNotifier implements IdentifierChangeNotifier
     private array $notices = [];
 
     /**
-     * Bind a fresh fake as the notifier in the container (the application's,
-     * when none is given) and return it.
+     * Bind a fresh fake as the notifier in the container and return it.
      *
      * @param  ?\Illuminate\Contracts\Container\Container  $container
      * @return self
@@ -74,10 +65,7 @@ final class FakeIdentifierChangeNotifier implements IdentifierChangeNotifier
     }
 
     /**
-     * The notices sent about the identity's changes, oldest first: an Eloquent
-     * identity is matched by its row (`Model::is()`: key, table and
-     * connection), any other by its class and auth identifier, compared as
-     * strings.
+     * The notices sent about the identity's changes, oldest first.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @return list<\SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeNotice>

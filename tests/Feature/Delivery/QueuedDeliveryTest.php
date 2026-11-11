@@ -18,10 +18,7 @@ use Tests\Fixtures\Delivery\NoopDeliveryJob;
 use Tests\TestCase;
 
 /**
- * Feature tests for the package's queued deliveries: the connection and queue a
- * job is pushed with, that it waits for its anchor's connection to commit and
- * is never pushed for a rollback, and that misconfiguration fails before
- * anything is pushed.
+ * Feature tests for the package's queued deliveries.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -34,8 +31,7 @@ final class QueuedDeliveryTest extends TestCase
 {
     /**
      * A job is pushed on the configured connection and queue, marked to
-     * dispatch before commit (the package already waited for its own), and
-     * never `afterCommit`.
+     * dispatch before commit.
      *
      * @return void
      *
@@ -90,8 +86,7 @@ final class QueuedDeliveryTest extends TestCase
     }
 
     /**
-     * On the `sync` connection the job is dispatched after the response, so it
-     * never runs inside the call that queued it.
+     * On the `sync` connection the job is dispatched after the response.
      *
      * @return void
      *
@@ -108,8 +103,7 @@ final class QueuedDeliveryTest extends TestCase
     }
 
     /**
-     * Jobs that lack one or more of the methods `Queueable` gives: none of
-     * them, the queue, or the dispatch before commit.
+     * Jobs that lack one or more of the methods `Queueable` gives.
      *
      * @return iterable<string, array{0: \Illuminate\Contracts\Queue\ShouldQueue}>
      */
@@ -154,8 +148,8 @@ final class QueuedDeliveryTest extends TestCase
     }
 
     /**
-     * A job that cannot carry a connection and a queue is a misconfiguration,
-     * refused before anything is pushed.
+     * A job that cannot carry a connection and a queue is refused before
+     * anything is pushed.
      *
      * @param  \Illuminate\Contracts\Queue\ShouldQueue  $job
      * @return void
@@ -178,8 +172,8 @@ final class QueuedDeliveryTest extends TestCase
     }
 
     /**
-     * Malformed settings fail closed, naming the key, from `settings()` and
-     * before anything is pushed.
+     * Malformed settings are refused, naming the key, before anything is
+     * pushed.
      *
      * @return void
      *

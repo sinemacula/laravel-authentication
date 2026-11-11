@@ -26,12 +26,8 @@ use Tests\Fixtures\Passkeys\RecordingPasskeyFactorGate;
 use Tests\TestCase;
 
 /**
- * Proves, on whichever engine the suite runs against, that the factor gate's
- * work and the passkey's row are one change inside a transaction of the
- * caller's: a caller that rolls back keeps neither the passkey nor what the
- * gate wrote (here its own record of the factor), and reports nothing; one that
- * commits keeps both, and reports once. A gate that requires the storage
- * connection's transaction finds it open on every call.
+ * Proves the factor gate's work and the passkey's row commit or roll back
+ * together in the caller's transaction.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -47,9 +43,8 @@ final class PasskeyFactorChangesTest extends TestCase
     private const string FACTORS = 'gate_factors';
 
     /**
-     * Freeze the clock, create the tables, and bind a gate that records each
-     * factor it associates, and forgets it on a removal, in its own table on
-     * the storage connection.
+     * Freeze the clock, create the tables and bind a gate that records its
+     * factors in a table.
      *
      * @return void
      */
@@ -102,8 +97,7 @@ final class PasskeyFactorChangesTest extends TestCase
     }
 
     /**
-     * A registration inside the caller's transaction commits or rolls back with
-     * it, the factor the gate recorded included.
+     * A registration commits or rolls back with the caller's transaction.
      *
      * @return void
      *
@@ -145,8 +139,7 @@ final class PasskeyFactorChangesTest extends TestCase
     }
 
     /**
-     * A removal inside the caller's transaction commits or rolls back with it,
-     * the factor the gate forgot included.
+     * A removal commits or rolls back with the caller's transaction.
      *
      * @return void
      *

@@ -14,9 +14,8 @@ use Tests\Integration\Fixtures\PasswordIdentity;
 use Tests\Integration\Fixtures\PasswordMachine;
 
 /**
- * Unit tests for the listing of the configured `jwt` guards, which the helpers
- * that act for every guard (a new password, a changed identifier) read, and of
- * those whose provider can return a given identity.
+ * Unit tests for listing the configured `jwt` guards and those that can return
+ * an identity.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -28,8 +27,7 @@ final class JwtGuardsTest extends TestCase
 {
     /**
      * Only guards configured with the `jwt` driver are listed, in their
-     * configured order and by name, a name of digits included; a guard of
-     * another driver, one with no driver and a malformed entry are not.
+     * configured order.
      *
      * @return void
      */
@@ -60,10 +58,8 @@ final class JwtGuardsTest extends TestCase
     }
 
     /**
-     * The guards for an identity are those whose provider's model reads the
-     * identity's table on its connection, whatever the model's class, and those
-     * whose provider names no model, in their configured order; a guard over
-     * another table, or over the same table on another connection, is left out.
+     * The guards for an identity are those whose provider reads its table on
+     * its connection or names no model.
      *
      * @return void
      */

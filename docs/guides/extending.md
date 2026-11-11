@@ -3,8 +3,8 @@
 ## Extensibility
 
 Concrete classes in this package are `final` except `AuthManager` (the package's subclass of Laravel's manager), the
-shipped `Models\Session` model, and the extension points noted below. Extension is through **composition and DI**, not
-inheritance:
+shipped `Models\Session` model, and the extension points noted below. Extension is through composition and the
+container:
 
 | Extension point                   | How                                                                                                                                                      |
 |-----------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -476,15 +476,16 @@ the exception's class (never the exception's message, which may carry a value), 
 
 Every default the package binds is bound only when nothing is bound yet: `PrincipalResolver`, `ApplicationPolicy`,
 `ApplicationAccess`, `TenantAccess`, `TenantResolver`, `AttemptLimiter`, `AdditionalFactorPolicy`, `PasskeyFactorGate`,
-`TenantAuthenticationPolicy`, `RequirementCheck`, `FactorCodeCounters`, `FreshnessPolicy`, `ScopeRegistry`,
-`BreachedPasswordChecker`, `PasswordResetLinkSender`, the `IdentifierNormalizers` and `SignInMethodManager` registries,
-and the package's own `WebAuthn`, `Rehashing`, `JwtTokenServiceFactory` and the `Authenticate` middleware that stands in
-for Laravel's. Bind yours in a service provider's `register()`, before or after the package's provider: one bound before
-is kept, and one bound after replaces the default, so a factor policy is never replaced by
-`NeverRequireAdditionalFactor`, nor a scope registry by `AcceptAnyScope`. A `bind()` or `singleton()` replaces a default
-even once it has resolved, for every caller that resolves it afterwards; a deferred provider does not, as Laravel loads
-one only for a service that has no instance yet. Resolve none of them while providers register, or a deferred provider's
-binding of it is passed over.
+`TenantAuthenticationPolicy`, `ExternalIdentityLinks`, `RequirementCheck`, `ExternalEvidencePolicy`,
+`FactorCodeCounters`, `FreshnessPolicy`, `ScopeRegistry`, `BreachedPasswordChecker`, `PasswordResetLinkSender`,
+`AuthenticationContexts`, the `IdentifierNormalizers`, `SignInMethodManager`, `ContextContributors` and
+`ConfigurationChecks` registries, and the package's own `WebAuthn`, `Rehashing`, `JwtTokenServiceFactory` and the
+`Authenticate` middleware that stands in for Laravel's. Bind yours in a service provider's `register()`, before or
+after the package's provider: one bound before is kept, and one bound after replaces the default, so a factor policy is
+never replaced by `NeverRequireAdditionalFactor`, nor a scope registry by `AcceptAnyScope`. A `bind()` or `singleton()`
+replaces a default even once it has resolved, for every caller that resolves it afterwards; a deferred provider does
+not, as Laravel loads one only for a service that has no instance yet. Resolve none of them while providers register,
+or a deferred provider's binding of it is passed over.
 
 A `FreshnessPolicy` of your own is asked `freshProof()` plainly wherever the package judges a session without its lock,
 and with the read mode set (`current: true`) under a session's lock (the factor-change gate, an identifier change

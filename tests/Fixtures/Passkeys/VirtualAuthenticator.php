@@ -5,17 +5,8 @@ declare(strict_types = 1);
 namespace Tests\Fixtures\Passkeys;
 
 /**
- * A software authenticator and browser for the passkey tests: it answers the
- * creation and request options the package hands out with the JSON a browser's
- * `PublicKeyCredential.toJSON()` sends, signed with real ES256, EdDSA or RS256
- * keys it keeps for each credential it created, so the package verifies them
- * exactly as it would a hardware or platform authenticator's.
- *
- * Every flag and value an attack or a fault could change is a property the
- * tests set: the origin the browser reports, the relying party id hashed into
- * the authenticator data, the user presence and verification flags, the backup
- * bits, the attestation format, and how far each assertion moves the sign
- * counter (0 for an authenticator without one, such as a synced passkey).
+ * A software authenticator and browser that answers the package's passkey
+ * options with real ES256, EdDSA or RS256 signatures.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -158,9 +149,8 @@ final class VirtualAuthenticator
     }
 
     /**
-     * Sign an assertion for the request options with the credential (by default
-     * the one created last for the options' relying party) and return the
-     * browser's authentication response.
+     * Sign an assertion for the request options and return the browser's
+     * authentication response.
      *
      * @param  array<string, mixed>  $options
      * @param  ?string  $credentialId

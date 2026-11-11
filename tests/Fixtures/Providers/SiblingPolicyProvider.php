@@ -13,9 +13,8 @@ use Tests\Fixtures\Resolvers\IdentityAsPrincipalResolver;
 use Tests\Fixtures\Scopes\AdminRejectingScopeRegistry;
 
 /**
- * Another package's provider binding the policies it owns: a principal
- * resolver, an additional-factor policy that asks for a factor, and a scope
- * registry that refuses `admin`.
+ * Another package's provider that binds its own principal resolver,
+ * additional-factor policy and scope registry.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

@@ -8,12 +8,8 @@ use Illuminate\Contracts\Database\Query\Expression;
 use Illuminate\Database\Grammar;
 
 /**
- * A raw SQL fragment whose identifiers and values the grammar compiling the
- * query fills in: the identifiers wrapped, then the values escaped, in that
- * order, into the fragment's `sprintf()` placeholders.
- *
- * The fragment itself stays a literal, so nothing from outside the package is
- * ever spliced into SQL unwrapped or unescaped.
+ * A literal SQL fragment whose identifiers and values the compiling grammar
+ * wraps and escapes into its `sprintf()` placeholders.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

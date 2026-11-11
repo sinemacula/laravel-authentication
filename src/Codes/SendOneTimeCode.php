@@ -25,31 +25,9 @@ use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
 
 /**
  * Delivers a one-time code through the application's `OneTimeCodeSender`,
- * outside the request that asked for it, so the request's response and timing
- * say nothing about whether anyone has the identifier.
+ * outside the request that asked for it.
  *
- * The payload carries the code and the identifier, so it is encrypted with the
- * application key on the queue. When the job runs it first checks, on the write
- * connection, that the code is still the binding's live issuance (not replaced
- * by a resend, even one that drew the same digits, not used, not expired), and
- * sends nothing otherwise; a retry checks again, so a code that stopped working
- * is never sent. Then it finds the recipient. A sign-in code goes only to an
- * identity the guard's provider finds by the identifier that is active, can
- * report its identifiers verified, holds exactly this one (see
- * `CodeIdentifiers`) and reports it verified, and is not a machine identity;
- * for anyone else, or no one, nothing is sent and nothing says so. A
- * verification code goes only to the identity it was issued for, read again
- * from the write connection, while its identifier of the type is still the one
- * the code is bound to, and never to a machine identity. A further factor's
- * code, or an enrolment's, goes only to the identity it was issued for, read
- * again from the write connection, never a machine identity, at the destination
- * its factor named, which the factor package admitted before the code was
- * issued. An exception from the sender fails the job, and the application's
- * retry policy applies; an unbound sender is a `BindingResolutionException`. A
- * job whose identity was deleted before it ran is dropped, not failed; the
- * class attribute, rather than a property, is what every supported Laravel
- * version reads for that. A code of any other purpose has a delivery job of its
- * own, so this one refuses it with a `LogicException`.
+ * Every supported Laravel version reads the attribute, not the property.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -139,9 +117,7 @@ final class SendOneTimeCode implements ShouldBeEncrypted, ShouldQueue
 
     /**
      * The identity the guard's provider finds by the identifier, when it may
-     * receive a sign-in code: active, not a machine identity, holding exactly
-     * the identifier, and reporting it verified (both read on the write
-     * connection).
+     * receive a sign-in code.
      *
      * @param  \Illuminate\Contracts\Container\Container  $container
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
@@ -166,9 +142,8 @@ final class SendOneTimeCode implements ShouldBeEncrypted, ShouldQueue
     }
 
     /**
-     * The identity the verification code was issued for, read again from the
-     * write connection, while its identifier of the type is still the one the
-     * code is bound to; never a machine identity.
+     * The identity the verification code was issued for, while it still holds
+     * the bound identifier.
      *
      * @param  \Illuminate\Contracts\Container\Container  $container
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity

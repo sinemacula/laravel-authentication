@@ -16,9 +16,7 @@ use Symfony\Component\VarDumper\Cloner\VarCloner;
 use Symfony\Component\VarDumper\Dumper\CliDumper;
 
 /**
- * Unit tests for the cookie a cookie application's pair carries in place of its
- * refresh token: the browser's `Set-Cookie`, made only when asked, attached to
- * a response that is never stored, and shown to no dump.
+ * Unit tests for the cookie that carries a cookie application's refresh token.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -32,8 +30,8 @@ final class RefreshCookieTest extends TestCase
     private const string TOKEN = 'eyJhbGciOiJIUzI1NiJ9.refresh-payload.signature';
 
     /**
-     * The cookie carries the token `HttpOnly`, `Secure` and `SameSite=Strict`,
-     * host-only, with the name, path and expiry given, encoded as any cookie.
+     * The cookie carries the token `HttpOnly`, `Secure`, `SameSite=Strict` and
+     * host-only.
      *
      * @return void
      */
@@ -57,8 +55,8 @@ final class RefreshCookieTest extends TestCase
     }
 
     /**
-     * Attaching the cookie adds it to the response, which is the same one back,
-     * and marks it not to be stored, replacing its caching.
+     * Attaching the cookie adds it to the response and marks the response not
+     * to be stored.
      *
      * @return void
      */
@@ -77,8 +75,7 @@ final class RefreshCookieTest extends TestCase
     }
 
     /**
-     * No dump of the cookie shows the token (Laravel's VarDumper, `print_r`,
-     * `var_export`), though it shows the name, and serialising it throws.
+     * No dump of the cookie shows the token, and serialising it throws.
      *
      * @return void
      */

@@ -21,10 +21,7 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\PlainIdentityFixture;
 
 /**
- * Feature tests of who may reset a password: a machine, an inactive identity,
- * an unverified identifier on a guard that requires verified ones, no one, and
- * a holder found only by a look-alike are sent nothing, and a live token for
- * them resets nothing and stays unspent.
+ * Feature tests of who may reset a password.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -39,9 +36,8 @@ final class ResetRecipientTest extends TestCase
     use InteractsWithPasswordResets;
 
     /**
-     * Rows of an identity that may not reset its password, and the reason the
-     * refusal reports: a machine, an inactive identity, and an unverified
-     * identifier on a guard that requires verified ones.
+     * Rows of an identity that may not reset its password, and the reason
+     * reported.
      *
      * @return iterable<string, array{0: string, 1: \Closure(): mixed, 2: string}>
      */
@@ -57,9 +53,8 @@ final class ResetRecipientTest extends TestCase
     }
 
     /**
-     * Nothing is sent to an identity that may not reset its password, and a
-     * reset with a live token for it is `invalid`, reported with why, and
-     * leaves the token unspent.
+     * An identity that may not reset is sent nothing, and its live token resets
+     * nothing.
      *
      * @param  string  $guard
      * @param  \Closure(): mixed  $seed
@@ -94,9 +89,7 @@ final class ResetRecipientTest extends TestCase
     }
 
     /**
-     * `ResetRecipient` is a utility container, not to be instantiated: its
-     * constructor is private. Reflection invokes it so the line is covered
-     * while still documenting the access modifier.
+     * The constructor is private.
      *
      * @return void
      *
@@ -117,10 +110,8 @@ final class ResetRecipientTest extends TestCase
     }
 
     /**
-     * An identity that cannot report its identifiers verified is found by the
-     * model attribute named after the type, compared in canonical form: it is
-     * sent the link and resets with it, even on a guard that requires verified
-     * identifiers, which it cannot answer.
+     * An identity without verification is found by the attribute named after
+     * the type.
      *
      * @return void
      *
@@ -157,9 +148,8 @@ final class ResetRecipientTest extends TestCase
     }
 
     /**
-     * An identity that cannot report verification and stores its address in
-     * another case holds the address in canonical form: found by a provider
-     * that matches any case, it is sent the link and resets with it.
+     * An identity without verification that stores its address in another case
+     * resets.
      *
      * @return void
      *
@@ -192,9 +182,7 @@ final class ResetRecipientTest extends TestCase
     }
 
     /**
-     * An identity that reports its email address through its verification, from
-     * a column not named after the type, holds the address: it is sent the link
-     * and resets with it.
+     * An identity reporting its address from another column resets.
      *
      * @return void
      *
@@ -222,9 +210,8 @@ final class ResetRecipientTest extends TestCase
     }
 
     /**
-     * An identity that cannot report verification, found only by a look-alike
-     * of its stored address, does not hold the address: it is sent nothing, and
-     * a live token for the address resets nothing.
+     * A look-alike holder without verification is sent nothing and resets
+     * nothing.
      *
      * @return void
      *

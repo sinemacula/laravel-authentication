@@ -45,12 +45,8 @@ use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
 
 /**
- * Reflection-based structural tests for the package contracts.
- *
- * Pins the documented method surface of every contract and the inheritance
- * chains that let framework typehints resolve against package implementations.
- * Marked `#[CoversNothing]` because PHPUnit cannot attribute coverage to a bare
- * interface; the assertions run against interface metadata only.
+ * Reflection tests for the package contracts; `#[CoversNothing]` as PHPUnit
+ * cannot attribute coverage to an interface.
  *
  * @internal
  *
@@ -61,9 +57,8 @@ use SineMacula\Laravel\Authentication\Secrets\Secret;
 final class ContractDeclarationTest extends TestCase
 {
     /**
-     * `IdentityProvider` extends Laravel's framework `UserProvider` contract so
-     * the package provider drops into Laravel's `Auth::createUserProvider()`
-     * factory unchanged.
+     * `IdentityProvider` extends Laravel's `UserProvider` so it drops into
+     * `Auth::createUserProvider()`.
      *
      * @return void
      */
@@ -90,13 +85,8 @@ final class ContractDeclarationTest extends TestCase
     }
 
     /**
-     * `Session` declares exactly the read surface the guards, the refresh
-     * exchange, the session service, and the package events depend on: the
-     * identifier, last use, both refresh digests and the rotation time, both
-     * deadlines, the revocation, the guard and sign-in method that started the
-     * session, its status and requirements, the pending credential's digest,
-     * the active tenant and policy version, and the floor its context changes
-     * set.
+     * `Session` declares exactly the read surface the guards, services and
+     * events depend on.
      *
      * @return void
      */
@@ -148,11 +138,8 @@ final class ContractDeclarationTest extends TestCase
     }
 
     /**
-     * `EloquentSession` adds exactly the owner and principal relations and the
-     * column names the session creation, activation, refresh, revocation, and
-     * last-use writes need, and the generation's and the issuance guard's,
-     * besides those of the session's origin and standing. The identifier has no
-     * column name: it is always the primary key.
+     * `EloquentSession` adds exactly the relations and column names the session
+     * writes need.
      *
      * @return void
      */
@@ -199,8 +186,7 @@ final class ContractDeclarationTest extends TestCase
 
     /**
      * `EloquentSessionStanding` declares exactly the column names of where a
-     * session stands: its status, what it waits on, its pending credential, the
-     * session it supersedes, the slots it keeps, and its active tenant.
+     * session stands.
      *
      * @return void
      */
@@ -219,9 +205,8 @@ final class ContractDeclarationTest extends TestCase
     }
 
     /**
-     * `EloquentSession::authenticatable()` and `principal()` must return
-     * MorphTo relations, and the persistence column-name accessors, its
-     * origin's and standing's included, must return strings.
+     * `EloquentSession`'s relations return `MorphTo` and its column-name
+     * accessors return strings.
      *
      * @return void
      */
@@ -301,11 +286,7 @@ final class ContractDeclarationTest extends TestCase
 
     /**
      * `ApplicationPolicy` declares exactly the four questions the package asks
-     * an application's settings: may this method start a session (or this
-     * machine credential be accepted), may a client credentials exchange read
-     * the client from the body, may this identity sign in with this identifier,
-     * and for how long; the second and the last depend on the guard alone.
-     * Which principals may hold a session is not among them.
+     * an application's settings.
      *
      * @return void
      */
@@ -324,9 +305,7 @@ final class ContractDeclarationTest extends TestCase
 
     /**
      * The access contracts each declare one yes-or-no question, and the
-     * resolver one lookup by an opaque identifier: may this principal use this
-     * application, may it act in this tenant (or in none), and which tenant an
-     * identifier names.
+     * resolver one lookup.
      *
      * @return void
      */
@@ -344,9 +323,8 @@ final class ContractDeclarationTest extends TestCase
     }
 
     /**
-     * `AttemptLimiter` declares the reserve-and-release pair for flows that
-     * guess a secret and the read-and-count pair for flows that count only
-     * failures.
+     * `AttemptLimiter` declares a reserve-and-release pair and a read-and-count
+     * pair.
      *
      * @return void
      */
@@ -356,9 +334,8 @@ final class ContractDeclarationTest extends TestCase
     }
 
     /**
-     * Verifiable identifiers are a capability an identity opts into:
-     * `HasVerifiableIdentifiers` declares reading the identifier, reading its
-     * verification, and recording it, and `Identity` declares none of them.
+     * `HasVerifiableIdentifiers` declares the identifier verification methods,
+     * and `Identity` declares none.
      *
      * @return void
      */
@@ -386,9 +363,7 @@ final class ContractDeclarationTest extends TestCase
     }
 
     /**
-     * `HasSessions::sessions()` must return an
-     * `Illuminate\Contracts\Database\Eloquent\Builder` so the guards'
-     * `resolveSessionFromHint()` path can query through a uniform surface.
+     * `HasSessions::sessions()` returns an Eloquent `Builder` contract.
      *
      * @return void
      */
@@ -406,9 +381,8 @@ final class ContractDeclarationTest extends TestCase
     }
 
     /**
-     * `HasPrincipals::principals()` must return an
-     * `Illuminate\Contracts\Database\Eloquent\Builder` and
-     * `resolveDefaultPrincipal()` must return a nullable `Principal`.
+     * `HasPrincipals::principals()` returns an Eloquent `Builder` contract and
+     * `resolveDefaultPrincipal()` a nullable `Principal`.
      *
      * @return void
      */
@@ -489,9 +463,7 @@ final class ContractDeclarationTest extends TestCase
     }
 
     /**
-     * The shipped guard declares every method on Laravel's `Guard` contract.
-     * Pins the full conformance surface in one reflection scan so a renamed
-     * contract method fails the suite cleanly.
+     * The shipped guard declares every method of Laravel's `Guard` contract.
      *
      * @param  string  $method
      * @return void
@@ -507,8 +479,7 @@ final class ContractDeclarationTest extends TestCase
 
     /**
      * `SignInMethod` declares exactly what the session service asks of a
-     * method: the identifier type, the identifier the input names, the
-     * challenge it answers, and the verification itself.
+     * method.
      *
      * @return void
      */
@@ -539,9 +510,8 @@ final class ContractDeclarationTest extends TestCase
     }
 
     /**
-     * Both changes of the passkey factor gate end in the client of the request
-     * they act for, required, and a registration is also handed the pending
-     * credential, a nullable secret, last.
+     * Both passkey factor gate changes take the client, and a registration also
+     * takes the pending credential last.
      *
      * @return void
      */
@@ -628,9 +598,8 @@ final class ContractDeclarationTest extends TestCase
     }
 
     /**
-     * The freshness contract carries its read mode: `freshProof()` and
-     * `freshUntil()` each take, last, whether the session is judged as
-     * committed (`$current`), plain unless asked.
+     * `freshProof()` and `freshUntil()` each take, last, whether the session is
+     * judged as committed.
      *
      * @return void
      */

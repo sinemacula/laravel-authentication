@@ -7,20 +7,7 @@ namespace SineMacula\Laravel\Authentication\Events;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
 
 /**
- * Dispatched when `Auth::passwords()->set()`, or a password reset, sets an
- * identity's password: at a registration, a change or a reset, as the flow
- * says.
- *
- * Fired only once the new hash is committed on the identity's own connection:
- * at once when that connection has no open transaction, after its transaction
- * commits otherwise, and never for one that is rolled back. The sessions the
- * flow ends are reported by their own `SessionRevoked` and
- * `SignedOutEverywhere` events. Never fired by the automatic rehash of a
- * password on sign-in.
- *
- * The context carries the guard, the client the request came from and the
- * identity, and, for a change that kept the session it was made from signed in,
- * that session. It carries no password or hash.
+ * Dispatched once an identity's new password hash is committed.
  *
  * @api
  *

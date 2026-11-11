@@ -126,8 +126,7 @@ final class SwitchResultTest extends TestCase
 
     /**
      * A switch returned to pending carries the pending session and its
-     * credential, and no session, reason or wait; it is neither switched nor
-     * refused, and read from a source it keeps both.
+     * credential, and is neither switched nor refused.
      *
      * @return void
      */

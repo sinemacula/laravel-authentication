@@ -27,10 +27,8 @@ use Tests\Integration\Fixtures\PrefixedKeySessionIdentity;
 use Tests\TestCase;
 
 /**
- * A session model that implements `ValidatesSessionKey` decides which `sid`
- * values the bearer and refresh paths look up: a stored session whose key the
- * model rejects is treated as unknown, although a plain string key would
- * otherwise be looked up.
+ * Tests that a session model implementing `ValidatesSessionKey` decides which
+ * `sid` values the bearer and refresh paths look up.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -120,9 +118,7 @@ final class SessionKeyValidationIntegrationTest extends TestCase
     }
 
     /**
-     * A bearer token naming a stored session by a key the model accepts binds
-     * the session; one naming a stored session by a key the model rejects is
-     * refused.
+     * A bearer token binds only a session whose key the model accepts.
      *
      * @return void
      *
@@ -143,9 +139,7 @@ final class SessionKeyValidationIntegrationTest extends TestCase
     }
 
     /**
-     * A refresh token naming a stored session by a key the model accepts
-     * rotates; one naming a stored session by a key the model rejects fails as
-     * `session_unknown` and leaves that session's rotation untouched.
+     * A refresh rotates only a session whose key the model accepts.
      *
      * @return void
      *
@@ -222,8 +216,7 @@ final class SessionKeyValidationIntegrationTest extends TestCase
     }
 
     /**
-     * Persist a session for the identity under the given key, holding the
-     * stored rotation.
+     * Persist a session for the identity under the given key.
      *
      * @param  \Tests\Integration\Fixtures\PrefixedKeySessionIdentity  $identity
      * @param  string  $key

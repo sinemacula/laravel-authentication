@@ -7,9 +7,7 @@ namespace Tests\Concerns;
 use Illuminate\Database\Eloquent\Model;
 
 /**
- * Compares what the package hands back, typed by its contracts, with the
- * Eloquent model a test expects, and reads a model's key as the package's
- * contracts take it.
+ * Compares what the package hands back with the Eloquent model a test expects.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -19,8 +17,7 @@ use Illuminate\Database\Eloquent\Model;
 trait ComparesModels
 {
     /**
-     * Assert that the value is the model expected: an Eloquent model of the
-     * same table, connection and key.
+     * Assert that the value is a model of the same table, connection and key.
      *
      * @param  \Illuminate\Database\Eloquent\Model  $expected
      * @param  mixed  $actual

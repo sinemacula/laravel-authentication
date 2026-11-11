@@ -20,9 +20,7 @@ use Tests\Unit\Stubs\PlainPrincipalFixture;
 use Tests\Unit\Stubs\PlainTenantFixture;
 
 /**
- * Feature tests for whether a principal may hold a session of an application:
- * active, its own tenant active, and let use the application by the bound
- * `ApplicationAccess`, in that order, each refusal with its own reason.
+ * Feature tests for whether a principal may hold a session of an application.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -54,8 +52,7 @@ final class PrincipalAdmissionTest extends TestCase
 
     /**
      * An active principal in an active tenant, or in none, that the access lets
-     * use the application holds a session of it, the access asked with the
-     * guard and the principal.
+     * use the application is admitted.
      *
      * @return void
      */
@@ -72,9 +69,8 @@ final class PrincipalAdmissionTest extends TestCase
     }
 
     /**
-     * An inactive principal is refused as `principal_inactive` and one whose
-     * own tenant is inactive, or opts into activation and cannot be loaded, as
-     * `tenant_inactive`, before the access is asked about them.
+     * An inactive principal or own tenant is refused before the access is
+     * asked.
      *
      * @return void
      */
@@ -111,8 +107,7 @@ final class PrincipalAdmissionTest extends TestCase
 
     /**
      * A principal whose own activity the caller has checked is not asked it
-     * again: its own tenant is judged, then the access, as `refusal()` judges
-     * an active principal.
+     * again.
      *
      * @return void
      */
@@ -134,8 +129,7 @@ final class PrincipalAdmissionTest extends TestCase
     }
 
     /**
-     * The access is resolved each time it is asked, so one bound later is the
-     * one heard.
+     * The access is resolved each time it is asked.
      *
      * @return void
      */

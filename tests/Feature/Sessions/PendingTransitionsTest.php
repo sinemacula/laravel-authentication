@@ -48,9 +48,8 @@ use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 use Tests\TestCase;
 
 /**
- * Feature tests for an active session's return to pending: the one
- * compare-and-swap on the row as it was loaded, what it records, the pending
- * credential it hands out, and its report once committed.
+ * Feature tests for an active session's return to pending through one
+ * compare-and-swap on its loaded row.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -105,11 +104,8 @@ final class PendingTransitionsTest extends TestCase
     }
 
     /**
-     * The session returns to pending on `mfa` with a new pending credential of
-     * the configured lifetime, its floor moved to now, keeping its principal
-     * and tenant and recording the policy version the caller judged it against,
-     * the session given holding what was written as stored; the report follows,
-     * naming no previous principal or tenant, since neither changed.
+     * An active session returns to pending on `mfa` with a new credential and
+     * records the policy version.
      *
      * @return void
      *
@@ -194,10 +190,8 @@ final class PendingTransitionsTest extends TestCase
     }
 
     /**
-     * Transitions that report through a schedule hand it each return's report
-     * once the return applied, in place of scheduling it for the commit, with
-     * the client they were given, and keep the client when they are made;
-     * nothing is handed over for a return that did not apply.
+     * A return is reported through the transitions' schedule once applied, with
+     * their client.
      *
      * @return void
      *
@@ -238,10 +232,8 @@ final class PendingTransitionsTest extends TestCase
     }
 
     /**
-     * What an active session falls short of is the tenant's requirement alone
-     * while the identity owes nothing, and the strictest of both once the
-     * identity's own factor policy asks for more than the session has, judged
-     * on the session as it records its sign-in.
+     * An active session falls short of the tenant's requirement, or the
+     * strictest of both once the identity owes more.
      *
      * @return void
      *
@@ -267,11 +259,8 @@ final class PendingTransitionsTest extends TestCase
     }
 
     /**
-     * Asked to read current, as a caller holding the session's row locked asks,
-     * the first factor a return to pending is judged on, when the verdict
-     * carries none, and the proofs what the session falls short of is judged on
-     * are read with a shared lock where the engine takes one; asked nothing,
-     * they are read plainly.
+     * The proofs a return to pending is judged on take a shared lock only when
+     * asked to read current.
      *
      * @return void
      *
@@ -300,9 +289,8 @@ final class PendingTransitionsTest extends TestCase
     }
 
     /**
-     * The first factor a return to pending is judged on is the one the tenant's
-     * verdict was judged on, with no further read, and otherwise the one the
-     * session records, read once.
+     * A return to pending is judged on the verdict's first factor, else the
+     * session's own, read once.
      *
      * @return void
      *
@@ -399,11 +387,8 @@ final class PendingTransitionsTest extends TestCase
     }
 
     /**
-     * A session returned to pending in another tenant records the version that
-     * tenant's policy answered, not the one its old tenant's did, so the new
-     * tenant's policy-change helper never takes it as already checked when the
-     * two tenants answer the same version: the destination coming to require a
-     * connection at the version the origin recorded revokes it.
+     * A return to pending in another tenant records that tenant's policy
+     * version.
      *
      * @return void
      *
@@ -456,9 +441,8 @@ final class PendingTransitionsTest extends TestCase
     }
 
     /**
-     * A row that changed in any column the compare-and-swap holds since it was
-     * loaded is left exactly as it is, nothing is reported, and the caller
-     * judges it again: each of its predicates refuses the swap on its own.
+     * A row changed since it was loaded is left alone, and each predicate of
+     * the swap refuses it on its own.
      *
      * @param  array<string, ?string>  $change
      * @return void

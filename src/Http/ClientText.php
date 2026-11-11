@@ -6,15 +6,7 @@ namespace SineMacula\Laravel\Authentication\Http;
 
 /**
  * Makes text a client supplied safe to store in a UTF-8 text column and to show
- * back: invalid UTF-8 replaced, control and bidirectional formatting characters
- * removed, and cut to the column's length. PostgreSQL, and MySQL in strict
- * mode, reject invalid UTF-8 and an over-long value, and a crafted header must
- * not turn a request into a server error; PostgreSQL cannot store a NUL byte in
- * text, and through PDO a value is cut short at the first one. The other C0
- * controls, DEL and the C1 controls would carry terminal escape sequences into
- * a log or a console, and the bidirectional formatting characters would let a
- * device or passkey name shown in a session list read as another. They are
- * removed before the cut, so they never use up the length kept.
+ * back.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -32,9 +24,8 @@ final class ClientText
     private function __construct() {}
 
     /**
-     * Clean the value for a column of the given length: invalid UTF-8 replaced,
-     * control and bidirectional formatting characters removed, cut to
-     * `$maxLength` characters, and `null` when nothing is left.
+     * Clean the value for a column of the given length, or `null` when nothing
+     * is left.
      *
      * @param  ?string  $value
      * @param  int  $maxLength

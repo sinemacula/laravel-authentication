@@ -24,10 +24,8 @@ enum VerificationOutcome: string
     // identity's current one, so nothing was recorded
     case MISMATCH = 'mismatch';
 
-    // No live code was issued for the identity's current identifier, it was
-    // used up or replaced, the code or the challenge id is malformed or not the
-    // live challenge's, the code does not match, or the identity has no
-    // identifier of the type
+    // The code or challenge id is malformed, not live or does not match, or the
+    // identity has no identifier of the type
     case INVALID = 'invalid';
 
     // The code has expired

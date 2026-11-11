@@ -52,12 +52,7 @@ use Tests\Unit\Stubs\StubSession;
 
 /**
  * Feature tests for the sign-in policy `attempt()` applies on top of the
- * password sign-in method: the application policy's method check and admission,
- * the attempt limits, the additional-factor policy, and the failure events that
- * report each refusal.
- *
- * The policies are resolved from the container when `attempt()` runs, so each
- * test binds its own.
+ * password sign-in method.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -124,12 +119,8 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     }
 
     /**
-     * A successful attempt asks the application policy for the method first,
-     * then reserves an attempt, finds the account, reserves an attempt on the
-     * account, checks the password, admits the identity with its identifier,
-     * asks whether its principal may use the application, rehashes the password
-     * with the credentials it signed in with, asks the factor policy, and only
-     * then gives both reservations back, the attempt's and the account's.
+     * A successful attempt runs every check in order and only then gives back
+     * both reservations.
      *
      * @return void
      *
@@ -247,11 +238,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     }
 
     /**
-     * The identifier is read once for the failure events before the method
-     * check, and a second time, for the limits, only once the method is
-     * allowed: a `Stringable` identifier on a guard that does not allow the
-     * password method is read once and fails as `method_not_allowed`, and one
-     * on a guard that allows it is read twice before its slot is refused.
+     * The identifier is read for the limits only once the method is allowed.
      *
      * @return void
      *
@@ -298,10 +285,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     }
 
     /**
-     * The limiter is resolved once the method is allowed and before the
-     * identifier is read for the limits, so the slot is taken from the limiter
-     * bound then: an identifier whose read for the limits binds another limiter
-     * is refused with the wait of the one bound before it.
+     * The limiter is resolved before the identifier is read for the limits.
      *
      * @return void
      *
@@ -332,8 +316,8 @@ final class AbstractGuardTest extends AbstractGuardTestCase
             ) {}
 
             /**
-             * Read the identifier, binding the later limiter on the read for
-             * the limits, the second.
+             * Read the identifier, binding the later limiter on the second
+             * read.
              *
              * @return string
              */
@@ -405,9 +389,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
     /**
      * The limits count, and the verified-identifier requirement checks, the
-     * configured identifier key, whatever else the credentials hold: a lookup
-     * written as a closure cannot skip either. Credentials without that key
-     * count against the IP address only.
+     * configured identifier key, whatever the lookup.
      *
      * @return void
      *
@@ -465,11 +447,8 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     }
 
     /**
-     * Credentials whose identifier key holds anything but a string, a
-     * `Stringable`, an integer or a query closure are refused before any
-     * lookup, as invalid credentials, and count against the IP address only: a
-     * list of addresses would otherwise check a password against accounts the
-     * identifier's limit never counts.
+     * An identifier that cannot be counted is refused before any lookup and
+     * counts against the IP address only.
      *
      * @param  mixed  $identifier
      * @return void
@@ -505,11 +484,8 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     }
 
     /**
-     * A `Stringable` identifier is counted as its string and looked up as
-     * given, an integer is counted and looked up as its string form (so a
-     * database never compares a string column with a number), and a query
-     * closure under the identifier key still finds the account; each password
-     * check is then counted against the account.
+     * `Stringable`, integer and closure identifiers are counted and looked up,
+     * and each password check is counted against the account.
      *
      * @return void
      *
@@ -548,11 +524,8 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     }
 
     /**
-     * An account whose own limit is used up is not checked at all: its password
-     * is never compared, and the attempt fails as a wrong password would to the
-     * caller (Laravel's `Failed` carries the account found, as for any wrong
-     * password), while `AuthenticationFailed` tells server-side listeners the
-     * truth: the account's limit refused it, with the wait.
+     * An account with no attempts left fails as a wrong password without being
+     * checked, while `AuthenticationFailed` reports the limit.
      *
      * @return void
      *
@@ -585,9 +558,8 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     }
 
     /**
-     * When `ApplicationAccess` keeps the principal out of the application, the
-     * attempt fails as `principal_ineligible` with the whole context, and
-     * nothing is bound.
+     * An `ApplicationAccess` refusal fails the attempt as
+     * `principal_ineligible` and binds nothing.
      *
      * @return void
      *
@@ -628,11 +600,8 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     }
 
     /**
-     * The additional-factor policy is asked about the admitted sign-in with the
-     * password's proof and the request's client, and is never told of a
-     * session; when it requires what the password alone does not meet (the
-     * default check meets nothing) the attempt fails, because `attempt()`
-     * cannot leave a session pending.
+     * A required factor the password alone does not meet fails the attempt,
+     * since `attempt()` cannot leave a session pending.
      *
      * @return void
      *
@@ -681,9 +650,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     }
 
     /**
-     * A requirement the bound check finds the password alone meets lets the
-     * attempt through: the check judges the password's own proof, in memory,
-     * with no session.
+     * A requirement the password alone meets lets the attempt through.
      *
      * @return void
      *
@@ -725,8 +692,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
     /**
      * The additional-factor policy is asked about the identity alone, whatever
-     * principal and tenant the attempt admitted: a tenant that asks more says
-     * so through its tenant authentication policy.
+     * principal and tenant the attempt admitted.
      *
      * @return void
      *
@@ -793,10 +759,8 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     }
 
     /**
-     * `attempt()` with a pinned session acts in the tenant the session records:
-     * the principal's own is bound, while a tenant the session acts in that no
-     * longer resolves (the shipped resolver finds none) fails the attempt as
-     * `tenant_inactive`, with the session, and binds nothing.
+     * `attempt()` with a pinned session admits the principal in the tenant the
+     * session records, or fails as `tenant_inactive`.
      *
      * @return void
      *
@@ -842,10 +806,8 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     }
 
     /**
-     * `attempt()` with a pinned session holds the principal to the tenant the
-     * session acts in: once `TenantAccess` no longer lets it act there, the
-     * attempt fails as `tenant_ineligible`, with the session, though the access
-     * still lets it act in its own, and binds nothing.
+     * A pinned session in a tenant `TenantAccess` no longer allows fails as
+     * `tenant_ineligible` and binds nothing.
      *
      * @return void
      *
@@ -895,10 +857,8 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     }
 
     /**
-     * A pinned session the identity holds is bound, but the factor policy is
-     * never told of it, because naming a session proves nothing about who holds
-     * the client; when the policy then requires a factor, the failure still
-     * reports the session.
+     * A pinned session is bound but never shown to the factor policy, since
+     * naming a session proves nothing about who holds the client.
      *
      * @return void
      *
@@ -998,10 +958,8 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     }
 
     /**
-     * The timebox is cut short only for a sign-in that succeeds: a sign-in
-     * refused after its password was accepted (a required factor, say) waits it
-     * out like a wrong password. `validate()` cuts it short, and fires
-     * `Validated`, only for credentials it accepts.
+     * The timebox is cut short only for a sign-in that succeeds, and
+     * `validate()` fires `Validated` only for credentials it accepts.
      *
      * @return void
      *
@@ -1123,9 +1081,8 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     }
 
     /**
-     * A successful attempt binds as a sign-in through the password method:
-     * `Login` (not remembered) and the bind events, whose context reports the
-     * `password` method and the tenant the admission loaded.
+     * A successful attempt binds as a password sign-in, reporting the
+     * `password` method and the admitted tenant.
      *
      * @return void
      *
@@ -1161,10 +1118,8 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     }
 
     /**
-     * A subclass binding a resolved context through the protected
-     * `bindAuthenticationLifecycle()` hook gets a sign-in (`Login`, not
-     * remembered) whose events report the method the session records, and no
-     * method without a session.
+     * The `bindAuthenticationLifecycle()` hook binds a sign-in whose events
+     * report the session's method, or none without a session.
      *
      * @return void
      */
@@ -1200,10 +1155,8 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     }
 
     /**
-     * A subclass binding a context a credential authenticated through the
-     * protected `bindVerifiedContext()` hook binds it as a request, with no
-     * `Login`, limited to the credential's scopes, and its events carry the
-     * credential, its scopes and the method.
+     * The `bindVerifiedContext()` hook binds a credential's context without
+     * `Login`, limited to and reporting its scopes.
      *
      * @return void
      */
@@ -1285,9 +1238,8 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     }
 
     /**
-     * Every credential check first tells the guard's timebox that it may not
-     * return early, since an early return a success asked for would otherwise
-     * stay set for every later check on the guard.
+     * Every credential check first clears an early return an earlier success
+     * asked of the timebox.
      *
      * @return void
      */
@@ -1301,9 +1253,8 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     }
 
     /**
-     * `forgetUser()` forgets the bound identity, principal and session with no
-     * event, returns the guard itself, and keeps it signed out for the rest of
-     * the request: the request's credential is not resolved again.
+     * `forgetUser()` quietly signs the guard out for the rest of the request
+     * and returns the guard.
      *
      * @return void
      */
@@ -1331,9 +1282,8 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     }
 
     /**
-     * `setUser()` binds the identity as its resolver's default principal, with
-     * no session, and reports the bind (`Authenticated`, `PrincipalAssigned`)
-     * once the whole context is bound.
+     * `setUser()` binds the identity's default principal with no session and
+     * reports the bind once it is whole.
      *
      * @return void
      */
@@ -1358,10 +1308,8 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     }
 
     /**
-     * `setUser()` over a context a credential authenticated forgets the context
-     * the guard held for it and the kind of credential it was made with, so the
-     * next ask is built for the identity bound now, as a trusted bind with no
-     * credential.
+     * `setUser()` over a credential's context forgets that context and the
+     * credential kind it was made with.
      *
      * @return void
      *
@@ -1398,11 +1346,8 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     }
 
     /**
-     * `login()` given a client binds as any `login()` does, with `Validated`,
-     * `Login` and `Authenticated` unchanged, but its `PrincipalAssigned` and
-     * `SessionAuthenticated` describe that client rather than the guard's
-     * request; the guard keeps no client, so the next `login()` without one in
-     * the same request describes the request again.
+     * `login()` given a client describes that client in its bind events for
+     * that bind only.
      *
      * @return void
      */
@@ -1441,11 +1386,8 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     }
 
     /**
-     * `authenticateAs()` given a client binds as it does without one, with
-     * `Authenticated` unchanged, but its `PrincipalAssigned` and
-     * `SessionAuthenticated` describe that client rather than the guard's
-     * request; the guard keeps no client, so the next `authenticateAs()`
-     * without one describes the request again.
+     * `authenticateAs()` given a client describes that client in its bind
+     * events for that bind only.
      *
      * @return void
      */
@@ -1496,9 +1438,8 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     }
 
     /**
-     * Expect the attempt to give back no slot: a failure after the password was
-     * accepted keeps the attempt's own reservation and the one its password
-     * check took on the account, as any failure does.
+     * Expect the attempt to give back no slot, as any failure after the
+     * password was accepted does.
      *
      * @return void
      */

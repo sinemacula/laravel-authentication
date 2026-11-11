@@ -9,13 +9,7 @@ use Symfony\Component\VarDumper\Dumper\CliDumper;
 
 /**
  * Looks through an exception's trace for a secret the way a reporter that dumps
- * frames would find it: among the arguments of each frame, at any depth of an
- * array, and among the variables a closure argument captured, which
- * `#[\SensitiveParameter]` does not cover; and, with `dumpsInTrace()`, in the
- * whole object graph of every argument as Symfony's VarDumper shows it, private
- * properties and `__debugInfo()` included. Arguments are recorded only while
- * `zend.exception_ignore_args` is off, so `withArgumentsInTraces()` turns it
- * off for the call it runs.
+ * frames would find it.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -79,9 +73,7 @@ trait InspectsTraces
     }
 
     /**
-     * Whether any frame of the trace outside the tests themselves, whose
-     * closures hand the secret in, carries it, as an argument or a closure's
-     * capture.
+     * Whether any frame of the trace outside the tests carries the secret.
      *
      * @param  \Throwable  $exception
      * @param  \Closure(string): bool|string  $secret
@@ -95,11 +87,8 @@ trait InspectsTraces
     }
 
     /**
-     * Whether the trace carries the secret as `hasInTrace()` finds it, or the
-     * dump of the frames' arguments outside the tests themselves shows it
-     * anywhere in their object graphs, the way VarDumper (behind Laravel's
-     * `dump` and `dd`) shows them: each object's private properties and its
-     * `__debugInfo()`, and each closure's captures and bound object.
+     * Whether the trace carries the secret, or VarDumper's dump of the frames'
+     * arguments outside the tests shows it.
      *
      * @param  \Throwable  $exception
      * @param  \Closure(string): bool|string  $secret
@@ -124,8 +113,7 @@ trait InspectsTraces
     }
 
     /**
-     * A matcher for a signed token anywhere in a value: the three base64url
-     * segments of a JWT, whose header and payload both start `eyJ`.
+     * A matcher for a signed JWT anywhere in a value.
      *
      * @return \Closure(string): bool
      */

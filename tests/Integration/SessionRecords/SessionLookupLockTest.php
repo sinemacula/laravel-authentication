@@ -13,10 +13,8 @@ use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\TestCase;
 
 /**
- * Integration tests for the locking session lookup a proof of recent
- * authentication reads its session with: one read of the session's row by key,
- * with the engine's row lock (none on SQLite), where the plain lookup takes
- * none.
+ * Integration tests of the locking session lookup a proof of recent
+ * authentication reads its session with.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -30,7 +28,7 @@ final class SessionLookupLockTest extends TestCase
 
     /**
      * The locking lookup reads the row by key under the engine's row lock; the
-     * plain lookup runs the same read without it.
+     * plain one does not.
      *
      * @return void
      *

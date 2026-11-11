@@ -6,13 +6,7 @@ namespace SineMacula\Laravel\Authentication\Tenancy;
 
 /**
  * The tenant a sign-in, a choice of principal or a switch asks a session to act
- * in: the principal's default (its own tenant, or none for a platform
- * principal), none, or a tenant named by its opaque identifier.
- *
- * A selection is a request, not an admission: the package resolves a named
- * tenant (the principal's own without asking the `TenantResolver`, any other
- * through it), asks `TenantAccess` whether the principal may act in it, and
- * checks it is active, before a session records it as its active tenant.
+ * in.
  *
  * @api
  *

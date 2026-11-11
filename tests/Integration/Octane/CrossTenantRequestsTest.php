@@ -50,15 +50,8 @@ use Tests\Integration\Octane\Fixtures\RequestProbe;
 use Tests\TestCase;
 
 /**
- * Consecutive requests from different tenants, principals, guards and kinds of
- * credential, served by one Laravel Octane worker through its real lifecycle
- * (only Octane's own flushes and the package's), with a queued job run between
- * them: each request reports every guard's identity, principal, session, tenant
- * and scopes, the default guard, the caller, the authentication context (with a
- * contributor that depends on a scoped service) and the failures it reported,
- * and none of it is ever what an earlier request bound, whether that request
- * authenticated, threw, ended pending or was refused. The sequence runs in both
- * orders, so no assertion leans on what ran before it.
+ * Consecutive requests from different tenants, principals, guards and
+ * credentials on one Octane worker never see what an earlier request bound.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -93,9 +86,8 @@ final class CrossTenantRequestsTest extends TestCase
     private ?array $exploded = null;
 
     /**
-     * Freeze the clocks, create the tables, add the routes, register a
-     * contributor whose scoped dependency the booted application resolves once,
-     * as one that touches it at boot does, and boot the worker.
+     * Freeze the clocks, create the tables, add the routes, register the probe
+     * contributor and boot the worker.
      *
      * @return void
      */
@@ -231,8 +223,7 @@ final class CrossTenantRequestsTest extends TestCase
 
     /**
      * Person B, as P2 in T2, on `console`, the guard the request makes the
-     * default: `admin` refuses the token, and nothing of any other person is
-     * bound.
+     * default.
      *
      * @return void
      */
@@ -274,10 +265,8 @@ final class CrossTenantRequestsTest extends TestCase
     }
 
     /**
-     * A person signed in as P1 in T1 who switches to P3 in T3: the earlier
-     * access token, naming T1, is refused as `session_tenant_mismatch` (the
-     * session acts in T3 now), binding nothing, and the new one binds P3 in T3
-     * in the same session.
+     * A person who switches from P1 in T1 to P3 in T3; the earlier token is
+     * refused.
      *
      * @return void
      */
@@ -303,9 +292,7 @@ final class CrossTenantRequestsTest extends TestCase
     }
 
     /**
-     * Machine M's API key, as its membership in T4, on `machines`: the key's
-     * scopes and tenant are bound there alone, and the `jwt` guards refuse the
-     * key as a token.
+     * Machine M's API key, as its membership in T4, on `machines`.
      *
      * @return void
      */
@@ -325,9 +312,7 @@ final class CrossTenantRequestsTest extends TestCase
     }
 
     /**
-     * Machine N's client credentials token, as its membership in T5, on `m2m`:
-     * the token's scopes and tenant are bound there alone, and the other guards
-     * refuse it.
+     * Machine N's client credentials token, as its membership in T5, on `m2m`.
      *
      * @return void
      */
@@ -348,10 +333,8 @@ final class CrossTenantRequestsTest extends TestCase
     }
 
     /**
-     * A person authenticated on a route that then throws: the route had the
-     * person bound on `admin`, with the session, tenant and context, when it
-     * threw the exception it throws, which became a server error, and the guest
-     * request after it sees nothing of them.
+     * A person authenticated on a route that throws; the guest request after it
+     * sees nothing.
      *
      * @return void
      */
@@ -387,10 +370,8 @@ final class CrossTenantRequestsTest extends TestCase
     }
 
     /**
-     * A sign-in that ends pending, waiting for a choice of principal: the next
-     * request, carrying nothing, sees nothing; the one after, carrying the
-     * pending credential on a route that declares it, has the pending session
-     * as its caller and binds no guard.
+     * A sign-in that ends pending; only a route that declares the pending
+     * credential sees it.
      *
      * @return void
      */
@@ -412,10 +393,8 @@ final class CrossTenantRequestsTest extends TestCase
     }
 
     /**
-     * Queued jobs run, between a person's request and a guest's, on the
-     * application that served them, its request one with no credential as a
-     * queue worker's is: a job that binds a membership leaves the next job, and
-     * the guest request after them, with every guard signed out.
+     * Queued jobs between a person's request and a guest's leave every guard
+     * signed out.
      *
      * @return void
      */
@@ -748,9 +727,7 @@ final class CrossTenantRequestsTest extends TestCase
     }
 
     /**
-     * What the report of a request says: the default guard, every guard a guest
-     * but those given, the caller, the authentication context, and the failures
-     * reported.
+     * What the report of a request says when only the given guards are bound.
      *
      * @param  string  $default
      * @param  array<string, array<string, mixed>>  $guards
@@ -767,9 +744,7 @@ final class CrossTenantRequestsTest extends TestCase
     }
 
     /**
-     * The authentication context the report just served says the request has:
-     * the package's keys for the credential, and the probe's, naming that
-     * request.
+     * The authentication context the report just served says the request has.
      *
      * @param  string  $application
      * @param  \Tests\Integration\Fixtures\ChoosingMember|\Tests\Integration\Fixtures\MachineAccount  $identity

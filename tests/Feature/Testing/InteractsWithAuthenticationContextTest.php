@@ -27,10 +27,7 @@ use Tests\TestCase;
 
 /**
  * Feature tests for the testing helpers, driven as an application's test suite
- * would: acting as an identity, a principal or a session survives the requests
- * the test sends through `auth:<guard>` routes, ends on a sign-out through a
- * real endpoint and on `stopActing()`, keeps each guard's context apart, and
- * the bound-context assertions pass and fail with what they found.
+ * would drive them.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -43,9 +40,8 @@ final class InteractsWithAuthenticationContextTest extends TestCase
     use InteractsWithAuthenticationContext, InteractsWithSessions;
 
     /**
-     * Create the tables and register routes behind each guard's `auth`
-     * middleware that answer with what the request is authenticated as, and a
-     * sign-out endpoint.
+     * Create the tables and register `auth` routes that answer with the
+     * request's authentication, and a sign-out endpoint.
      *
      * @return void
      */
@@ -85,8 +81,7 @@ final class InteractsWithAuthenticationContextTest extends TestCase
 
     /**
      * Acting as an identity authenticates every request the test sends through
-     * the guard's `auth` middleware, as its default principal and on no
-     * session, and makes the guard the default.
+     * the guard.
      *
      * @return void
      */
@@ -122,11 +117,8 @@ final class InteractsWithAuthenticationContextTest extends TestCase
     }
 
     /**
-     * Acting as an identity of a three-dimensional guard binds the principal
-     * and session given, on every request, in the tenant the session records
-     * (here the tenant of the membership it was signed in as, which the
-     * application's resolver finds, not the own tenant of the membership acted
-     * as), or, with no session, in the principal's own.
+     * Acting as an identity with a principal and session binds them in the
+     * tenant the session records.
      *
      * @return void
      */
@@ -174,9 +166,8 @@ final class InteractsWithAuthenticationContextTest extends TestCase
     }
 
     /**
-     * Acting on a session whose recorded tenant the application cannot resolve
-     * never reads as acting in no tenant: the active tenant throws
-     * `TenantUnavailableException` while the context stays bound.
+     * Acting on a session whose tenant cannot be resolved throws for the
+     * tenant.
      *
      * @return void
      */
@@ -201,9 +192,8 @@ final class InteractsWithAuthenticationContextTest extends TestCase
     }
 
     /**
-     * Acting in a tenant binds it as the active tenant of the context the test
-     * acts as, on every request, until the test acts again; acting in a tenant
-     * on a guard the test does not act on is refused.
+     * Acting in a tenant binds it as the active tenant until the test acts
+     * again.
      *
      * @return void
      *
@@ -250,9 +240,7 @@ final class InteractsWithAuthenticationContextTest extends TestCase
     }
 
     /**
-     * Scopes limit a machine identity's credential, so acting as a human with
-     * scopes is refused, and nothing is acted as: the next request is
-     * unauthenticated.
+     * A human cannot be acted as with scopes.
      *
      * @return void
      */

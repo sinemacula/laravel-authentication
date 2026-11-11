@@ -23,33 +23,6 @@ use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
  * The password sign-in method: an identifier and a password, checked against
  * the identity's stored hash through the guard's identity provider.
  *
- * The identifier key comes from the guard's own
- * `auth.guards.<name>.sign_in.password_identifier` when it sets one, otherwise
- * from `authentication.sign_in.password_identifier` (default `email`), so each
- * guard can sign in by the column its identities are found by. `authenticate()`
- * passes the provider only that key, with a string value, and `password`, so no
- * other input key reaches a query.
- *
- * A non-human identity (`MachineIdentity`) has no password: every path refuses
- * it as invalid credentials before any hash is computed or its account is
- * counted, whatever its stored value, and the caller's timebox hides that it
- * did.
- *
- * Every password checked for a sign-in is counted against the account it is
- * checked for, on top of the identifier's and the IP address's limits the
- * caller takes, and the slot is the sign-in's to give back: a lookup can find
- * one account by many spellings of its identifier, and through every guard
- * whose provider returns it, so the account's own count, held to the most
- * permissive limit among those guards, is what bounds the guesses made at its
- * password, and at a further factor its sign-in waits for.
- *
- * `verifyCredentials()` is the credential path `validate()` uses: it takes the
- * caller's credentials as the provider understands them, closures included, and
- * counts nothing. None of them rehashes: a sign-in that is admitted calls
- * `rehash()`. `lookupCredentials()`, `retrieve()`, `verifyPassword()` and
- * `accepts()` exist for the guard's `attempt()` and are internal: they are not
- * part of the method's API and may change without notice.
- *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
@@ -92,8 +65,7 @@ final readonly class PasswordSignIn implements SignInMethod
 
     /**
      * The identifier key the guard is configured with, which is also the
-     * identifier's type: the guard's own `sign_in.password_identifier` when it
-     * sets one, otherwise the package's, and `email` when neither does.
+     * identifier's type.
      *
      * @param  string  $guard
      * @return string
@@ -119,9 +91,8 @@ final readonly class PasswordSignIn implements SignInMethod
     }
 
     /**
-     * The identifier the input names under the guard's identifier key, when it
-     * is a string, a `Stringable` or an integer (a numeric column's value sent
-     * as a JSON number), as a string.
+     * The identifier the input names under the guard's identifier key, as a
+     * string, when it is a string, a `Stringable` or an integer.
      *
      * @param  string  $guard
      * @param  array<array-key, mixed>  $input
@@ -150,16 +121,10 @@ final readonly class PasswordSignIn implements SignInMethod
     }
 
     /**
-     * The credentials `attempt()` looks the account up by, or `null` when they
-     * must not be looked up. They are looked up when they leave the guard's
-     * identifier key out (and find the account by other keys) or give it a
-     * string, a `Stringable`, an integer or a query closure; an integer is
-     * looked up as its string form, the form it is counted in and `signIn()`
-     * looks it up by, so a database that compares a string column with a number
-     * loosely (as MySQL does) never matches an account by it. Anything else
-     * under the key (a list of values, a float, a boolean, `null`) would let
-     * one attempt reach accounts the identifier's limit never counts, so it is
-     * refused before any lookup.
+     * The credentials `attempt()` looks the account up by, or `null` when the
+     * identifier is of a type the identifier's limit cannot count.
+     *
+     * An integer is looked up as a string so MySQL never compares it loosely.
      *
      * @param  string  $guard
      * @param  array<array-key, mixed>  $credentials
@@ -188,11 +153,7 @@ final readonly class PasswordSignIn implements SignInMethod
 
     /**
      * Verify the identifier and password the input carries, counting the
-     * password check against the account the identifier finds. Anything else in
-     * the input is ignored, and an identifier that is neither a string, a
-     * `Stringable` nor an integer is refused without a lookup. A verified
-     * password is a `password` channel with nothing observed and the `pwd`
-     * `amr` value.
+     * password check against the account the identifier finds.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInRequest  $request
      * @return \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Proofs\FirstFactor
@@ -237,13 +198,8 @@ final readonly class PasswordSignIn implements SignInMethod
     }
 
     /**
-     * Rehash the identity's password through the provider when its stored hash
-     * no longer matches the hasher's current algorithm or cost, unless
-     * Laravel's `hashing.rehash_on_login` setting turns that off. Called only
-     * after a password sign-in is admitted, so a request authenticated by a
-     * bearer token or a refresh never writes a password. The rehash runs marked
-     * by `Rehashing`, so a listener that ends sessions on a change of password
-     * does not take it for one.
+     * Rehash the identity's password when its stored hash is outdated, unless
+     * `hashing.rehash_on_login` turns that off.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\IdentityProvider  $provider
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -258,8 +214,7 @@ final readonly class PasswordSignIn implements SignInMethod
             return;
         }
 
-        // `#[\SensitiveParameter]` does not cover what a closure captures,
-        // which a dump of the trace shows.
+        // `#[\SensitiveParameter]` does not cover what a closure captures.
         $held = new \SensitiveParameterValue($credentials);
 
         Container::getInstance()->make(Rehashing::class)->during($identity, $credentials['password'] ?? null, static function () use ($provider, $identity, $held): void {
@@ -268,8 +223,8 @@ final readonly class PasswordSignIn implements SignInMethod
     }
 
     /**
-     * Look up the account the credentials name, from the write connection, as
-     * the provider reads it, whether or not their password matches.
+     * Look up the account the credentials name, whether or not their password
+     * matches.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\IdentityProvider  $provider
      * @param  array<array-key, mixed>  $credentials
@@ -284,11 +239,7 @@ final readonly class PasswordSignIn implements SignInMethod
 
     /**
      * Check the credentials' password for a sign-in, counted against the
-     * account: a slot of the account's limit is taken first and held by the
-     * sign-in's account attempts, which give it back only if the sign-in
-     * succeeds. When the account has no attempts left, its password is not
-     * checked and the answer is `false`, as for a wrong password, so the
-     * refusal does not reveal that the account exists.
+     * account; `false` when the account has no attempts left.
      *
      * @param  \SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts  $attempts
      * @param  \SineMacula\Laravel\Authentication\Contracts\IdentityProvider  $provider
@@ -308,9 +259,7 @@ final readonly class PasswordSignIn implements SignInMethod
     }
 
     /**
-     * Whether the credentials' password matches the account's stored hash. No
-     * account is never accepted, and no hash is computed for it: the caller's
-     * timebox evens out the time.
+     * Whether the credentials' password matches the account's stored hash.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\IdentityProvider  $provider
      * @param  ?\Illuminate\Contracts\Auth\Authenticatable  $user
@@ -325,9 +274,7 @@ final readonly class PasswordSignIn implements SignInMethod
     }
 
     /**
-     * Whether the account can hold a password credential: a non-human identity
-     * never does, so its password is never checked, nor its account counted,
-     * whatever its stored value.
+     * Whether the account can hold a password credential.
      *
      * @param  \Illuminate\Contracts\Auth\Authenticatable  $user
      * @return bool
@@ -339,9 +286,7 @@ final readonly class PasswordSignIn implements SignInMethod
 
     /**
      * The identifier key the guard's configuration gives, and the setting it
-     * comes from: the guard's `sign_in.password_identifier` when its `sign_in`
-     * block sets one, otherwise the package's. A guard `sign_in` block that is
-     * not an array, or sets anything else, fails closed.
+     * comes from.
      *
      * @param  string  $guard
      * @return array{0: mixed, 1: string}

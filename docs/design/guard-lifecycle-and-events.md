@@ -20,15 +20,15 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   afterwards.
 - `Login` is fired before `Authenticated` to mirror Laravel's first-party guard ordering.
 - A flow that writes a session and then binds it (the session service's sign-in, `satisfy()`, `choose()` and
-  `switchTo()`, and `refresh()`) schedules the lifecycle events that report the write (`SessionCreated`,
-  `SignedIn`, `Refreshed`, `PrincipalSwitched`) on the session connection's commit before it binds, so a bind listener
-  that throws (on `Validated`, `Login`, `Authenticated`, `PrincipalAssigned` or `SessionAuthenticated`) cannot withhold
-  them; its exception still reaches the caller. With no transaction open on that connection they are therefore
-  dispatched before the bind events, and a listener on them reads the event's context, not the guard, which is not yet
-  bound to the new session (a switch's listener would see the previous principal). Inside a transaction the bind
-  (`signIn()`, `start()`, `satisfy()`, `choose()`, a refresh and a switch) waits for the commit too, after the events,
-  and never runs on a rollback. A lifecycle listener that
-  throws propagates as any listener does, and with no transaction open stops the bind.
+  `switchTo()`, and `refresh()`) schedules the lifecycle events that report the write (`SessionCreated`, `SignedIn`,
+  `Refreshed`, `PrincipalSwitched`) on the session connection's commit before it binds, so a bind listener that throws
+  (on `Validated`, `Login`, `Authenticated`, `PrincipalAssigned` or `SessionAuthenticated`) cannot withhold them; its
+  exception still reaches the caller. With no transaction open on that connection they are therefore dispatched before
+  the bind events, and a listener on them reads the event's context, not the guard, which is not yet bound to the new
+  session (a switch's listener would see the previous principal). Inside a transaction the bind (`signIn()`, `start()`,
+  `satisfy()`, `choose()`, a refresh and a switch) waits for the commit too, after the events, and never runs on a
+  rollback. A lifecycle listener that throws propagates as any listener does, and with no transaction open stops the
+  bind.
 - A bind sets the identity, principal and session before it dispatches anything after `Login`: `Authenticated`,
   `PrincipalAssigned` and `SessionAuthenticated` all describe the whole bound context (see `event-model.md`).
 - `SessionAuthenticated` is emitted only when a non-null session is bound.
@@ -81,12 +81,11 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   for a further factor binds nothing, forgets a binding to that session (`forgetUser()`, no event), and emits
   `SessionReturnedToPending` (flow `switch`), as a refresh's return to pending does; a refusal emits only
   `AuthenticationFailed` (flow `switch`), with `SessionRevoked` first for a replayed token.
-- Direct `login()` emits the same sequence without `Attempting`. This is the package's public entry point for
-  out-of-band authentication such as refresh, OAuth, or SSO callbacks.
+- Direct `login()` emits the same sequence without `Attempting`.
 - `setUser()` (behind Laravel's `actingAs()`) clears the previous context (its authentication context and credential
-  kind too) and emits `Authenticated -> PrincipalAssigned`
-  for the identity and its default principal, without `Validated` or `Login`. An identity with no default principal is
-  rejected with an `InvalidArgumentException` and the previous context is kept.
+  kind too) and emits `Authenticated -> PrincipalAssigned` for the identity and its default principal, without
+  `Validated` or `Login`. An identity with no default principal is rejected with an `InvalidArgumentException` and the
+  previous context is kept.
 - `authenticateAs()` is the trusted bind of an authentication that is not a sign-in: it clears the previous context,
   settles the request, and emits `Authenticated -> PrincipalAssigned -> SessionAuthenticated?` without `Validated` or
   `Login`.
@@ -125,13 +124,14 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   route listing one kind, and a guard asked on a request the middleware did not record (no `auth` middleware, or before
   it runs), read every credential.
 - A rejected bearer token fires only `AuthenticationFailed` (flow `bearer`), once per request, with the first reason in
-  this order: `token_invalid`; `identity_unknown`, `identity_inactive`; `principal_mismatch` (the `principal` does not
-  resolve to exactly that principal); `principal_inactive`, `tenant_inactive`; and for a token that names a session,
-  `session_unknown` (not one of the identity's own, or not a key of the session model), `session_guard_mismatch`,
-  `session_revoked`, `session_expired`, `session_principal_mismatch` (the session acts as another principal, or none, or
-  switched principal after the token was issued); a token that names no session is checked against the "tokens valid
-  after" times instead (`issued_before_cutoff`). Its context carries the identity, principal and session as far as they
-  were found, and the `sid` the token named.
+  this order: `token_invalid`; `identity_unknown`, `machine_identity`, `identity_inactive`; `principal_mismatch` (the
+  `principal` does not resolve to exactly that principal); `principal_inactive`, `tenant_inactive`; and for a token that
+  names a session, `session_unknown` (not one of the identity's own, or not a key of the session model),
+  `session_guard_mismatch`, `session_revoked`, `session_pending`, `session_expired`, `session_tenant_mismatch`,
+  `session_principal_mismatch` (the session acts as another principal, or none), `session_switched` (issued before the
+  session's last context change), then `tenant_inactive` for the session's active tenant; a token that names no session
+  is checked against the "tokens valid after" times instead (`issued_before_cutoff`). Its context carries the identity,
+  principal and session as far as they were found, and the `sid` the token named.
 - A guest on a route that only package guards protect gets a JSON `401` whatever its `Accept` header: the package's
   `Http\Middleware\Authenticate` raises the `AuthenticationException` without evaluating Laravel's guest redirect, and
   `Http\UnauthenticatedResponse` renders it, translating the message into the application's locale as it renders, with

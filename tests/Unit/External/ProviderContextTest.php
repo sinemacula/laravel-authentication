@@ -11,10 +11,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\External\ProviderContext;
 
 /**
- * Unit tests for the provider context an adapter gives with its result: the
- * values it keeps, by value, the shapes and sizes it refuses, and the stored
- * form it encodes and reads back, where anything malformed is no context at
- * all.
+ * Unit tests for the provider context an adapter gives with its result.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -34,9 +31,8 @@ final class ProviderContextTest extends TestCase
     private const string STORED = 'A provider context must be valid UTF-8, hold only finite numbers and take at most 4096 bytes as stored.';
 
     /**
-     * A context keeps every value JSON keeps as it was given, lists and maps
-     * nested to the deepest level allowed included, and stores them as ASCII
-     * JSON whose floats stay floats.
+     * A context keeps every value JSON keeps as given and stores them as ASCII
+     * JSON.
      *
      * @return void
      */
@@ -164,10 +160,8 @@ final class ProviderContextTest extends TestCase
     }
 
     /**
-     * A context whose stored form, every character outside ASCII escaped
-     * (twelve bytes for one outside the basic plane), takes exactly the most
-     * bytes it may is kept; a byte more is refused, though it is far fewer
-     * characters.
+     * A context whose stored form takes exactly the most bytes it may is kept,
+     * and a byte more is refused.
      *
      * @return void
      */
@@ -184,9 +178,8 @@ final class ProviderContextTest extends TestCase
     }
 
     /**
-     * The context keeps a copy of what it was given, so changing the given
-     * array through a reference afterwards, at the top or nested, changes
-     * neither its values nor its stored form.
+     * The context keeps a copy, so changing the given array by reference
+     * afterwards changes nothing.
      *
      * @return void
      */
@@ -206,9 +199,8 @@ final class ProviderContextTest extends TestCase
     }
 
     /**
-     * The stored form reads back as the same values, the types JSON keeps kept,
-     * and a stored form another encoder wrote (characters unescaped) is read as
-     * its values.
+     * The stored form reads back as the same values, including one another
+     * encoder wrote.
      *
      * @return void
      */

@@ -143,9 +143,7 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * The `model` user provider driver is registered against Laravel's `Auth`
-     * factory and resolves the package `ModelProvider` for a config that uses
-     * `driver = model`.
+     * The `model` user provider driver resolves the package `ModelProvider`.
      *
      * @return void
      */
@@ -157,8 +155,7 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * A `model` that is not a string reaches `ModelProvider` as one, so it is
-     * refused with the provider's message naming it rather than a type error.
+     * A `model` that is not a string is refused with the provider's message.
      *
      * @return void
      */
@@ -173,9 +170,7 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * The `jwt` guard driver creator is registered against Laravel's `Auth`
-     * factory so resolving an `auth.guards.*.driver = jwt` guard yields the
-     * package `JwtGuard`.
+     * The `jwt` guard driver resolves the package `JwtGuard`.
      *
      * @return void
      */
@@ -185,10 +180,8 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * The `api_key` guard driver creator is registered too: such a guard is an
-     * `ApiKeyGuard` with the guard's provider and the resolver it tracks, and
-     * follows later rebinds of the request, the dispatcher and the global
-     * resolver; a guard-local resolver override is kept.
+     * The `api_key` guard driver resolves an `ApiKeyGuard` that follows later
+     * rebinds and keeps a guard-local resolver override.
      *
      * @return void
      */
@@ -226,8 +219,7 @@ final class AuthenticationServiceProviderTest extends TestCase
 
     /**
      * A `jwt` guard fails fast when the session model names a connection other
-     * than the storage connection, where its sessions are written with the
-     * package's other rows.
+     * than the storage connection.
      *
      * @return void
      */
@@ -242,8 +234,7 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * An `api_key` guard does not read the session model, since keys have no
-     * sessions: it is built whatever the session model is.
+     * An `api_key` guard is built whatever the session model is.
      *
      * @return void
      */
@@ -255,8 +246,8 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * An `api_key` guard fails fast when the storage connection, where its keys
-     * live, is not a connection name.
+     * An `api_key` guard fails fast when the storage connection is not a
+     * connection name.
      *
      * @return void
      */
@@ -271,8 +262,7 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * The package registers no `basic` guard driver, so a guard configured with
-     * `driver = basic` fails to resolve.
+     * A guard configured with `driver = basic` fails to resolve.
      *
      * @return void
      */
@@ -285,9 +275,7 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * The `SessionAuthenticated` event listener is registered with the
-     * dispatcher and resolves to the package `RecordSessionUsage` invokable
-     * listener class.
+     * `RecordSessionUsage` listens for `SessionAuthenticated`.
      *
      * @return void
      */
@@ -306,8 +294,7 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * The package guards are reset before each queued job, so a worker does not
-     * carry one job's identity into the next.
+     * The package guards are reset before each queued job.
      *
      * @return void
      */
@@ -321,8 +308,7 @@ final class AuthenticationServiceProviderTest extends TestCase
 
     /**
      * Every guard's credential attempt is followed through Laravel's auth
-     * events, so the rehash a guard runs during one is marked, and the forced
-     * rehash of `logoutOtherDevices()` is told apart from it.
+     * events, so the rehash a guard runs during one is marked.
      *
      * @return void
      */
@@ -403,9 +389,7 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * The principal resolver selection is public, for the configuration check:
-     * a guard without an override takes the bound resolver and tracks its
-     * rebinds, and one with an override takes that, fixed.
+     * A guard takes the bound principal resolver, or its own override, fixed.
      *
      * @return void
      */
@@ -499,10 +483,8 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * JWT guards without a guard-local override should continue tracking later
-     * rebinds of the app-wide `PrincipalResolver::class` binding, and the
-     * refresh exchange of a session service built for the guard must stay
-     * aligned with the guard's resolver.
+     * A JWT guard without an override, and its refresh exchange, track later
+     * rebinds of the global `PrincipalResolver`.
      *
      * @return void
      *
@@ -532,8 +514,8 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * JWT guards with a guard-local override must not be clobbered by later
-     * rebinds of the app-wide `PrincipalResolver::class` binding.
+     * A JWT guard keeps its override across later rebinds of the global
+     * `PrincipalResolver`.
      *
      * @return void
      *
@@ -563,8 +545,7 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * The registry of configuration checks is a container singleton, so a check
-     * registered in one provider is run by the command.
+     * The registry of configuration checks is a container singleton.
      *
      * @return void
      */
@@ -579,13 +560,8 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * The sign-in method registry is a container singleton, the mark of an
-     * automatic password rehash it and the password-change listener share is
-     * scoped (one per request or job), as are the sessions a bulk revocation
-     * kept for the check of a sign-in, choice or switch, the checks still
-     * waiting per session and the required work held for a commit, and the
-     * default additional-factor policy, which never asks for a factor, is bound
-     * as one so an application or an MFA package can rebind it.
+     * The sign-in method registry and factor policy are singletons, and the
+     * per-request state is scoped.
      *
      * @return void
      */
@@ -636,12 +612,8 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * The default tenant authentication policy, which requires nothing, the
-     * default requirement check, which meets nothing, the default external
-     * evidence policy, which finds every provider's evidence insufficient, and
-     * the default factor code counters, which refuse every factor code, are
-     * bound as singletons so a single sign-on or further-factor package can
-     * rebind them.
+     * The default tenant, requirement, external evidence and factor code
+     * contracts are bound as singletons.
      *
      * @return void
      */
@@ -662,8 +634,7 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * The default external identity links, which link nothing, are bound as a
-     * singleton so a single sign-on package can rebind them.
+     * The default external identity links are bound as a singleton.
      *
      * @return void
      */
@@ -679,9 +650,7 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * The default access contracts and tenant resolver (any principal in any
-     * application, a principal in its own tenant only, no other tenant
-     * resolved) are bound as singletons, so the application can bind its own.
+     * The default access contracts and tenant resolver are singletons.
      *
      * @return void
      */
@@ -705,9 +674,7 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * The default scope registry, which accepts every well-formed scope, is
-     * bound as a singleton so an authorisation package or the application can
-     * rebind it.
+     * The default scope registry is bound as a singleton.
      *
      * @return void
      */
@@ -723,8 +690,7 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * The configured freshness policy is the default, bound as a singleton so
-     * the application can bind its own.
+     * The configured freshness policy is bound as a singleton.
      *
      * @return void
      */
@@ -740,8 +706,7 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * The default breached-password checker, which finds nothing, is bound as a
-     * singleton so the application can bind a real one.
+     * The default breached-password checker is bound as a singleton.
      *
      * @return void
      */
@@ -758,7 +723,7 @@ final class AuthenticationServiceProviderTest extends TestCase
 
     /**
      * Laravel's notification is the default password reset link sender, bound
-     * as a singleton so the application can bind its own.
+     * as a singleton.
      *
      * @return void
      */
@@ -773,10 +738,8 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * The default authentication contexts, which ask the default guard, and the
-     * contributor registry are each bound as a singleton: a contributor a
-     * provider registers on one resolution of the registry is still there when
-     * a context is next built from another.
+     * The default authentication contexts and the contributor registry are each
+     * bound as a singleton.
      *
      * @return void
      */
@@ -798,9 +761,7 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * Package guards follow later rebinds of the `events` dispatcher, so an
-     * `Event::fake()` (or any dispatcher swap) made after a guard resolves
-     * still receives that guard's events.
+     * Package guards follow later rebinds of the `events` dispatcher.
      *
      * @return void
      *
@@ -832,10 +793,7 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * The refresh exchange follows the same `events` rebind as its guard: after
-     * an `Event::fake()` made once the guard has resolved, a failed refresh
-     * dispatches `AuthenticationFailed` to the fake, alongside the refresh's
-     * own `Attempting` and `Failed`.
+     * The refresh exchange follows the same `events` rebind as its guard.
      *
      * @return void
      *
@@ -863,10 +821,8 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * The refresh exchange of the guard's session service resolves the database
-     * transactions manager each time it defers a revocation event, so a manager
-     * bound later (as the testing transaction traits bind one) is the one
-     * consulted, and none is used when the container has none.
+     * The refresh exchange resolves the transactions manager each time it
+     * defers a revocation event.
      *
      * @return void
      */
@@ -897,9 +853,7 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * The guard-scoped JWT service factory is bound into the container as a
-     * singleton, so guards and the public `Auth::jwt()` surface resolve through
-     * the same factory and the token services it keeps per guard.
+     * The guard-scoped JWT service factory is bound as a singleton.
      *
      * @return void
      */
@@ -912,10 +866,8 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * Booting over a Laravel manager that `auth` already resolved to replaces
-     * it at once with the package's, which builds the guards of the drivers
-     * registered on it, and Laravel's facade, which had cached the replaced
-     * manager, reaches the package's.
+     * Booting over an already resolved Laravel manager replaces it with the
+     * package's, which keeps its drivers.
      *
      * @return void
      *
@@ -948,9 +900,7 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * `mergeConfigFrom` exposes the package config defaults at runtime - the
-     * `session.table` default of `'authentication_sessions'` is the canonical
-     * assertion.
+     * `mergeConfigFrom` exposes the package config defaults at runtime.
      *
      * @return void
      */
@@ -974,8 +924,7 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * The config tag publishes the package's config file to the application's
-     * `config/authentication.php`.
+     * The config tag publishes the package's config file.
      *
      * @return void
      */
@@ -1007,10 +956,8 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * The migrations tag publishes every shipped migration (sessions, pending
-     * sign-ins, rate limits, one-time codes, passkeys, passkey challenges, API
-     * keys, identifier changes, proofs and provenance), from the package to the
-     * application's migrations, under their own file names.
+     * The migrations tag publishes every shipped migration under its own file
+     * name.
      *
      * @return void
      */
@@ -1044,8 +991,7 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * The WebAuthn wrapper is shared: built once and reused by every guard's
-     * passkeys.
+     * The WebAuthn wrapper is shared by every guard's passkeys.
      *
      * @return void
      */
@@ -1065,11 +1011,8 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * The credential middleware a route declares its `me` bindings' credential
-     * with are aliased, and ordered before `SubstituteBindings` in the HTTP
-     * kernel's middleware priority, as the router sorts route middleware by it;
-     * `authentication.no-store` is aliased too, and comes first, so it wraps
-     * every other route middleware the kernel sorts.
+     * The credential middleware are aliased and ordered before
+     * `SubstituteBindings`, with `authentication.no-store` first.
      *
      * @return void
      */
@@ -1183,9 +1126,7 @@ final class AuthenticationServiceProviderTest extends TestCase
 
     /**
      * The package `AuthManager` is a subclass of Laravel's framework
-     * `AuthManager`. This is a sanity guard alongside the `AuthManagerTest`
-     * assertion to ensure the service-provider override does not regress to a
-     * sibling class.
+     * `AuthManager`.
      *
      * @return void
      */
@@ -1207,10 +1148,8 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * Define the Testbench environment with package config and an
-     * `auth.guards`/`auth.providers` setup that exercises both the `model` user
-     * provider driver and the `jwt` guard driver creator, plus a `basic` guard
-     * that no registered driver serves.
+     * Configure the package, a `model` provider, a `jwt` guard and a `basic`
+     * guard no driver serves.
      *
      * @param  mixed  $app
      * @return void
@@ -1267,8 +1206,8 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * Create the shipped rate limits table, in which a guard counts its sign-in
-     * and refresh attempts, and drop it when the application goes.
+     * Create the shipped rate limits table and drop it when the application
+     * goes.
      *
      * @return void
      */
@@ -1282,8 +1221,7 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * The refresh exchange of a session service the auth manager builds for the
-     * guard.
+     * The refresh exchange of the guard's session service.
      *
      * @param  \SineMacula\Laravel\Authentication\Guards\JwtGuard  $guard
      * @return mixed

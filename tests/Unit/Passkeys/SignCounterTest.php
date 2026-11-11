@@ -10,9 +10,7 @@ use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Passkeys\SignCounter;
 
 /**
- * Unit tests for the sign counter rule: an assertion is accepted when its count
- * is above the stored one, or when both are 0 (an authenticator without a
- * counter); anything else is a regression.
+ * Unit tests for the sign counter rule.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -58,9 +56,7 @@ final class SignCounterTest extends TestCase
     }
 
     /**
-     * `SignCounter` is a static utility; instantiation is disallowed via the
-     * private constructor. Reflection invokes the private constructor so the
-     * line is covered while still documenting the access modifier.
+     * The constructor is private; reflection invokes it for coverage.
      *
      * @return void
      *

@@ -61,14 +61,14 @@ permission: a policy that reads the context is the application's.
   accepted evaluation that reported multifactor authentication, exactly when `amr` carries `mfa`.
   `seconds_since_step_up` runs from the newest proof that set `mfa` or `recovery_code`, at sign-in or later, to the
   build, never negative.
-- The additional verification is recorded on the proof, not inferred: `ProofWriter` writes the proofs table's
-  `additional_verification` column, which `SessionProofs::history()` groups by, as `true` for an accepted further
-  factor and `false` for a recovery code whatever the adapter reported, and as
-  `Proofs\Evaluation::$additionalVerification` for an external proof, so a proof read back says what the context
-  reads. `External\EvidenceAcceptance` sets it for each answer of the evidence contract: multifactor
-  `(true, true, true)`, an additional verification `(true, false, true)`, phishing resistance or the lowest level only
-  `(true, false, false)`, so evidence accepted only for a level never sets `mfa` or the step-up time. Nothing else
-  reads the column: requirement judging, freshness and the token claims are unchanged.
+- The additional verification is recorded on the proof: `ProofWriter` writes the proofs table's
+  `additional_verification` column, which `SessionProofs::history()` groups by, as `true` for an accepted further factor
+  and `false` for a recovery code whatever the adapter reported, and as `Proofs\Evaluation::$additionalVerification` for
+  an external proof, so a proof read back says what the context reads. `External\EvidenceAcceptance` sets it for each
+  answer of the evidence contract: multifactor `(true, true, true)`, an additional verification `(true, false, true)`,
+  phishing resistance or the lowest level only `(true, false, false)`, so evidence accepted only for a level never sets
+  `mfa` or the step-up time. Nothing else reads the column: requirement judging, freshness and the token claims ignore
+  it.
 - A contributor adds keys under a namespace of its own. It is registered in code, in a service provider's `boot()`
   (`Context\ContextContributors::register($namespace, $abstract)`), never in configuration, where a later merge could
   overwrite a namespace silently. A namespace is a lower-case letter and then up to 31 lower-case letters, digits or
@@ -127,9 +127,8 @@ permission: a policy that reads the context is the application's.
 - A guard built outside `auth.guards` is never asked to forget a context after a proof change; it forgets it on its next
   bind or request like any other.
 - Nothing makes a contributor's `proofs()` and `firstFactor()` agree with the package's own keys: `amr`, `mfa` and the
-  rest come from `history()` read before the contributors are asked, and a step-up or a void can commit in between, so
-  a contributor can see a step-up `authentication.mfa` does not report. A context snapshot that would make them agree
-  is not built; each read is observed when it is made.
+  rest come from `history()` read before the contributors are asked, and a step-up or a void can commit in between, so a
+  contributor can see a step-up `authentication.mfa` does not report.
 
 ## Implementation Anchors
 

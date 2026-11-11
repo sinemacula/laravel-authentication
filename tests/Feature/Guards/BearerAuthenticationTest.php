@@ -21,12 +21,8 @@ use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use Tests\Fixtures\Events\EventContextAssertions;
 
 /**
- * Feature tests for the bearer path's principal and "tokens valid after"
- * checks: a token whose principal does not resolve exactly is a mismatch, and
- * an access token issued without a session is rejected as
- * `issued_before_cutoff` when it was issued at or before the time its identity
- * or its principal records, and a token that names a session is never held to
- * it.
+ * Feature tests for the bearer path's principal check and the "tokens valid
+ * after" cutoff for sessionless tokens.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -38,9 +34,8 @@ use Tests\Fixtures\Events\EventContextAssertions;
 final class BearerAuthenticationTest extends JwtGuardTestCase
 {
     /**
-     * Rows of `[seconds from the token's iat to the cutoff, accepted]`. The
-     * cutoff is whole seconds, so a token issued in its very second is
-     * rejected.
+     * Rows of `[seconds from the token's iat to the cutoff, accepted]`; a token
+     * issued in the cutoff's second is rejected.
      *
      * @return iterable<string, array{0: int, 1: bool}>
      */
@@ -93,8 +88,7 @@ final class BearerAuthenticationTest extends JwtGuardTestCase
 
     /**
      * The principal's time is held against the token's `iat` when the identity
-     * does not record one at all, as for a membership that carries the time
-     * while its identity does not.
+     * records none at all.
      *
      * @param  int  $offset
      * @param  bool  $accepted
@@ -209,9 +203,8 @@ final class BearerAuthenticationTest extends JwtGuardTestCase
     }
 
     /**
-     * A token whose principal the resolver does not hand back exactly, another
-     * principal or none, is rejected as `principal_mismatch` before any time is
-     * read.
+     * A principal the resolver does not hand back exactly is rejected as
+     * `principal_mismatch` before any time is read.
      *
      * @return void
      *
@@ -240,9 +233,8 @@ final class BearerAuthenticationTest extends JwtGuardTestCase
     }
 
     /**
-     * A token whose subject is a non-human identity, active or not, is rejected
-     * as `machine_identity` before any principal is resolved: a machine's
-     * tokens come only from a client credentials exchange.
+     * A token whose subject is a machine identity is rejected as
+     * `machine_identity` before any principal is resolved.
      *
      * @return void
      *

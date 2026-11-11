@@ -23,20 +23,6 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * The context a test acts as on each package guard, kept in the container so it
  * outlives the request a test sends through the HTTP kernel.
  *
- * Each request the kernel handles is bound into the container, and every guard
- * the package creates rebinds itself to it and starts over. A guard acted on
- * gets one more `request` rebinding callback, registered after the guard's own,
- * that binds the context again through the guard's trusted `authenticateAs()`,
- * so the request is authenticated as the test acted. Nothing else changes: a
- * queued job a worker runs still starts signed out, as in production, and the
- * next request acts again.
- *
- * Acting on a guard ends with `forget()` (which the trait's `stopActing()`
- * calls), with Laravel's `Logout` for the guard (a sign-out the request made),
- * or when a new context replaces it. It is tied to the guard instance acted on,
- * so a guard forgotten and created afresh (`Auth::forgetGuards()`) is not acted
- * on until the test acts again.
- *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
@@ -91,8 +77,7 @@ final class ActingContext
     }
 
     /**
-     * Resolve the named package guard, or the default one, or fail saying the
-     * guard is not one the helpers can act on.
+     * Resolve the named package guard, or the default one.
      *
      * @param  ?string  $name
      * @return \SineMacula\Laravel\Authentication\Guards\AbstractGuard
@@ -115,9 +100,7 @@ final class ActingContext
     }
 
     /**
-     * The principal a test acting as the identity acts as when it names none:
-     * the guard resolver's default, or an `InvalidArgumentException`, as
-     * `setUser()` fails, when the identity has none.
+     * The guard resolver's default principal for the identity.
      *
      * @param  \SineMacula\Laravel\Authentication\Guards\AbstractGuard  $guard
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -139,11 +122,7 @@ final class ActingContext
     }
 
     /**
-     * The identity and principal a session acts as on the guard: the owner it
-     * records, found through the guard's provider, and the principal it
-     * records, found through the guard's resolver (its default when the session
-     * records none). An `InvalidArgumentException` says what could not be
-     * found.
+     * The identity and principal the session records, found through the guard.
      *
      * @param  \SineMacula\Laravel\Authentication\Guards\AbstractGuard  $guard
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
@@ -176,9 +155,7 @@ final class ActingContext
     }
 
     /**
-     * Assert that the guard has the subject bound: nothing when nothing is
-     * expected, otherwise the expected instance or one of the same class with
-     * the same identifier.
+     * Assert that the guard has the expected subject bound, or none.
      *
      * @param  string  $kind
      * @param  \SineMacula\Laravel\Authentication\Guards\AbstractGuard  $guard
@@ -200,10 +177,8 @@ final class ActingContext
     }
 
     /**
-     * Act as the context on the guard: bind it now and again on every request
-     * the guard is rebound to, until the acting ends. A context the guard
-     * refuses to bind (scopes for an identity that is not a machine) is not
-     * kept.
+     * Act as the context on the guard, now and on every request until the
+     * acting ends.
      *
      * @param  \SineMacula\Laravel\Authentication\Guards\AbstractGuard  $guard
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -236,10 +211,7 @@ final class ActingContext
     }
 
     /**
-     * Act in the tenant, as the active tenant, with the context the guard is
-     * acted as: bound now and on every request after, as `act()` binds it.
-     * Fails with an `InvalidArgumentException` when the test does not act on
-     * the guard.
+     * Act in the tenant with the context the guard is acted as.
      *
      * @param  \SineMacula\Laravel\Authentication\Guards\AbstractGuard  $guard
      * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
@@ -259,8 +231,7 @@ final class ActingContext
     }
 
     /**
-     * Stop acting on the guard: the next request it serves is authenticated by
-     * its own credential, if any.
+     * Stop acting on the guard.
      *
      * @param  string  $guard
      * @return void
@@ -271,8 +242,7 @@ final class ActingContext
     }
 
     /**
-     * Bind the context acted as on the guard, when the guard is still the one
-     * acted on.
+     * Bind the context again, when the guard is still the one acted on.
      *
      * @param  \SineMacula\Laravel\Authentication\Guards\AbstractGuard  $guard
      * @return void
@@ -290,8 +260,8 @@ final class ActingContext
     }
 
     /**
-     * Whether the subject bound is the one expected: the same instance, or one
-     * of the same class with an identifier equal to the expected one's.
+     * Whether the subject bound is the expected instance or shares its class
+     * and identifier.
      *
      * @param  object  $expected
      * @param  mixed  $expectedId

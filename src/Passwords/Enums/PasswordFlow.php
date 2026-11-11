@@ -5,10 +5,8 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Passwords\Enums;
 
 /**
- * Why a password is being set, which decides what else is done: a registration
- * ends no session, a change and an establishment end every session but the one
- * they were made from when the caller keeps it, and a reset ends every session.
- * Choose it on the server, never from input: a registration revokes nothing.
+ * Why a password is being set, which decides which sessions end; choose it on
+ * the server, never from input.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -25,7 +23,6 @@ enum PasswordFlow: string
     // one
     case RESET = 'reset';
 
-    // A first password a signed-in identity that had none chose, after a recent
-    // authentication (`PasswordService::establish()`)
+    // A first password a signed-in identity that had none chose
     case ESTABLISHMENT = 'establishment';
 }

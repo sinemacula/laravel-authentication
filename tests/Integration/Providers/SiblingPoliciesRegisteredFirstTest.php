@@ -9,8 +9,7 @@ use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use Tests\Fixtures\Providers\SiblingPolicyProvider;
 
 /**
- * The policies another package binds hold when its provider registers before
- * the package's: the package's defaults do not replace them.
+ * The policies another package binds hold when its provider registers first.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

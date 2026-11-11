@@ -29,14 +29,8 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
 /**
- * Feature tests, over HTTP through Laravel's `auth` middleware against a real
- * database, of a route that lists both a `jwt` and an `api_key` guard, in
- * either order: a bearer credential in JWT form is the `jwt` guard's alone, so
- * one that fails JWT validation is reported once, as a bearer token, and never
- * looked up as an API key; one in API key form is the `api_key` guard's alone,
- * never parsed as a JWT; a valid credential of either kind authenticates with
- * no failure; revocation is checked on every request; and a route listing one
- * kind reports every credential itself.
+ * Feature tests of a route listing both a `jwt` and an `api_key` guard, where
+ * each bearer form belongs to one guard alone.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -64,8 +58,8 @@ final class BearerFormsTest extends TestCase
     private int $seeded = 0;
 
     /**
-     * Create the tables, freeze the clock, register the routes, and record the
-     * events and the queries on the API keys table.
+     * Create the tables, freeze the clock, register the routes and record
+     * events and API key queries.
      *
      * @return void
      */
@@ -120,9 +114,8 @@ final class BearerFormsTest extends TestCase
     }
 
     /**
-     * Rows of `[variant, reason]`: a person's bearer credential in JWT form
-     * that fails JWT validation, and the reason the `jwt` guard refuses it
-     * with.
+     * Rows of `[variant, reason]`: a person's JWT that fails validation and the
+     * reason it is refused with.
      *
      * @return iterable<string, array{0: string, 1: \SineMacula\Laravel\Authentication\Events\Enums\FailureReason}>
      */
@@ -143,11 +136,8 @@ final class BearerFormsTest extends TestCase
     }
 
     /**
-     * A bearer credential in JWT form that fails JWT validation, on a route
-     * listing the person's `jwt` guard and the `api_key` guard in either order,
-     * is refused with `401` and reported exactly once, by the `jwt` guard as a
-     * bearer token, and is never looked up as an API key: no query touches the
-     * API keys table and nothing is reported on the `api_key` flow.
+     * A failing JWT is reported once as a bearer token and never looked up as
+     * an API key.
      *
      * @param  string  $variant
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
@@ -175,8 +165,8 @@ final class BearerFormsTest extends TestCase
     }
 
     /**
-     * A person's valid access token authenticates on the `jwt` guard in either
-     * order, with no failure reported and no query on the API keys table.
+     * A person's valid access token authenticates on the `jwt` guard with no
+     * key query.
      *
      * @return void
      *
@@ -197,11 +187,8 @@ final class BearerFormsTest extends TestCase
     }
 
     /**
-     * A client credentials token is in JWT form too: on a route listing its
-     * `jwt` guard and the `api_key` guard it authenticates on the `jwt` guard
-     * with no failure, and the only query on the API keys table is the `jwt`
-     * guard's hold of the token to its key, by id, never a lookup by the key's
-     * public part.
+     * A client credentials token authenticates on the `jwt` guard, which holds
+     * its key by id only.
      *
      * @return void
      *
@@ -224,8 +211,8 @@ final class BearerFormsTest extends TestCase
     }
 
     /**
-     * Rows of `[variant, reason, queries]`: a bearer credential in API key form
-     * the `api_key` guard refuses, the reason, and the lookups it costs.
+     * Rows of `[variant, reason, queries]`: a refused API key, the reason and
+     * the lookups it costs.
      *
      * @return iterable<string, array{0: string, 1: \SineMacula\Laravel\Authentication\Events\Enums\FailureReason, 2: int}>
      */
@@ -240,10 +227,8 @@ final class BearerFormsTest extends TestCase
     }
 
     /**
-     * A bearer credential in API key form that the `api_key` guard refuses, on
-     * a route listing a `jwt` guard too in either order, is reported exactly
-     * once, on the `api_key` flow, and never parsed as a JWT: nothing is
-     * reported as a bearer token.
+     * A refused API key is reported once on the `api_key` flow and never parsed
+     * as a JWT.
      *
      * @param  string  $variant
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
@@ -272,8 +257,7 @@ final class BearerFormsTest extends TestCase
     }
 
     /**
-     * A valid key authenticates on the `api_key` guard in either order, with no
-     * failure reported.
+     * A valid key authenticates on the `api_key` guard in either order.
      *
      * @return void
      */
@@ -291,9 +275,8 @@ final class BearerFormsTest extends TestCase
     }
 
     /**
-     * Revocation is checked on every request: a key revoked between two
-     * requests is refused on the second as `credential_revoked`, on the
-     * `api_key` flow, whichever order the route lists the guards in.
+     * A key revoked between two requests is refused on the second as
+     * `credential_revoked`.
      *
      * @return void
      */
@@ -321,9 +304,8 @@ final class BearerFormsTest extends TestCase
     }
 
     /**
-     * A client credentials token whose key is revoked is refused on the next
-     * request as `credential_revoked`, reported once as a bearer token, and not
-     * looked up as an API key, whichever order the route lists the guards in.
+     * A client credentials token whose key is revoked is refused once as a
+     * bearer token.
      *
      * @return void
      *
@@ -356,9 +338,7 @@ final class BearerFormsTest extends TestCase
     }
 
     /**
-     * A route listing one kind of guard reads every credential itself: a key on
-     * a `jwt`-only route is reported as a bearer token, and a JWT on an
-     * `api_key`-only route as a malformed key, with no query.
+     * A route listing one kind of guard reports every credential itself.
      *
      * @return void
      *
@@ -389,9 +369,7 @@ final class BearerFormsTest extends TestCase
     }
 
     /**
-     * A route listing two `jwt` guards gets one report from each guard that
-     * refuses the credential, each naming its guard: they are two applications'
-     * refusals.
+     * A route listing two `jwt` guards gets one report from each.
      *
      * @return void
      *
@@ -411,8 +389,8 @@ final class BearerFormsTest extends TestCase
     }
 
     /**
-     * A guard asked on a request the `auth` middleware never recorded reads
-     * every credential itself.
+     * A guard asked on a request the middleware never recorded reads every
+     * credential.
      *
      * @return void
      *
@@ -433,16 +411,14 @@ final class BearerFormsTest extends TestCase
     }
 
     /**
-     * Once a route listing both kinds has recorded its guards, a guard the
-     * route's handler asks directly still leaves a credential of the other
-     * kind's form alone: the `api_key` guard asked for a person's valid token
-     * answers no identity, reports nothing and queries no key.
+     * A guard asked directly on a recorded route leaves a credential of the
+     * other kind alone.
      *
      * @return void
      *
      * @throws \Random\RandomException
      */
-    public function testAGuardAskedDirectlyAfterTheMiddlewareRecordedTheRouteLeavesTheOtherKindAlone(): void
+    public function testAGuardAskedDirectlyOnARecordedRouteLeavesTheOtherKindAlone(): void
     {
         Route::middleware('auth:api,machine')->get('/ask-machine', static fn (): array => ['api' => Auth::guard('api')->id(), 'machine' => Auth::guard('machine')->id()]);
 
@@ -471,8 +447,8 @@ final class BearerFormsTest extends TestCase
     }
 
     /**
-     * A bearer credential in JWT form that fails JWT validation on the `api`
-     * guard in the way the variant names.
+     * A JWT that fails validation on the `api` guard in the way the variant
+     * names.
      *
      * @param  string  $variant
      * @return string
@@ -497,8 +473,7 @@ final class BearerFormsTest extends TestCase
     }
 
     /**
-     * A bearer credential in API key form that the `api_key` guard refuses in
-     * the way the variant names.
+     * An API key the `api_key` guard refuses in the way the variant names.
      *
      * @param  string  $variant
      * @return string
@@ -520,8 +495,7 @@ final class BearerFormsTest extends TestCase
     }
 
     /**
-     * The header and claims a variant signs the token again with: the wrong
-     * `typ`, an expiry an hour past, or the wrong `iss` or `aud`.
+     * The header and claims a variant signs the token again with.
      *
      * @param  string  $variant
      * @return array{0: array<string, string>, 1: array<string, mixed>}
@@ -640,8 +614,8 @@ final class BearerFormsTest extends TestCase
     }
 
     /**
-     * Request the path with the bearer credential, recording its events and its
-     * queries on the API keys table afresh.
+     * Request the path with the bearer credential, resetting the recorded
+     * events and key queries.
      *
      * @param  string  $path
      * @param  string  $credential

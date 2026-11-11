@@ -80,11 +80,8 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\StubSession;
 
 /**
- * Feature tests of the gate a sign-in, and a pending session each time it is
- * acted on, passes, one check at a time against a real database: the identity,
- * the method, the principals the application admits and the one selected, the
- * tenant a principal is to act in, a recorded principal and tenant, the
- * identity-level factor, the tenant's policy, and what a session waits on.
+ * Feature tests of the gate a sign-in and a pending session pass, one check at
+ * a time against a real database.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -181,9 +178,8 @@ final class PendingEvaluationTest extends TestCase
     }
 
     /**
-     * The identity is refused in the order sign-in checks it: a machine
-     * identity, then an inactive one, then one the application policy refuses
-     * with the identifier type the sign-in used; an admitted one is not.
+     * The identity is refused in order: a machine, an inactive one, then one
+     * the application policy refuses.
      *
      * @return void
      *
@@ -217,9 +213,7 @@ final class PendingEvaluationTest extends TestCase
 
     /**
      * The principals listed are those the application admits, with the reason
-     * the last one left out was refused; with an identifier type the policy
-     * refuses, none is listed and its reason is given, while without a type the
-     * identity is not held to one.
+     * the last one left out was refused.
      *
      * @return void
      *
@@ -244,8 +238,7 @@ final class PendingEvaluationTest extends TestCase
 
     /**
      * A principal the application access refuses is left out as
-     * `principal_ineligible`; with the one before it left out too (its tenant
-     * inactive), none is listed and the reason is the last one's.
+     * `principal_ineligible`.
      *
      * @return void
      *
@@ -270,9 +263,8 @@ final class PendingEvaluationTest extends TestCase
     }
 
     /**
-     * A row the identity's `principals()` yields that is not a principal (an
-     * invitation kept beside its memberships, say) is passed over, and the
-     * memberships after it are still listed.
+     * A row from `principals()` that is not a principal is passed over and
+     * later memberships are still listed.
      *
      * @return void
      *
@@ -330,11 +322,7 @@ final class PendingEvaluationTest extends TestCase
     }
 
     /**
-     * One principal is found by its identifier exactly when the list holds it:
-     * each of the identity's admitted principals is found as the very principal
-     * listed, another identity's is not, one whose tenant went inactive or that
-     * the application access refuses drops out of both, and with an identifier
-     * type the policy refuses none is found.
+     * One principal is found by its identifier exactly when the list holds it.
      *
      * @return void
      *
@@ -390,9 +378,7 @@ final class PendingEvaluationTest extends TestCase
     }
 
     /**
-     * Without an identifier type the identity is not held to one, as the list
-     * does not hold it: a policy that refuses every identifier, even none, is
-     * asked only when a type is given.
+     * Without an identifier type the identity is not held to one.
      *
      * @return void
      *
@@ -415,9 +401,8 @@ final class PendingEvaluationTest extends TestCase
     }
 
     /**
-     * Two of the identity's principals that share the identifier name no one
-     * principal, so neither is found, and neither is asked whether it may use
-     * the application; one with an identifier of its own still is.
+     * Two principals that share an identifier are neither found nor asked about
+     * the application.
      *
      * @return void
      *
@@ -449,8 +434,7 @@ final class PendingEvaluationTest extends TestCase
 
     /**
      * An identity that is its own principal is found through the resolver's
-     * default, never its hinted path, which an application's resolver may
-     * answer differently: only the default principal's own identifier finds it.
+     * default, never its hinted path.
      *
      * @return void
      *
@@ -477,12 +461,8 @@ final class PendingEvaluationTest extends TestCase
     }
 
     /**
-     * A selection is the principal named when the identity owns it and the
-     * application admits it, else the only one admitted, else none with the
-     * principals to choose from; a principal named that is not the identity's
-     * is `principal_mismatch`, one refused gives its reason, and an identity
-     * left with none the reason the last was refused, or
-     * `principal_unresolved`.
+     * A selection is the principal named, else the only one admitted, else none
+     * with the principals to choose from.
      *
      * @return void
      *
@@ -516,10 +496,8 @@ final class PendingEvaluationTest extends TestCase
     }
 
     /**
-     * Under Eloquent strict mode, which prevents lazy loading on the principals
-     * an identity's `principals()` reads together, the one of three the
-     * application admits is selected holding its tenant: its destination is
-     * that tenant, and the sign-in completes in it, without a lazy load.
+     * Under Eloquent strict mode the one admitted principal of three signs in
+     * holding its tenant, without a lazy load.
      *
      * @return void
      *
@@ -555,11 +533,8 @@ final class PendingEvaluationTest extends TestCase
     }
 
     /**
-     * Under Eloquent strict mode, a membership whose tenant key the database
-     * matches but the batched tenant load does not (`'05'` against `5`) still
-     * signs in within its tenant: the session records it and the access token
-     * carries it, rather than the tenant being taken for none. The clocks run,
-     * as the access token's times are checked against the wall clock.
+     * Under Eloquent strict mode a tenant key the batched load misses (`'05'`
+     * against `5`) still signs in within it.
      *
      * @return void
      *
@@ -609,11 +584,8 @@ final class PendingEvaluationTest extends TestCase
     }
 
     /**
-     * Under Eloquent strict mode, each of the principals a choice lists, and
-     * each the service lists or looks up for a switch screen, answers
-     * `getTenant()` without a lazy load, and a switch to one of them and a
-     * refresh succeed. The clocks run, as a refresh token's times are checked
-     * against the wall clock.
+     * Under Eloquent strict mode every listed principal answers `getTenant()`
+     * without a lazy load, and a switch and refresh succeed.
      *
      * @return void
      *
@@ -665,9 +637,8 @@ final class PendingEvaluationTest extends TestCase
     }
 
     /**
-     * The tenant a principal is to act in is its own when no selection is
-     * given, and the selection's otherwise: by default a principal in a tenant
-     * may act in no other tenant, nor in none.
+     * The destination is the principal's own tenant unless a selection is
+     * given.
      *
      * @return void
      *
@@ -689,9 +660,8 @@ final class PendingEvaluationTest extends TestCase
     }
 
     /**
-     * A recorded principal may still hold its session in the tenant the
-     * session records while the application admits it and the tenant is
-     * active; otherwise the reason it may not.
+     * A recorded principal holds its session in its tenant while admitted and
+     * the tenant is active.
      *
      * @return void
      *
@@ -720,12 +690,8 @@ final class PendingEvaluationTest extends TestCase
     }
 
     /**
-     * The identity owes what its factor policy asks of it, asked about the
-     * identity, the first factor and the sign-in with no principal, until the
-     * requirement check finds the session's proofs meet it: the default check
-     * meets nothing, and a check that judges further factors is met only by one
-     * the adapter accepted. A requirement that asks for nothing is owed by no
-     * one.
+     * The identity owes what its factor policy asks until the requirement check
+     * finds the session's proofs meet it.
      *
      * @return void
      *
@@ -771,9 +737,8 @@ final class PendingEvaluationTest extends TestCase
     }
 
     /**
-     * At sign-in the check judges the sign-in's own evidence, in memory, with
-     * no session: a check that finds the first factor alone meets the
-     * requirement leaves nothing owed, and is asked about that first factor.
+     * At sign-in the check judges the sign-in's own evidence in memory, with no
+     * session.
      *
      * @return void
      *
@@ -807,10 +772,8 @@ final class PendingEvaluationTest extends TestCase
     }
 
     /**
-     * At sign-in through an external provider, evidence the evidence policy
-     * accepted and says meets the identity-level requirement leaves nothing
-     * owed, without a further factor; the default evidence policy leaves it
-     * owed, as the check finds it.
+     * At sign-in through an external provider, accepted evidence that meets the
+     * identity-level requirement leaves nothing owed.
      *
      * @return void
      *
@@ -839,10 +802,8 @@ final class PendingEvaluationTest extends TestCase
     }
 
     /**
-     * On a stored session the policy is asked as its sign-in was: with the
-     * first factor, the client it came from, and the name and platform it gave,
-     * as the session records them (as text, even from a model that does not
-     * cast them), and the session its client proved it holds.
+     * On a stored session the policy is asked as its sign-in was, from what the
+     * session records.
      *
      * @return void
      *
@@ -883,11 +844,8 @@ final class PendingEvaluationTest extends TestCase
     }
 
     /**
-     * Asked to read current, as a caller holding the session's row locked asks,
-     * every read of the session's proofs the gate makes takes a shared lock
-     * where the engine takes one: its first factor, the proofs the
-     * identity-level requirement is judged on, and the first factor and proofs
-     * its tenant's further factor is judged on. Asked nothing, none does.
+     * Every read of the session's proofs the gate makes takes a shared lock
+     * only when asked to read current.
      *
      * @return void
      *
@@ -944,9 +902,8 @@ final class PendingEvaluationTest extends TestCase
     }
 
     /**
-     * With no principal selected there is no tenant policy to ask, and nothing
-     * falls short; with one, the policy of the tenant it is to act in is asked
-     * and judges the evidence given.
+     * The tenant policy is asked only once a principal is selected, about the
+     * tenant it is to act in.
      *
      * @return void
      *
@@ -975,9 +932,8 @@ final class PendingEvaluationTest extends TestCase
     }
 
     /**
-     * A session waits on the further factor while any requirement is
-     * outstanding, then on the choice when no principal is selected, and on
-     * nothing otherwise.
+     * A session waits on the further factor, then on the choice, and otherwise
+     * on nothing.
      *
      * @return void
      */

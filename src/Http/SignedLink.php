@@ -8,19 +8,7 @@ use Illuminate\Http\Request;
 
 /**
  * A signed link as a request to it arrived, held as plain values for the
- * service that consumes it: the absolute address the link was signed for
- * (scheme, host, port, base path and path, as Laravel signs them, behind the
- * application's trusted proxies) and the raw query string as received, which
- * carries the link's fields, its expiry and its signature.
- *
- * `fromRequest()` captures one from the request a controller serves, and is the
- * way a controller should take one. The service that consumes it never trusts
- * it: it checks the signature and the expiry again from these values, with
- * every key the application signs with and every previous key
- * (`app.previous_keys`), so an address or a query changed on the way fails as a
- * link that was never signed. The query string is the credential, so it is kept
- * out of every dump, encoding and stack trace, and a link cannot be serialised:
- * `query()` reveals it.
+ * service that consumes it.
  *
  * @api
  *
@@ -43,8 +31,7 @@ final readonly class SignedLink
         /** The absolute address the link was signed for, without its query string. */
         public string $url,
 
-        // The query string as received, undecoded, with the link's fields and
-        // signature.
+        // The query string as received, undecoded
         #[\SensitiveParameter]
         string $query,
     ) {
@@ -52,10 +39,7 @@ final readonly class SignedLink
     }
 
     /**
-     * The signed link the request arrived at: its address as Laravel signs it,
-     * through the application's trusted proxies, and its raw query string
-     * (Vapor's raw one when it hands one over), so a query a proxy or the
-     * framework would encode differently is checked as it was sent.
+     * The signed link the request arrived at, with its query string as sent.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return self
@@ -69,8 +53,7 @@ final readonly class SignedLink
     }
 
     /**
-     * The query string as received, undecoded, with the link's fields and
-     * signature: the link's credential.
+     * The query string as received, undecoded: the link's credential.
      *
      * @return string
      */
@@ -81,8 +64,7 @@ final readonly class SignedLink
 
     /**
      * The request the link names, rebuilt from these values alone, for the
-     * framework's signature and expiry checks: the address as given and the raw
-     * query string, its fields parsed from it.
+     * framework's signature and expiry checks.
      *
      * @return \Illuminate\Http\Request
      *

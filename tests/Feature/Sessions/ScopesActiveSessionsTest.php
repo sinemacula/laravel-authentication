@@ -40,9 +40,8 @@ final class ScopesActiveSessionsTest extends TestCase
     }
 
     /**
-     * The scope keeps sessions that are active, unrevoked and strictly before
-     * both deadlines, an absolute deadline of `null` being none, with qualified
-     * columns, and the current second.
+     * The scope keeps active, unrevoked sessions strictly before both
+     * deadlines, using qualified columns.
      *
      * @return void
      */
@@ -84,9 +83,8 @@ final class ScopesActiveSessionsTest extends TestCase
     }
 
     /**
-     * `ActiveSessions` is a static utility; instantiation is disallowed through
-     * the private constructor. Reflection invokes it so the line is covered
-     * while still documenting the access modifier.
+     * `ActiveSessions` is a static utility with a private constructor, invoked
+     * here for coverage.
      *
      * @return void
      *

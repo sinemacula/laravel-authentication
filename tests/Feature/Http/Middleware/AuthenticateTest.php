@@ -65,7 +65,7 @@ final class AuthenticateTest extends TestCase
     }
 
     /**
-     * The container hands out the package-aware middleware for Laravel's
+     * The container resolves the package-aware middleware for Laravel's
      * `Authenticate`.
      *
      * @return void
@@ -76,8 +76,7 @@ final class AuthenticateTest extends TestCase
     }
 
     /**
-     * A guest on package guards gets an exception naming those guards, with no
-     * redirect, and the guest redirect is never evaluated.
+     * A guest on package guards is rejected without a redirect being evaluated.
      *
      * @return void
      */
@@ -105,9 +104,8 @@ final class AuthenticateTest extends TestCase
     }
 
     /**
-     * The middleware records the guards the route lists on the request, in
-     * order, before trying them, and `null` for the default guard when the
-     * route lists none.
+     * The route's guards are recorded on the request in order, with `null` for
+     * the default guard.
      *
      * @return void
      */
@@ -149,8 +147,8 @@ final class AuthenticateTest extends TestCase
     }
 
     /**
-     * Run an HTML guest request through the middleware for the guards and
-     * return the exception it raises.
+     * Run an HTML guest request through the middleware and return the exception
+     * it raises.
      *
      * @param  array<int, string>  $guards
      * @return \Illuminate\Auth\AuthenticationException
@@ -161,8 +159,8 @@ final class AuthenticateTest extends TestCase
     }
 
     /**
-     * Run the guest request through the middleware for the guards and return
-     * the exception it raises.
+     * Run the guest request through the middleware and return the exception it
+     * raises.
      *
      * @param  \Illuminate\Http\Request  $request
      * @param  array<int, string>  $guards

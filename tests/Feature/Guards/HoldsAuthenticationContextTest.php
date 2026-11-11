@@ -30,11 +30,8 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\StubRequestResolvingGuard;
 
 /**
- * Feature tests of the authentication context a guard holds: none for a guest,
- * built from the request's credential on the first ask and held while the bound
- * state is unchanged, forgotten by every change to it and by a flow that
- * changed the bound session's proofs, refused to a contributor that asks for it
- * while it is built, and never built over a tenant that cannot be loaded.
+ * Feature tests for the authentication context a guard builds, holds and
+ * forgets.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -113,9 +110,8 @@ final class HoldsAuthenticationContextTest extends TestCase
     }
 
     /**
-     * The request's credential is resolved by the first ask, and the context is
-     * built then, reading the session's proofs once; asked again it is the same
-     * context, read from nothing.
+     * The context is built on the first ask, reading the session's proofs once,
+     * and held after.
      *
      * @return void
      *
@@ -136,9 +132,8 @@ final class HoldsAuthenticationContextTest extends TestCase
     }
 
     /**
-     * Rows of `[change, authenticated, credential]`: each way the guard's bound
-     * state changes, whether the guard is still authenticated after it, and the
-     * kind of credential it is then authenticated with.
+     * Rows of `[change, authenticated, credential]`: each change to the bound
+     * state and what the guard holds after it.
      *
      * @formatter:off
      *
@@ -184,10 +179,8 @@ final class HoldsAuthenticationContextTest extends TestCase
     }
 
     /**
-     * Every change to the bound state forgets the context: one bound again is
-     * built afresh for what is bound now, its credential `null` for a trusted
-     * bind and kept for a principal or session set over the request's own, and
-     * one signed out has none.
+     * Every change to the bound state forgets the context, which is rebuilt for
+     * what is bound now.
      *
      * @param  \Closure(\SineMacula\Laravel\Authentication\Guards\JwtGuard, \SineMacula\Laravel\Authentication\Sessions\SignedInSession): void  $change
      * @param  bool  $authenticated
@@ -221,9 +214,8 @@ final class HoldsAuthenticationContextTest extends TestCase
     }
 
     /**
-     * Forgetting the context for the bound session keeps the binding and builds
-     * the context again on the next ask; for another session, or on a guard
-     * whose request is not resolved yet, it does nothing and resolves nothing.
+     * Forgetting the context for the bound session keeps the binding; for any
+     * other session it does nothing.
      *
      * @return void
      *
@@ -260,9 +252,8 @@ final class HoldsAuthenticationContextTest extends TestCase
     }
 
     /**
-     * A contributor that asks for the context while it is being built is
-     * refused, and the guard is left able to build it: asked again once the
-     * contributor no longer asks, it is built.
+     * A contributor that asks for the context while it is built is refused, and
+     * the guard can still build it.
      *
      * @return void
      *
@@ -294,9 +285,8 @@ final class HoldsAuthenticationContextTest extends TestCase
     }
 
     /**
-     * A trusted bind whose session records a tenant that can no longer be
-     * loaded has no context: asking for one throws as `tenant()` does, rather
-     * than taking the request for one acting in no tenant.
+     * A trusted bind whose session records a tenant that cannot be loaded
+     * throws as `tenant()` does.
      *
      * @return void
      *

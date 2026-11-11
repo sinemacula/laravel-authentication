@@ -17,10 +17,7 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\StubSession;
 
 /**
- * Feature tests for the issuance guard: one `UPDATE` of the session's own row,
- * by its key, on its own connection and table, that increments the column the
- * model names and nothing else, fires no model event, leaves the in-memory
- * session alone, and reports whether the row was there.
+ * Feature tests for the issuance guard write on a session's own row.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -69,9 +66,8 @@ final class IssuanceGuardTest extends TestCase
     }
 
     /**
-     * Each write increments the session's issuance sequence by one with a
-     * single `UPDATE` by the session's key, touching no other row and no other
-     * column, `updated_at` included.
+     * Each write increments the session's issuance sequence once with a single
+     * `UPDATE`, touching nothing else.
      *
      * @return void
      */
@@ -102,8 +98,7 @@ final class IssuanceGuardTest extends TestCase
     }
 
     /**
-     * The write goes through the query builder: no model event fires, and the
-     * in-memory session neither takes the new value nor turns dirty.
+     * The write fires no model event and leaves the in-memory session alone.
      *
      * @return void
      */
@@ -130,8 +125,7 @@ final class IssuanceGuardTest extends TestCase
     }
 
     /**
-     * A model that names its own column has that column incremented, on its own
-     * table.
+     * A model that names its own column has that column incremented.
      *
      * @return void
      */
@@ -160,8 +154,7 @@ final class IssuanceGuardTest extends TestCase
     }
 
     /**
-     * A session whose row no longer exists is reported as not written, for its
-     * caller to judge.
+     * A session whose row no longer exists is reported as not written.
      *
      * @return void
      */
@@ -175,8 +168,7 @@ final class IssuanceGuardTest extends TestCase
     }
 
     /**
-     * Holding the guard writes it as `write()` does, and a row that is gone is
-     * a `LogicException` rather than a guard silently not written.
+     * Holding the guard of a row that is gone is a `LogicException`.
      *
      * @return void
      */
@@ -197,8 +189,7 @@ final class IssuanceGuardTest extends TestCase
     }
 
     /**
-     * A session with no key has no row to write: a `LogicException`, without a
-     * query.
+     * A session with no key is a `LogicException`, without a query.
      *
      * @return void
      */

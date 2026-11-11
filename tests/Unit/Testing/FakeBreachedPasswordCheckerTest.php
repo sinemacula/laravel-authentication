@@ -61,9 +61,8 @@ final class FakeBreachedPasswordCheckerTest extends TestCase
     }
 
     /**
-     * Exactly the passwords given are breached, compared byte for byte, and
-     * every password asked about is kept, oldest first, and can be filtered,
-     * counted and forgotten.
+     * Exactly the passwords given are breached, and every password asked about
+     * is kept in order.
      *
      * @return void
      */
@@ -95,9 +94,8 @@ final class FakeBreachedPasswordCheckerTest extends TestCase
     }
 
     /**
-     * While unavailable the fake throws as a service that is down would, with
-     * no password in the message, and still keeps the password asked; it can be
-     * made available again.
+     * While unavailable the fake throws without the password in the message,
+     * and still records it.
      *
      * @return void
      */

@@ -18,10 +18,7 @@ use Tests\Integration\Fixtures\ActivatableTenantMembership;
 
 /**
  * Query-budget contracts for listing an identity's principals and looking one
- * up: the identity's principals are read in one query, however many it has;
- * listing them reads every listed principal's tenant in one more query, while a
- * lookup admits only the one the identifier names, so its tenant is the only
- * other read; nothing is written.
+ * up.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

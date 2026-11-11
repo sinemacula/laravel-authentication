@@ -7,10 +7,7 @@ namespace SineMacula\Laravel\Authentication\Support;
 use Illuminate\Database\Eloquent\Model;
 
 /**
- * What tells an Eloquent model's row apart from every other within one request
- * or job: its connection, that connection's database, its table (with the
- * connection's prefix) and its key, so the same key in another database or
- * table is another row.
+ * Identifies a model's row by connection, database, prefixed table and key.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

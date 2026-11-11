@@ -42,10 +42,7 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
 /**
- * Feature tests for usernameless sign-in with a passkey through the session
- * service: what starts a session, how each refusal is reported to the client
- * and to listeners, and what a passkey records when it reauthenticates a
- * session.
+ * Feature tests for usernameless passkey sign-in through the session service.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -100,9 +97,7 @@ final class PasskeySignInTest extends TestCase
     }
 
     /**
-     * The method is registered as `passkey` and names no identifier, so the
-     * sign-in is usernameless; the challenge it answers is the input's when
-     * that is a UUID.
+     * The method is registered as `passkey` and is usernameless.
      *
      * @return void
      *
@@ -122,11 +117,8 @@ final class PasskeySignInTest extends TestCase
     }
 
     /**
-     * A passkey's assertion signs its owner in on a new session recorded as a
-     * `passkey` sign-in with no identifier type; the passkey records the new
-     * count and its use, `PasskeyUsed` reports it with the passkey's id before
-     * `SignedIn`, the challenge is used up, and `Attempting` names no
-     * identifier.
+     * A passkey's assertion signs its owner in on a new session and records the
+     * use.
      *
      * @return void
      *
@@ -164,11 +156,7 @@ final class PasskeySignInTest extends TestCase
     }
 
     /**
-     * A passkey sign-in records its first factor on the session: a `passkey`
-     * channel whose reference is the passkey's own row id, the user observed
-     * present and verified, the credential's backup eligibility and state as
-     * the assertion reported them, resistance to phishing observed, its key
-     * protection not observed, and the `pop` value.
+     * A passkey sign-in records what the assertion showed as its first factor.
      *
      * @return void
      *
@@ -201,11 +189,8 @@ final class PasskeySignInTest extends TestCase
     }
 
     /**
-     * A session reauthenticated with a passkey records a first-factor
-     * reauthentication over the passkey channel, naming the passkey by its row
-     * id, with the user observed present and verified and resistance to
-     * phishing observed, and the `pop` value; the new token's `auth_time` moves
-     * and its `amr` stays the session's own.
+     * A passkey reauthentication records what the assertion showed and moves
+     * `auth_time`.
      *
      * @return void
      *
@@ -244,8 +229,8 @@ final class PasskeySignInTest extends TestCase
     }
 
     /**
-     * A credential id far longer than a channel reference holds signs in, and
-     * the proof names the passkey by its row id, never by the credential id.
+     * A long credential id signs in, and the proof names the passkey by its row
+     * id.
      *
      * @return void
      *
@@ -273,10 +258,8 @@ final class PasskeySignInTest extends TestCase
     }
 
     /**
-     * A sign-in's `PasskeyUsed` goes, once committed, to the dispatcher bound
-     * when the commit runs it, as its `SignedIn` does: one bound after the
-     * sign-in, before the caller commits, receives both, and the dispatcher
-     * bound when the sign-in was made receives neither.
+     * A sign-in's `PasskeyUsed` reaches the dispatcher bound when the commit
+     * runs.
      *
      * @return void
      *
@@ -340,9 +323,7 @@ final class PasskeySignInTest extends TestCase
 
     /**
      * A sign-in that answers no live sign-in challenge of the guard fails as
-     * `passkey_challenge_invalid`, in its result as in its event, since it says
-     * nothing about any account; the passkey is not touched, and the event
-     * names the challenge only when it is a UUID.
+     * `passkey_challenge_invalid`.
      *
      * @param  \Closure(self): mixed  $challenge
      * @return void
@@ -422,9 +403,8 @@ final class PasskeySignInTest extends TestCase
     }
 
     /**
-     * A challenge a response that did not sign in was submitted to is used, not
-     * expired or unknown: the next answer to it is `passkey_challenge_used`,
-     * and its event carries the same reason.
+     * A challenge a failed response was submitted to is used, not expired or
+     * unknown.
      *
      * @return void
      *
@@ -537,9 +517,8 @@ final class PasskeySignInTest extends TestCase
     }
 
     /**
-     * A passkey whose owner the guard's provider does not return as that very
-     * model fails, even when the provider holds a model of another class under
-     * the same key.
+     * A passkey whose owner the guard's provider does not return as that model
+     * fails.
      *
      * @return void
      *
@@ -610,10 +589,8 @@ final class PasskeySignInTest extends TestCase
     }
 
     /**
-     * An assertion whose count does not advance, as a clone's would not, fails:
-     * the result conceals it as `invalid_credentials`, the event says
-     * `passkey_counter_regressed`, and the passkey keeps its count, so the
-     * genuine authenticator still signs in.
+     * A count that does not advance fails, concealed as `invalid_credentials`
+     * in the result.
      *
      * @return void
      *
@@ -658,8 +635,8 @@ final class PasskeySignInTest extends TestCase
     }
 
     /**
-     * Rows of `[counter step, change]`: what happens to the passkey, made by
-     * the closure, after the sign-in found it and before it records the use.
+     * Rows of `[counter step, change]`: what happens to the passkey between its
+     * lookup and its use.
      *
      * @return iterable<string, array{0: int, 1: \Closure(): mixed}>
      */
@@ -673,10 +650,8 @@ final class PasskeySignInTest extends TestCase
     }
 
     /**
-     * A passkey removed, or whose count another use recorded first, while its
-     * sign-in was between finding it and recording the use signs nobody in,
-     * whether or not its authenticator counts: `invalid_credentials`, with
-     * `passkey_counter_regressed` on the event, and no use reported.
+     * A passkey removed or used elsewhere before its use is recorded signs
+     * nobody in.
      *
      * @param  int  $step
      * @param  \Closure(): mixed  $change
@@ -702,9 +677,8 @@ final class PasskeySignInTest extends TestCase
     }
 
     /**
-     * Once the owner's account has used up its attempts, a passkey's assertion
-     * is not checked: the result says `invalid_credentials`, the event
-     * `account_rate_limited` with the wait, and the passkey is not touched.
+     * An account with no attempts left is refused before the assertion is
+     * checked.
      *
      * @return void
      *
@@ -776,9 +750,7 @@ final class PasskeySignInTest extends TestCase
     }
 
     /**
-     * The passkey is used even when the session service then refuses its owner:
-     * `PasskeyUsed` is dispatched and the count recorded, and the sign-in fails
-     * as `identity_inactive`.
+     * The passkey is used even when the session service then refuses its owner.
      *
      * @return void
      *

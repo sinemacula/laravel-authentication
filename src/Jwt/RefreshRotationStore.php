@@ -18,14 +18,8 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
- * The writes and the locking re-read behind a refresh: each a single statement
- * on the session's own connection, guarded so that it only applies to the state
- * it was decided on.
- *
- * Writes go through the query builder, so Eloquent observers do not fire and
- * unsaved in-memory attributes never reach the row; each successful write is
- * then mirrored on the in-memory session as persisted state. Every timestamp is
- * formatted with the session model's own date format.
+ * The guarded writes and the locking re-read behind a refresh, each a single
+ * statement on the session's own connection.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -48,18 +42,6 @@ final readonly class RefreshRotationStore
     /**
      * Rotate the session from the presented rotation id to the next one, and
      * move its idle deadline, in one compare-and-swap UPDATE.
-     *
-     * The swap applies only while the row still holds the presented id as its
-     * current one, is active and not revoked, and has both deadlines exactly as
-     * they were loaded (a `null` absolute one matched as `IS NULL`): any
-     * concurrent rotation, revocation, return to pending, or deadline change
-     * makes it affect no row. Its status is matched as well as its deadlines,
-     * since a pending session's deadline can equal the one it held while
-     * active. It records the presented id as the previous one and `$now` as the
-     * rotation time. The tenant authentication policy version the refresh was
-     * checked against is matched as loaded, so a version the policy-change
-     * helper wrote meanwhile makes the swap miss and the refresh be judged
-     * again, and written when it differs. Returns whether the row was rotated.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  string  $presentedRotationId
@@ -99,7 +81,7 @@ final readonly class RefreshRotationStore
             ->where($session->getRefreshKeyName(), $presentedDigest)
             ->where($session->getStatusName(), SessionStatus::ACTIVE->value)
             ->whereNull($session->getRevokedAtName())
-            ->where($this->loadedDeadlines($session))
+            ->where(self::loaded($session, [$session->getIdleExpiresAtName(), $session->getAbsoluteExpiresAtName()]))
             ->where($version, $loaded)
             ->update($rotated);
 
@@ -107,20 +89,8 @@ final readonly class RefreshRotationStore
     }
 
     /**
-     * Rotate the session from the presented rotation id to the next one for a
-     * switch, and move both deadlines (the absolute one only ever lowered, or
-     * kept `null`), in one compare-and-swap UPDATE that also records the tenant
-     * policy version the destination answered. When the destination's principal
-     * or active tenant is not the one the session recorded, it also records
-     * them and moves `switched_at` (`SwitchFloor::after()`), so every access
-     * token issued before is refused at once.
-     *
-     * The swap applies only while the row is still active, not revoked, holds
-     * the presented id as its current one, and has both deadlines, the
-     * principal, the active tenant and the policy version exactly as they were
-     * loaded: any concurrent rotation, switch, return to pending, revocation,
-     * version write or deadline change makes it affect no row. Returns whether
-     * the row was switched.
+     * Rotate the session to the next rotation id for a switch, moving both
+     * deadlines and recording the destination, in one compare-and-swap UPDATE.
      *
      * @formatter:off
      *
@@ -176,7 +146,7 @@ final readonly class RefreshRotationStore
             ->where($session->getStatusName(), SessionStatus::ACTIVE->value)
             ->where($session->getRefreshKeyName(), $presentedDigest)
             ->whereNull($session->getRevokedAtName())
-            ->where($this->loadedDeadlines($session))
+            ->where(self::loaded($session, [$session->getIdleExpiresAtName(), $session->getAbsoluteExpiresAtName()]))
             ->where(self::loaded($session, [$type, $id, $session->getTenantIdName(), $session->getTenantPolicyVersionName()]))
             ->update($switched);
 
@@ -204,10 +174,8 @@ final readonly class RefreshRotationStore
     }
 
     /**
-     * Revoke the session: record the time and reason and clear both refresh
-     * digests, unless it is already revoked, in which case the first
-     * revocation's time and reason are kept. Returns whether this call revoked
-     * it.
+     * Revoke the session unless it is already revoked, and report whether this
+     * call revoked it.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
@@ -228,12 +196,8 @@ final readonly class RefreshRotationStore
     }
 
     /**
-     * Revoke the active session as it was loaded, for a decision taken on that
-     * state: the revocation applies only while the row is still active and
-     * unrevoked, and holds the refresh digest, principal and active tenant it
-     * was loaded with, so a session a concurrent rotation, switch or return to
-     * pending moved on is left as it now is. Returns whether this call revoked
-     * it.
+     * Revoke the active session only while it is still as it was loaded, and
+     * report whether this call revoked it.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
@@ -258,9 +222,7 @@ final readonly class RefreshRotationStore
     }
 
     /**
-     * The columns a revocation writes, keyed by column: the time and reason,
-     * and both refresh digests cleared, so no refresh token of the session is
-     * accepted again.
+     * The columns a revocation writes, keyed by column.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
@@ -278,11 +240,8 @@ final readonly class RefreshRotationStore
     }
 
     /**
-     * Read the session again from the write connection with a locking read, so
-     * a refresh that lost its compare-and-swap judges the row as it now is.
-     * Inside a caller's transaction the lock is held until it ends; outside
-     * one, the locking read still returns the latest committed row. Returns
-     * `null` when the session no longer exists.
+     * Read the session again from the write connection with a locking read, or
+     * `null` when it no longer exists.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @return (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)|null
@@ -306,26 +265,6 @@ final readonly class RefreshRotationStore
             ->connection($session->getConnectionName())
             ->table($session->getTable())
             ->where($session->getKeyName(), $session->getKey());
-    }
-
-    /**
-     * The session's idle and absolute deadlines exactly as they were loaded,
-     * keyed by column, for a swap that must match them by equality: a `null`
-     * one is matched as `IS NULL`, which the query builder writes for a `null`
-     * value.
-     *
-     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
-     * @return array<string, mixed>
-     */
-    private function loadedDeadlines(EloquentSession&Model $session): array
-    {
-        $idle     = $session->getIdleExpiresAtName();
-        $absolute = $session->getAbsoluteExpiresAtName();
-
-        return [
-            $idle     => $session->getRawOriginal($idle),
-            $absolute => $session->getRawOriginal($absolute),
-        ];
     }
 
     /**

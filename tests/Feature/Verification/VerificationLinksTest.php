@@ -42,12 +42,8 @@ use Tests\Unit\Stubs\PlainIdentityFixture;
 use Tests\Unit\Stubs\StubPrincipal;
 
 /**
- * Feature tests for verifying identifiers by signed link, through a route of
- * the application's that consumes the link: every outcome, and the
- * `AuthenticationFailed` each refusal reports.
- *
- * Every package event and Laravel's auth events are recorded, so asserting the
- * one event an outcome dispatches also proves it signed nobody in.
+ * Feature tests for verifying identifiers by signed link, through an
+ * application route that consumes the link.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -117,9 +113,8 @@ final class VerificationLinksTest extends TestCase
     }
 
     /**
-     * A link carries the route's own parameters, the guard, the identity, the
-     * type, its purpose and a digest of the normalised identifier, never the
-     * identifier itself, and expires after the configured hour.
+     * A link is bound to its purpose, guard, identity and a digest of the
+     * identifier.
      *
      * @return void
      */
@@ -162,10 +157,7 @@ final class VerificationLinksTest extends TestCase
     }
 
     /**
-     * A link followed behind a trusted proxy that ends TLS verifies: the
-     * address it is checked against is the one the client used, as the proxy
-     * forwarded it, and the request the proxy made to the internal address
-     * would not have passed.
+     * A link followed behind a trusted proxy that ends TLS verifies.
      *
      * @return void
      */
@@ -231,11 +223,8 @@ final class VerificationLinksTest extends TestCase
     }
 
     /**
-     * An authentic link whose identifier has since changed, been removed or
-     * become one its normaliser rejects, or whose identity is gone, is
-     * `invalid`, as a tampered link is, so the answer says nothing about the
-     * account. The event names the guard the link was signed for, and the
-     * identity once it was loaded.
+     * An authentic link that no longer proves the identifier is `invalid`, as a
+     * tampered link is.
      *
      * @param  \Closure(\Tests\Integration\Fixtures\VerifiableIdentity): mixed  $change
      * @param  bool  $loaded
@@ -284,10 +273,8 @@ final class VerificationLinksTest extends TestCase
     }
 
     /**
-     * Its signature is checked before its expiry, and both before any identity
-     * is read: an expired link that was tampered with is `invalid`, naming no
-     * guard, and an authentic expired one is `expired` without a query, even
-     * once its identity is gone or for a guard no longer configured.
+     * The signature is checked before the expiry, and both before the identity
+     * is read.
      *
      * @return void
      */
@@ -325,10 +312,7 @@ final class VerificationLinksTest extends TestCase
     }
 
     /**
-     * When the identifier changes while the link is being verified, the
-     * verifier records nothing and answers `mismatch`, which the link answers
-     * as it is: the link was accepted, so no failure is reported, and nothing
-     * is verified.
+     * The verifier's `mismatch` is answered as it is, reporting no failure.
      *
      * @return void
      */
@@ -348,9 +332,7 @@ final class VerificationLinksTest extends TestCase
     }
 
     /**
-     * A link signed by hand, as the malformed expiries below are, verifies when
-     * its expiry is well formed, so each of them is refused for its expiry
-     * alone.
+     * A hand-signed link with a well-formed expiry verifies.
      *
      * @return void
      */
@@ -370,10 +352,8 @@ final class VerificationLinksTest extends TestCase
     }
 
     /**
-     * Links that were tampered with, signed for another purpose or without a
-     * well-formed expiry, or that name no usable guard, type or identity, with
-     * the guard their refusal names, none until the link is known authentic and
-     * its guard a configured JWT guard, and whether it names the identity.
+     * Links that are invalid, with the guard their refusal names and whether it
+     * names the identity.
      *
      * @return iterable<string, array{0: \Closure(string, \Tests\Integration\Fixtures\VerifiableIdentity): string, 1: ?string, 2: bool}>
      */
@@ -429,10 +409,8 @@ final class VerificationLinksTest extends TestCase
     }
 
     /**
-     * An invalid link verifies nothing, signs nobody in, and is reported as
-     * `invalid_credentials` on the `identifier_verification` flow, naming no
-     * identity it did not load. The other guard's identity model has a row
-     * under the same key, which cannot verify identifiers.
+     * An invalid link verifies nothing and is reported as
+     * `invalid_credentials`.
      *
      * @param  \Closure(string, \Tests\Integration\Fixtures\VerifiableIdentity): string  $tamper
      * @param  ?string  $guard
@@ -460,9 +438,7 @@ final class VerificationLinksTest extends TestCase
     }
 
     /**
-     * A link cannot be created with a reserved parameter name, for an identity
-     * without the identifier, for a guard that is not a JWT guard, or for an
-     * identity that cannot verify identifiers.
+     * A link cannot be created when it could not be trusted.
      *
      * @return void
      */
@@ -495,9 +471,8 @@ final class VerificationLinksTest extends TestCase
     }
 
     /**
-     * A route that takes reserved names as placeholders would carry the link's
-     * fields in its path, where `consume()` never reads them, so every link to
-     * it would be refused: creating one fails instead, naming the placeholders.
+     * A route that takes reserved names as placeholders is refused, naming
+     * them.
      *
      * @return void
      */
@@ -660,9 +635,8 @@ final class VerificationLinksTest extends TestCase
     }
 
     /**
-     * A link to the route with the fields and the expiry as given, signed with
-     * the application key as Laravel signs one, so an expiry its URL generator
-     * would refuse to sign can be tried.
+     * A link to the route with the given fields and expiry, signed as Laravel
+     * signs one.
      *
      * @param  array<string, mixed>  $fields
      * @param  mixed  $expires

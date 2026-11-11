@@ -11,8 +11,7 @@ use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\IdentifierChanges\PresentedChangeLink;
 
 /**
- * Unit tests for reading a change link's fields from a request's query: each
- * must be a string, and the type a valid identifier type.
+ * Unit tests for reading a change link's fields from a request's query.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -56,7 +55,7 @@ final class PresentedChangeLinkTest extends TestCase
 
     /**
      * A query without every field as a string, or with a malformed type, is no
-     * change link.
+     * link.
      *
      * @param  string  $field
      * @param  mixed  $value

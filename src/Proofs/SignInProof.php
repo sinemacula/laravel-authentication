@@ -11,17 +11,11 @@ use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 
 /**
- * What a sign-in proved before its session exists, carried through
- * establishment to the session's first proofs: the sign-in method, the first
- * factor's channel, observed properties, `amr` values and time, and the
- * provenance of a session established through an external provider, with the
- * acceptance of the provider's evidence when it was accepted.
+ * What a sign-in proved before its session exists, carried through to the
+ * session's first proofs.
  *
- * The session records them as it is written, pending or active, so the time the
- * credentials were verified carries to the active session unchanged; a further
- * factor a pending session waits for is recorded on it when it is given. The
- * first factor's id is chosen here, so a tenant policy judged against it in
- * memory at sign-in judges the very proof the session then records.
+ * The first factor's id is chosen here so a tenant policy judged in memory at
+ * sign-in judges the very proof the session then records.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -88,15 +82,8 @@ final readonly class SignInProof
     }
 
     /**
-     * The proof of a sign-in an external provider verified, under the named
-     * method: the connection as its channel, the private external-provider
-     * `amr` value, and the provider's authentication time, or now when it gave
-     * none or one after now (the clocks disagree), with the provenance. The
-     * first factor carries the evaluation `External\EvidenceAcceptance` gave
-     * the provider's evidence when it was accepted, and the provenance carries
-     * that evidence: the two come together or not at all. The authorisation
-     * request's reference, when the result had one, is carried for the
-     * redemption's report and never recorded.
+     * The proof of a sign-in an external provider verified, timed at the
+     * provider's authentication time unless it is missing or after now.
      *
      * @param  string  $method
      * @param  \SineMacula\Laravel\Authentication\Proofs\Provenance  $provenance
@@ -151,9 +138,7 @@ final readonly class SignInProof
     }
 
     /**
-     * The first factor as it reads back once recorded, under its id: with no
-     * evaluation, since only an external provider's carries one, and that one
-     * reads back without it (see `SessionProofs`).
+     * The first factor as it reads back once recorded, with no evaluation.
      *
      * @return \SineMacula\Laravel\Authentication\Proofs\RecordedProof
      */

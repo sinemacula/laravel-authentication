@@ -22,11 +22,6 @@ use Tests\Unit\Stubs\StubModel;
  * Unit tests for the ModelProvider constructor validation, identity retrieval,
  * and basic credential query building.
  *
- * Covers constructor type checks, retrieveById, retrieveByToken,
- * updateRememberToken, and simple credential-to-query mapping. Credential
- * filtering edge cases, validateCredentials, and rehashPasswordIfRequired tests
- * live in ModelProviderCredentialTest.
- *
  * @internal
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -206,8 +201,7 @@ final class ModelProviderTest extends TestCase
     }
 
     /**
-     * Numeric credential keys are silently dropped - they cannot be passed
-     * safely to `where()` and would otherwise crash the query.
+     * Numeric credential keys are dropped, leaving nothing to query by.
      *
      * @return void
      */
@@ -215,15 +209,11 @@ final class ModelProviderTest extends TestCase
     {
         $provider = new ModelProvider($this->hasher, StubAuthenticatableModel::class);
 
-        // After dropping numeric keys the credentials array is empty - the
-        // provider returns null without composing a query.
         self::assertNull($provider->retrieveByCredentials([self::ALICE_EMAIL]));
     }
 
     /**
-     * Build a ModelProvider whose createModel() returns an Eloquent model whose
-     * newQuery() yields the supplied builder mock, so collaborators can be
-     * asserted without a real database connection.
+     * Build a ModelProvider whose model queries through the given builder.
      *
      * @param  \Mockery\MockInterface  $builder
      * @return \SineMacula\Laravel\Authentication\Providers\ModelProvider
@@ -262,7 +252,7 @@ final class ModelProviderTest extends TestCase
             }
 
             /**
-             * Create model.
+             * Return the pre-built model.
              *
              * @return \Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model
              */

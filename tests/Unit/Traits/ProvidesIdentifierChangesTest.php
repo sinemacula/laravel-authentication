@@ -23,9 +23,8 @@ use Tests\Unit\Stubs\StubVerifiableModel;
 final class ProvidesIdentifierChangesTest extends TestCase
 {
     /**
-     * The trait brings the verification with it, so a changeable model uses it
-     * alone, and a model that only verifies its identifiers gets no public
-     * `replaceIdentifier()` its contracts do not ask for.
+     * The trait brings the verification with it, and a verifying-only model
+     * gets no public `replaceIdentifier()`.
      *
      * @return void
      */

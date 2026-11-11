@@ -23,10 +23,7 @@ use Tests\Unit\Stubs\StubIdentity;
 use Tests\Unit\Stubs\StubSession;
 
 /**
- * Query-budget contracts for session last-use writes: for the session the
- * event's guard has bound, the path every request takes, the time, IP address
- * and user agent are written in one update and nothing is read; a session no
- * resolved guard has bound costs one read of it more.
+ * Query-budget contracts for writing a session's last use.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

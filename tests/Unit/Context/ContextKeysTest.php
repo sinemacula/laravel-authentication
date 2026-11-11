@@ -12,9 +12,7 @@ use SineMacula\Laravel\Authentication\Context\Enums\CredentialKind;
 
 /**
  * Unit tests for the rules an authentication context's namespaces and
- * contributed keys keep: a namespace in its form and not the package's own, a
- * key in its form, a value `null`, a scalar or an array of them, and the first
- * key that breaks a rule named in what is wrong.
+ * contributed keys keep.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -31,9 +29,7 @@ final class ContextKeysTest extends TestCase
     private const string VALUE_RULE = 'must be null, a scalar or an array of them, never an object or a resource.';
 
     /**
-     * Rows of `[name, whether it is a namespace]`: names in the form, at the
-     * shortest and the longest, and names that are not, the package's own
-     * included.
+     * Rows of `[name, whether it is a namespace]`.
      *
      * @return iterable<string, array{0: string, 1: bool}>
      */
@@ -69,9 +65,7 @@ final class ContextKeysTest extends TestCase
     }
 
     /**
-     * Keys in their form holding plain values are taken as given, in the order
-     * given: the shortest and the longest names, `null`, every scalar, and
-     * arrays of them nested, an empty one included.
+     * Keys in their form holding plain values are taken as given, in order.
      *
      * @return void
      */

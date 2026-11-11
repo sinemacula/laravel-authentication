@@ -69,11 +69,8 @@ use Tests\Integration\Fixtures\MachineClient;
 use Tests\TestCase;
 
 /**
- * Feature tests for the passkey service `Auth::passkeys()` returns: the options
- * a registration is handed, which challenges it may answer, what it stores and
- * reports, and what it refuses; sign-in options; the factor ceremony; and
- * listing and removing passkeys. Signing in with a passkey is tested in
- * `PasskeySignInTest`.
+ * Feature tests for the passkey service `Auth::passkeys()` returns; sign-in is
+ * in `PasskeySignInTest`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -133,12 +130,8 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * Registration options ask for a discoverable, user-verified, unattested
-     * credential of the guard's relying party for the identity, with a random
-     * 32-byte challenge and handle, the display name defaulting to the user
-     * name, and a timeout of the challenge's lifetime; the challenge is stored
-     * for the guard, the relying party and the identity, with the options, for
-     * five minutes.
+     * Registration options are stored as a challenge for the guard, relying
+     * party and identity.
      *
      * @return void
      *
@@ -198,7 +191,7 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * A blank user name or display name is a misconfiguration, and stores no
+     * A blank user name or display name is a misconfiguration and stores no
      * challenge.
      *
      * @param  string  $userName
@@ -224,11 +217,8 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * A registered passkey is stored for the identity and the relying party,
-     * with its credential id (found by its digest), public key, user handle,
-     * count, transports, backup state and name, and answered as `registered`
-     * with a summary that holds none of the key material; `PasskeyAdded`
-     * reports it with the passkey's id and the request's client.
+     * A registered passkey is stored for the identity and reported by
+     * `PasskeyAdded`.
      *
      * @return void
      *
@@ -312,9 +302,7 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * Rows of `[name given, name stored]`: a name is stored cleaned of invalid
-     * UTF-8 and of control and bidirectional formatting characters, cut to 255
-     * characters, and `null` when nothing is left.
+     * Rows of `[name given, name stored]`.
      *
      * @return iterable<string, array{0: ?string, 1: ?string}>
      */
@@ -368,9 +356,8 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * An identity's later registrations exclude its passkeys and reuse the user
-     * handle its first was registered under, including after the application
-     * key changes; another identity gets a handle of its own.
+     * Later registrations reuse the identity's user handle and exclude its
+     * earlier passkeys.
      *
      * @return void
      *
@@ -402,9 +389,8 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * Registrations whose options were handed out before the identity's first
-     * passkey was registered each keep the handle their options gave, and each
-     * passkey then signs in and verifies as a factor under its own.
+     * Registrations started before the first completes keep their own user
+     * handles.
      *
      * @return void
      *
@@ -462,9 +448,8 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * A challenge that is not a live registration challenge of this guard for
-     * the identity is refused as `challenge_invalid`, stores nothing, and is
-     * left for its own ceremony.
+     * A challenge that is not this guard's live registration challenge for the
+     * identity is refused.
      *
      * @param  \Closure(self, \SineMacula\Laravel\Authentication\Contracts\Identity): string  $challenge
      * @return void
@@ -514,9 +499,7 @@ final class PasskeyServiceTest extends TestCase
 
     /**
      * A challenge answered at or after its expiry is refused as
-     * `challenge_expired` (and as `challenge_invalid` through another guard,
-     * which learns nothing of it), and one answered the second before is
-     * accepted.
+     * `challenge_expired`.
      *
      * @return void
      *
@@ -561,8 +544,8 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * A response that is malformed, that fails its ceremony, or that is an
-     * assertion is refused as `response_invalid`, and uses the challenge up.
+     * A response that does not verify is refused as `response_invalid` and uses
+     * the challenge up.
      *
      * @return void
      *
@@ -703,8 +686,7 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * A machine identity signs in with no passkey: every ceremony that names an
-     * identity refuses it as a misconfiguration, writing nothing.
+     * A machine identity is refused by every ceremony that names an identity.
      *
      * @return void
      *
@@ -802,9 +784,8 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * Sign-in options name no credential, require user verification, carry a
-     * random 32-byte challenge for the relying party, and store a sign-in
-     * challenge bound to no identity.
+     * Sign-in options are usernameless and store a sign-in challenge bound to
+     * no identity.
      *
      * @return void
      *
@@ -829,9 +810,8 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * Each request is counted against the client's IP address under the guard's
-     * `passkey_options` limit; once it is used up, a 429 says how long to wait
-     * and nothing is stored. Another IP address is not held back.
+     * Options are limited per IP address under the guard's `passkey_options`
+     * limit.
      *
      * @return void
      *
@@ -884,9 +864,8 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * Factor options allow only the identity's passkeys for the relying party,
-     * with their transports, require user verification, and store a factor
-     * challenge bound to the identity.
+     * Factor options allow only the identity's passkeys and store a factor
+     * challenge.
      *
      * @return void
      *
@@ -912,10 +891,8 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * The identity's passkey verifies as a factor: verified, with the summary
-     * of the passkey as its use left it, its count and use recorded,
-     * `PasskeyUsed` reported with the client given, and no failure reported or
-     * attempt counted.
+     * The identity's passkey verifies as a factor, its use recorded and
+     * reported.
      *
      * @return void
      *
@@ -1012,9 +989,7 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * A challenge that is not a live factor challenge for the identity is
-     * refused as `passkey_challenge_invalid` (another identity's, a sign-in's,
-     * an unknown one) or, one answered already, as `passkey_challenge_used`.
+     * A challenge that is not the identity's live factor challenge is refused.
      *
      * @return void
      *
@@ -1040,10 +1015,7 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * A factor challenge the identity let run out is refused as
-     * `passkey_challenge_expired`, and one a response was submitted to before,
-     * whether or not that one verified, as `passkey_challenge_used`; another
-     * identity's, whichever its state, is `passkey_challenge_invalid`.
+     * A factor challenge that expired is told apart from one already used.
      *
      * @return void
      *
@@ -1157,9 +1129,8 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * An identity's passkeys are listed oldest first, for the guard's relying
-     * party only, never another identity's (nor one of an identity of another
-     * type that shares its id), and as summaries that hold no key material.
+     * An identity's passkeys are listed oldest first for the guard's relying
+     * party only.
      *
      * @return void
      *
@@ -1194,10 +1165,8 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * An identity's credential ids are its own stored ids, oldest registration
-     * first, for the guard's relying party only: none of another identity's
-     * (nor one of another type that shares its id), none of another relying
-     * party's, and an empty list for an identity with no passkey.
+     * An identity's credential ids are its own, oldest first, for the guard's
+     * relying party only.
      *
      * @return void
      *
@@ -1255,10 +1224,7 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * Removing an identity's passkey deletes it and reports `PasskeyRemoved`
-     * with the passkey's id and the client given, with no completion while no
-     * factor package is bound; removing it again removes nothing and reports
-     * nothing.
+     * Removing a passkey deletes it and reports `PasskeyRemoved` once.
      *
      * @return void
      *
@@ -1292,10 +1258,7 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * Another identity's passkey, one of an identity of another type that
-     * shares this one's id, one of another relying party, and an id that names
-     * none are not removed, and nothing is reported, while the identity's own
-     * passkey stays; an id that is not a UUID is refused without a query.
+     * Only the identity's own passkey of the relying party is removed.
      *
      * @return void
      *
@@ -1382,10 +1345,7 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * Every event goes, once committed, to the dispatcher the guard has when
-     * the commit runs it: the addition, the use and the removal all reach the
-     * one swapped in after the last write, and neither the dispatcher of the
-     * addition nor the one swapped in between the writes receives any.
+     * Every event reaches the dispatcher the guard has when the commit runs.
      *
      * @return void
      *
@@ -1440,10 +1400,8 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * A factor package that asks for a registration on a session gives its
-     * binding: it must name this identity, this guard and a session, and its
-     * session and purpose are kept on the challenge; without one the challenge
-     * records none.
+     * A registration keeps the binding the factor package asked for on its
+     * challenge.
      *
      * @return void
      *
@@ -1491,13 +1449,8 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * Inside the registration's transaction on the storage connection, before
-     * the row is written, the factor gate is asked about the passkey as the
-     * registration showed it (the row's id, the canonical credential id, the
-     * relying party, the flags its authenticator data reported, resistant to
-     * phishing and with no key protection, and the time), with the challenge's
-     * binding and the cleaned name; its association comes back with the
-     * passkey, which is stored and reported once.
+     * The factor gate is asked about a registered passkey inside the
+     * registration's transaction.
      *
      * @return void
      *
@@ -1538,9 +1491,8 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * A gate that refuses a registration throws: the exception reaches the
-     * caller, no passkey is stored or reported, nothing the gate did stands,
-     * and the challenge stays used up.
+     * A gate that refuses a registration throws, and nothing is stored or
+     * reported.
      *
      * @return void
      *
@@ -1605,12 +1557,8 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * A credential another registration stores while the gate runs is found
-     * only by the insert: the whole change rolls back, the gate's work with it
-     * (here a pending session it satisfied, which stays pending and unbound),
-     * and the registration is answered `already_registered`, reporting
-     * nothing; a gate that completes the pending session commits with the
-     * registration, which binds the guard once it commits.
+     * A gate's work on a pending session commits or rolls back with the
+     * registration.
      *
      * @return void
      *
@@ -1685,22 +1633,14 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * A gate that judges an active current session again once the passkey
-     * counts as a factor (`factorChanged()` with `PASSKEY_FACTOR_REGISTERED`)
-     * answers the judgement as its association's completion, which the
-     * registration hands back as it is: a session now short of a further factor
-     * returns to pending with the registration, the completion carrying the
-     * pending session and its credential, and that credential takes a further
-     * factor. A duplicate of the credential the gate itself inserts, an
-     * injected conflict in the same transaction found only by the passkey's own
-     * insert, rolls the return back with the rest, so the session stays active,
-     * nothing is reported and no association is answered.
+     * A gate's judgement of the current session is handed back as the
+     * registration's completion.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAGateThatJudgesTheCurrentSessionAgainHandsItsCompletionBackWithTheRegistration(): void
+    public function testAGatesJudgementIsHandedBackWithTheRegistration(): void
     {
         $identity = $this->seedIdentity();
         $signedIn = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
@@ -1770,16 +1710,8 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * A gate that removes a passkey factor through the factor package's own
-     * removal (`factorRemoved()` for its factor) answers that removal as its
-     * completion, which the passkey's removal hands back as it is: the current
-     * session, short of a further factor without that factor, returns to
-     * pending, the completion carrying its new pending credential, which takes
-     * another factor. A delete of the passkey the gate itself makes, an
-     * injected conflict in the same transaction found by the removal's own
-     * delete, rolls the return back with the rest, the passkey's row included,
-     * so the session stays active, nothing is reported and no completion is
-     * answered.
+     * A gate's factor removal is handed back as the passkey removal's
+     * completion.
      *
      * @return void
      *
@@ -1851,13 +1783,7 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * Inside the removal's transaction the gate is asked first, with the
-     * passkey's id and canonical credential id: a gate that refuses throws,
-     * keeping the passkey and reporting nothing; one that lets it go ahead
-     * removes it, reported once, and the removal hands back the completion it
-     * answered, as it is; a delete of the passkey the gate itself makes, an
-     * injected conflict in the same transaction, rolls the gate's work back and
-     * is answered not removed, the completion dropped with it.
+     * The factor gate is asked first inside the removal's transaction.
      *
      * @return void
      *
@@ -1921,13 +1847,8 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * A factor ceremony allows only those of the identity's passkeys whose
-     * credential id the factor package names, compared exactly: another passkey
-     * of the identity, another identity's, and an id that differs only in case
-     * are left out, and with none left nothing is handed out or written. The
-     * options list the passkeys allowed, and give the browser the challenge's
-     * lifetime in milliseconds. The challenge keeps the binding and asks for
-     * user verification, or only prefers it when the factor package says so.
+     * A factor ceremony allows only the identity's passkeys the factor package
+     * names.
      *
      * @return void
      *
@@ -1973,9 +1894,7 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * Rows of `[credential ids]` a factor ceremony refuses: an id with padding,
-     * the standard alphabet, one that is not canonical, an empty one, and one
-     * that is not a string.
+     * Rows of `[credential ids]` a factor ceremony refuses.
      *
      * @return iterable<string, array{0: array<array-key, mixed>}>
      */
@@ -1989,9 +1908,8 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * A credential id that is not canonical unpadded base64url, or a binding
-     * that does not name the identity, the guard and a session, is a
-     * programming error, refused before anything is written.
+     * A malformed credential id is a programming error, refused before anything
+     * is written.
      *
      * @param  array<array-key, mixed>  $ids
      * @return void
@@ -2017,9 +1935,7 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * Rows of `[binding]` a factor ceremony refuses: one for another identity,
-     * another guard, no session, an empty session, and a session longer than
-     * 255 characters.
+     * Rows of `[binding]` a factor ceremony refuses.
      *
      * @formatter:off
      *
@@ -2041,9 +1957,8 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * A binding that does not name the identity, the guard and a session of at
-     * most 255 characters is a programming error, refused before anything is
-     * written.
+     * A binding that is not the ceremony's own is a programming error, refused
+     * before any write.
      *
      * @formatter:off
      *
@@ -2097,11 +2012,7 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * A factor challenge answers only the binding it was handed out for:
-     * another session's or another purpose's verification of it is refused as
-     * `passkey_challenge_invalid`, and a replay as `passkey_challenge_used`,
-     * and a verification whose binding names another identity or guard is a
-     * programming error.
+     * A factor challenge answers only the binding it was handed out for.
      *
      * @return void
      *
@@ -2174,11 +2085,8 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * A verified factor reports what its assertion showed, never what the
-     * ceremony asked for: under preferred user verification an authenticator
-     * that does not verify the user is accepted and reported as unverified,
-     * while a ceremony that requires it refuses it; backup flags are the
-     * assertion's; a counter that stays at zero is accepted again and again.
+     * A verified factor reports what its assertion showed, not what the
+     * ceremony asked for.
      *
      * @return void
      *
@@ -2231,9 +2139,8 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * An ordinary registration, with no pending credential, is asked of the
-     * gate as it always was, now with the client the registration was given and
-     * no pending credential; a removal is handed its client too.
+     * The gate is handed the client of an ordinary registration and no pending
+     * credential.
      *
      * @return void
      *
@@ -2266,8 +2173,7 @@ final class PasskeyServiceTest extends TestCase
 
     /**
      * Rows of `[credential form, challenge bound]`: how the pending credential
-     * is handed in, and whether the challenge was asked for with the pending
-     * session's binding.
+     * is handed in.
      *
      * @return iterable<string, array{0: string, 1: bool}>
      */
@@ -2281,13 +2187,8 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * A pending credential that proves a live pending session of the identity
-     * (and, for a bound challenge, the one it was bound to) is handed to the
-     * gate as a `Secret` with the client and the challenge's binding, after the
-     * identity's row and the session's were read and before the passkey's row
-     * is written; the gate completes the session's factor itself, so the
-     * session activates with the registration, which dispatches `PasskeyAdded`
-     * and nothing that reports a refusal.
+     * The gate is handed a pending credential that proves a live pending
+     * session of the identity.
      *
      * @param  string  $form
      * @param  bool  $bound
@@ -2357,9 +2258,8 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * A gate that leaves the session pending (another factor is still owed) has
-     * the registration stored all the same: completing the session is the
-     * gate's to do, and may stop short.
+     * A gate may leave the pending session pending, and the registration is
+     * still stored.
      *
      * @return void
      *
@@ -2388,8 +2288,8 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * Rows of one name each: a pending credential that proves no live pending
-     * session of the identity on the guard, or none the challenge was bound to.
+     * Rows of `[case]`: pending credentials that prove no live pending session
+     * of the identity.
      *
      * @return iterable<string, array{0: string}>
      */
@@ -2415,13 +2315,8 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * Whatever the credential fails to prove (handed in as `pending_invalid`,
-     * empty, malformed, of no session, of a wrong secret, expired, revoked,
-     * already active, another identity's, another guard's, or not the session
-     * the challenge was bound to) the registration is `pending_invalid`, the
-     * same answer for each: the gate is not asked, no passkey is stored, no
-     * `PasskeyAdded` is dispatched, the challenge is used up, and the refusal
-     * is reported once, with the client and without the credential.
+     * A credential that proves no pending session of the identity refuses the
+     * registration as `pending_invalid`.
      *
      * @param  string  $case
      * @return void
@@ -2477,10 +2372,9 @@ final class PasskeyServiceTest extends TestCase
         }
     }
 
-    /** A reason other than `pending_invalid` handed in as the pending
-     * /**credential is a caller's error, raised before the challenge is used up or
-     * /**anything is
-     * reported.
+    /**
+     * A failure reason other than `pending_invalid` as the pending credential
+     * is a caller's error.
      *
      * @return void
      *
@@ -2511,12 +2405,8 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * A cookie application's registration on a pending sign-in from a client
-     * that did not come from a page of its own site is `cross_site_request`
-     * before the pending session is read (no query touches the sessions) and
-     * before the gate is asked, and is reported as such; the same client's
-     * ordinary registration, which sets no cookie, is not judged, and a client
-     * of the application's own site registers on the pending sign-in.
+     * A cookie application refuses a cross-site registration on a pending
+     * sign-in.
      *
      * @return void
      *
@@ -2562,10 +2452,8 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * A gate that completes the pending session and then throws refuses the
-     * registration: the session's activation, the proof it stored, the bind and
-     * the passkey all roll back, the exception reaches the caller, and nothing
-     * is reported.
+     * A gate that throws after completing the pending session rolls everything
+     * back.
      *
      * @return void
      *
@@ -2614,9 +2502,8 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * A pending credential handed in as a string leaves no trace of itself in
-     * the trace of an exception thrown while it is held (here a misconfigured
-     * transport), even where arguments are kept in traces.
+     * A pending credential handed in as a string is absent from an exception's
+     * trace.
      *
      * @return void
      *
@@ -2650,10 +2537,7 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * A registration on a pending sign-in locks the identity's row inside the
-     * storage connection's transaction, so an identity on another connection is
-     * refused before the challenge is used up or anything is read; an ordinary
-     * registration is not judged.
+     * A pending registration of an identity on another connection is refused.
      *
      * @return void
      *
@@ -2715,8 +2599,8 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * Sign the identity in with its password on the guard, which leaves the
-     * session pending, and answer its pending credential and its key.
+     * Sign the identity in with its password on the guard, and return its
+     * pending credential and key.
      *
      * @param  string  $guard
      * @param  string  $email
@@ -2735,9 +2619,8 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * Ask for the options of a registration for the identity, bound to the
-     * pending session if one is named, and answer the challenge's id with the
-     * authenticator's answer to it.
+     * Ask for registration options bound to the pending session if named, and
+     * return the challenge's id and the authenticator's answer.
      *
      * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
      * @param  ?string  $sessionId
@@ -2754,9 +2637,8 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * The pending credential to hand in for the case, and the pending session
-     * the challenge is to be bound to (none when the case names the identity or
-     * the guard alone).
+     * The pending credential for the case, and the pending session to bind the
+     * challenge to.
      *
      * @param  string  $case
      * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
@@ -2880,9 +2762,8 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * The credential id with the case of one letter flipped, short of the last
-     * character (whose unused bits must stay zero), so it is still canonical
-     * and differs only in case.
+     * The credential id with one letter's case flipped, short of the last
+     * character, whose unused bits must stay zero.
      *
      * @param  string  $credentialId
      * @return string

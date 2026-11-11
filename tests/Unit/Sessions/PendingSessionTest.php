@@ -36,10 +36,7 @@ final class PendingSessionTest extends TestCase
     use MockeryPHPUnitIntegration;
 
     /**
-     * The pending session carries its id, guard, identity, principal, active
-     * tenant, what it waits on, its method, when its credential expires, its
-     * record, what its authentication still falls short of, its first factor
-     * and the principals to choose from.
+     * The pending session carries everything it was built with.
      *
      * @return void
      */
@@ -97,8 +94,7 @@ final class PendingSessionTest extends TestCase
 
     /**
      * The credential allows exactly the first outstanding requirement's
-     * actions: no principal is listed or chosen while a factor is owed, and no
-     * factor action is allowed once only the choice is left.
+     * actions.
      *
      * @param  non-empty-list<\SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement>  $requires
      * @param  list<\SineMacula\Laravel\Authentication\Sessions\Enums\PendingAction>  $allowed

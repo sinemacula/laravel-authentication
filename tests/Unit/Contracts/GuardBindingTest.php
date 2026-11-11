@@ -12,10 +12,7 @@ use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 
 /**
- * Shape tests for the guard's bound state a flow binds through: each bind takes
- * the client its own events describe as an optional last parameter, `null` for
- * the guard's request, so a flow acting for a client it was given as plain
- * values binds with that client.
+ * Shape tests for the guard's binds, each taking an optional client last.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

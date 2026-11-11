@@ -31,11 +31,8 @@ use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use Tests\Integration\Fixtures\MachineClient;
 
 /**
- * Runtime benchmark fixtures for machine credentials: a request authenticated
- * by the `api_key` guard, and a request bearing an access token a client
- * credentials exchange granted, which the `jwt` guard checks against the API
- * key it names. Both run on the package's own application policy and scope
- * registry, resolved from the container as in an application.
+ * Runtime benchmark fixtures for machine credentials: `api_key` requests and
+ * client credentials bearer tokens on the `jwt` guard.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -208,10 +205,7 @@ final class MachineCredentialBenchHarness
 
     /**
      * Run each benchmarked path once and throw unless it reaches the outcome
-     * its name describes: a used key authenticates and records nothing, a
-     * never-used key authenticates and records its use, a wrong secret is
-     * refused as an invalid credential, and a client credentials token binds
-     * its machine with the token's scopes.
+     * its name describes.
      *
      * @return void
      *
@@ -246,8 +240,8 @@ final class MachineCredentialBenchHarness
     }
 
     /**
-     * The OAuth client id and secret of an API key,
-     * `<prefix>_<public>_<secret>`: its public part and its secret.
+     * Split an API key, `<prefix>_<public>_<secret>`, into its OAuth client id
+     * and secret.
      *
      * @param  string  $key
      * @return array{0: string, 1: string}

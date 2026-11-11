@@ -11,9 +11,8 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\ValidatesSessionKey;
 
 /**
- * Session model keyed by application-generated `dev_` strings, a key format the
- * package cannot recognise on its own, so it describes the shape of its key
- * through `ValidatesSessionKey`.
+ * Session model keyed by `dev_` strings, a format it describes through
+ * `ValidatesSessionKey`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

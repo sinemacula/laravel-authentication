@@ -10,23 +10,7 @@ use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 use SineMacula\Laravel\Authentication\External\ProviderContext;
 
 /**
- * How a session established through an external identity provider began: the
- * connection and its tenant, when the provider authenticated the identity, the
- * provider's own deadline for its session (SAML `SessionNotOnOrAfter`), the
- * version of the enforcement or policy the caller checked, the id of the link
- * the result was mapped to its identity through, the evidence the provider
- * asserted, once accepted, and the provider context the adapter gave with the
- * result, opaque to the package and its keys the adapter's own.
- *
- * Built by the session service from a trusted server-side adapter's result and
- * the link the link contract found, never from what a client sent. The session
- * records it once, beside its proofs, and nothing rewrites it: a later
- * reauthentication at the provider is a proof of its own, and must come through
- * the very link recorded here. It carries the provider's evidence only when the
- * evidence contract accepted it (`External\EvidenceAcceptance`), and the first
- * factor then carries the acceptance; evidence that was not accepted is never
- * recorded. Times are kept to the whole second. A contributor to the
- * authentication context reads it through `ContributionSubject::provenance()`.
+ * How a session established through an external identity provider began.
  *
  * @api
  *
@@ -78,13 +62,13 @@ final readonly class Provenance
         /** The version of the enforcement or policy the caller checked, if any. */
         public ?string $policyVersion = null,
 
-        /** The id of the link the result was mapped to its identity through, opaque and compared exactly; `null` for none. */
+        /** The id of the link the result was mapped to its identity through, if any. */
         public ?string $linkId = null,
 
         /** The evidence the provider asserted, once the evidence contract accepted it. */
         public ?ExternalEvidence $evidence = null,
 
-        /** The provider context the adapter gave with the result, if any, never interpreted by the package. */
+        /** The opaque provider context the adapter gave with the result, if any. */
         public ?ProviderContext $providerContext = null,
     ) {
         self::assertText($connectionId, self::ID_MAX_LENGTH, 'connection id');

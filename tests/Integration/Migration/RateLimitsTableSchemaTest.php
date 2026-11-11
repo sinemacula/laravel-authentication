@@ -13,15 +13,8 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 /**
- * Integration tests for the shape of the table the shipped rate limits
- * migration creates, on whichever engine the suite runs against.
- *
- * The migration runs for a configured table name other than the default and
- * with the schema builder's default time precision raised, so the index name
- * and the whole-second precision are what the migration itself declares.
- *
- * Marked `#[CoversNothing]` because a migration is an anonymous class PHPUnit
- * cannot attribute coverage to.
+ * Integration tests for the shape of the table the rate limits migration
+ * creates.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

@@ -9,12 +9,8 @@ use Carbon\CarbonInterface;
 use SineMacula\Laravel\Authentication\Contracts\Session;
 
 /**
- * The deadline rule every session follows: the session has ended from the
- * second its idle deadline names, or its absolute deadline when it has one, and
- * when it lacks an idle deadline. A session with no absolute deadline (the
- * application sets no absolute limit and its sign-in supplied no deadline) ends
- * only when it goes idle. The guard's `TokenLifetimes` set the deadlines; this
- * only reads them.
+ * The deadline rule every session follows: it ends at the earlier of its idle
+ * and absolute deadlines, or at once without an idle one.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -29,12 +25,7 @@ final class SessionDeadlines
     private function __construct() {}
 
     /**
-     * Whether a session has ended at the given time: its idle deadline is
-     * missing (the session has no deadlines) or has been reached, or its
-     * absolute deadline has been reached.
-     *
-     * The one deadline rule, shared by bearer requests, sign-in pins, refresh,
-     * and token issuance.
+     * Whether a session has ended at the given time.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  \Carbon\CarbonInterface  $now
@@ -48,9 +39,8 @@ final class SessionDeadlines
     }
 
     /**
-     * Return a session's idle and absolute deadlines while it is live at the
-     * given time, the absolute one `null` when the session has none, or `null`
-     * once it has ended (see `hasEnded()`). Each deadline is read once.
+     * A session's idle and absolute deadlines while it is live at the given
+     * time, or `null` once it has ended.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  \Carbon\CarbonInterface  $now
@@ -71,9 +61,8 @@ final class SessionDeadlines
     }
 
     /**
-     * When a session that is live at the given time ends: the earlier of its
-     * idle and absolute deadlines, the idle one alone when it has no absolute
-     * one; `null` once it has ended.
+     * When a session that is live at the given time ends, or `null` once it has
+     * ended.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  \Carbon\CarbonInterface  $now

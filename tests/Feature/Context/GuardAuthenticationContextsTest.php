@@ -24,9 +24,7 @@ use Tests\Concerns\InteractsWithSessions;
 use Tests\TestCase;
 
 /**
- * Feature tests of the default authentication contexts: the context of the
- * guard the route's `auth` middleware authenticated with, starting over on the
- * next request; none for a guest, and none on a guard that is not contextual.
+ * Feature tests of the default authentication contexts.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -91,9 +89,8 @@ final class GuardAuthenticationContextsTest extends TestCase
     }
 
     /**
-     * On a route that lists two guards, the context is that of the guard the
-     * request's credential authenticated with, whichever it is, and the next
-     * request without a credential starts over with none.
+     * The context is that of the guard the `auth` middleware authenticated
+     * with.
      *
      * @return void
      *
@@ -136,10 +133,7 @@ final class GuardAuthenticationContextsTest extends TestCase
     }
 
     /**
-     * A refused credential is reported once for the request: asking for the
-     * user, the context, the caller and whether the guard is authenticated,
-     * each again, reports nothing more, and building no context reports
-     * nothing.
+     * A refused credential is reported once per request.
      *
      * @return void
      *

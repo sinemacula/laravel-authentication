@@ -25,10 +25,7 @@ trait VerifiesPinnedContext
 {
     /**
      * Resolve a caller-supplied principal through the resolver's hinted path,
-     * with the exact-match and ownership checks of
-     * `PinnedPrincipal::resolve()`, and return the resolver's instance. Returns
-     * `null` when the identity does not own a principal of the same class with
-     * that identifier.
+     * or `null` when the identity does not own it.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $pinned
@@ -42,11 +39,8 @@ trait VerifiesPinnedContext
     }
 
     /**
-     * Look a caller-supplied session up among the identity's own sessions and
-     * return the live row, when it acts as the principal being bound. Returns
-     * `null` when the identity owns no live session of the same class with that
-     * identifier (see `resolveSessionFromHint()`), or the session records
-     * another principal, or none.
+     * Return the identity's live session the pinned one names, or `null` when
+     * there is none acting as the principal.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -63,17 +57,8 @@ trait VerifiesPinnedContext
     }
 
     /**
-     * Resolve a session for the identity from a pinned session's identifier.
-     * Returns null when the identity does not implement `HasSessions`, the hint
-     * cannot be a key of the session model (no query is made), or the session
-     * is not found (`IdentitySessions::find()`), belongs to another guard (or
-     * to none), has been revoked, or has ended (past its idle or absolute
-     * deadline, or without deadlines): such a session is treated exactly like a
-     * missing one, from the row already loaded, on the write connection (see
-     * `OwnedSession`). The deadlines are checked against the current time with
-     * no leeway, so a session past its end is never pinned. A `sessions()`
-     * relation over a model that is not an `EloquentSession` is a
-     * misconfiguration, and throws.
+     * Resolve a live session of this guard for the identity from a pinned
+     * session's identifier, or `null` when there is none.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  mixed  $hint

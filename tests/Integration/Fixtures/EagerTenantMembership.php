@@ -10,9 +10,7 @@ use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 
 /**
- * 3D membership over the activatable tenant tables that eager-loads its tenant
- * on every query, so the tenant behind the activity check is loaded alongside
- * the hinted principal lookup rather than lazily.
+ * 3D membership that eager-loads its tenant on every query.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

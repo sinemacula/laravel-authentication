@@ -25,13 +25,8 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
 /**
- * Integration tests of revocation by connection and by link over a session
- * model whose keys are integers the database issues, past one chunk: the
- * provenance holds the keys as strings, yet both triggers read and lock the
- * sessions in numeric order, and each session the connection established is
- * revoked exactly once. On PostgreSQL and MySQL a connection's revocation is
- * also raced, from a process with a database connection of its own, against a
- * transaction locking two of its sessions in key order across the chunk.
+ * Integration tests of revocation by connection and by link over integer
+ * session keys, past one chunk.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -59,8 +54,8 @@ final class IntegerKeyConnectionRevocationsTest extends TestCase
     private const int SIGNAL_TIMEOUT_SECONDS = 10;
 
     /**
-     * Freeze the clocks, create the tables and point the session model and its
-     * table at the integer-keyed ones.
+     * Freeze the clocks, create the tables and point the session model at the
+     * integer-keyed ones.
      *
      * @return void
      */
@@ -81,8 +76,7 @@ final class IntegerKeyConnectionRevocationsTest extends TestCase
     }
 
     /**
-     * Drop the tables, put the session table back for the migrations' rollback
-     * and release the clocks.
+     * Drop the tables, restore the session table and release the clocks.
      *
      * @return void
      */
@@ -102,9 +96,8 @@ final class IntegerKeyConnectionRevocationsTest extends TestCase
     }
 
     /**
-     * A disabled connection revokes every one of its integer-keyed sessions
-     * once, across the chunk its string-ordered keys break at, and leaves
-     * another connection's sessions alone.
+     * A disabled connection revokes each of its integer-keyed sessions once,
+     * across the chunk.
      *
      * @return void
      *
@@ -121,10 +114,8 @@ final class IntegerKeyConnectionRevocationsTest extends TestCase
     }
 
     /**
-     * A disabled connection reads its integer-keyed provenance a chunk at a
-     * time: the first read names only the connection, and the next reads on
-     * from the last key read before it, taking longer keys or ones as long that
-     * sort after it.
+     * A disabled connection reads its provenance a chunk at a time, on from the
+     * last key read.
      *
      * @return void
      *
@@ -150,10 +141,8 @@ final class IntegerKeyConnectionRevocationsTest extends TestCase
     }
 
     /**
-     * A removed link revokes every one of the identity's integer-keyed sessions
-     * established through it once, across the chunk its numerically ordered
-     * keys break at, and leaves its other sessions alone; so does a widened
-     * link scope.
+     * A removed or widened link revokes each integer-keyed session it
+     * established once.
      *
      * @return void
      *
@@ -177,10 +166,8 @@ final class IntegerKeyConnectionRevocationsTest extends TestCase
     }
 
     /**
-     * Both triggers revoke, and so lock, the integer-keyed sessions in numeric
-     * order across the chunk boundary, the order every other revocation locks
-     * in: in string order the first chunk would hold 100 but not 99, and a
-     * revocation holding 99 and waiting on 100 would deadlock with it.
+     * Both triggers lock sessions in numeric key order across the chunk, the
+     * order every other revocation locks in.
      *
      * @return void
      *
@@ -211,11 +198,8 @@ final class IntegerKeyConnectionRevocationsTest extends TestCase
     }
 
     /**
-     * A connection's revocation raced by a transaction that holds session 99
-     * and then asks for 100, as a revocation locking in key order does, waits
-     * on 99 and then revokes every session, and neither transaction deadlocks:
-     * locking in string order, the revocation would already hold 100, from the
-     * chunk before the one 99 falls in, when the other asked for it.
+     * A connection's revocation never deadlocks with a transaction that locks
+     * in key order.
      *
      * @return void
      *
@@ -276,9 +260,8 @@ final class IntegerKeyConnectionRevocationsTest extends TestCase
     }
 
     /**
-     * Insert the identity's live sessions under keys 1 to 504: those up to
-     * `THROUGH` established through `conn-a`'s `link-1`, the rest through
-     * `conn-b`'s.
+     * Insert the identity's sessions under keys 1 to 504, split between
+     * `conn-a` and `conn-b`.
      *
      * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
      * @return void
@@ -319,10 +302,8 @@ final class IntegerKeyConnectionRevocationsTest extends TestCase
     }
 
     /**
-     * In the forked process: in a transaction on a connection of its own, lock
-     * session 99, signal that it is held, hold it, then lock session 100 and
-     * commit; report the keys locked, or the error, and end without running the
-     * parent's shutdown.
+     * In the forked process, lock sessions 99 then 100 on its own connection
+     * and report the keys locked.
      *
      * @param  string  $signals
      * @return never
@@ -353,8 +334,8 @@ final class IntegerKeyConnectionRevocationsTest extends TestCase
     }
 
     /**
-     * Wait for the other process to create the file, failing once the signal
-     * timeout passes without it.
+     * Wait for the other process to create the file, failing after the signal
+     * timeout.
      *
      * @param  string  $file
      * @return void

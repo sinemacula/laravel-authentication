@@ -10,11 +10,8 @@ use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 
 /**
- * 3D principal fixture acting within an `ActivatableTenant`.
- *
- * The membership itself has no activation capability, so only the tenant's
- * state decides whether it may authenticate. The tenant relation is left to
- * lazy-load, as it would in an application that does not eager-load it.
+ * 3D principal acting within an `ActivatableTenant`, with no activation state
+ * of its own and a lazily loaded tenant.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

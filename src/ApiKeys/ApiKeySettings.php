@@ -8,11 +8,8 @@ use Illuminate\Support\Facades\Config;
 use SineMacula\Laravel\Authentication\Config\IntegerSetting;
 
 /**
- * The `authentication.api_keys` settings, read when they are needed, so the
- * keys, the guard, pruning and `authentication:check` judge them the same way.
- * Each number is an integer, or a digit string as `env()` returns one, within
- * its range; anything else fails closed with an `InvalidArgumentException`
- * naming the key.
+ * The `authentication.api_keys` settings, validated when read; a value out of
+ * range throws an `InvalidArgumentException` naming the key.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -21,7 +18,7 @@ use SineMacula\Laravel\Authentication\Config\IntegerSetting;
  */
 final class ApiKeySettings
 {
-    /** @var int Longest rotation overlap that may be configured, in seconds: 30 days. */
+    /** @var int Longest rotation overlap that may be configured, in seconds (30 days). */
     public const int MAX_ROTATION_OVERLAP_SECONDS = 2592000;
 
     /** @var string Prefix of every API key setting's key. */
@@ -55,8 +52,7 @@ final class ApiKeySettings
     }
 
     /**
-     * The overlap a rotation gives the replaced key by default, in seconds:
-     * from 0 to the maximum overlap.
+     * The default rotation overlap in seconds, up to the maximum overlap.
      *
      * @return int
      *
@@ -78,8 +74,7 @@ final class ApiKeySettings
     }
 
     /**
-     * The longest overlap a rotation may give the replaced key, in seconds:
-     * from 0 to 30 days.
+     * The longest rotation overlap in seconds, up to 30 days.
      *
      * @return int
      *
@@ -91,8 +86,7 @@ final class ApiKeySettings
     }
 
     /**
-     * How often a key's last use is recorded at most, in seconds: from 0 (every
-     * use) to a day.
+     * The least interval between recordings of a key's last use, in seconds.
      *
      * @return int
      *
@@ -104,8 +98,7 @@ final class ApiKeySettings
     }
 
     /**
-     * How long a revoked or expired key is kept before pruning deletes it, in
-     * days: from 0 to 3650.
+     * Days a revoked or expired key is kept before pruning deletes it.
      *
      * @return int
      *

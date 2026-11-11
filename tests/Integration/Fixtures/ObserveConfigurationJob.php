@@ -11,10 +11,8 @@ use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 
 /**
- * A queued job that records, when it runs, what the `api` guard's settings are
- * as the package sees them: the access token lifetime of its token service,
- * whether its application allows the password method, and which guard instance
- * serves it. Each run appends to the `observed.configuration` binding.
+ * Queued job that appends the `api` guard's settings, as the package sees them,
+ * to the `observed.configuration` binding.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

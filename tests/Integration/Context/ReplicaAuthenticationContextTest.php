@@ -23,10 +23,8 @@ use Tests\Fixtures\Context\ScriptedContributor;
 use Tests\TestCase;
 
 /**
- * Integration tests of the authentication context over a read/write split whose
- * replica lags: the session's proofs and its provenance are read from the
- * primary, so a step-up just made counts in the request that made it and a
- * session just established through a provider has its provenance.
+ * Tests that the authentication context reads a session's proofs and provenance
+ * from the primary.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -107,8 +105,7 @@ final class ReplicaAuthenticationContextTest extends TestCase
     }
 
     /**
-     * A session a provider established, which the replica has not seen, has its
-     * provenance for a contributor that asks.
+     * A provenance the replica has not seen is read from the primary.
      *
      * @return void
      *
@@ -162,8 +159,8 @@ final class ReplicaAuthenticationContextTest extends TestCase
     }
 
     /**
-     * Serve a request bearing the session's access token on the `api` guard,
-     * the default, and authenticate it.
+     * Serve a request bearing the session's access token on the `api` guard and
+     * authenticate it.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
      * @return void

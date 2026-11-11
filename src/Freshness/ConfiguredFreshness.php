@@ -19,28 +19,8 @@ use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
 
 /**
- * The package's freshness policy: the requirement each operation has on each
- * application is the configured one (see `FreshnessSettings`), made stricter by
- * the caller's, and a session is fresh for it when its newest counting proof
- * the requirement takes was made within the requirement's age.
- *
- * The requirement is the one of the application the caller's session names, and
- * with none, nothing is read. Otherwise the session is never trusted as the
- * caller holds it, which may predate a revocation: it is read again by its key
- * on the write connection and must still be the caller's session, recording the
- * generation and the owner the caller's does (a session model that reissues
- * keys may have put another session under it, another identity's or a later one
- * of the same identity), and be live for that application (of that guard, not
- * revoked, not ended) before its proofs are read, two queries in all; a session
- * that is not an Eloquent session records neither, and is answered without a
- * query. Asked plainly, that read takes no lock, so a caller that acts on the
- * answer atomically asks current inside its transaction (`$current`), which
- * reads the session's row with a lock held until the transaction ends, judges
- * it as above, and reads its proofs current (see `SessionProofs`), still two
- * queries. A session stays fresh until its newest qualifying proof is as old as
- * the requirement's maximum age (`freshUntil()`, read either way).
- *
- * Stateless: the configuration is read on every call.
+ * The package's freshness policy: the configured requirement for each
+ * operation, made stricter by the caller's.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -59,10 +39,8 @@ final readonly class ConfiguredFreshness implements FreshnessPolicy
     ) {}
 
     /**
-     * The requirement the operation must meet on the application: the stricter
-     * of the configured one and the caller's, either alone when the other is
-     * absent, and `null` with neither, when they have no proof kind in common,
-     * or for a name that is not an operation's.
+     * The stricter of the configured requirement and the caller's, or `null`
+     * when there is none to meet.
      *
      * @param  string  $application
      * @param  string  $operation
@@ -89,14 +67,7 @@ final readonly class ConfiguredFreshness implements FreshnessPolicy
 
     /**
      * The newest of the session's proofs that meets the requirement now, or
-     * `null` when the session names no application, there is no requirement,
-     * the stored session is gone, records another generation or another owner
-     * (or the session given is not an Eloquent session, which records neither)
-     * or is no longer live for that application, or no proof meets it. A proof
-     * made with the excluded factor, if one is named, never meets it.
-     *
-     * Asked current outside a transaction on the session model's connection, a
-     * `LogicException` is thrown before anything is read.
+     * `null` when none does.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  string  $operation
@@ -125,10 +96,8 @@ final readonly class ConfiguredFreshness implements FreshnessPolicy
     }
 
     /**
-     * Until when the session stays fresh for the operation: the time of the
-     * proof `freshProof()` answers, read as asked (`$current` included, and
-     * refused outside a transaction alike), plus the effective requirement's
-     * maximum age, or `null` when there is no such proof.
+     * Until when the session stays fresh for the operation, or `null` when no
+     * proof makes it fresh.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  string  $operation
@@ -195,8 +164,7 @@ final readonly class ConfiguredFreshness implements FreshnessPolicy
 
     /**
      * Refuse a current judgement outside a transaction on the session model's
-     * connection, before anything is read: outside one its two statements would
-     * make no atomic judgement.
+     * connection, where it would not be atomic.
      *
      * @param  \Illuminate\Database\Connection  $connection
      * @return void

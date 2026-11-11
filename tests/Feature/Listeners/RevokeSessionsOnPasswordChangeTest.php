@@ -35,10 +35,7 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\StubModel;
 
 /**
- * Feature tests of the optional `RevokeSessionsOnPasswordChange` listener,
- * registered by the test as an application registers it: a password saved
- * through Eloquent revokes every session of the identity once it commits, and
- * the automatic rehash on sign-in revokes nothing.
+ * Feature tests of the optional `RevokeSessionsOnPasswordChange` listener.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -110,10 +107,8 @@ final class RevokeSessionsOnPasswordChangeTest extends TestCase
     }
 
     /**
-     * A save that rehashes the password signed in with while the package's own
-     * automatic rehash runs is not a change of password, and a password
-     * sign-in's rehash runs marked so; the same save once the rehash is over is
-     * a change.
+     * A save rehashing the sign-in password during the package's automatic
+     * rehash is not a change; once it is over it is.
      *
      * @return void
      *
@@ -135,11 +130,8 @@ final class RevokeSessionsOnPasswordChangeTest extends TestCase
     }
 
     /**
-     * `logoutOtherDevices()` called by a listener of the package's own
-     * automatic rehash's save, through the instance saved, still ends every
-     * package session: the forced save re-encodes the same password over the
-     * hash the rehash replaced, but it is held, not dropped, for the
-     * `OtherDeviceLogout` that follows it.
+     * `logoutOtherDevices()` called from a listener of the automatic rehash's
+     * save still ends every package session.
      *
      * @return void
      *
@@ -190,9 +182,7 @@ final class RevokeSessionsOnPasswordChangeTest extends TestCase
     }
 
     /**
-     * A new password saved while the package's own automatic rehash runs, by
-     * another listener of the rehash's save say, is a change: the mark covers
-     * only a save that rehashes the password signed in with.
+     * A new password saved during the package's automatic rehash is a change.
      *
      * @return void
      *
@@ -210,13 +200,8 @@ final class RevokeSessionsOnPasswordChangeTest extends TestCase
     }
 
     /**
-     * A sign-in through a user provider whose rehash fires model events, with a
-     * listener of the rehash's save that changes the password through another
-     * instance, signs in with the new one, then saves the sign-in password back
-     * through the instance the rehash saved (whose original is still the
-     * outdated hash it replaced): the change back is not the package's rehash,
-     * so the session started between the two changes is ended, its tokens are
-     * refused at the `auth` middleware and its refresh token refreshes nothing.
+     * A change back to the sign-in password inside an evented provider's rehash
+     * ends the session started between the changes.
      *
      * @return void
      *
@@ -278,10 +263,8 @@ final class RevokeSessionsOnPasswordChangeTest extends TestCase
     }
 
     /**
-     * Laravel's own guard rehashes an outdated hash on `attempt()` through its
-     * Eloquent user provider, which saves the model: not a change of password,
-     * so nothing is revoked, though the stored hash was upgraded. Once the
-     * attempt has ended, the same save is a change.
+     * Laravel's rehash on `attempt()` revokes nothing, while the same save
+     * after the attempt does.
      *
      * @return void
      *
@@ -302,11 +285,8 @@ final class RevokeSessionsOnPasswordChangeTest extends TestCase
     }
 
     /**
-     * The listener reads the rehash mark of the application now serving, which
-     * the attempt marked, not one of the container that built it: under Octane
-     * the event dispatcher builds its listeners with the application the worker
-     * booted, while the request is served by a copy of it with scoped instances
-     * of its own. Laravel's rehash on `attempt()` still revokes nothing.
+     * The listener reads the rehash mark of the serving application, not the
+     * one that built it, as under Octane.
      *
      * @return void
      *
@@ -334,9 +314,8 @@ final class RevokeSessionsOnPasswordChangeTest extends TestCase
     }
 
     /**
-     * A user provider with a hasher of its own, configured apart from the
-     * application's, rehashes by its own cost on `attempt()`: still not a
-     * change of password, so nothing is revoked.
+     * A rehash on `attempt()` by a provider with its own hasher revokes
+     * nothing.
      *
      * @return void
      *
@@ -388,10 +367,8 @@ final class RevokeSessionsOnPasswordChangeTest extends TestCase
     }
 
     /**
-     * An observer registered through `#[ObservedBy]` is registered only when
-     * its model first boots, which for a request's first attempt is inside the
-     * guard's lookup, after `Attempting`: the guard's rehash still revokes
-     * nothing, and a change of password once the attempt has ended does.
+     * Laravel's rehash revokes nothing for an observer registered through
+     * `#[ObservedBy]`, while a later change does.
      *
      * @return void
      *
@@ -430,9 +407,7 @@ final class RevokeSessionsOnPasswordChangeTest extends TestCase
     }
 
     /**
-     * Confirming the current password with `validate()` before changing it is
-     * not an attempt, so the change that follows revokes, as it does after an
-     * attempt that failed or that its callbacks refused.
+     * A change after `validate()`, a failed attempt or a refused one revokes.
      *
      * @return void
      *
@@ -464,9 +439,8 @@ final class RevokeSessionsOnPasswordChangeTest extends TestCase
     }
 
     /**
-     * No event separates `attemptWhen()`'s callbacks from the guard's rehash,
-     * so a callback that saves a new password changes it, and revokes, whether
-     * it then admits the attempt or refuses it.
+     * An `attemptWhen()` callback that saves a new password revokes, whether it
+     * admits the attempt or not.
      *
      * @param  bool  $admits
      * @return void
@@ -489,10 +463,8 @@ final class RevokeSessionsOnPasswordChangeTest extends TestCase
     }
 
     /**
-     * An attempt that threw after validating its user never ended, yet a save
-     * of its user's password afterwards, a fresh hash of the same password
-     * included, revokes: only a save of the very instance the attempt validated
-     * is taken for its rehash.
+     * A password saved after an attempt that threw revokes, a fresh hash of the
+     * same password included.
      *
      * @return void
      *
@@ -516,11 +488,8 @@ final class RevokeSessionsOnPasswordChangeTest extends TestCase
     }
 
     /**
-     * After an attempt that threw, the instance it validated saves a new
-     * password quietly, firing no event, and then the attempt's password: the
-     * hash that save replaces is the quiet one, not the one the attempt
-     * validated, so it is a change rather than the attempt's rehash, and
-     * revokes.
+     * After an attempt that threw, a quiet change followed by a change back to
+     * its password revokes.
      *
      * @return void
      *
@@ -558,9 +527,8 @@ final class RevokeSessionsOnPasswordChangeTest extends TestCase
     }
 
     /**
-     * Rows of `[whether the changes run inside the attempt's callback rather
-     * than after an attempt whose callback threw, the instance the change back
-     * is saved through]`.
+     * Rows of `[whether the changes run inside the attempt's callback, the
+     * instance the change back is saved through]`.
      *
      * @return iterable<string, array{0: bool, 1: string}>
      */
@@ -574,12 +542,8 @@ final class RevokeSessionsOnPasswordChangeTest extends TestCase
     }
 
     /**
-     * While an attempt made with the password is open, or was abandoned by an
-     * exception, a change of password revokes, and so does a change back to
-     * that password through any instance of the identity, even one still
-     * holding the hash from before the change: it is not the attempt's rehash,
-     * so the session started between the two changes is ended, its tokens are
-     * refused at the `auth` middleware and its refresh token refreshes nothing.
+     * A change back to an open attempt's password through any instance ends the
+     * session started between the changes.
      *
      * @param  bool  $inside
      * @param  string  $back
@@ -677,10 +641,8 @@ final class RevokeSessionsOnPasswordChangeTest extends TestCase
     }
 
     /**
-     * An attempt made inside another attempt's callback on the same guard, or
-     * the session's user resolved there, ends nothing of the outer attempt, so
-     * the outer attempt's own rehash revokes nothing: the session it would have
-     * ended still reaches the `auth` middleware and still refreshes.
+     * An attempt nested in another's callback on the same guard leaves the
+     * outer attempt's rehash revoking nothing.
      *
      * @param  string  $nested
      * @return void
@@ -754,9 +716,8 @@ final class RevokeSessionsOnPasswordChangeTest extends TestCase
     }
 
     /**
-     * Rows of `[how the web attempt for the identity is left open, the instance
-     * whose other sessions are signed out, what another listener of the forced
-     * save does before the sign-out's event]`.
+     * Rows of `[how the web attempt is left open, the instance signed out from,
+     * what another listener does first]`.
      *
      * @return iterable<string, array{0: string, 1: string, 2: string}>
      */
@@ -775,16 +736,8 @@ final class RevokeSessionsOnPasswordChangeTest extends TestCase
     }
 
     /**
-     * `logoutOtherDevices()` saves a fresh hash of the same password, which an
-     * open attempt for the user would take for its own rehash when it saves the
-     * instance the attempt validated over a hash that needed rehashing: whether
-     * that attempt threw after validating the user and never ended, or the
-     * forced rehash runs inside its callback, and whatever another listener of
-     * the forced save does first (attempt again on the same guard, bind the
-     * instance to a guard, change the password in a transaction it rolls back,
-     * alone or then attempting again, or run the package's own rehash of the
-     * user), the sign-out still ends every package session, so its tokens are
-     * refused at the `auth` middleware and its refresh token refreshes nothing.
+     * `logoutOtherDevices()` while an attempt is open still ends every package
+     * session, whatever another listener does first.
      *
      * @param  string  $attempt
      * @param  string  $through
@@ -943,9 +896,7 @@ final class RevokeSessionsOnPasswordChangeTest extends TestCase
 
     /**
      * Do one thing a listener of a forced save may do before the sign-out's
-     * event: attempt again on the web guard, bind the saved instance to it,
-     * change the password in a transaction it rolls back, or run the package's
-     * own rehash of the user.
+     * event.
      *
      * @param  string  $step
      * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $saved

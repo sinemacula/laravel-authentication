@@ -35,29 +35,8 @@ use Webauthn\PublicKeyCredentialRpEntity;
 use Webauthn\PublicKeyCredentialUserEntity;
 
 /**
- * The package's use of `web-auth/webauthn-lib`: it builds the ceremony options
- * in their WebAuthn JSON form, parses a browser's response, and runs the
- * library's registration and assertion ceremonies against a guard's relying
- * party.
- *
- * Registration and sign-in require user verification; a factor ceremony may
- * only prefer it, and reports whether it was observed. Registration asks for a
- * discoverable credential (`residentKey: required`) and no attestation
- * (`attestation: none`). Under `none` a browser may still pass an
- * authenticator's own statement through, so the statement formats the library
- * checks without further dependencies (`none`, which it always supports,
- * `packed`, `fido-u2f`, `android-key`, `tpm`, `apple`) are accepted for their
- * internal consistency, while no trust path, certificate chain or metadata is
- * evaluated and every passkey is recorded as unattested. The credential
- * algorithms offered are ES256, EdDSA (when the sodium extension is loaded) and
- * RS256. The origin must be one of the relying party's exact origins, and a
- * cross-origin (framed) ceremony is refused, whether the browser reports it
- * with `topOrigin` or only with `crossOrigin` (the library checks only the
- * former). The library's own sign counter check is replaced by
- * `DeferredCounterCheck`: the package applies its rule itself, atomically.
- *
- * Stateless between calls: one instance serves every guard, each ceremony built
- * for the relying party it is given.
+ * The package's use of `web-auth/webauthn-lib`: ceremony options, response
+ * parsing and the registration and assertion ceremonies.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -103,8 +82,7 @@ final readonly class WebAuthn
     }
 
     /**
-     * The signature algorithms credentials may use, in order of preference:
-     * ES256, EdDSA when it can be verified, and RS256.
+     * The signature algorithms credentials may use, in order of preference.
      *
      * @param  bool  $eddsa
      * @return \Cose\Algorithm\Manager
@@ -117,10 +95,7 @@ final readonly class WebAuthn
     }
 
     /**
-     * The options of a registration ceremony, in their WebAuthn JSON form: a
-     * discoverable credential, user verification required, no attestation, the
-     * algorithms offered, and the credentials to exclude (each a raw id with
-     * the transports it reported).
+     * The options of a registration ceremony, in their WebAuthn JSON form.
      *
      * @param  \SineMacula\Laravel\Authentication\Passkeys\RelyingParty  $rp
      * @param  string  $challenge
@@ -153,10 +128,7 @@ final readonly class WebAuthn
     }
 
     /**
-     * The options of an assertion ceremony, in their WebAuthn JSON form: user
-     * verification required (or only preferred, for a factor ceremony that
-     * allows it), and the credentials allowed (none, for a usernameless
-     * sign-in).
+     * The options of an assertion ceremony, in their WebAuthn JSON form.
      *
      * @param  \SineMacula\Laravel\Authentication\Passkeys\RelyingParty  $rp
      * @param  string  $challenge
@@ -183,10 +155,8 @@ final readonly class WebAuthn
     }
 
     /**
-     * Parse a browser's response (its `PublicKeyCredential` as JSON, or that
-     * JSON decoded), or `null` when it is not a well-formed WebAuthn credential
-     * of the `public-key` type: input of any other shape is refused by the
-     * library's parsing.
+     * Parse a browser's response, or `null` when it is not a well-formed
+     * `public-key` credential.
      *
      * @param  array<array-key, mixed>|string  $credential
      * @return ?\Webauthn\PublicKeyCredential
@@ -200,10 +170,8 @@ final readonly class WebAuthn
     }
 
     /**
-     * Run the registration ceremony on the response against the stored creation
-     * options and the relying party, and return the credential it registers,
-     * with what its authenticator data showed, or `null` when it does not
-     * verify or comes from a cross-origin frame.
+     * Run the registration ceremony on the response and return the credential
+     * with what it showed, or `null` when it does not verify.
      *
      * @param  \SineMacula\Laravel\Authentication\Passkeys\RelyingParty  $rp
      * @param  array<array-key, mixed>  $options
@@ -228,14 +196,8 @@ final readonly class WebAuthn
     }
 
     /**
-     * Run the assertion ceremony on the response against the stored request
-     * options, the relying party and the stored credential, and return the
-     * credential as the assertion leaves it (its new count and backup state),
-     * with what its authenticator data showed, or `null` when it does not
-     * verify or comes from a cross-origin frame. User verification is checked
-     * only where the options require it. The user handle is the one the
-     * identity was registered under when the ceremony was for a known identity,
-     * else `null`, and the response must then carry the credential's own.
+     * Run the assertion ceremony on the response and return the credential as
+     * it leaves it with what it showed, or `null` when it does not verify.
      *
      * @param  \SineMacula\Laravel\Authentication\Passkeys\RelyingParty  $rp
      * @param  array<array-key, mixed>  $options
@@ -262,10 +224,8 @@ final readonly class WebAuthn
     }
 
     /**
-     * What the authenticator data's flags showed: user presence and
-     * verification, backup eligibility and state; resistant to phishing, since
-     * the origin and the relying party id were verified; no key protection,
-     * since nothing attests it.
+     * What the authenticator data's flags showed, resistant to phishing since
+     * the origin was verified.
      *
      * @param  \Webauthn\AuthenticatorData  $data
      * @return \SineMacula\Laravel\Authentication\Proofs\ObservedProperties
@@ -277,10 +237,7 @@ final readonly class WebAuthn
 
     /**
      * Run a step of the library on the response, and answer `null` when it
-     * refuses it. The library reports malformed bytes (base64, CBOR, client
-     * data) and a response that does not verify by throwing exceptions of every
-     * kind; its steps read nothing but the response, the options and the stored
-     * credential, so a throw only ever means the response is refused.
+     * throws, as it does for any refused response.
      *
      * @template TResult
      *
@@ -297,9 +254,7 @@ final readonly class WebAuthn
     }
 
     /**
-     * The library's ceremonies, scoped to the relying party's exact origins,
-     * with the package's algorithms and statement formats, and the counter
-     * check deferred to the package.
+     * The library's ceremonies, scoped to the relying party's exact origins.
      *
      * @param  \SineMacula\Laravel\Authentication\Passkeys\RelyingParty  $rp
      * @return \Webauthn\CeremonyStep\CeremonyStepManagerFactory

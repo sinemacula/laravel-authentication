@@ -28,20 +28,7 @@ use SineMacula\Laravel\Authentication\Verification\Enums\IdentifierVerification;
 use SineMacula\Laravel\Authentication\Verification\Enums\VerificationLinkOutcome;
 
 /**
- * Verifies identifiers by signed link: `create()` signs a link to a route of
- * the application's for one identity, guard and identifier, and `consume()`
- * checks a link to that route, as `SignedLink::fromRequest()` captured it from
- * the request, and verifies the identifier.
- *
- * A link is bound to its purpose (`verify_identifier`), its guard, its
- * identity, the identifier type, and the identifier itself through a SHA-256
- * digest of its canonical form, so it stops working when the identifier changes
- * and can be used for nothing else. It expires after
- * `authentication.verification.link_ttl_minutes`. Consuming a link answers a
- * `VerificationLinkOutcome` and never signs anyone in, and consuming it again
- * reports the identifier already verified. A refused link is reported by
- * `AuthenticationFailed`. The application owns the route, the message and its
- * delivery.
+ * Signs and consumes the signed links that verify an identity's identifier.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -86,14 +73,7 @@ final readonly class VerificationLinks
 
     /**
      * Sign a link to the named route that verifies the identity's current
-     * identifier of the type for the guard, read on the write connection as
-     * `consume()` reads it. The route's own parameters are kept, and the link
-     * expires after `$ttlMinutes`, or the configured lifetime. An identity that
-     * cannot verify identifiers is a misconfiguration (`LogicException`), and
-     * so is a route whose path takes a reserved name as a placeholder
-     * (`InvalidArgumentException`): the link's fields must reach `consume()` in
-     * its query string. The link is a `Secret`: reveal it only into the message
-     * to the identifier it verifies.
+     * identifier of the type for the guard.
      *
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -144,21 +124,7 @@ final readonly class VerificationLinks
     }
 
     /**
-     * Check a verification link, as `SignedLink::fromRequest()` captured it
-     * from the request to it, and verify the identifier it proves. The link's
-     * fields, purpose, signature and expiry are checked again from those values
-     * (with every key and previous key the application signs with) before any
-     * identity is read: a link that is malformed, tampered with or signed for
-     * something else is `invalid`, and an authentic one whose time has passed
-     * `expired`. A link that names no JWT guard, no identity of it that can
-     * verify identifiers, or not the identity's current identifier, is
-     * `invalid` too, so a refusal says nothing about the account. Each refusal
-     * is reported by `AuthenticationFailed` on the `identifier_verification`
-     * flow, as `invalid_credentials` or `link_expired`. Otherwise the
-     * verifier's answer: `verified`, `already_verified`, or `mismatch` for an
-     * identifier that changed while it was being verified, with nothing
-     * recorded or reported. Every refusal and the verification describe the
-     * client given.
+     * Check a verification link and verify the identifier it proves.
      *
      * @param  \SineMacula\Laravel\Authentication\Http\SignedLink  $signed
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
@@ -200,10 +166,8 @@ final readonly class VerificationLinks
     }
 
     /**
-     * The guard, identity, identifier type and digest a request's query
-     * carries, when each is a string, the type a valid identifier type, the
-     * purpose the verification purpose and the expiry a timestamp; otherwise
-     * `null`. The signature is checked apart.
+     * The guard, identity, identifier type and digest a well-formed link
+     * carries, or `null`.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return ?array{0: string, 1: string, 2: string, 3: string}
@@ -223,10 +187,9 @@ final readonly class VerificationLinks
     }
 
     /**
-     * Whether the request's query names the verification purpose and an expiry
-     * in whole seconds, without a leading zero: Laravel's own check takes a
-     * signed link with no expiry, or with `0`, as one that never expires, and a
-     * verification link always expires.
+     * Whether the request's query names the verification purpose and an expiry.
+     *
+     * Laravel treats a signed link with no expiry, or `0`, as never expiring.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return bool
@@ -239,8 +202,8 @@ final readonly class VerificationLinks
     }
 
     /**
-     * The identity's current identifier of the type, read on the write
-     * connection, when the link's digest is its digest; otherwise `null`.
+     * The identity's current identifier of the type when the link's digest
+     * matches it, otherwise `null`.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\HasVerifiableIdentifiers&\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $type
@@ -259,8 +222,7 @@ final readonly class VerificationLinks
 
     /**
      * The identity's current identifier of the type, read on the write
-     * connection, so a link is signed for, and checked against, the address the
-     * primary holds.
+     * connection.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\HasVerifiableIdentifiers&\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $type
@@ -273,7 +235,7 @@ final readonly class VerificationLinks
 
     /**
      * The identity provider of the guard a link names, when it is a configured
-     * JWT guard with one; otherwise `null`.
+     * JWT guard, otherwise `null`.
      *
      * @param  string  $guard
      * @return ?string
@@ -286,9 +248,8 @@ final readonly class VerificationLinks
     }
 
     /**
-     * The identity a link names, loaded through the identity provider on the
-     * write connection: `null` when the provider does not return it or it
-     * cannot verify identifiers.
+     * The identity a link names, or `null` when it is missing or cannot verify
+     * identifiers.
      *
      * @param  string  $provider
      * @param  string  $identifier
@@ -303,8 +264,7 @@ final readonly class VerificationLinks
     }
 
     /**
-     * Report a refused link with `AuthenticationFailed` and answer it with the
-     * outcome the reason names.
+     * Report a refused link and answer it with the outcome the reason names.
      *
      * @param  \SineMacula\Laravel\Authentication\Events\EventContext  $context
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
@@ -335,8 +295,8 @@ final readonly class VerificationLinks
     }
 
     /**
-     * The digest a link carries for an identifier: SHA-256 of its canonical
-     * form, or `null` when the type's normaliser rejects it.
+     * The SHA-256 digest of the identifier's canonical form, or `null` when the
+     * type's normaliser rejects it.
      *
      * @param  string  $type
      * @param  string  $identifier
@@ -369,8 +329,7 @@ final readonly class VerificationLinks
     }
 
     /**
-     * The link lifetime: the given one, or the configured one, each an integer
-     * from 1 to a week.
+     * The given or configured link lifetime, from 1 minute to a week.
      *
      * @param  ?int  $ttlMinutes
      * @return int

@@ -12,12 +12,8 @@ use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 
 /**
- * External evidence policy that trusts a provider's evidence for the kinds of
- * requirement it was given, and accepts or meets a requirement only when it
- * trusts the evidence for every kind the requirement has, as a policy must
- * judge the whole of it. It keeps every question it was asked, in order,
- * whether it was asked to accept the evidence or to judge it, and whether reads
- * were pinned to the write connection when it was.
+ * External evidence policy that trusts a provider's evidence for the
+ * requirement kinds it was given and keeps every question asked.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

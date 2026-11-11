@@ -15,10 +15,8 @@ use SineMacula\Laravel\Authentication\SessionRecords\SessionDeadlines;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
 
 /**
- * Judges a presented refresh rotation id against the session it names, the way
- * both a refresh and a switch do: whether the session is still live, and
- * whether the id is its current one, the one the current one replaced inside
- * the grace window, or a replay.
+ * Judges a presented refresh rotation id against the session it names, for both
+ * a refresh and a switch.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -35,22 +33,8 @@ final class RefreshJudgment
     /**
      * Judge the presented rotation id against the session at `$now`.
      *
-     * In order: a revoked session fails as `session_revoked`; a pending one as
-     * `session_pending`, before its keys are compared, so a refresh token it
-     * held before it returned to pending is never taken for a replay and never
-     * revokes it; a session past either deadline, or without an idle one, as
-     * `session_expired` (an ended session is not revoked: it simply cannot be
-     * refreshed); a session holding no refresh credential as
-     * `refresh_key_missing`. Only then is the rotation id compared, in constant
-     * time: the current one, with the absolute deadline the rotation keeps
-     * (`null` for none); the previous one inside the grace window; or anything
-     * else, which is a replay (`rotation_reuse`). Nothing is compared before
-     * the session is known to be live, so such a row cannot be used to
-     * time-probe the valid rotation-id space.
-     *
-     * The session's state is read inside `WriteConnection::during()` for the
-     * session, so a session that derives any of it from a relation or another
-     * table reads it from the writer as well.
+     * Nothing is compared before the session is known to be live, so a dead row
+     * cannot be used to time-probe the rotation-id space.
      *
      * @formatter:off
      *
@@ -92,8 +76,7 @@ final class RefreshJudgment
     }
 
     /**
-     * Why the session can be refreshed by no rotation id at all: it is revoked
-     * (`session_revoked`), or pending (`session_pending`); `null` otherwise.
+     * Why no rotation id can refresh the session, or `null` when one can.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @return ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
@@ -111,9 +94,7 @@ final class RefreshJudgment
 
     /**
      * Whether the rotation id is the one the session's current id replaced,
-     * presented inside the grace window. The current id must also be its
-     * successor: a row whose digests were changed outside a rotation does not
-     * honour the previous id.
+     * presented inside the grace window.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  string  $rotationId

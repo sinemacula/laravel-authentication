@@ -11,12 +11,8 @@ use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
- * External evidence policy that trusts a connection's evidence for a tenant's
- * requirement only when that tenant trusts the connection, as a policy must:
- * one tenant's connection never meets another tenant's requirement. It accepts
- * evidence from a connection any tenant trusts, and meets the identity-level
- * requirement only with evidence from a connection trusted for it (under the
- * empty identifier). It keeps every subject it was asked about, in order.
+ * External evidence policy that meets a tenant's requirement only with evidence
+ * from a connection that tenant trusts.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -57,9 +53,8 @@ final class TenantTrustingEvidencePolicy implements ExternalEvidencePolicy
     }
 
     /**
-     * Meet the requirement when the tenant it is judged for, or the identity
-     * level when it is judged for none, trusts the connection that asserted the
-     * evidence.
+     * Meet the requirement when its tenant, or the identity level, trusts the
+     * connection that asserted the evidence.
      *
      * @param  \SineMacula\Laravel\Authentication\External\ExternalEvidence  $evidence
      * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $requirement

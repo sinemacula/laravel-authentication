@@ -16,11 +16,10 @@ use Tests\Fixtures\Passkeys\VirtualAuthenticator;
 use Tests\TestCase;
 
 /**
- * Proves a passkey whose public key is too long for a 64 KiB text column is
- * stored whole and stays usable, on whichever engine the suite runs against:
- * nothing bounds a COSE key, and a registration's insert ignores duplicates,
- * which on MySQL would cut a longer key without an error and leave a passkey
- * that reports registered but can never verify.
+ * Proves a public key longer than a 64 KiB text column is stored whole and
+ * stays usable.
+ *
+ * MySQL would silently cut a longer key under the insert-ignore.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -68,8 +67,7 @@ final class LargePasskeyPublicKeyTest extends TestCase
     }
 
     /**
-     * A registered public key longer than a text column holds is stored in
-     * full, its key id included to the last byte.
+     * A public key longer than a text column is stored in full.
      *
      * @return void
      *
@@ -89,8 +87,7 @@ final class LargePasskeyPublicKeyTest extends TestCase
     }
 
     /**
-     * A passkey with a public key longer than a text column holds answers a
-     * factor ceremony.
+     * A passkey with an oversized public key answers a factor ceremony.
      *
      * @return void
      *
@@ -109,8 +106,7 @@ final class LargePasskeyPublicKeyTest extends TestCase
     }
 
     /**
-     * A passkey with a public key longer than a text column holds signs its
-     * identity in.
+     * A passkey with an oversized public key signs its identity in.
      *
      * @return void
      *

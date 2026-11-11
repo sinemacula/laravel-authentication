@@ -26,10 +26,8 @@ final class CounterKeysTest extends TestCase
     private const string APP_KEY = 'base64:2fl+Ktvkfl+Fuz4Qp/A75G2RTiWVA/ZoKZvp6fiiM10=';
 
     /**
-     * A counter's key is the HMAC-SHA256 of the guard, flow, scope and value
-     * joined by NUL bytes, under a key derived from the application key: the
-     * same on every call, 64 hexadecimal characters, and not the plain digest
-     * anyone could recompute from a guessed value.
+     * A counter's key is the HMAC-SHA256 of its parts under a key derived from
+     * the application key.
      *
      * @return void
      */

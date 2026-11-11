@@ -8,9 +8,7 @@ use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 
 /**
- * A tenant's further-factor requirement with the tenant whose it is, as the
- * requirement judge takes it, so the evidence policy is told whose requirement
- * it judges and one tenant's trust in a connection never meets another's.
+ * A tenant's further-factor requirement paired with the tenant it belongs to.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

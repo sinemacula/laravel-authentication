@@ -19,10 +19,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
- * A 3D identity that can be deactivated (`is_active`), soft-deleted and
- * restored, and records a "tokens valid after" cutoff, acting through
- * `RecheckedMembership` principals: every way a session's identity can stop
- * standing after a sign-in admitted it.
+ * 3D identity that can be deactivated, soft-deleted or given a cutoff after
+ * sign-in, acting through `RecheckedMembership`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

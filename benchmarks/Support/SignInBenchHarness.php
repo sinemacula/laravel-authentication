@@ -30,13 +30,8 @@ use Tests\Integration\Fixtures\CodeIdentity;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 
 /**
- * Runtime benchmark fixtures for signing in through the session service: a
- * password sign-in, a sign-in by a one-time code sent to a phone number, and
- * the check of a one-time code on its own. Every package collaborator a sign-in
- * resolves (the sign-in method, the application policy, the attempt limiter,
- * which writes its counters, the factor policy) is the package's own, from the
- * container. Passwords are checked with `PlainBenchHasher`, so the timings are
- * the package's work, not bcrypt's or Argon2's.
+ * Runtime benchmark fixtures for password and one-time code sign-ins through
+ * the session service, and a code check.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -219,9 +214,7 @@ final class SignInBenchHarness
 
     /**
      * Run each benchmarked path once and throw unless it reaches the outcome
-     * its name describes: a password sign-in and a code sign-in each start a
-     * session, and a correct code checks. The code paths use up codes outside
-     * the benchmark's pools.
+     * its name describes.
      *
      * @return void
      *
@@ -268,9 +261,8 @@ final class SignInBenchHarness
     }
 
     /**
-     * The session service of a fresh `jwt` guard over the model, serving a
-     * sign-in request from the benchmark's client, built as the auth manager
-     * builds one.
+     * The session service of a fresh `jwt` guard serving a sign-in request,
+     * built as the auth manager builds one.
      *
      * @param  string  $name
      * @param  class-string<\Illuminate\Database\Eloquent\Model>  $model

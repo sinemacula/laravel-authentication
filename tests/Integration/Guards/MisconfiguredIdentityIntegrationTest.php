@@ -27,9 +27,8 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\PlainPrincipalFixture;
 
 /**
- * An identity model that is neither a `Principal` nor `HasPrincipals` is a
- * misconfiguration. It surfaces as a server error on the credential, bearer,
- * and refresh paths instead of being reported as a failed authentication.
+ * An identity that is neither a `Principal` nor `HasPrincipals` surfaces as a
+ * server error rather than a failed authentication.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

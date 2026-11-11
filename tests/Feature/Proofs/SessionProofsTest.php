@@ -49,11 +49,7 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\PlainSessionFixture;
 
 /**
- * Feature tests of the reads of a session's proofs against the database: the
- * `auth_time` and `amr` derived from them, never stored, and the newest proof a
- * freshness requirement takes; only counting proofs are read (not voided, and a
- * further factor or recovery code only when accepted), on the write connection,
- * in a bounded number of rows whatever the session's history.
+ * Feature tests of the reads of a session's proofs against the database.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -126,9 +122,8 @@ final class SessionProofsTest extends TestCase
     }
 
     /**
-     * A step-up moves the authentication time and adds its values, and `mfa`
-     * when its evaluation reported multifactor authentication; a
-     * reauthentication moves the time and adds nothing.
+     * A step-up moves the authentication time and adds its values, while a
+     * reauthentication only moves the time.
      *
      * @return void
      *
@@ -155,8 +150,7 @@ final class SessionProofsTest extends TestCase
 
     /**
      * A reauthentication with the same values as the first factor moves the
-     * time and adds nothing, and the first factor's values still count: proofs
-     * of different kinds are told apart, whatever values they share.
+     * time and adds nothing.
      *
      * @return void
      *
@@ -174,8 +168,8 @@ final class SessionProofsTest extends TestCase
     }
 
     /**
-     * Only counting proofs count: a voided one never, and a further factor or a
-     * recovery code only when its adapter accepted it.
+     * A voided proof never counts, and a further factor or recovery code counts
+     * only when accepted.
      *
      * @return void
      *
@@ -196,11 +190,8 @@ final class SessionProofsTest extends TestCase
     }
 
     /**
-     * A session's further factors count only once a counting further factor or
-     * recovery code is recorded on it: not with its first factor or a
-     * reauthentication alone, not with one its adapter refused, a voided one,
-     * or one bound to another guard; a recovery code or a further factor its
-     * adapter accepted is one.
+     * A session holds a further factor only once an accepted, unvoided further
+     * factor or recovery code is recorded on it for its guard.
      *
      * @return void
      *
@@ -242,10 +233,8 @@ final class SessionProofsTest extends TestCase
     }
 
     /**
-     * With a factor excluded, the newest proof that meets a requirement is
-     * never one made with that factor, while proofs made with another factor,
-     * or with none, still meet it; the reference is compared exactly, so a
-     * factor that differs from it only in case is another factor.
+     * With a factor excluded, the newest proof meeting a requirement is never
+     * one made with that exact factor.
      *
      * @return void
      *
@@ -288,8 +277,7 @@ final class SessionProofsTest extends TestCase
     }
 
     /**
-     * A session with no counting first factor gets no claims: issuing for it
-     * fails closed, whatever else it holds.
+     * A session with no counting first factor gets no claims.
      *
      * @return void
      *
@@ -310,10 +298,8 @@ final class SessionProofsTest extends TestCase
     }
 
     /**
-     * A proof recorded under the session's key but bound to another guard or
-     * another owner, as one left behind by an earlier session whose key a later
-     * one reuses would be, counts for neither the claims nor freshness; bound
-     * to the session as it is, the same proof counts for both.
+     * A proof under the session's key but bound to another guard or owner
+     * counts for neither the claims nor freshness.
      *
      * @return void
      *
@@ -351,7 +337,7 @@ final class SessionProofsTest extends TestCase
 
     /**
      * A session whose only first factor is bound to another owner has no
-     * claims: issuing for it fails closed.
+     * claims.
      *
      * @return void
      *
@@ -370,8 +356,8 @@ final class SessionProofsTest extends TestCase
     }
 
     /**
-     * A session that is not an Eloquent session records no owner a proof could
-     * be bound to, so even proofs under its key count for nothing.
+     * Proofs under the key of a session that is not an Eloquent model count for
+     * nothing.
      *
      * @return void
      *
@@ -394,12 +380,8 @@ final class SessionProofsTest extends TestCase
     }
 
     /**
-     * A current read of the history, as an issuance makes once it has written
-     * the session's issuance guard, takes a shared lock on MySQL and MariaDB,
-     * whose plain reads inside a REPEATABLE READ transaction return its
-     * snapshot, and on no other engine (PostgreSQL refuses one on a grouped
-     * read); the plain read, the default, never takes one. Either is the one
-     * grouped query.
+     * Only a current read of the history takes a shared lock, and only on MySQL
+     * and MariaDB.
      *
      * @param  string  $driver
      * @return void
@@ -425,11 +407,8 @@ final class SessionProofsTest extends TestCase
     }
 
     /**
-     * A current read of a session's page of proofs, newest proof meeting a
-     * freshness requirement, first factor, accepted evidence, connection or
-     * provenance takes a shared lock on MySQL and MariaDB and on no other
-     * engine; the plain read, asked for or by default, never takes one, and is
-     * otherwise the same statement.
+     * Each current read of a session's proofs takes a shared lock on MySQL and
+     * MariaDB only, and is otherwise the plain read's statement.
      *
      * @param  string  $driver
      * @return void
@@ -464,10 +443,8 @@ final class SessionProofsTest extends TestCase
     }
 
     /**
-     * Read current, a session's page of proofs, first factor, accepted
-     * evidence, connection and provenance are what the plain reads return, each
-     * read taking a shared lock where the engine takes one (MySQL, and SQLite
-     * marked as it), and none read plainly.
+     * A current read returns what the plain read returns, and only the current
+     * read takes shared locks.
      *
      * @return void
      *
@@ -561,8 +538,7 @@ final class SessionProofsTest extends TestCase
     }
 
     /**
-     * The claims read is one aggregate query, whose rows are the distinct
-     * kinds, values and multifactor reports, however many step-ups the session
+     * The claims read is one aggregate query however many step-ups the session
      * made.
      *
      * @return void
@@ -592,9 +568,7 @@ final class SessionProofsTest extends TestCase
     }
 
     /**
-     * The newest proof a requirement takes is found and read back whole: its
-     * kind, purpose, method, channel, factor, observations, evaluation, values
-     * and time.
+     * The newest proof a requirement takes is read back whole.
      *
      * @return void
      *
@@ -636,7 +610,7 @@ final class SessionProofsTest extends TestCase
 
     /**
      * A further factor whose stored evaluation lacks its multifactor report is
-     * read back with no evaluation rather than a guessed one.
+     * read back with no evaluation.
      *
      * @return void
      *
@@ -675,9 +649,8 @@ final class SessionProofsTest extends TestCase
     }
 
     /**
-     * A requirement that asks for multifactor or phishing resistance takes only
-     * a proof that reported or observed it, never one that left it unobserved,
-     * and never a voided or unaccepted one.
+     * A requirement asking for multifactor or phishing resistance takes only an
+     * accepted, unvoided proof that reported or observed it.
      *
      * @return void
      *
@@ -710,9 +683,8 @@ final class SessionProofsTest extends TestCase
     }
 
     /**
-     * A page of the counting proofs reads newest first, ties by id, only those
-     * made since the time given and of the kinds given when they are, and no
-     * more than the limit; the first factor is the oldest first-factor proof.
+     * A page of the counting proofs reads newest first, bounded by time, kind
+     * and limit.
      *
      * @return void
      *
@@ -790,9 +762,7 @@ final class SessionProofsTest extends TestCase
     }
 
     /**
-     * The time given is the same instant in whichever time zone it is given: a
-     * proof made at it is read and one made before it is not, as when it is
-     * given in the application's own zone.
+     * The time given is the same instant in whichever time zone it is given.
      *
      * @param  string  $zone
      * @return void
@@ -819,8 +789,8 @@ final class SessionProofsTest extends TestCase
     }
 
     /**
-     * A mutable time is read as the same instant in whichever time zone it is
-     * given, and is left as it was given: the query compares a copy.
+     * A mutable time is read as the same instant in any time zone and is left
+     * unchanged.
      *
      * @param  string  $zone
      * @return void
@@ -863,10 +833,8 @@ final class SessionProofsTest extends TestCase
     }
 
     /**
-     * In an application whose zone is not UTC, the proofs are written in that
-     * zone and the time given is compared in it, so it is the same instant
-     * whether it is given in UTC or in the application's zone: a proof made at
-     * it is read and the second after it reads nothing.
+     * In an application outside UTC, the time given is the same instant whether
+     * given in UTC or in the application's zone.
      *
      * @param  string  $zone
      * @return void
@@ -925,12 +893,8 @@ final class SessionProofsTest extends TestCase
     }
 
     /**
-     * An external proof whose evidence was accepted counts like any other: its
-     * values join `amr`, with `mfa` when its acceptance reports multifactor,
-     * and it reads back with its evidence but no evaluation, so a requirement
-     * check never takes the application's acceptance of evidence of any age for
-     * a tenant's multifactor proof; one whose evidence was not accepted only
-     * moves the time.
+     * An external proof whose evidence was accepted counts towards `amr` and
+     * reads back with its evidence but no evaluation.
      *
      * @return void
      *
@@ -961,11 +925,8 @@ final class SessionProofsTest extends TestCase
     }
 
     /**
-     * The history tells an external proof whose evidence was accepted for an
-     * additional verification from one accepted only for a level, from the
-     * stored flag, while both add their values, and reads each further factor
-     * as one; a proof read back carries the flag on its evaluation, which a
-     * further factor always sets and a recovery code never does.
+     * The history reads whether a proof is an additional verification from the
+     * stored flag.
      *
      * @return void
      *
@@ -1010,11 +971,8 @@ final class SessionProofsTest extends TestCase
     }
 
     /**
-     * The accepted evidence is every piece the session's counting proofs hold,
-     * newest by the evidence's own time first (not by the proof's), and of
-     * evidence asserting the same methods and context only the newest; never a
-     * voided proof's, and never what a row holds malformed, which leaves the
-     * rows read after it read; a session that holds none has none.
+     * The accepted evidence of the counting proofs reads newest by its own time
+     * first, without duplicates or malformed rows.
      *
      * @return void
      *
@@ -1062,9 +1020,7 @@ final class SessionProofsTest extends TestCase
 
     /**
      * The accepted evidence is read from the `EVIDENCE_LIMIT` newest proofs
-     * that carry any, and no further: evidence only an older proof holds is
-     * never read, however new it is, so what is read is that of those proofs,
-     * the last of them included.
+     * that carry any.
      *
      * @return void
      *
@@ -1114,9 +1070,8 @@ final class SessionProofsTest extends TestCase
     }
 
     /**
-     * The provenance reads back with the provider context it recorded, values
-     * and types as given, and with none when it recorded none or holds one that
-     * is malformed.
+     * The provenance reads back with the provider context it recorded, and with
+     * none when it recorded none or holds it malformed.
      *
      * @return void
      *
@@ -1179,9 +1134,7 @@ final class SessionProofsTest extends TestCase
     }
 
     /**
-     * Record a reauthentication at the external provider on the session, with
-     * its evidence accepted as multifactor (or as the evaluation given) when it
-     * carries any, and with the factor reference given.
+     * Record a reauthentication at the external provider on the session.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \Carbon\CarbonImmutable  $at
@@ -1214,8 +1167,7 @@ final class SessionProofsTest extends TestCase
     }
 
     /**
-     * The proofs ordered by kind within one second, for comparing pages whose
-     * ties the ids order.
+     * The proofs ordered by kind within one second.
      *
      * @param  list<\SineMacula\Laravel\Authentication\Proofs\RecordedProof>  $proofs
      * @return list<\SineMacula\Laravel\Authentication\Proofs\RecordedProof>

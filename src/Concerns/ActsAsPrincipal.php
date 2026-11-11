@@ -13,9 +13,8 @@ use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
 
 /**
- * Provides default Principal contract implementations sourced from configurable
- * Eloquent attribute and relation names. Override the protected accessor hooks
- * to remap without re-implementing the public surface.
+ * Default `Principal` implementations read from configurable Eloquent attribute
+ * and relation names.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -35,10 +34,7 @@ trait ActsAsPrincipal
     /**
      * Return the identity that owns this principal.
      *
-     * A model with no identity relation, attribute, or loaded relation throws
-     * the same `LogicException` as one whose relation yields nothing, without
-     * reading the absent key, which Eloquent's strict mode would otherwise
-     * reject with an exception of its own.
+     * The name is checked first, as Eloquent's strict mode rejects absent keys.
      *
      * @return \SineMacula\Laravel\Authentication\Contracts\Identity
      *
@@ -72,33 +68,7 @@ trait ActsAsPrincipal
     }
 
     /**
-     * Return the tenant the principal acts within, if any. Triggers a lazy-load
-     * on first call; tenant-aware apps should eager-load via their principal
-     * resolver.
-     *
-     * A model with no tenant relation, attribute, or loaded relation (the usual
-     * 2D shape) acts within no tenant. It returns `null` without reading the
-     * absent key, which Eloquent's strict mode would otherwise reject on every
-     * authentication path that checks tenant activity. So does a relation that
-     * returns a model which is not a `Tenant`.
-     *
-     * A tenant that opts into activation (its model implements both `Tenant`
-     * and `CanBeActive`) is checked on every authentication path, so a
-     * principal whose `BelongsTo` key names such a tenant that cannot be loaded
-     * (deleted, soft-deleted, or hidden by a scope) throws rather than
-     * returning `null`, which would read as acting within no tenant and skip
-     * the tenant's activity check. For the same reason a principal loaded
-     * without that key (a partial select) throws a `LogicException` instead of
-     * reading the missing key as "no tenant". A placeholder such a relation
-     * returns for a missing row (the unsaved default model of `withDefault()`)
-     * is not a tenant the principal acts within, so it is treated the same way
-     * as a tenant that cannot be loaded.
-     *
-     * A polymorphic (`MorphTo`) tenant relation only says which model it names
-     * through its type column, so a principal loaded without that column throws
-     * a `LogicException` as well, and one whose key is set but whose type is
-     * empty throws `TenantUnavailableException`: in neither case can the tenant
-     * be told apart from one that opts in.
+     * Return the tenant the principal acts within, if any.
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Tenant
      *
@@ -160,10 +130,7 @@ trait ActsAsPrincipal
 
     /**
      * Throw when the principal, having loaded no tenant, names a tenant that
-     * opts into activation: `TenantUnavailableException` when its key is set
-     * but the tenant cannot be loaded, carrying the tenant's class and the key,
-     * and a `LogicException` when the key itself was not loaded, so neither
-     * reads as acting within no tenant.
+     * opts into activation.
      *
      * @param  string  $name
      * @return void
@@ -199,10 +166,8 @@ trait ActsAsPrincipal
     }
 
     /**
-     * Whether the tenant is a model that was never stored (the default model a
-     * `withDefault()` relation returns for a missing row) standing in for a
-     * tenant that opts into activation, which must not read as a present
-     * tenant.
+     * Whether the tenant is an unsaved `withDefault()` placeholder for a tenant
+     * that opts into activation.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @param  string  $name
@@ -218,10 +183,7 @@ trait ActsAsPrincipal
 
     /**
      * Return the tenant relation when it is a `BelongsTo` to a tenant that opts
-     * into activation (its related model implements both `Tenant` and
-     * `CanBeActive`): the only tenant whose absence must not read as acting
-     * within no tenant. A `MorphTo` relation must first say which model it
-     * names (see `assertNamesTenantType()`).
+     * into activation.
      *
      * @formatter:off
      *
@@ -253,8 +215,7 @@ trait ActsAsPrincipal
     /**
      * Throw when a polymorphic tenant relation cannot say which model it names.
      *
-     * Without the type, Eloquent builds the relation against the principal's
-     * own model, which would read as naming no tenant.
+     * Eloquent builds a typeless relation against the principal's own model.
      *
      * @formatter:off
      *

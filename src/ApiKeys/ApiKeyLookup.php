@@ -12,13 +12,8 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Models\ApiKey;
 
 /**
- * Finds the key a presented public part names and checks the presented secret
- * against it, in one indexed lookup on the write connection, and decides
+ * Finds the key a presented public part names, verifies its secret and decides
  * whether the key is still live for a guard.
- *
- * The secret's digest is compared in constant time against the key's, or
- * against a fixed digest no secret has when no key matched, so an unknown
- * public part costs the same work as a wrong secret.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -50,8 +45,8 @@ final class ApiKeyLookup
     }
 
     /**
-     * The key with the id, read on the write connection by its primary key, or
-     * `null`; an id that is not a UUID names no key and costs no query.
+     * The key with the id, read on the write connection, or `null`; an id that
+     * is not a UUID costs no query.
      *
      * @param  string  $id
      * @return ?\SineMacula\Laravel\Authentication\Models\ApiKey
@@ -65,9 +60,8 @@ final class ApiKeyLookup
     }
 
     /**
-     * Whether the secret is the key's, comparing digests in constant time; with
-     * no key, the secret's digest is still computed and compared, so the
-     * answer, `false`, costs the same.
+     * Whether the secret is the key's, compared in constant time; with no key a
+     * fixed digest is compared, so a miss costs the same.
      *
      * @param  ?\SineMacula\Laravel\Authentication\Models\ApiKey  $key
      * @param  string  $secret
@@ -79,10 +73,7 @@ final class ApiKeyLookup
     }
 
     /**
-     * Why the key is not live for the guard at the time, or `null` when it is:
-     * another guard's (`credential_guard_mismatch`), revoked
-     * (`credential_revoked`), or past its expiry, a rotated key's included,
-     * from the second it names (`credential_expired`).
+     * Why the key is not live for the guard at the time, or `null` when it is.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\ApiKey  $key
      * @param  string  $guard
@@ -100,10 +91,8 @@ final class ApiKeyLookup
     }
 
     /**
-     * Record that the key was used at the time, unless its last use was
-     * recorded within the throttle: one conditional update on the key's own
-     * connection, mirrored on the instance only when it changed the row, so two
-     * requests at once record it once.
+     * Record that the key was used, unless already recorded within the
+     * throttle; the conditional update records concurrent uses once.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\ApiKey  $key
      * @param  \Carbon\CarbonImmutable  $now

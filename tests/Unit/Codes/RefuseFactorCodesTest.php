@@ -17,9 +17,7 @@ use SineMacula\Laravel\Authentication\Proofs\ProofBinding;
 use Tests\Unit\Stubs\PlainIdentityFixture;
 
 /**
- * Unit tests for the default factor code counters, which refuse every code,
- * before it is sent or checked and after an attempt, as no factor's type is
- * enabled while no factor package is bound.
+ * Unit tests for the default factor code counters, which refuse every code.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

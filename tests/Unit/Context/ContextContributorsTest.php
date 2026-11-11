@@ -10,9 +10,7 @@ use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Context\ContextContributors;
 
 /**
- * Unit tests for the registry of authentication context contributors: each
- * namespace taken once, in the order registered; the package's own namespace, a
- * malformed one and a second registration of one all refused loudly.
+ * Unit tests for the registry of authentication context contributors.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -23,9 +21,7 @@ use SineMacula\Laravel\Authentication\Context\ContextContributors;
 final class ContextContributorsTest extends TestCase
 {
     /**
-     * Nothing is registered until something registers, and then each
-     * namespace's abstract is held in the order registered, a namespace of a
-     * lower-case letter and 31 more characters included.
+     * Each namespace's abstract is held in the order registered.
      *
      * @return void
      */
@@ -62,9 +58,8 @@ final class ContextContributorsTest extends TestCase
     }
 
     /**
-     * A namespace that is the package's own or is not a lower-case letter and
-     * then up to 31 lower-case letters, digits or underscores is refused, and
-     * nothing is registered.
+     * The package's own namespace or a malformed one is refused, and nothing is
+     * registered.
      *
      * @param  string  $namespace
      * @return void

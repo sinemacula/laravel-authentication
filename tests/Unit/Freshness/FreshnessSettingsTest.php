@@ -13,10 +13,7 @@ use SineMacula\Laravel\Authentication\Freshness\FreshnessSettings;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 
 /**
- * Unit tests for the freshness settings: the package's entries and a guard's
- * own, which replace them or, with `null`, remove them; operation names read
- * whole, dots included; and every malformed block, name and entry refused,
- * naming where it is.
+ * Unit tests for the package's and each guard's freshness settings.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

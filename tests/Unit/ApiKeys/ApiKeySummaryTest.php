@@ -79,9 +79,8 @@ final class ApiKeySummaryTest extends TestCase
     }
 
     /**
-     * An issued key hands the key to its caller, and no dump of it shows the
-     * key: not Laravel's VarDumper, `print_r` or `var_export`; serialising it
-     * throws, and the constructor's parameter is sensitive.
+     * An issued key hands the key to its caller, and no dump or serialisation
+     * reveals it.
      *
      * @return void
      */

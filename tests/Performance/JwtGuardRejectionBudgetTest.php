@@ -33,12 +33,7 @@ use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 
 /**
- * Query-budget and timing contracts for rejected bearer and refresh tokens: a
- * request whose token fails after a lookup is resolved once however often the
- * guard is asked, a bearer token for another guard or missing a required claim
- * is rejected before any query, and such a refresh token before any session or
- * identity query, touching only the IP address's refresh limit; an API key on a
- * route that lists an `api_key` guard too costs the `jwt` guard nothing.
+ * Query-budget and timing contracts for rejected bearer and refresh tokens.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -126,11 +121,8 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A bearer token that fails after a lookup is resolved once per request:
-     * asking the guard again through every accessor costs no further query. A
-     * revoked, ended or pending session, or one that switched to another
-     * principal or tenant, is rejected from the row the session lookup already
-     * loaded.
+     * A bearer token that fails after a lookup is resolved once per request,
+     * however often the guard is asked.
      *
      * @param  string  $rejection
      * @param  int  $reads
@@ -227,10 +219,8 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A bearer credential in API key form, on a route whose `auth` middleware
-     * lists an `api_key` guard beside the `jwt` guard, is that guard's: the
-     * `jwt` guard parses nothing, queries nothing and reports nothing, and the
-     * route costs only the key guard's one lookup.
+     * An API key on a route that also lists an `api_key` guard costs the `jwt`
+     * guard nothing.
      *
      * @return void
      *
@@ -270,11 +260,8 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A refresh token issued by another guard is rejected while parsing, before
-     * any session or identity query. It names no session the guard can trust,
-     * so only the IP address's limit is read and, as a failure, counted: on a
-     * fresh window an update that changes nothing and the insert that creates
-     * the counter.
+     * A refresh token from another guard is rejected while parsing and counted
+     * against the IP address only.
      *
      * @return void
      *
@@ -297,9 +284,8 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A correctly signed refresh token missing its `sid` is rejected while
-     * parsing, before any session or identity query, and counted against the IP
-     * address only.
+     * A refresh token missing its `sid` is rejected while parsing and counted
+     * against the IP address only.
      *
      * @return void
      *
@@ -320,11 +306,8 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Resolving a session-bearing bearer request, with every write-connection
-     * pin it takes, stays far inside a generous time ceiling. The phpbench
-     * harness (`benchmarks/Runtime/JwtGuardBench.php`, `composer bench`)
-     * measures the same path precisely; this guards against a pathological
-     * regression such as a reconnect per pin.
+     * Resolving a session-bearing bearer request stays far inside a generous
+     * time ceiling.
      *
      * @return void
      *
@@ -438,9 +421,8 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Sign a payload of the type for this guard with the configured key, adding
-     * only the timing, id, issuer, audience and guard claims to the supplied
-     * ones.
+     * Sign a payload of the type for this guard, adding the timing, id, issuer,
+     * audience and guard claims.
      *
      * @param  array<string, mixed>  $claims
      * @param  \SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $type

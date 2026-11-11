@@ -16,10 +16,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use Tests\Unit\Stubs\StubPrincipal;
 
 /**
- * Unit tests for what issuing or rotating an API key accepts: the principal the
- * resolver returned and the application admitted, a name of 1 to 255 characters
- * of valid UTF-8 without a NUL byte, an expiry after the current second, and an
- * overlap from 0 to the configured maximum.
+ * Unit tests for the rules that issuing or rotating an API key enforces.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -240,9 +237,8 @@ final class ApiKeyRulesTest extends TestCase
      */
     private static function configure(array $settings): void
     {
-        // Laravel clears resolved facades on set up, not on tear down, so a
-        // Testbench test run just before would otherwise leave its config
-        // repository behind the facade.
+        // Laravel clears resolved facades on set up only, so a prior Testbench
+        // test would leave its config repository behind the facade.
         Facade::clearResolvedInstances();
 
         $app = new Application;

@@ -9,13 +9,11 @@ use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Runs package code against a storage connection of another engine without a
- * server: the connection is configured for the driver but never opened, and run
- * in Laravel's pretend mode, so every statement is compiled by that engine's
- * grammar and recorded, and every read returns no rows. Pretend mode quotes
- * each statement's bindings for its log, so the connection is handed an
- * in-memory SQLite handle to quote with; nothing is ever run on it. For the SQL
- * an engine is sent where only that engine can run it.
+ * Runs package code in Laravel's pretend mode against a storage connection of
+ * another engine, recording the SQL its grammar compiles.
+ *
+ * Pretend mode quotes bindings for its log, so an in-memory SQLite handle is
+ * given to quote with.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -44,9 +42,7 @@ trait PretendsStorageEngines
 
     /**
      * Run the callback with the storage connection pointed at a pretended one
-     * of the driver, and return the statements it sent that connection. A model
-     * built inside the callback takes that connection; the storage setting is
-     * restored afterwards.
+     * of the driver, and return the statements it sent that connection.
      *
      * @param  string  $driver
      * @param  \Closure(): void  $callback

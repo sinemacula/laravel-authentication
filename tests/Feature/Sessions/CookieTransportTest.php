@@ -58,15 +58,8 @@ use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\TestCase;
 
 /**
- * Feature tests for the refresh token transport of each application, through
- * the `Auth` facade and the session service: a cookie application's sign-in,
- * start, activation by a factor or a choice, refresh and switch hand back the
- * cookie that carries the new refresh token, named after the application,
- * and never the token itself, while a body application's hand back the token;
- * a cookie application's token is read only from its cookie, by the
- * `*FromRequest()` methods, or extracted from it and handed to the
- * `*Presented()` methods with the request's client; and the cookie, the
- * application and the session must agree for a refresh to succeed.
+ * Feature tests of each application's refresh token transport, by cookie or by
+ * body.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -139,10 +132,8 @@ final class CookieTransportTest extends TestCase
     }
 
     /**
-     * A cookie application's sign-in hands back the access token and the cookie
-     * that carries the refresh token, under the application's own name and
-     * path, expiring when the session does; a body application's hands back the
-     * refresh token and no cookie.
+     * A sign-in hands back the cookie for a cookie application and the token
+     * for a body one.
      *
      * @return void
      *
@@ -163,8 +154,7 @@ final class CookieTransportTest extends TestCase
     }
 
     /**
-     * A session started for an identity verified outside the guard is handed
-     * back as a sign-in is: the cookie, never the token.
+     * A started session hands back the cookie, never the token.
      *
      * @return void
      *
@@ -179,9 +169,8 @@ final class CookieTransportTest extends TestCase
     }
 
     /**
-     * A cookie application's pending sign-in hands back its pending credential
-     * in the body, never in a cookie, and the activation that satisfies its
-     * factor hands back the cookie.
+     * An activation by a factor hands back the cookie, the pending credential
+     * staying in the body.
      *
      * @return void
      *
@@ -211,10 +200,7 @@ final class CookieTransportTest extends TestCase
     }
 
     /**
-     * Inside a caller's transaction the activation's result carries the cookie
-     * at once, for the application to attach, while the package queues none and
-     * binds the guard only once the transaction commits: a rollback leaves the
-     * guard unbound with nothing queued.
+     * An activation inside a transaction queues no cookie and binds on commit.
      *
      * @return void
      *
@@ -259,8 +245,7 @@ final class CookieTransportTest extends TestCase
     }
 
     /**
-     * The activation that makes a cookie application's choice of principal
-     * hands back the cookie, on the root path under a `__Host-` name.
+     * An activation by a choice hands back a `__Host-` cookie on the root path.
      *
      * @return void
      *
@@ -285,11 +270,8 @@ final class CookieTransportTest extends TestCase
     }
 
     /**
-     * A cookie application whose transport is misconfigured (here, its
-     * `cookie.path` taken away) fails a sign-in, a start and an activation by a
-     * factor or a choice before anything is written or reported: no session is
-     * created, no event is dispatched, and the pending credential is not spent,
-     * so the activation succeeds once the configuration is fixed.
+     * A misconfigured cookie transport fails before anything is written or
+     * reported.
      *
      * @return void
      *
@@ -362,9 +344,8 @@ final class CookieTransportTest extends TestCase
     }
 
     /**
-     * A refresh read from a cookie application's cookie rotates the session and
-     * hands back the cookie with the new token, never the token, and the new
-     * cookie refreshes again.
+     * A refresh from the cookie hands back the new cookie, which refreshes
+     * again.
      *
      * @return void
      *
@@ -392,8 +373,7 @@ final class CookieTransportTest extends TestCase
     }
 
     /**
-     * A switch read from a cookie application's cookie hands back the cookie
-     * with the new token, never the token.
+     * A switch from the cookie hands back the new cookie, never the token.
      *
      * @return void
      *
@@ -428,11 +408,7 @@ final class CookieTransportTest extends TestCase
     }
 
     /**
-     * Inside a caller's transaction a refresh's result carries the new cookie
-     * at once, for the application to attach, while the package queues none and
-     * binds the guard only once the transaction commits, once: a rollback
-     * leaves the guard unbound with nothing queued, and the old cookie still
-     * refreshes.
+     * A refresh inside a transaction queues no cookie and binds once on commit.
      *
      * @return void
      *
@@ -477,10 +453,7 @@ final class CookieTransportTest extends TestCase
     }
 
     /**
-     * Inside a caller's transaction a switch's result carries the new cookie at
-     * once, while the package queues none and binds the guard to the
-     * destination only once the transaction commits, once: a rollback leaves
-     * the guard unbound with nothing queued and the session as it was.
+     * A switch inside a transaction queues no cookie and binds once on commit.
      *
      * @return void
      *
@@ -532,11 +505,7 @@ final class CookieTransportTest extends TestCase
     }
 
     /**
-     * A cookie application refuses a refresh token its own code read from a
-     * body and handed in, to refresh, to switch or to sign out, as
-     * `refresh_transport_mismatch`, reported as each action reports a refusal
-     * and touching no session: its token travels only in its cookie, with the
-     * cookie's cross-site checks. A body application takes one.
+     * A cookie application refuses a refresh token from the body.
      *
      * @return void
      *
@@ -582,13 +551,8 @@ final class CookieTransportTest extends TestCase
     }
 
     /**
-     * A controller that keeps HTTP out of its service layer extracts the token
-     * from the cookie and hands it on with the request's client: the service
-     * refreshes from those plain values and the response sets the new cookie,
-     * which a later request extracts and signs out by, the response clearing
-     * the cookie. The same request sent from another site extracts the token
-     * all the same, and the plain refresh refuses it as `cross_site_request`,
-     * as the request form does.
+     * A controller extracts the cookie and the service refreshes and signs out
+     * from plain values.
      *
      * @return void
      *
@@ -645,16 +609,7 @@ final class CookieTransportTest extends TestCase
     }
 
     /**
-     * A cookie application's sign-out reads the token from its cookie and
-     * revokes the session it proves, and its result carries the expired cookie,
-     * under the application's name and path, for a request the application's
-     * own pages sent: when the cookie signed the session out, when a same-site
-     * request sent no cookie, and when a live access token signed its session
-     * out. A request that fails the cookie's same-site checks clears nothing:
-     * one without the custom header that sent the cookie (`cross_site_request`,
-     * the session left live), one from another site that sent none (as a
-     * browser withholds a `SameSite=Strict` cookie from a cross-site form), and
-     * a same-site one that sent the token twice (`refresh_token_conflict`).
+     * A cookie application's sign-out clears the cookie only for its own pages.
      *
      * @return void
      *
@@ -736,12 +691,7 @@ final class CookieTransportTest extends TestCase
     }
 
     /**
-     * A same-site sign-out whose cookie proves no live session still clears the
-     * dead cookie from the browser, under the application's name and path: a
-     * cookie whose session is already revoked (`session_revoked`), a token the
-     * application's pages sent in the body instead
-     * (`refresh_transport_mismatch`), and a replayed cookie, which revokes its
-     * session as `rotation_reuse`.
+     * A same-site sign-out clears a cookie that proves no live session.
      *
      * @return void
      *
@@ -792,10 +742,7 @@ final class CookieTransportTest extends TestCase
     }
 
     /**
-     * A cookie application's sign-out that finds nothing left to revoke still
-     * clears the cookie, under the application's name and path: a guard bound
-     * to a session revoked since, and a cookie whose session another writer
-     * revokes between the proof's read and the sign-out's write.
+     * A sign-out clears the cookie when nothing is left to revoke.
      *
      * @return void
      *
@@ -851,12 +798,8 @@ final class CookieTransportTest extends TestCase
     }
 
     /**
-     * A body application whose guard's name makes no cookie name needs no
-     * cookie configuration and looks for no cookie of its own: through the
-     * session service it signs in with the refresh token in its pair, refreshes
-     * from the body while a stray cookie rides along, neither refused as the
-     * wrong transport nor in conflict, and signs out by the body with nothing
-     * to clear.
+     * A body application whose name makes no cookie name needs no cookie
+     * configuration.
      *
      * @return void
      *
@@ -895,13 +838,7 @@ final class CookieTransportTest extends TestCase
     }
 
     /**
-     * The cookie, the application and the session must agree: another
-     * application's cookie is not this one's (nothing is read); this
-     * application's cookie carrying another application's token fails the
-     * token's `client_id` (`token_invalid`); a token of this application for a
-     * session of another (`session_guard_mismatch`) is refused without touching
-     * that session; and a cookie to a body application, or the body to a cookie
-     * application, is the wrong transport.
+     * The cookie, the application and the session must agree.
      *
      * @return void
      *
@@ -942,9 +879,8 @@ final class CookieTransportTest extends TestCase
     }
 
     /**
-     * Configure the guards: `api` keeps the body transport, as does `my app`,
-     * whose name makes no cookie name, `admin` travels by cookie under `/auth`,
-     * and `members` by cookie on the root path.
+     * Configure the body guards `api` and `my app` and the cookie guards
+     * `admin` and `members`.
      *
      * @param  mixed  $app
      * @return void
@@ -968,9 +904,8 @@ final class CookieTransportTest extends TestCase
     }
 
     /**
-     * Assert the pair is a cookie application's: the access token, no refresh
-     * token, and the cookie with the application's name and path, carrying a
-     * refresh token for the session that expires when the session ends.
+     * Assert the pair carries the access token and the application's refresh
+     * cookie.
      *
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Jwt\TokenPair  $tokens
@@ -1025,8 +960,8 @@ final class CookieTransportTest extends TestCase
     }
 
     /**
-     * The session service of the cookie application, for a same-site request
-     * carrying the token in its cookie.
+     * The cookie application's session service for a same-site request with the
+     * cookie.
      *
      * @param  string  $guard
      * @param  string  $token

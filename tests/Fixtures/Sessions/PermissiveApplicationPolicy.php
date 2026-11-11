@@ -10,9 +10,8 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 
 /**
- * Application policy double that allows every method and admits every identity,
- * with the same lifetimes for every guard, for guard tests whose guards no
- * configuration describes.
+ * Application policy that allows every method and admits every identity, with
+ * the same lifetimes for every guard.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

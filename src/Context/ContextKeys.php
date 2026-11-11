@@ -5,12 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Context;
 
 /**
- * The rules an authentication context's namespaces and contributed keys keep: a
- * namespace is a lower-case letter and then up to 31 lower-case letters, digits
- * or underscores, and never the package's own; a key is a lower-case letter and
- * then up to 63 of them, so neither holds the dot that joins them; a value is
- * `null`, a scalar, or an array of those, nested as deep as it likes, never an
- * object or a resource.
+ * The rules an authentication context's namespaces and contributed keys keep.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -31,8 +26,7 @@ final class ContextKeys
     private function __construct() {}
 
     /**
-     * Whether the name is one a contributor's namespace may have: in the form
-     * the class describes, and not the package's own.
+     * Whether the name is one a contributor's namespace may have.
      *
      * @param  string  $namespace
      * @return bool
@@ -43,9 +37,8 @@ final class ContextKeys
     }
 
     /**
-     * The keys contributed under the namespace, once each is in the form the
-     * class describes and holds a plain value, or what is wrong with the first
-     * that is not.
+     * The keys contributed under the namespace once checked, or what is wrong
+     * with the first that is not.
      *
      * @param  string  $namespace
      * @param  mixed  $keys

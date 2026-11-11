@@ -23,14 +23,8 @@ use Tests\Integration\Fixtures\PasswordIdentity;
 use Tests\TestCase;
 
 /**
- * Integration tests of password resets against the engine the suite runs on,
- * where another request changes the token between a reset's read and its
- * writes, and where the reset fails or its caller rolls back: the token is
- * spent together with the new password, the cutoff and the revocation, or not
- * at all. On PostgreSQL and MySQL, a reset deadlocked inside a caller's
- * transaction by another process fails as a deadlock the caller can retry whole
- * (skipped on SQLite, whose in-memory database each process would have to
- * itself, and where `pcntl` is not available).
+ * Integration tests of password resets racing other requests, failing or rolled
+ * back by their caller.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -42,15 +36,14 @@ final class ConcurrentResetSubmissionsTest extends TestCase
 {
     use InteractsWithPasswordResets;
 
-    /** @var int How long the forked side waits, once the reset waits on the code row, before it asks for the identity's row, in microseconds: under PostgreSQL's one-second deadlock check, so the reset, which has waited longer, is the side that finds the cycle. */
+    /** @var int How long the forked side waits before closing the cycle, in microseconds; under PostgreSQL's one-second deadlock check so the reset finds it. */
     private const int CROSS_MICROSECONDS = 300000;
 
     /** @var int How long either side waits for the other before giving up, in seconds. */
     private const int START_TIMEOUT_SECONDS = 10;
 
     /**
-     * Of two resets with one token, the one that spends it first resets the
-     * password; the other, which read the token live, is `invalid`.
+     * Of two resets with one token, only the first resets the password.
      *
      * @return void
      *
@@ -75,8 +68,8 @@ final class ConcurrentResetSubmissionsTest extends TestCase
     }
 
     /**
-     * A new link issued between a reset's read of the token and its spending it
-     * makes the reset `invalid`, and the new link resets.
+     * A new link issued mid-reset makes the reset `invalid`, and the new link
+     * resets.
      *
      * @return void
      *
@@ -107,9 +100,8 @@ final class ConcurrentResetSubmissionsTest extends TestCase
     }
 
     /**
-     * A failure after the password is written (the sessions cannot be revoked)
-     * rolls the token, the password, the cutoff and the sessions back together,
-     * reports nothing, and propagates.
+     * A failure after the password is written rolls everything back and
+     * propagates.
      *
      * @return void
      *
@@ -148,8 +140,8 @@ final class ConcurrentResetSubmissionsTest extends TestCase
     }
 
     /**
-     * A reset inside a transaction its caller rolls back resets nothing and
-     * reports nothing, and the token can still reset.
+     * A reset its caller rolls back resets nothing, and the token can still
+     * reset.
      *
      * @return void
      *
@@ -184,14 +176,8 @@ final class ConcurrentResetSubmissionsTest extends TestCase
     }
 
     /**
-     * A reset inside a caller's transaction that deadlocks with another process
-     * (which wrote the reset's code row, then asks for the identity's row the
-     * reset holds) is thrown on as Laravel's `DeadlockException` with the
-     * caller's transaction level restored: the package rolls nothing back to
-     * the reset's savepoint itself (Laravel 13.40 and later tries to), which on
-     * MySQL the deadlock has already dropped with the whole transaction. The
-     * caller rolls back, nothing the reset did is kept, and its retry of the
-     * whole transaction resets.
+     * A reset deadlocked inside a caller's transaction is thrown on as
+     * `DeadlockException` and resets on retry.
      *
      * @return void
      *
@@ -264,8 +250,8 @@ final class ConcurrentResetSubmissionsTest extends TestCase
     }
 
     /**
-     * Run the change once, right after the next reset reads the token and
-     * before it spends it, as a concurrent request would.
+     * Run the change once, between the next reset's read of the token and its
+     * spending it.
      *
      * @param  \Closure(): void  $change
      * @return void
@@ -288,8 +274,8 @@ final class ConcurrentResetSubmissionsTest extends TestCase
     }
 
     /**
-     * Wait until the forked side holds the code row, killing it and failing
-     * when it never does.
+     * Wait until the forked side holds the code row, failing when it never
+     * does.
      *
      * @param  string  $outcomes
      * @param  int  $pid
@@ -314,14 +300,10 @@ final class ConcurrentResetSubmissionsTest extends TestCase
     }
 
     /**
-     * In the forked process: on a connection of its own, write the reset's code
-     * row in a transaction, several times so its transaction is the heavier and
-     * MySQL picks the other as the deadlock's victim, signal that it holds it,
-     * wait until the parent's reset, having locked the identity's row, waits on
-     * the code row, then ask for the identity's row, closing the cycle; once
-     * the database has failed the parent, roll back, report, and end without
-     * running the parent's shutdown. A reset that never waits is reported as an
-     * error.
+     * In the forked process, hold the reset's code row until the reset waits on
+     * it, then ask for the identity's row to close the cycle.
+     *
+     * Written several times so MySQL makes the other side the deadlock victim.
      *
      * @param  string  $outcomes
      * @param  mixed  $identity
@@ -359,7 +341,7 @@ final class ConcurrentResetSubmissionsTest extends TestCase
 
     /**
      * Wait until another connection waits on a lock this connection's
-     * transaction holds, for as long as either side waits for the other.
+     * transaction holds.
      *
      * @return void
      *
@@ -379,10 +361,9 @@ final class ConcurrentResetSubmissionsTest extends TestCase
     }
 
     /**
-     * Whether another connection waits on a lock this connection's transaction
-     * holds, as the engine's lock-wait view reports it. PostgreSQL's is read
-     * from `pg_locks`, because `pg_stat_activity` keeps the backends of its
-     * first read in a transaction, before the waiter has connected.
+     * Whether another connection waits on a lock this transaction holds.
+     *
+     * PostgreSQL reads `pg_locks`; `pg_stat_activity` keeps a stale snapshot.
      *
      * @return bool
      */

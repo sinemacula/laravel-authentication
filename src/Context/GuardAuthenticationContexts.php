@@ -9,13 +9,8 @@ use SineMacula\Laravel\Authentication\Contracts\AuthenticationContexts;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 
 /**
- * The default authentication contexts: the context the default guard holds, the
- * guard the route's `auth` middleware authenticated with, or `null` on a guard
- * that is not contextual.
- *
- * Holds nothing: the auth manager is resolved from the container serving now on
- * every call (the request's own under Octane), and the context lives on the
- * guard, so nothing outlives the request.
+ * The authentication context the default guard holds, or `null` on a guard that
+ * is not contextual.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

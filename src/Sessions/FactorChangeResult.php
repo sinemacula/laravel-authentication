@@ -8,16 +8,7 @@ use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Sessions\Enums\FactorChangeStatus;
 
 /**
- * What judging the current session again after a change of the factor package's
- * did to it: kept active, returned to pending, with the pending session and the
- * pending credential it now holds instead of its token pair, revoked, or
- * skipped, when this call did none of those.
- *
- * The status names every outcome; `pending` and `credential` are set only for
- * `pending`. The pending credential travels only in a response body, as a
- * sign-in's does, and matches the session only once the transaction the change
- * was made in commits: if that rolls back, the session stays active and the
- * credential matches nothing.
+ * What judging the current session again after a factor change did to it.
  *
  * @api
  *

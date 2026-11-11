@@ -13,10 +13,8 @@ use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 
 /**
- * A non-human identity that, unlike `MachineClient`, holds a verified phone
- * number and email address in `code_identities`, so the tests prove a machine
- * gets no one-time code because it is a machine, not because it lacks a
- * verified identifier.
+ * Non-human identity with a verified phone number and email address, so a code
+ * is refused only because it is a machine.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

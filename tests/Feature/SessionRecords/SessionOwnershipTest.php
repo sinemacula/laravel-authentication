@@ -19,11 +19,11 @@ use Tests\Unit\Stubs\StubPrincipal;
 use Tests\Unit\Stubs\StubSession;
 
 /**
- * Feature tests for `SessionOwnership`, which reads a session row's owner and
- * decides whether an identity is that owner.
+ * Feature tests for reading a session row's owner and matching an identity to
+ * it.
  *
- * Runs on the Testbench application because building the `authenticatable`
- * relation needs a database connection, although no query is made.
+ * Building the `authenticatable` relation needs a connection, though no query
+ * is made.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -80,8 +80,8 @@ final class SessionOwnershipTest extends TestCase
     }
 
     /**
-     * A session row with no owner key has no owner, so no identity matches it,
-     * not even one whose key is also empty.
+     * A session row with no owner key matches no identity, even one with an
+     * empty key.
      *
      * @return void
      */
@@ -92,9 +92,7 @@ final class SessionOwnershipTest extends TestCase
 
     /**
      * The row stored under a session's key is that session only while it
-     * records the same generation and the same owner's type and key: another
-     * generation, another owner of the same type or the same key of another
-     * type, and a session that is not an Eloquent one are not.
+     * records the same generation and owner.
      *
      * @return void
      */
@@ -110,10 +108,7 @@ final class SessionOwnershipTest extends TestCase
     }
 
     /**
-     * `SessionOwnership` is a static utility; instantiation is disallowed via
-     * the private constructor so consumers cannot create a stateful
-     * session-ownership helper. Reflection invokes the private constructor so
-     * the line is covered while still documenting the access modifier.
+     * `SessionOwnership` cannot be instantiated from outside.
      *
      * @return void
      *

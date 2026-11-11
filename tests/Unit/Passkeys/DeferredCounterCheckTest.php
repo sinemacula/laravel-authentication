@@ -13,8 +13,8 @@ use Webauthn\CredentialRecord;
 use Webauthn\TrustPath\EmptyTrustPath;
 
 /**
- * Unit tests for the counter check handed to the WebAuthn library: it never
- * refuses, since the package applies its own rule atomically afterwards.
+ * Unit tests for the counter check handed to the WebAuthn library, which never
+ * refuses.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -25,8 +25,7 @@ use Webauthn\TrustPath\EmptyTrustPath;
 final class DeferredCounterCheckTest extends TestCase
 {
     /**
-     * A count below, equal to or above the stored one passes the library's
-     * check without an exception.
+     * Any count passes the library's check.
      *
      * @return void
      */

@@ -13,14 +13,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 
 /**
- * Eloquent fixture for the 2D guard coexistence test.
- *
- * Implements both `Identity` and `Principal` so the default principal
- * resolver's 2D branch returns the identity itself - i.e. the authenticated
- * identity IS the acting principal. Used by the
- * `GuardCoexistenceIntegrationTest` alongside its 3D counterpart to prove that
- * two package guards configured against different model shapes can coexist in
- * the same Laravel application without cross-contamination.
+ * 2D identity for the guard coexistence test that acts as its own principal.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

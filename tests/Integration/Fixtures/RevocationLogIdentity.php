@@ -13,9 +13,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 
 /**
- * 2D identity over the `stub_principals` table whose sessions are
- * `RevocationLogSession` rows, which derive their revocation from another
- * table.
+ * 2D identity whose sessions are `RevocationLogSession` rows.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

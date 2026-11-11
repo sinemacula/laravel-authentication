@@ -9,20 +9,8 @@ use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 
 /**
- * What a sign-in method is asked to verify: the input a client sent to a guard,
- * with the guard's identity provider to look the identity up through and the
- * client the input came from, and the account limits to count each secret it
- * checks against.
- *
- * The session service builds the request for each sign-in. To unit-test a
- * method, build one yourself: with no reservation callback every account check
- * is allowed, and with one such as `fn (Identity $identity): bool => false`
- * every account has used up its attempts.
- *
- * The input holds the client's secrets (a password, a code, an assertion), so
- * it is kept in a private `\SensitiveParameterValue` and read through
- * `input()`: no dump of the request, nor of a trace that holds it, shows it,
- * and serialising the request throws.
+ * What a sign-in method is asked to verify: the client's input, the guard's
+ * identity provider and the client.
  *
  * @api
  *
@@ -76,20 +64,8 @@ final readonly class SignInRequest
     }
 
     /**
-     * Count a check of a secret against the account it is for, before the check
-     * is made. Returns `false` when the account has no attempts left: then do
-     * not check the secret, and answer `invalid_credentials`, as for a wrong
-     * one, so the refusal does not reveal that the account exists.
-     *
-     * A method that looks an identity up and then checks a secret it was given
-     * calls this once it has the identity: a lookup can find one account by
-     * many spellings of an identifier, and through every guard whose provider
-     * returns it, so only the account's own count, held to the most permissive
-     * limit among those guards, bounds the guesses at its secret. Call it
-     * before each secret checked: a method that checks two takes two slots.
-     * Every slot is the sign-in's: given back when it starts a session, kept by
-     * a pending session until it activates, and left counted when it fails. A
-     * limit configured wrongly throws its `InvalidArgumentException` from here.
+     * Count a check of a secret against the account it is for; `false` when the
+     * account has no attempts left.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @return bool

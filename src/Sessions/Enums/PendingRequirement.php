@@ -5,9 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Sessions\Enums;
 
 /**
- * What a pending session waits on: a further factor, then a choice of
- * principal, in that order, since the factor is asked of the identity before
- * any principal is chosen.
+ * What a pending session waits on, in the order it is asked.
  *
  * @api
  *

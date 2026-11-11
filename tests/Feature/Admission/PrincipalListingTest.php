@@ -41,12 +41,7 @@ use Tests\Unit\Stubs\PlainPrincipalFixture;
 
 /**
  * Feature tests of listing an identity's principals for admission against a
- * real database: the active principals judged have their tenants read together
- * in one query per principal class, after the principals' own query and as a
- * lazy load would read them, with a tenant that read misses read alone, and are
- * judged as stored with only that tenant carried; an inactive principal is
- * refused without its tenant being read, and a principal the resolver supplied
- * carries nothing.
+ * real database.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -127,9 +122,8 @@ final class PrincipalListingTest extends TestCase
     }
 
     /**
-     * The identity's principals are listed in one query, and judging them reads
-     * every one's tenant in one more, whatever each tenant's state; each
-     * principal listed then holds the tenant judged.
+     * The identity's principals are listed in one query and their tenants read
+     * in one more.
      *
      * @return void
      *
@@ -162,8 +156,7 @@ final class PrincipalListingTest extends TestCase
     }
 
     /**
-     * Only the principals judged have their tenants loaded: judging one of
-     * three reads its tenant alone and leaves the others as they were listed.
+     * Only the principals judged have their tenants loaded.
      *
      * @return void
      *
@@ -182,10 +175,8 @@ final class PrincipalListingTest extends TestCase
     }
 
     /**
-     * Under Eloquent strict mode the principals, read together, stay strict,
-     * while the tenants judged allow lazy loading as a tenant read on its own
-     * does: a tenant whose activity reads its parent is judged by it, and each
-     * listed principal answers `getTenant()` without a lazy load of its own.
+     * Under Eloquent strict mode the principals stay strict while the tenants
+     * judged allow lazy loading.
      *
      * @return void
      *
@@ -225,11 +216,7 @@ final class PrincipalListingTest extends TestCase
     }
 
     /**
-     * The tenant relation is the one each listed principal names, not the one
-     * the query's model would: rows the application's `principals()` reads as
-     * one model and hands back as another (`afterQuery()`) have the listed
-     * model's own relation loaded, under the name its `getTenantRelationName()`
-     * gives.
+     * The tenant relation loaded is the one each listed principal names.
      *
      * @return void
      *
@@ -261,8 +248,7 @@ final class PrincipalListingTest extends TestCase
 
     /**
      * Principals of several classes have their tenants read in one query per
-     * class, each by the relation its own class defines, even when two classes
-     * give the relation the same name.
+     * class.
      *
      * @return void
      *
@@ -295,9 +281,7 @@ final class PrincipalListingTest extends TestCase
 
     /**
      * Principals of one class on two connections have their tenants read on
-     * each one's own connection: a tenant key that names an active tenant on
-     * one and a deactivated tenant on the other is judged as each principal's
-     * own connection stores it, whichever principal is listed first.
+     * each one's own connection.
      *
      * @return void
      *
@@ -349,9 +333,7 @@ final class PrincipalListingTest extends TestCase
 
     /**
      * A polymorphic tenant relation is read once for the type the principals
-     * name; a principal whose key is set without a type cannot say which tenant
-     * it acts within and is refused as `tenant_inactive`, as when its tenant
-     * was read on its own.
+     * name, and a principal without a type is refused.
      *
      * @return void
      *
@@ -378,10 +360,7 @@ final class PrincipalListingTest extends TestCase
     }
 
     /**
-     * Rows of an application's eager load of the tenant relation (one that
-     * reads soft-deleted tenants, one that hides active ones, one that selects
-     * no activity column), whether the tenant is soft-deleted, and the refusal
-     * the tenant as stored gives.
+     * Rows of `[eager load, soft-deleted, refusal]`.
      *
      * @return iterable<string, array{0: string, 1: bool, 2: ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason}>
      */
@@ -393,11 +372,8 @@ final class PrincipalListingTest extends TestCase
     }
 
     /**
-     * Whatever the application's `principals()` eager-loaded under the tenant
-     * relation's name, through its own `with()` or through a global scope that
-     * runs after any the package could add, is replaced by the relation as a
-     * lazy load reads it: a soft-deleted tenant is not loaded, an active one
-     * is, and its activity column is.
+     * Whatever the application eager-loaded under the tenant relation's name is
+     * replaced by the relation as a lazy load reads it.
      *
      * @param  string  $eagerLoad
      * @param  bool  $softDeleted
@@ -436,10 +412,8 @@ final class PrincipalListingTest extends TestCase
     }
 
     /**
-     * The placeholder a `withDefault()` relation loads for a missing tenant
-     * stands for a tenant that cannot be loaded, refused as `tenant_inactive`
-     * once each principal's tenant is looked for alone as well: the load's
-     * query, then one for each.
+     * The placeholder a `withDefault()` relation loads for a missing tenant is
+     * refused as `tenant_inactive`.
      *
      * @return void
      *
@@ -467,10 +441,7 @@ final class PrincipalListingTest extends TestCase
 
     /**
      * A tenant the load misses, through a key the database matches but PHP's
-     * pairing does not (`'01'` against `1`), is read alone, as a lazy load
-     * reads it, rather than taken for none: each principal holds its own
-     * tenant, which does not opt into activation and so would otherwise read as
-     * acting within no tenant, and one without a tenant key costs no query.
+     * pairing does not (`'01'` against `1`), is read alone.
      *
      * @return void
      *
@@ -506,8 +477,7 @@ final class PrincipalListingTest extends TestCase
     }
 
     /**
-     * A polymorphic tenant the load misses is read alone for its type, as a
-     * lazy load reads it, rather than taken for none.
+     * A polymorphic tenant the load misses is read alone for its type.
      *
      * @return void
      *
@@ -543,9 +513,7 @@ final class PrincipalListingTest extends TestCase
     }
 
     /**
-     * A principal listed without its tenant key cannot say which tenant it acts
-     * within, so judging it fails loudly rather than reading as acting within
-     * none.
+     * Judging a principal listed without its tenant key fails.
      *
      * @return void
      *
@@ -564,12 +532,7 @@ final class PrincipalListingTest extends TestCase
     }
 
     /**
-     * Nothing is loaded for a principal the package cannot know the tenant
-     * relation of: one without a tenant relation, one that implements the
-     * contract itself, and one that is no model. Each is judged as before: the
-     * one that reads its own relation reads it on its stored copy. The
-     * principals listed after them whose relation is known still have their
-     * tenants read together.
+     * Nothing is loaded for a principal whose tenant relation is unknown.
      *
      * @return void
      *
@@ -602,10 +565,7 @@ final class PrincipalListingTest extends TestCase
     }
 
     /**
-     * An inactive principal is refused without its tenant being read, as when
-     * each principal was judged alone: one whose polymorphic type names a
-     * tenant class that no longer exists is refused as `principal_inactive` and
-     * the others are judged, only the active ones' tenants loaded.
+     * An inactive principal is refused without its tenant being read.
      *
      * @return void
      *
@@ -655,8 +615,7 @@ final class PrincipalListingTest extends TestCase
 
     /**
      * A listing of the resolver's default principal loads nothing and carries
-     * no relation the resolver set: the tenant as stored decides, whether the
-     * one planted reads active or inactive.
+     * no relation the resolver set.
      *
      * @return void
      *
@@ -685,11 +644,8 @@ final class PrincipalListingTest extends TestCase
     }
 
     /**
-     * Assert that, of three principals of the membership's class listed under
-     * strict mode, the one whose key the load misses has its tenant read alone,
-     * the one the load matches does not, and the one without a tenant key costs
-     * no query; each then answers `getTenant()` with the tenant its key names,
-     * without a further query.
+     * Assert that only the tenant whose key the load misses is read alone, and
+     * each principal then answers `getTenant()` without a further query.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Principal  $membership
      * @param  ?string  $type

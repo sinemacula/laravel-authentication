@@ -16,9 +16,7 @@ use Tests\Unit\Stubs\StubSession;
 use Tests\Unit\Stubs\StubUncastSession;
 
 /**
- * Unit tests for the accessors behind a session's standing: its status, what a
- * pending one waits on and its credential's digest, its active tenant, and the
- * tenant policy version it was checked against.
+ * Unit tests for the accessors behind a session's standing.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -29,9 +27,8 @@ use Tests\Unit\Stubs\StubUncastSession;
 final class RecordsSessionStandingTest extends TestCase
 {
     /**
-     * Unset the facade application, so the shipped model is built with no
-     * application whatever ran before: one an earlier test left behind, already
-     * flushed, has no configuration to resolve.
+     * Unset the facade application so the shipped model resolves no
+     * configuration an earlier test left behind.
      *
      * @return void
      */
@@ -68,8 +65,7 @@ final class RecordsSessionStandingTest extends TestCase
 
     /**
      * An active session waits on nothing and holds no pending digest, active
-     * tenant or version; the shipped model reads its requirements through its
-     * `array` cast, and a new one reads active, as its row would.
+     * tenant or version.
      *
      * @return void
      */

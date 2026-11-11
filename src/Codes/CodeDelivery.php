@@ -8,9 +8,8 @@ use Carbon\CarbonImmutable;
 use Illuminate\Support\Str;
 
 /**
- * One delivery the engine is about to write for a key: the secret drawn for it,
- * its new issuance and the hash it is stored as, the new challenge id it takes
- * when it starts a challenge, and the columns each way of writing it sets.
+ * One delivery the engine is about to write for a key, and the columns each way
+ * of writing it sets.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -115,9 +114,8 @@ final readonly class CodeDelivery
     }
 
     /**
-     * The columns of a delivery of the live challenge again, after the
-     * deliveries the window has had: a new code and issuance, its attempts
-     * kept.
+     * The columns of a delivery of the live challenge again: a new code and
+     * issuance, its attempts kept.
      *
      * @param  int  $deliveries
      * @param  \Carbon\CarbonImmutable  $expiresAt
@@ -135,9 +133,7 @@ final readonly class CodeDelivery
     }
 
     /**
-     * The code issued once the delivery is written, for the challenge it was
-     * written to, working until the time given, with when another may be
-     * delivered to its key.
+     * The code issued once the delivery is written to the challenge given.
      *
      * @param  string  $challengeId
      * @param  \Carbon\CarbonImmutable  $expiresAt

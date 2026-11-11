@@ -16,23 +16,8 @@ use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
- * Binds the guard to a session a flow wrote (a sign-in, a refresh or a switch)
- * once the writes on the session's connection commit, through `AfterCommit`,
- * after whatever the flow scheduled there first to report the write: at once,
- * with no extra query, when that connection has no transaction open; otherwise
- * at the commit, and never when it rolls back. The flow's pair, with a cookie
- * application's refresh cookie, is handed back on its result at once for the
- * application to attach; the package queues no cookie, so a rolled-back flow
- * leaves nothing on the response but what the caller chose to send.
- *
- * A bind that waited for the commit binds only while the guard still serves the
- * request that asked for it (a request rebound meanwhile is another's), and
- * reads the session again on the write connection first, binding it only while
- * it is still that session (generation and owner), recording the principal and
- * the tenant it was written for, of this guard, unrevoked, active and not
- * ended: a session revoked, returned to pending or switched later in the same
- * transaction is never bound as it was (a switch binds the guard to its
- * destination itself).
+ * Binds the guard to a session a flow wrote once the session's connection
+ * commits, and never when it rolls back.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -57,8 +42,8 @@ final readonly class DeferredBind
     ) {}
 
     /**
-     * Run the bind of the session, written for the principal, once its writes
-     * commit, as the class describes, and then, bound or not, what follows it.
+     * Bind the session once its writes commit, then run what follows, bound or
+     * not.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $record
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -86,10 +71,8 @@ final readonly class DeferredBind
     }
 
     /**
-     * Whether the committed session is still the one the flow wrote, read again
-     * on the write connection: the same row (generation and owner), recording
-     * the principal and the tenant it was written for, of this guard,
-     * unrevoked, active and not ended.
+     * Whether the committed session, read again, is still the one the flow
+     * wrote and still active.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $record
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal

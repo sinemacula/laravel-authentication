@@ -61,16 +61,7 @@ use Tests\Fixtures\External\ScriptedEvidencePolicy;
 use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 
 /**
- * Query-budget and timing contracts for a session's proofs: what a step-up and
- * a reauthentication cost, what asking the freshness policy and the
- * factor-change gate costs (nothing for an operation with no requirement), that
- * the claims, freshness and accepted-evidence reads stay one query each, and
- * quick, however many proofs a session holds, and that the public reads of an
- * active session's proofs (the session service's and a contribution subject's)
- * read the session and one bounded page of its proofs. Every issuance that
- * records a proof writes the session's issuance guard, one `UPDATE` by key,
- * under the lock and before the proof, so an issuance of the session that
- * overlaps it reads its proof: one write beside the proof itself.
+ * Query-budget and timing contracts for a session's proofs.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -125,9 +116,7 @@ final class ProofQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A step-up locks the session, reloads its owner, writes the issuance
-     * guard, records the proof and reads the session's proofs for the new
-     * access token: three reads and two writes, the refresh state untouched.
+     * A step-up reads three times and writes its issuance guard and the proof.
      *
      * @return void
      *
@@ -143,11 +132,7 @@ final class ProofQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A reauthentication reads the session, then the identity the password
-     * names, and, under the lock, the session and its owner again and the
-     * proofs for the new token; it reserves and gives back a slot on each of
-     * the three counters the sign-in created, and writes the issuance guard and
-     * the proof.
+     * A reauthentication has a fixed budget.
      *
      * @return void
      *
@@ -166,11 +151,8 @@ final class ProofQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * An external reauthentication reads the session, then, under the lock, the
-     * session, its provenance, its owner and its proofs for the new token, and
-     * writes the issuance guard and the proof; the link contract, here a fake,
-     * reads nothing of the package's. A locked standing reads the session and
-     * its provenance and writes nothing.
+     * An external reauthentication and a locked standing each have a fixed
+     * budget.
      *
      * @return void
      *
@@ -200,14 +182,8 @@ final class ProofQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A principal's external reauthentication asks its tenant's policy with the
-     * proof recorded: with a requirement that asks for nothing, beyond the
-     * tenant-less budget it reads only what admits the principal and its
-     * tenant; with connections and a factor the session's accepted evidence
-     * meets, it reads the provenance's connection, the first factor and the
-     * accepted evidence too, and nothing more; each writes the issuance guard
-     * and the proof. An unlocked standing through any link reads the session
-     * and its provenance, and writes nothing.
+     * A principal's external reauthentication and an unlocked standing each
+     * have a fixed budget.
      *
      * @return void
      *
@@ -241,10 +217,8 @@ final class ProofQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Asking the freshness policy, for a proof or until when, reads the session
-     * and its freshest proof, plainly or, inside a transaction, current (the
-     * session's row locked); an operation with no requirement, or a session
-     * that is not an Eloquent session, reads nothing.
+     * Asking the freshness policy reads the session and its freshest proof, or
+     * nothing without a requirement.
      *
      * @return void
      *
@@ -277,10 +251,8 @@ final class ProofQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Asking the factor-change gate locks the session's row, then reads it
-     * again, locked, and its freshest proof current, as the freshness policy
-     * does under the lock, and writes nothing, however many proofs the session
-     * holds.
+     * The factor-change gate locks the session and reads it and its freshest
+     * proof, however many proofs it holds.
      *
      * @return void
      *
@@ -304,9 +276,8 @@ final class ProofQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * The claims and freshness reads are one query each over a session with
-     * many step-ups, one a second after the sign-in, and each stays well within
-     * its ceiling.
+     * The claims and freshness reads are one query each over many proofs, and
+     * quick.
      *
      * @return void
      *
@@ -338,10 +309,8 @@ final class ProofQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * The newest accepted evidence is one query however many external proofs a
-     * session holds, within its ceiling, and judging an external session's
-     * requirement on it costs that one read beside its first factor's; the
-     * requirement check is not asked once the evidence meets it.
+     * The newest accepted evidence is one quick query however many external
+     * proofs a session holds.
      *
      * @return void
      *
@@ -389,11 +358,8 @@ final class ProofQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * The session service's read of an active session's proofs, and of its
-     * first factor, reads the session and then one bounded page of its proofs,
-     * inside a transaction as outside one, however many proofs it holds, and
-     * within the ceiling; an identifier that cannot be a key reads nothing, and
-     * an unknown or revoked session only the session.
+     * The session service's proof reads cost the session and one bounded page
+     * of its proofs.
      *
      * @return void
      *
@@ -428,9 +394,8 @@ final class ProofQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A contribution subject's proofs and first factor each read the session
-     * and then its proofs on every call, nothing kept between them; without a
-     * session they read nothing.
+     * A contribution subject's proof reads query on every call, and nothing
+     * without a session.
      *
      * @return void
      *

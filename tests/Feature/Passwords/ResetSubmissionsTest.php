@@ -46,11 +46,8 @@ use Tests\Integration\Fixtures\PasswordIdentity;
 use Tests\TestCase;
 
 /**
- * Feature tests of password resets through `Auth::passwords()`, by link and by
- * code, over HTTP routes registered as an application would and through the
- * service: the end of every session a reset brings, single use, the binding to
- * a guard, the policy, expiry, replacement, the code's attempts, malformed
- * input, and the submission limit taken before anything else.
+ * Feature tests of password resets by link and by code through
+ * `Auth::passwords()`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -65,11 +62,8 @@ final class ResetSubmissionsTest extends TestCase
     use InspectsTraces, InteractsWithPasswordResets;
 
     /**
-     * A reset link requested over HTTP arrives after the response; its token
-     * sets the new password, ends every session of the identity through every
-     * guard (`password_reset`), and reports `PasswordSet` for the reset. The
-     * old password stops working and the new one signs in; the token works
-     * once.
+     * A reset link sets the new password once and ends every session of the
+     * identity.
      *
      * @return void
      *
@@ -137,9 +131,7 @@ final class ResetSubmissionsTest extends TestCase
     }
 
     /**
-     * A reset read from the request reads the body only: a token or a code in
-     * the query string is never read, so the reset is `invalid` and the link or
-     * code still works from the body, a JSON body or a form one.
+     * A reset reads its token or code from the request body only.
      *
      * @return void
      *
@@ -179,9 +171,7 @@ final class ResetSubmissionsTest extends TestCase
     }
 
     /**
-     * A reset's `PasswordSet` and its revocations' events go, once committed,
-     * to the dispatcher the guard has at the commit: one swapped in after the
-     * reset receives them all, and the dispatcher of the reset none.
+     * A reset's events reach the dispatcher the guard has at the commit.
      *
      * @return void
      *
@@ -270,10 +260,8 @@ final class ResetSubmissionsTest extends TestCase
     }
 
     /**
-     * A breached password is `password_rejected` with the violation, over HTTP,
-     * and so is any password while the breached-password checker cannot answer
-     * and the policy fails closed (the default): the link is spent by neither,
-     * nothing is reported, and it resets once the checker is back.
+     * A breached password, or any while the checker is down, is rejected
+     * without spending the link.
      *
      * @return void
      *
@@ -309,10 +297,8 @@ final class ResetSubmissionsTest extends TestCase
     }
 
     /**
-     * A failure inside the credential timebox, by link or by code, leaves the
-     * new password and the token or code out of every frame of its trace, the
-     * timebox's closure and what it captured included, even with arguments
-     * recorded in traces.
+     * A failed reset leaves the password and the token or code out of the
+     * trace.
      *
      * @return void
      *
@@ -351,10 +337,8 @@ final class ResetSubmissionsTest extends TestCase
     }
 
     /**
-     * Whether the identity may reset is decided again on its row once it is
-     * locked: one deactivated after the lookup found it, before the lock, is
-     * `invalid`, reported as `identity_inactive`, and its link stays unspent,
-     * so it resets once the identity is active again.
+     * An identity deactivated after the lookup resets nothing and keeps its
+     * link.
      *
      * @return void
      *
@@ -397,10 +381,8 @@ final class ResetSubmissionsTest extends TestCase
     }
 
     /**
-     * Under bcrypt, a new password holding a null character, which the hasher
-     * would refuse with an exception, is rejected with that violation before
-     * the proof is checked: neither the link nor the code is spent or counted,
-     * and the code then resets with a password the hasher takes.
+     * A null character under bcrypt is rejected before the proof is checked or
+     * spent.
      *
      * @return void
      *
@@ -505,9 +487,8 @@ final class ResetSubmissionsTest extends TestCase
     }
 
     /**
-     * Wrong codes count their attempts: once they are used up the code is
-     * locked (`code_exhausted`) and even the right one is refused; nothing is
-     * reset, and each refusal names the challenge it answered.
+     * Wrong codes use up the attempts, after which even the right one is
+     * refused.
      *
      * @return void
      *
@@ -575,9 +556,8 @@ final class ResetSubmissionsTest extends TestCase
     }
 
     /**
-     * A malformed submission is refused before the password reaches the policy,
-     * still counted against the limits; it names the challenge a code reset
-     * answered only when that is in the form the engine issues.
+     * A malformed submission is refused before the policy runs, and still
+     * counted.
      *
      * @param  string  $channel
      * @param  array<string, mixed>  $input
@@ -604,9 +584,8 @@ final class ResetSubmissionsTest extends TestCase
     }
 
     /**
-     * Submissions are counted before anything else, so once they are used up a
-     * submission never reaches the breached-password check; a reset that
-     * succeeds gives its slots back.
+     * Submissions are counted before any check, and a successful reset gives
+     * its slots back.
      *
      * @return void
      *
@@ -671,9 +650,7 @@ final class ResetSubmissionsTest extends TestCase
     }
 
     /**
-     * A reset that succeeds ends the credential timebox early; one that fails
-     * waits it out, a rejected password included, and so does one that fails
-     * after a success on the same timebox.
+     * Only a successful reset ends the credential timebox early.
      *
      * @return void
      *
@@ -697,9 +674,7 @@ final class ResetSubmissionsTest extends TestCase
     }
 
     /**
-     * A client the caller names is the one every event reports, not the request
-     * being served: a refusal's, and a reset's `PasswordSet`, the sessions it
-     * ends and its `SignedOutEverywhere`.
+     * The client the caller names is the one every event reports.
      *
      * @return void
      *
@@ -768,10 +743,7 @@ final class ResetSubmissionsTest extends TestCase
     }
 
     /**
-     * A reset for an identity it found locks that identity's row as the
-     * transaction that spends the proof starts, before the token is read, the
-     * lock order a password write follows too, so the two wait for each other
-     * rather than deadlock.
+     * A reset locks the identity's row before reading the proof.
      *
      * @return void
      *
@@ -821,11 +793,8 @@ final class ResetSubmissionsTest extends TestCase
     }
 
     /**
-     * A failure raised inside the reset's transaction, below the closure that
-     * spends the proof and writes the password, by link and by code, leaves the
-     * new password and the token or code out of every frame of its trace, that
-     * closure and what it captured included, even with arguments recorded in
-     * traces; nothing is reset.
+     * A failure inside the reset's transaction leaves the secrets out of the
+     * trace and resets nothing.
      *
      * @return void
      *
@@ -871,11 +840,8 @@ final class ResetSubmissionsTest extends TestCase
     }
 
     /**
-     * A deadlock raised inside a reset's transaction within a caller's is
-     * thrown on as Laravel's `DeadlockException`, with the caller's transaction
-     * level restored. The caller rolls its whole transaction back: nothing the
-     * reset did is kept, nothing is reported, and its retry of the whole
-     * transaction resets.
+     * A deadlock inside a caller's transaction is thrown on for the caller to
+     * retry whole.
      *
      * @return void
      *
@@ -924,9 +890,7 @@ final class ResetSubmissionsTest extends TestCase
     }
 
     /**
-     * Outside any transaction, a deadlock raised inside a reset's is rolled
-     * back and thrown on as raised, once: nothing the reset did is kept, and
-     * the token still resets.
+     * Outside any transaction, a deadlock is rolled back and thrown on once.
      *
      * @return void
      *
@@ -962,10 +926,7 @@ final class ResetSubmissionsTest extends TestCase
     }
 
     /**
-     * A wrong code inside a caller's transaction completes the reset's nested
-     * transaction with its attempt counted: the caller's transaction stays at
-     * its level with its own writes, the reset is `invalid`, reported as
-     * `invalid_credentials`, and the caller's commit keeps the attempt.
+     * A wrong code inside a caller's transaction keeps its counted attempt.
      *
      * @return void
      *
@@ -1005,11 +966,8 @@ final class ResetSubmissionsTest extends TestCase
     }
 
     /**
-     * A proof accepted inside a caller's transaction for an identity that may
-     * not reset rolls back only what the reset wrote: the link stays unspent,
-     * the caller's transaction stays at its level with its own writes and
-     * commits them, and the reset is `invalid`, reported as
-     * `identity_inactive`. The link resets once the identity is active again.
+     * An accepted proof for an identity that may not reset rolls back only the
+     * reset's writes.
      *
      * @return void
      *
@@ -1049,10 +1007,8 @@ final class ResetSubmissionsTest extends TestCase
     }
 
     /**
-     * A failure that is no concurrency error, raised inside a reset's
-     * transaction within a caller's, is thrown on as raised and rolls back only
-     * what the reset wrote: the caller's transaction stays at its level with
-     * its own writes, and commits them, the token unspent.
+     * A failure that is no concurrency error inside a caller's transaction
+     * rolls back only the reset's writes.
      *
      * @return void
      *

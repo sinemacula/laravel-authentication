@@ -15,10 +15,8 @@ use Tests\Concerns\InteractsWithCodeIdentities;
 use Tests\TestCase;
 
 /**
- * Proves each outcome of checking a verification code is what the check wrote,
- * on whichever engine the suite runs against: the identifier recorded verified
- * only for `verified`, the code used up by every accepted check, and an attempt
- * counted only against a code that was compared and did not match.
+ * Tests that each outcome of checking a verification code is what the check
+ * wrote.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

@@ -14,8 +14,6 @@ use Tests\Unit\Stubs\StubTenantWithPrefixedIdentifier;
 /**
  * Unit tests for the package ActsAsTenant trait.
  *
- * Exercises the public trait surface through named Eloquent stubs.
- *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *

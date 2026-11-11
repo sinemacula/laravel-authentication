@@ -30,10 +30,7 @@ use Tests\Integration\Fixtures\IntegerKeySession;
 use Tests\TestCase;
 
 /**
- * Integration tests of a pending session whose key the database issues as an
- * integer, against each supported database: its credential is
- * `<integer>.<secret>`, it names the session, and it is satisfied in place,
- * while a credential whose key is no integer names nothing.
+ * Integration tests of a pending session with an integer key.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -50,9 +47,8 @@ final class IntegerKeyPendingSessionTest extends TestCase
     private const string TABLE = 'integer_key_sessions';
 
     /**
-     * Freeze the clocks, create the tables, point the session model and its
-     * table at the integer-keyed ones, and ask every sign-in for a further
-     * factor.
+     * Freeze the clocks, create the tables, point the session model at the
+     * integer-keyed ones and require a further factor.
      *
      * @return void
      */
@@ -92,8 +88,7 @@ final class IntegerKeyPendingSessionTest extends TestCase
     }
 
     /**
-     * Drop the tables, put the session table back for the migrations' rollback
-     * and release the clocks.
+     * Drop the tables, restore the session table and release the clocks.
      *
      * @return void
      */
@@ -115,9 +110,8 @@ final class IntegerKeyPendingSessionTest extends TestCase
     }
 
     /**
-     * The pending credential of an integer-keyed session carries the integer
-     * key before its secret, names the session, and is satisfied in place: the
-     * same row activates, keeping its key.
+     * An integer-keyed pending credential names its session, which is satisfied
+     * in place.
      *
      * @return void
      *
@@ -149,8 +143,7 @@ final class IntegerKeyPendingSessionTest extends TestCase
     }
 
     /**
-     * A credential whose key is no integer names no integer-keyed session, and
-     * fails as `pending_invalid`.
+     * A credential whose key is not an integer fails as `pending_invalid`.
      *
      * @return void
      *

@@ -12,27 +12,6 @@ use SineMacula\Laravel\Authentication\Secrets\Secret;
  * Immutable token pair: the first pair of a session the session service
  * started, or the pair a refresh or a switch rotated in.
  *
- * Either way it replaces any refresh token the client held for the session, so
- * consumers must store it immediately. After a refresh the replaced token is
- * honoured only for a short grace window (a retry gets the current credential
- * again); presented after it, it is treated as a replay and revokes the
- * session. A sign-in always starts a new session, and one that proved the
- * client's previous session revokes it, so that session's refresh tokens are
- * refused as revoked from then on.
- *
- * The refresh token travels as the application's transport says: a body
- * application's pair carries it in `$refreshToken`, and a cookie application's
- * carries only `$refreshCookie`, the cookie that sets it in the browser, so the
- * plain token never reaches the application's code or a response body. Every
- * token is a `Secret`: reveal it only into the response that hands it to the
- * client, such as with `SecretResponse::json()`, and attach the cookie with
- * `RefreshCookie::attachTo()`.
- *
- * The pair says when its access token expires, as the token's own `exp` does:
- * `$expiresAt`, and `$expiresIn`, its lifetime in seconds, for the `expires_in`
- * of an RFC 6749 section 5.1 response, so the client need not decode the token
- * to know when to refresh.
- *
  * @api
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>

@@ -10,9 +10,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
- * Application access an application binds to decide from rows of its own, read
- * through the query builder on the default connection as such a contract would
- * read them: a principal may use the application only with a grant.
+ * Application access that lets a principal use the application only with a
+ * grant row on the default connection.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

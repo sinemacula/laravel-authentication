@@ -16,9 +16,8 @@ use SineMacula\Laravel\Authentication\Listeners\RevokeSessionsOnPasswordChange;
 use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
- * 2D identity fixture over `integration_identities`, with sessions of the
- * shipped model, that registers the password-change observer through
- * `#[ObservedBy]`: the observer is registered only when the model first boots.
+ * 2D identity that registers the password-change observer through
+ * `#[ObservedBy]`, which Laravel applies only when the model first boots.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

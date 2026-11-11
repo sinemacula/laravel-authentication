@@ -26,10 +26,8 @@ use Tests\TestCase;
 use Webauthn\CredentialRecord;
 
 /**
- * Feature tests for the passkey store: what a registration stores, the
- * compare-and-set a verified use is written with, the library's record a stored
- * passkey becomes, and the exact owner listing and removal hold to whatever the
- * collation counts as equal.
+ * Feature tests for the passkey store: registration, compare-and-set use, the
+ * library's record and owner matching.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -82,10 +80,8 @@ final class PasskeyCredentialsTest extends TestCase
     }
 
     /**
-     * A registration stores the backup and verification flags as the
-     * authenticator reported them; a drafted passkey is stored as a saved model
-     * in step with its row, and a credential registered already, under any
-     * owner, is found and never stored twice.
+     * A registration stores the flags and the saved passkey, and never stores a
+     * credential twice.
      *
      * @return void
      *
@@ -137,9 +133,8 @@ final class PasskeyCredentialsTest extends TestCase
     }
 
     /**
-     * A credential id is canonical only as the unpadded base64url encoding of
-     * the bytes it decodes to: no padding, the url alphabet, and no unused bits
-     * set.
+     * A credential id is canonical only as unpadded base64url with no unused
+     * bits set.
      *
      * @param  string  $credentialId
      * @param  bool  $canonical
@@ -152,9 +147,7 @@ final class PasskeyCredentialsTest extends TestCase
     }
 
     /**
-     * The owner's passkey is found by its id for the relying party, and an id
-     * that is not a UUID names none without a query; another owner finds none.
-     * Deleting it removes its row once, and a second delete removes nothing.
+     * An owner's passkey is found by its id and deleted once.
      *
      * @return void
      *
@@ -183,9 +176,7 @@ final class PasskeyCredentialsTest extends TestCase
     }
 
     /**
-     * A use read against a count that has since moved is not written: the
-     * passkey keeps the count the other use wrote, and the model the use read
-     * keeps what it read.
+     * A use read against a count that has since moved is not written.
      *
      * @return void
      *
@@ -227,8 +218,7 @@ final class PasskeyCredentialsTest extends TestCase
     }
 
     /**
-     * A use that moves the count is written, with the backup state and the last
-     * use, and mirrored on the model, which stays in step with its row.
+     * A use that moves the count is written and mirrored on the model.
      *
      * @return void
      *
@@ -252,8 +242,8 @@ final class PasskeyCredentialsTest extends TestCase
     }
 
     /**
-     * A use writes only what a use changes: a name changed since the passkey
-     * was read is kept.
+     * A use writes only what a use changes, keeping a name changed since it was
+     * read.
      *
      * @return void
      *
@@ -272,11 +262,8 @@ final class PasskeyCredentialsTest extends TestCase
     }
 
     /**
-     * A count of 0 against a stored 0 is accepted when the update reports no
-     * row, as MySQL reports a second use within the same second: there is no
-     * count to race for. A count above 0 is not. SQLite is made to report it by
-     * a trigger that leaves every update of a passkey undone; MySQL needs none,
-     * and `PasskeySignInTest` signs in twice within a second there.
+     * A zero count against a stored zero is accepted when the update reports no
+     * row.
      *
      * @return void
      *
@@ -299,8 +286,7 @@ final class PasskeyCredentialsTest extends TestCase
     }
 
     /**
-     * A passkey removed after it was read records no use, whatever the count:
-     * the sign-in that read it is refused.
+     * A passkey removed after it was read records no use.
      *
      * @return void
      *
@@ -319,9 +305,7 @@ final class PasskeyCredentialsTest extends TestCase
     }
 
     /**
-     * A stored passkey becomes the library's record of it: its raw id, public
-     * key and user handle decoded, its transports, count and flags, recorded as
-     * unattested, with no AAGUID read as the nil one and a stored one kept.
+     * A stored passkey becomes the library's credential record.
      *
      * @return void
      *
@@ -347,9 +331,7 @@ final class PasskeyCredentialsTest extends TestCase
     }
 
     /**
-     * `PasskeyCredentials` is a static utility; instantiation is disallowed via
-     * the private constructor. Reflection invokes it so the line is covered
-     * while still documenting the access modifier.
+     * The constructor is private.
      *
      * @return void
      *
@@ -370,12 +352,8 @@ final class PasskeyCredentialsTest extends TestCase
     }
 
     /**
-     * With the owner columns under a collation that counts distinct keys as
-     * equal, an identity whose key differs from the owner's only in case or
-     * accent is offered none of the owner's passkeys to exclude from a
-     * registration or to answer a factor ceremony with, lists none, and removes
-     * none, which is left with nothing reported; the owner still lists and
-     * removes it.
+     * An identity whose key only collates equal to the owner's holds none of
+     * the owner's passkeys.
      *
      * @param  string  $folded
      * @return void
@@ -411,12 +389,8 @@ final class PasskeyCredentialsTest extends TestCase
     }
 
     /**
-     * With the relying party column under a collation that counts distinct ids
-     * as equal, a passkey recorded for an id that differs from the relying
-     * party's only in case is not found for a sign-in, offered to exclude from
-     * a registration or to answer a factor ceremony with, listed or removed,
-     * and nothing is reported; recorded for the relying party's own id, it is
-     * removed.
+     * A passkey recorded for a relying party id that differs only in case is
+     * absent.
      *
      * @return void
      *

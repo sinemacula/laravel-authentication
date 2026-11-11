@@ -21,9 +21,7 @@ use Tests\TestCase;
 
 /**
  * Proves `RevokeSessionsOnPasskeyRemoval` reads the identity on the write
- * connection: an identity created moments ago, which only the primary holds
- * yet, has every session ended when it removes a passkey while the replica lags
- * behind.
+ * connection.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

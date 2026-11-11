@@ -19,9 +19,8 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
 
 /**
- * An account stored without a password hash, as one created through another
- * sign-in method might be, is an ordinary failed sign-in: the attempt is
- * rejected and reported, not answered with a server error.
+ * Signing in to an account stored without a password hash fails like any other
+ * rejected attempt.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

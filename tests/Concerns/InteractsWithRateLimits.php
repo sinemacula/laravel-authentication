@@ -8,10 +8,7 @@ use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Finds the attempt limiter's counters the way its keys are documented: an
- * HMAC-SHA256 digest of the parts joined by NUL bytes, under a key derived from
- * the application key, so tests compute a counter's key themselves rather than
- * asking the limiter for it.
+ * Finds the attempt limiter's counters by computing their documented keys.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -21,8 +18,7 @@ use Illuminate\Support\Facades\DB;
 trait InteractsWithRateLimits
 {
     /**
-     * The key of the counter for the parts: the guard, flow, scope and value,
-     * or, for an account, the flow, `per_account` and the account.
+     * The key of the counter for the parts.
      *
      * @param  string  ...$parts
      * @return string

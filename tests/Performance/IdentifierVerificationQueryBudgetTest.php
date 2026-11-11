@@ -66,9 +66,8 @@ final class IdentifierVerificationQueryBudgetTest extends PerformanceContractTes
     }
 
     /**
-     * A verification is one locked read and one write; a repeat reads the row
-     * under the lock, writes nothing, and adds the re-read that tells it from a
-     * mismatch; a mismatch with the identifier in hand costs nothing.
+     * A verification is one locked read and one write; a repeat writes nothing
+     * and a mismatch costs nothing.
      *
      * @return void
      */
@@ -85,9 +84,8 @@ final class IdentifierVerificationQueryBudgetTest extends PerformanceContractTes
     }
 
     /**
-     * Following a link loads the identity, reads its row again under the
-     * verification's lock and writes once; a link with a bad signature, or an
-     * authentic one past its time, costs nothing.
+     * Following a link is two reads and one write; a bad or expired link costs
+     * nothing.
      *
      * @return void
      */

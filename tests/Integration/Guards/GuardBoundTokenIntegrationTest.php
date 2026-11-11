@@ -34,13 +34,8 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
 
 /**
- * Integration tests proving tokens are bound to the guard that issued them.
- *
- * Every guard here uses the package-wide key map, the default configuration in
- * which the guards share a signing key, and the package-wide issuer and
- * audience. Only the `client_id` claim tells the guards' tokens apart, and
- * refresh reloads the session owner through the refreshing guard's own
- * provider.
+ * Tokens are bound to the guard that issued them, even when guards share a
+ * signing key, issuer and audience.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -69,7 +64,7 @@ final class GuardBoundTokenIntegrationTest extends TestCase
     private const string ROTATION_ID = 'stored-rotation-id';
 
     /**
-     * Freeze the clocks, register the scoped provider driver, and create the
+     * Freeze the clocks, register the scoped provider driver and create the
      * identity tables.
      *
      * @return void
@@ -145,8 +140,7 @@ final class GuardBoundTokenIntegrationTest extends TestCase
 
     /**
      * Two guards on one key map and one model: a refresh token issued by one is
-     * rejected as `token_invalid` by the other and still rotates on its own
-     * guard.
+     * rejected by the other and still rotates on its own.
      *
      * @return void
      *
@@ -173,9 +167,8 @@ final class GuardBoundTokenIntegrationTest extends TestCase
     }
 
     /**
-     * Two guards on one key map over different models: a token issued by one is
-     * rejected by the other even when the other's model has a row with the same
-     * id.
+     * Two guards over different models reject each other's tokens even when the
+     * ids match.
      *
      * @return void
      *
@@ -194,10 +187,8 @@ final class GuardBoundTokenIntegrationTest extends TestCase
     }
 
     /**
-     * Refresh reloads the session owner through the refreshing guard's
-     * provider: when that provider maps the owner key to a row of another
-     * model, the owner does not match and refresh fails with
-     * `identity_unknown`.
+     * Refresh fails with `identity_unknown` when the guard's provider maps the
+     * owner key to another model.
      *
      * @return void
      *
@@ -216,9 +207,7 @@ final class GuardBoundTokenIntegrationTest extends TestCase
     }
 
     /**
-     * Refresh honours the guard provider's scope: an owner the provider does
-     * not serve is rejected with `identity_unknown`, and one it does serve
-     * rotates.
+     * Refresh rejects an owner the guard's provider does not serve.
      *
      * @return void
      *

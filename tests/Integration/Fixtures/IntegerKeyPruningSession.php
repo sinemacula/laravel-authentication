@@ -7,11 +7,8 @@ namespace Tests\Integration\Fixtures;
 use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
- * The shipped session model with an auto-incrementing integer key instead of
- * its UUID, so pruning its sessions must find their proofs and provenance by
- * the key as a string, the form the proofs record it in, rather than by
- * comparing an integer column with a string one. Its table is the configured
- * session table, as the shipped model's is.
+ * Shipped session model with an auto-incrementing integer key, which proofs and
+ * provenance record as a string.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
