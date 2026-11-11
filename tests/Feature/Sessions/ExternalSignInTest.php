@@ -10,7 +10,7 @@ use Illuminate\Auth\Events\Attempting;
 use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Validated;
 use Illuminate\Config\Repository as ConfigRepository;
-use Illuminate\Database\QueryException;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -419,9 +419,17 @@ final class ExternalSignInTest extends TestCase
     {
         $identity = $this->seedIdentity();
 
-        $change = static fn (): bool => DB::statement('alter table integration_identities rename to unreadable_identities');
+        $armed = new \ArrayObject(['on' => false]);
 
-        app()->instance(AdditionalFactorPolicy::class, new InterruptingFactorPolicy($change));
+        DB::listen(static function (QueryExecuted $query) use ($armed): void {
+            if ($armed['on'] && str_contains($query->sql, 'integration_identities')) {
+                throw new \RuntimeException('The identity read failed.');
+            }
+        });
+
+        app()->instance(AdditionalFactorPolicy::class, new InterruptingFactorPolicy(static function () use ($armed): void {
+            $armed['on'] = true;
+        }));
 
         $this->recordEvents([SessionCreated::class, SignedIn::class, ExternalResultRedeemed::class]);
 
@@ -429,10 +437,10 @@ final class ExternalSignInTest extends TestCase
             $this->sessions()->signInExternally($this->linkedResult($identity), self::requestContext());
 
             self::fail('Expected the check to throw.');
-        } catch (QueryException $exception) {
-            self::assertStringContainsString('integration_identities', $exception->getMessage());
+        } catch (\RuntimeException $exception) {
+            self::assertSame('The identity read failed.', $exception->getMessage());
         } finally {
-            DB::statement('alter table unreadable_identities rename to integration_identities');
+            $armed['on'] = false;
         }
 
         self::assertSame([], $this->recordedClasses());
