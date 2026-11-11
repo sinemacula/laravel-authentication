@@ -25,49 +25,8 @@ use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
- * Reads a session's proofs, always on the write connection, so a lagging
- * replica cannot hide a proof just written, and always bounded, whatever the
- * session's age.
- *
- * Only the session's own proofs are read, bound to its key, guard and owner,
- * and only counting ones: one not voided, and, for a further factor or a
- * recovery code, one its adapter accepted (only accepted ones are stored, so
- * this is a second line). `history()` reads them in one aggregate query,
- * grouped by kind, `amr` values, multifactor report, additional verification
- * and acceptance with each group's newest time, so its rows are bounded by the
- * distinct combinations the session recorded rather than by how many it
- * recorded. `newestMeeting()` reads the newest one a freshness requirement
- * takes, with `LIMIT 1`, on the proofs' session, kind and time index. `query()`
- * reads a bounded page of them for a requirement check, `firstFactor()` the
- * first factor the session signed in with, `acceptedEvidence()` the external
- * evidence its proofs hold accepted, `connectionId()` the connection its
- * provenance records, and `provenance()` the whole provenance.
- *
- * `history()`, `newestMeeting()`, `query()`, `firstFactor()`,
- * `acceptedEvidence()`, `connectionId()` and `provenance()` read current when
- * asked (`$current`): what is committed now rather than what the transaction's
- * snapshot holds. They are asked so only by a caller that holds the session's
- * row locked in the transaction (an issuance once it has written the session's
- * issuance guard, every requirement judgement and every freshness judgement
- * made under the row's lock, a session's external standing answered under it,
- * and a read of an active session's proofs or first factor inside a
- * transaction), and only MySQL and MariaDB need it: their plain reads inside
- * a REPEATABLE READ transaction return the snapshot of its first read, so a
- * current read there takes a shared lock on the rows it reads, held until the
- * transaction ends (outside one, until the statement ends). At
- * REPEATABLE READ that lock also takes the gaps on either side of the session's
- * proofs in their session index, so another transaction's proof that falls
- * there waits for this one to end: a new session's, after the newest session's
- * proofs, and a step-up's or a reauthentication's of the session whose proofs
- * border these, keys being time-ordered; on the provenance, it takes the
- * session's provenance row, or, for a session with none, the gap its key falls
- * in, where only an external sign-in's provenance can fall. Every other engine
- * reads as it does without. PostgreSQL needs no lock for any of them, since at
- * READ COMMITTED each statement reads what is committed once the row's lock or
- * guard has waited for any writer of the session still in flight, and at
- * REPEATABLE READ the lock or guard fails to serialise when one committed after
- * the snapshot (and it refuses a shared lock on a grouped read such as
- * `history()`'s); SQLite lets one writer in at a time.
+ * Reads a session's counting proofs and provenance, always on the write
+ * connection and always bounded.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -85,9 +44,7 @@ final class SessionProofs
     private function __construct() {}
 
     /**
-     * What the session's counting proofs say about its authentication, read
-     * current when asked, as the class describes: an issuance asks once it has
-     * written the session's issuance guard.
+     * What the session's counting proofs say about its authentication.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  bool  $current
@@ -113,19 +70,8 @@ final class SessionProofs
     }
 
     /**
-     * The newest of the session's counting proofs that meets the requirement at
-     * the time given: of a kind it takes, made within its maximum age (from the
-     * proof's own second until, and not including, the second the age after it,
-     * so a proof made after now never meets it), and multifactor or phishing
-     * resistant when it asks for either; `null` when none does. A proof that
-     * carries an external provider's evidence never meets one that asks for
-     * multifactor authentication: the evidence was accepted as of any age, and
-     * the proof is timed when the provider authenticated the identity, not when
-     * that evidence is from, so freshness takes no provider's evidence. With a
-     * factor excluded, a proof made with that factor (its factor reference,
-     * compared byte for byte) never meets it. Read current when asked, as the
-     * class describes: a freshness judgement made under the session's lock
-     * asks.
+     * The newest of the session's counting proofs that meets the freshness
+     * requirement at the time given, or `null` when none does.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  \SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement  $requirement
@@ -164,14 +110,8 @@ final class SessionProofs
     }
 
     /**
-     * The session's counting proofs, newest first by time and then by id, only
-     * those made at or after `$since` when it is given and of the given kinds
-     * when they are, at most `$limit` of them: one `LIMIT` query on the proofs'
-     * session, kind and time index, read current when asked, as the class
-     * describes. `$since` is the same instant in whichever time zone it is
-     * given, mutable or not: an immutable copy of it is compared in the
-     * application's zone, the one proofs are written in, so the time given is
-     * never changed.
+     * A page of the session's counting proofs, newest first, filtered by time
+     * and kind when given.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  ?\Carbon\CarbonInterface  $since
@@ -202,9 +142,8 @@ final class SessionProofs
     }
 
     /**
-     * The first factor the session signed in with: its oldest counting
-     * first-factor proof, or `null` for a session that records none; read
-     * current when asked, as the class describes.
+     * The first factor the session signed in with, or `null` for a session that
+     * records none.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  bool  $current
@@ -228,14 +167,8 @@ final class SessionProofs
     }
 
     /**
-     * The evidence an external provider asserted for the session and the
-     * evidence contract accepted, among its counting proofs that carry any (its
-     * external first factor and its external reauthentications), newest by the
-     * evidence's own time first, and of evidence asserting the same methods and
-     * context only the newest, which an older copy can never better: one
-     * bounded read of at most `EVIDENCE_LIMIT` of those proofs, newest first,
-     * on the proofs' session index, read current when asked, as the class
-     * describes. Evidence a row holds malformed is no evidence.
+     * The accepted external evidence the session's proofs hold, newest first,
+     * keeping only the newest copy of each assertion.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  bool  $current
@@ -277,9 +210,8 @@ final class SessionProofs
     }
 
     /**
-     * The connection the session's provenance records it was established
-     * through, or `null` for a session no external provider established; read
-     * current when asked, as the class describes.
+     * The connection the session was established through, or `null` for a
+     * session no external provider established.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  bool  $current
@@ -300,9 +232,8 @@ final class SessionProofs
     }
 
     /**
-     * The provenance the session records, read on the write connection, or
-     * `null` for a session no external provider established; read current when
-     * asked, as the class describes.
+     * The provenance the session records, or `null` for a session no external
+     * provider established.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  bool  $current
@@ -334,8 +265,8 @@ final class SessionProofs
     }
 
     /**
-     * Whether a read asked to be current takes a shared lock: on MySQL and
-     * MariaDB only, as the class describes.
+     * Whether a current read takes a shared lock: only MySQL and MariaDB need
+     * one, since their reads otherwise return the transaction's snapshot.
      *
      * @param  \Illuminate\Database\Eloquent\Model  $model
      * @param  bool  $current
@@ -347,15 +278,8 @@ final class SessionProofs
     }
 
     /**
-     * The query for the session's counting proofs, on the write PDO: those
-     * bound to the session as it is now, its key, its guard and its owner, as
-     * `ProofWriter` binds them, so another identity's or application's proof
-     * under the same key never counts for it. A sign-in deletes what an earlier
-     * session whose key it reuses left under it before recording its own
-     * (`ProofWriter::clear()`, within the limit it states), so the same
-     * identity's proofs from that earlier session do not count either. The
-     * binding columns compare byte for byte, so a key or owner that differs
-     * only in case or by a trailing space is another.
+     * The query for the session's counting proofs, bound to its key, guard and
+     * owner.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @return \Illuminate\Database\Eloquent\Builder<\SineMacula\Laravel\Authentication\Models\SessionProof>
@@ -377,10 +301,11 @@ final class SessionProofs
     }
 
     /**
-     * The owner's morph type and key the session records, as `ProofWriter`
-     * writes them on its proofs; empty for a session that is not an Eloquent
-     * session, which no proof is bound to. The columns are named by the
-     * relation of a blank instance, so the recorded type is never instantiated.
+     * The owner's morph type and key the session records, empty for a session
+     * that is not an Eloquent session.
+     *
+     * The relation is read off a blank instance so the recorded type is never
+     * instantiated.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @return array{0: string, 1: string}
@@ -440,7 +365,7 @@ final class SessionProofs
 
     /**
      * The proof as callers read it; an external proof reads back with no
-     * evaluation, as `RecordedProof` explains.
+     * evaluation.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\SessionProof  $proof
      * @return \SineMacula\Laravel\Authentication\Proofs\RecordedProof

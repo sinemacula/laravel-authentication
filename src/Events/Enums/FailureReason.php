@@ -5,19 +5,8 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Events\Enums;
 
 /**
- * Machine-readable reason a sign-in, a request's access token or API key, a
- * refresh, a switch, a step-up, a reauthentication, a code request, a client
- * credentials exchange, a password reset or an identifier change failed, or a
- * factor change was refused, carried on the `AuthenticationFailed` event, on a
- * failed `SignInResult` and on a refused `FactorChangeVerdict`.
- *
- * Backed, so SIEM consumers count failure modes without scraping log messages.
- * The concealed reasons (`isConcealed()`) are ones a sign-in's result never
- * carries: a refusal by the account's own limit, an expired or exhausted code
- * and a passkey whose sign counter did not advance are answered as
- * `invalid_credentials`, so the result does not reveal that the account or a
- * code exists, and only the server-side event says why; an expired reset link
- * is answered as an invalid one in the same way.
+ * Machine-readable reason an authentication flow failed or a factor change was
+ * refused.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -102,10 +91,8 @@ enum FailureReason: string
     // is of another type, guard, issuer or audience
     case TOKEN_INVALID = 'token_invalid';
 
-    // A token issued without a session was issued at or before the identity's
-    // or the principal's "tokens valid after" time; or a sign-in, choice or
-    // switch was in flight when a revocation moved that time past the second it
-    // began (`AdmissionRecheck`)
+    // A sessionless token predates the identity's or principal's cutoff, or a
+    // revocation moved the cutoff during a sign-in (`AdmissionRecheck`)
     case ISSUED_BEFORE_CUTOFF = 'issued_before_cutoff';
 
     // The session id is not a key of the session model, or names no session
@@ -200,20 +187,16 @@ enum FailureReason: string
     // A requested scope is malformed or not granted to the credential
     case SCOPE_INVALID = 'scope_invalid';
 
-    // A change of identifier, or an identity's first additional factor, was
-    // asked for without a fresh enough proof on the session it was made from,
-    // or the password given to reauthenticate was wrong or one the guard's
-    // freshness does not take
+    // An operation needed a fresher proof on its session, or the password given
+    // to reauthenticate was wrong or not taken by the guard's freshness
     case REAUTHENTICATION_REQUIRED = 'reauthentication_required';
 
     // The identifier a change would set is held by another identity (found by
     // the guard's provider, or refused by the application's unique index)
     case IDENTIFIER_TAKEN = 'identifier_taken';
 
-    // A password reset link's token, an identifier change link or a
-    // verification link has expired: a reset answers it as invalid, so only the
-    // event says so, and an identifier change or a verification reports it as
-    // expired
+    // A reset, identifier change or verification link has expired; a reset
+    // answers it as invalid, so only its event says so
     case LINK_EXPIRED = 'link_expired';
 
     // A proof handed to a pending session or a step-up is of a kind or purpose
@@ -254,18 +237,12 @@ enum FailureReason: string
     // its connection, issuer and subject
     case EXTERNAL_RESULT_UNLINKED = 'external_result_unlinked';
 
-    // A session was not established through the connection and link an external
-    // result came through (or through any link), the link maps to another
-    // identity than the session's, or the result names another link than the
-    // one the link contract answers
+    // The session, the link's identity or the result's link does not match the
+    // external result's connection and link
     case LINK_MISMATCH = 'link_mismatch';
 
     /**
-     * Whether a sign-in method may answer with this reason. Every other reason
-     * is the session service's to decide, so a method that returns one is
-     * misconfigured. `identifier_unverified` is a method's answer only once the
-     * input proved possession of the identifier, as a correct one-time code
-     * does.
+     * Whether a sign-in method may answer with this reason.
      *
      * @return bool
      */
@@ -285,9 +262,8 @@ enum FailureReason: string
     }
 
     /**
-     * Whether only the server-side event may carry this reason: a sign-in's
-     * result answers it as `invalid_credentials`, with no wait, so it reveals
-     * neither that an account exists nor that a code was requested for it.
+     * Whether a sign-in's result answers this reason as `invalid_credentials`,
+     * so only the server-side event carries it.
      *
      * @return bool
      */

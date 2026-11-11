@@ -20,21 +20,6 @@ use SineMacula\Laravel\Authentication\Testing\ActingContext;
  * Act as an identity, a principal or a session on a package guard in a Laravel
  * test, and assert what a guard has bound.
  *
- * Acting binds the context through the guard's trusted `authenticateAs()` and
- * makes the guard the default, as Laravel's `actingAs()` does, but the context
- * also authenticates every request the test then sends through the HTTP kernel
- * (`$this->actingAsIdentity($user)->getJson('/me')`), which `actingAs()` cannot
- * do for these guards. It ends with `stopActing()`, with a sign-out on the
- * guard (Laravel's `Logout`, as `Auth::logout()` and a sign-out endpoint
- * dispatch), or when the test acts again on the same guard; each guard keeps
- * its own. A queued job a worker runs still starts signed out, as in
- * production. Nothing is checked: the identity, principal and session are bound
- * as given, so a test can act as a revoked session or an inactive principal.
- *
- * The assertions read the guard as application code does, so the first one on a
- * request authenticates it. No method shares a name with Laravel's
- * `actingAs()`, `be()` or `assertAuthenticated*()`.
- *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
@@ -43,15 +28,7 @@ use SineMacula\Laravel\Authentication\Testing\ActingContext;
 trait InteractsWithAuthenticationContext
 {
     /**
-     * Act as the identity on the guard (the default guard when none is named),
-     * as the principal given or the resolver's default one, on the session
-     * given or none. A machine identity is limited to the scopes given, as if
-     * its credential granted them (none, `[]`, when no list is given), so a
-     * test of a scope-gated route needs no real API key.
-     *
-     * Throws an `InvalidArgumentException` when no principal is given and the
-     * identity has no default one, when scopes are given for an identity that
-     * is not a machine, or when the guard is not a package guard.
+     * Act as the identity on the guard, as the given or default principal.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -73,9 +50,7 @@ trait InteractsWithAuthenticationContext
     }
 
     /**
-     * Act as the principal, for the identity that owns it, on the guard (the
-     * default guard when none is named), on the session given or none, limited,
-     * for a machine identity, to the scopes given (see `actingAsIdentity()`).
+     * Act as the principal, for the identity that owns it, on the guard.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
@@ -93,14 +68,8 @@ trait InteractsWithAuthenticationContext
     }
 
     /**
-     * Act on the session: as the identity that owns it and the principal it
-     * records, on the guard it records (or the default guard when it records
-     * none).
-     *
-     * Throws an `InvalidArgumentException` when a guard is named that the
-     * session does not record, when the guard's provider does not find the
-     * session's owner, or when its resolver does not resolve the principal the
-     * session records.
+     * Act on the session as the identity and principal it records, on its
+     * guard.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  ?string  $guard
@@ -124,11 +93,7 @@ trait InteractsWithAuthenticationContext
     }
 
     /**
-     * Act in the tenant, as the active tenant, on the guard (the default guard
-     * when none is named), with the identity, principal and session the test
-     * already acts as there: `Auth::tenant()` returns it on every request until
-     * the acting ends or changes. An `InvalidArgumentException` says the test
-     * does not act on the guard.
+     * Act in the tenant with the context the test already acts as on the guard.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @param  ?string  $guard
@@ -146,9 +111,7 @@ trait InteractsWithAuthenticationContext
     }
 
     /**
-     * Stop acting on the guard (the default guard when none is named): it is
-     * signed out for the rest of the request, and the next request is
-     * authenticated by its own credential, if any.
+     * Stop acting on the guard and sign it out for the rest of the request.
      *
      * @param  ?string  $guard
      * @return static
@@ -168,9 +131,7 @@ trait InteractsWithAuthenticationContext
     }
 
     /**
-     * Assert the identity the guard (the default guard when none is named) has
-     * bound: none when `null` is expected, otherwise one of the same class with
-     * the same auth identifier.
+     * Assert the identity the guard has bound, or none for `null`.
      *
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Identity  $expected
      * @param  ?string  $guard
@@ -191,9 +152,7 @@ trait InteractsWithAuthenticationContext
     }
 
     /**
-     * Assert the principal the guard (the default guard when none is named) has
-     * bound: none when `null` is expected, otherwise one of the same class with
-     * the same principal identifier.
+     * Assert the principal the guard has bound, or none for `null`.
      *
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $expected
      * @param  ?string  $guard
@@ -214,9 +173,7 @@ trait InteractsWithAuthenticationContext
     }
 
     /**
-     * Assert the active tenant the guard (the default guard when none is named)
-     * has bound: none when `null` is expected, otherwise one of the same class
-     * with the same tenant identifier.
+     * Assert the active tenant the guard has bound, or none for `null`.
      *
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $expected
      * @param  ?string  $guard
@@ -239,9 +196,7 @@ trait InteractsWithAuthenticationContext
     }
 
     /**
-     * Assert the session the guard (the default guard when none is named) has
-     * bound: none when `null` is expected, otherwise one of the same class with
-     * the same session identifier.
+     * Assert the session the guard has bound, or none for `null`.
      *
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $expected
      * @param  ?string  $guard
@@ -262,9 +217,7 @@ trait InteractsWithAuthenticationContext
     }
 
     /**
-     * Assert the scopes the guard (the default guard when none is named) has
-     * bound, exactly and in order: `null` for a context no credential limits,
-     * otherwise the list (`[]` for none).
+     * Assert the scopes the guard has bound, exactly and in order.
      *
      * @param  ?list<string>  $expected
      * @param  ?string  $guard

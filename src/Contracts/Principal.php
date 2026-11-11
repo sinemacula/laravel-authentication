@@ -5,14 +5,8 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Contracts;
 
 /**
- * Principal contract.
- *
- * Describes the *acting* entity for an authenticated request, which may differ
- * from the underlying identity (in the 3D model) or be the identity itself (in
- * the 2D model).
- *
- * Activation is not part of this contract: a principal that can be deactivated
- * also implements `CanBeActive`.
+ * The acting entity for an authenticated request: the identity itself, or one
+ * it acts as.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -27,16 +21,8 @@ interface Principal
     public function getPrincipalIdentifier(): mixed;
 
     /**
-     * Return the identity that owns this principal (in 2D mode this is the
-     * principal itself).
-     *
-     * `attempt()` relies on it to prove that a pinned principal belongs to the
-     * identity signing in. It runs inside `WriteConnection::during()` for this
-     * principal; on an Eloquent principal it is called on a copy without loaded
-     * relations (so the owner comes from the stored key, not a relation the
-     * resolver set), which may lazy-load the owner even when lazy loading is
-     * prevented. A `LogicException` from it (no owner relation, or an owner
-     * that cannot be loaded) fails the pin.
+     * Return the identity that owns this principal, itself in two-dimensional
+     * mode.
      *
      * @return \SineMacula\Laravel\Authentication\Contracts\Identity
      *
@@ -45,26 +31,8 @@ interface Principal
     public function getIdentity(): Identity;
 
     /**
-     * Return the tenant the principal acts within, if any. The activity check
-     * runs it inside `WriteConnection::during()` for this principal: model
-     * reads on any connection (a tenant in a landlord database included), and
-     * query-builder reads on this principal's own connection when it is an
-     * Eloquent model, go to the write connection; any other query-builder read
-     * must pin itself (see `Database\WriteConnection`).
-     *
-     * When the principal names a tenant that opts into activation (its model
-     * implements `CanBeActive`) and that tenant cannot be loaded (deleted,
-     * soft-deleted, or hidden by a scope), throw `TenantUnavailableException`,
-     * which the activity check treats as an inactive tenant; `null` would let
-     * the principal authenticate as if it had no tenant, and a stand-in for the
-     * missing row as if the tenant were there. Give the exception the tenant's
-     * class, the name of the attribute the principal's key refers to, and that
-     * key, so the session service's `tenantDeactivated()` can tell the
-     * principal acts within the deleted tenant it is called for; without them
-     * the principal is refused there. Likewise, throw a `LogicException` rather
-     * than read a key (or polymorphic type) the principal was loaded without as
-     * "no tenant". Any other principal may return `null` for a tenant it cannot
-     * load.
+     * Return the tenant the principal acts within, if any; an activatable
+     * tenant that cannot be loaded throws `TenantUnavailableException`.
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Tenant
      *

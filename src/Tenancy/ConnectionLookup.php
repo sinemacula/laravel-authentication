@@ -5,12 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Tenancy;
 
 /**
- * The connection a session was established through, found on the first ask and
- * kept: the resolver runs at most once, however often the answer is read, and
- * not at all when nothing asks. It lives as long as the evaluation that made
- * it: `expire()` drops a resolver not yet run, so a lookup kept past the
- * evaluation cannot read whichever session holds the key by then. An answer
- * already found stays readable.
+ * The connection a session was established through, resolved at most once.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -61,8 +56,7 @@ final class ConnectionLookup
     }
 
     /**
-     * End the evaluation: a connection not yet found is never found, and asking
-     * for it throws; one already found stays readable.
+     * End the evaluation, so a connection not yet found is never found.
      *
      * @return void
      */

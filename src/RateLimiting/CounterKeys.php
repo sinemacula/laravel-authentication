@@ -11,13 +11,6 @@ use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
  * The keys the attempt limiter stores its counters under: HMAC-SHA256 digests,
  * keyed with a key derived from the application key (`app.key`).
  *
- * What a counter counts (an IP address, an identifier, an account's id) is
- * usually easy to enumerate, so a plain digest of it could be reversed by
- * anyone who reads the table, from a backup or a replica, say, by hashing every
- * candidate. A keyed digest cannot be recomputed without the application key,
- * and stays deterministic, so every server counts in the same row. Rotating the
- * application key starts every counter afresh.
- *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *

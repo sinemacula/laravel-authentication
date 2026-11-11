@@ -18,26 +18,7 @@ use SineMacula\Laravel\Authentication\Requirements\RequirementSubject;
 use SineMacula\Laravel\Authentication\Sessions\ActiveSessionProofs;
 
 /**
- * What a contributor to the authentication context is given: the package's own
- * keys, already worked out, and the identity, principal, active tenant and
- * session the guard bound, as the live instances the guard holds, so it reads
- * what it needs from them without loading them again.
- *
- * The session's external provenance (the connection and tenant it was
- * established through, the provider's time and deadline, the policy version,
- * the link, the evidence accepted with the provider's own `amr`, and the
- * provider context the adapter gave, whose keys are its own) is read only when
- * a contributor first asks for it, on the write connection, and once, in one
- * query.
- *
- * The session's counting proofs (`proofs()`) and the first factor it signed in
- * with (`firstFactor()`) are read each time a contributor asks, for the session
- * this subject was given and never the request's, by the rule
- * `Auth::sessions()->proofs()` reads by: only while it is one of the
- * application's live, active sessions of a person and its key still holds that
- * very session, and read current under its row's lock inside a transaction on
- * the session model's connection. Each answer is as of the call: a proof
- * recorded or voided after the package's own keys were worked out shows in it.
+ * What a contributor to the authentication context is given.
  *
  * @api
  *
@@ -80,9 +61,8 @@ final class ContributionSubject
     ) {}
 
     /**
-     * How the session was established through an external provider, read on the
-     * write connection the first time it is asked for; `null` for a session no
-     * external provider established, and without an Eloquent session.
+     * How the session was established through an external provider, read once
+     * when first asked for; `null` when no external provider established it.
      *
      * @return ?\SineMacula\Laravel\Authentication\Proofs\Provenance
      *
@@ -99,17 +79,8 @@ final class ContributionSubject
     }
 
     /**
-     * The session's counting proofs (not voided, and a further factor or
-     * recovery code only when accepted), newest first by time and then by id,
-     * only those made at or after `$since` when it is given (the same instant
-     * in any time zone, and never changed) and of the given kinds when they
-     * are, at most `$limit` of them (1 to `RequirementSubject::MAX_LIMIT`, an
-     * `InvalidArgumentException` otherwise, checked first, whatever the
-     * session): the session's row and then one bounded read, on the write
-     * connection, each call. `[]` without a session, with one that is not an
-     * Eloquent session (no query), and with one that is no longer the
-     * application's live, active session of a person or whose key now holds
-     * another session, without saying which.
+     * The session's counting proofs, newest first, read on the write connection
+     * each call; `[]` without a live, active Eloquent session.
      *
      * @param  ?\Carbon\CarbonInterface  $since
      * @param  ?list<\SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind>  $kinds
@@ -130,9 +101,8 @@ final class ContributionSubject
     }
 
     /**
-     * The first factor the session signed in with, its oldest counting
-     * first-factor proof, read as `proofs()` reads, each call; `null` when
-     * `proofs()` would answer `[]`, and when that proof no longer counts.
+     * The first factor the session signed in with, read as `proofs()` reads;
+     * `null` when `proofs()` would answer `[]`.
      *
      * @return ?\SineMacula\Laravel\Authentication\Proofs\RecordedProof
      *

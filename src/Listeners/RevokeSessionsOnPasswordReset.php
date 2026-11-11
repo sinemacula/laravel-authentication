@@ -10,15 +10,8 @@ use SineMacula\Laravel\Authentication\Listeners\Concerns\RevokesOnceCommitted;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 
 /**
- * Optional listener: ends every session of an identity whose password was reset
- * through Laravel's password broker (`PasswordReset`), with reason
- * `password_reset`, once the reset is committed. Registering it is the opt-in:
- *
- * `Event::listen(PasswordReset::class, RevokeSessionsOnPasswordReset::class);`
- *
- * Revocation covers every guard; the acting guard is the one given to the
- * listener, else the default guard when it is a jwt guard, else the first jwt
- * guard configured. A user that is not an `Identity` is left alone.
+ * Optional listener that ends every session of an identity whose password was
+ * reset through Laravel's password broker.
  *
  * @api
  *

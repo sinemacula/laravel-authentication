@@ -35,18 +35,8 @@ use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Support\ClosureRebinding;
 
 /**
- * Package AuthManager.
- *
- * Subclass of Laravel's `AuthManager` that exposes the contextual accessors
- * (`identity`, `principal`, `session`, `tenant`, `scopes`), the request's
- * authentication context (`context()`), guard-scoped `jwt()` issuance, each JWT
- * guard's `sessions()`, `codes()`, `passwords()`, `passkeys()`,
- * `identifierChanges()`, `refreshTransport()` and `clientCredentials()`, the
- * API keys of an `api_key` or JWT guard (`apiKeys()`), and the caller of a
- * request (`caller()`) directly on the manager. Each contextual accessor
- * forwards to the active guard when it implements `ContextualGuard`, otherwise
- * returns `null`. Bound to the `auth` container key by
- * `AuthenticationServiceProvider`.
+ * Laravel's auth manager with the package's contextual accessors and per-guard
+ * services.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -56,24 +46,11 @@ use SineMacula\Laravel\Authentication\Support\ClosureRebinding;
 class AuthManager extends IlluminateAuthManager
 {
     /**
-     * Take over the state of the framework manager this one replaces in the
-     * `auth` binding, so what the application or another package set on it
-     * before the package booted keeps working: its guard creators
-     * (`Auth::extend()`, `Auth::viaRequest()`), its user provider creators
-     * (`Auth::provider()`), its user resolver (`resolveUsersUsing()`), and the
-     * guards it has already resolved, which stay the same instances.
+     * Take over the creators, user resolver and resolved guards of the manager
+     * this one replaces in the `auth` binding.
      *
-     * An anonymous closure bound to the replaced manager (`viaRequest()` binds
-     * its creator, Laravel 13 binds each anonymous `extend()` closure, and the
-     * default user resolver is the manager's own) is bound to this one instead,
-     * so the guards and user providers it reaches are this manager's; any other
-     * closure is taken as it is.
-     *
-     * The replaced manager's own behaviour is not carried: the methods and
-     * properties a subclass of Laravel's manager adds are lost, and so is
-     * anything its closures rely on them for. The package owns the `auth`
-     * binding: a manager of the application's extends this one, and the
-     * provider then keeps it.
+     * Closures bound to the replaced manager are rebound to this one, as
+     * Laravel binds `viaRequest()` and anonymous `extend()` closures.
      *
      * @param  \Illuminate\Auth\AuthManager  $replaced
      * @return void
@@ -124,13 +101,8 @@ class AuthManager extends IlluminateAuthManager
     }
 
     /**
-     * Return the session service of the named JWT guard, or of the current
-     * default guard when the name is omitted: built on each call, on the
-     * guard's context and token service, with the guard as the binding its
-     * sign-ins and refreshes bind, on the container's database connections and
-     * transactions manager. It holds nothing between calls and reads the
-     * context each time, so one handed out earlier follows the guard's rebinds
-     * as a new one would.
+     * Return the session service of the named JWT guard, or of the default
+     * guard.
      *
      * @param  ?string  $guard
      * @return \SineMacula\Laravel\Authentication\Sessions\SessionService
@@ -155,8 +127,7 @@ class AuthManager extends IlluminateAuthManager
 
     /**
      * Return the one-time code service of the named JWT guard, or of the
-     * current default guard when the name is omitted, to send sign-in codes and
-     * to verify identifiers by code.
+     * default guard.
      *
      * @param  ?string  $guard
      * @return \SineMacula\Laravel\Authentication\Codes\CodeService
@@ -169,9 +140,8 @@ class AuthManager extends IlluminateAuthManager
     }
 
     /**
-     * Return the password service of the named JWT guard, or of the current
-     * default guard when the name is omitted: the password policy, and setting
-     * a password at a registration, a change or a reset.
+     * Return the password service of the named JWT guard, or of the default
+     * guard.
      *
      * @param  ?string  $guard
      * @return \SineMacula\Laravel\Authentication\Passwords\PasswordService
@@ -188,10 +158,7 @@ class AuthManager extends IlluminateAuthManager
 
     /**
      * Return the refresh token transport of the named JWT guard, or of the
-     * current default guard when the name is omitted, to read a refresh token
-     * from a request by the application's own transport, extract one for a
-     * service layer to hand on as plain values, check that a request is
-     * same-site, or clear a cookie application's refresh cookie.
+     * default guard.
      *
      * @param  ?string  $guard
      * @return \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport
@@ -204,10 +171,8 @@ class AuthManager extends IlluminateAuthManager
     }
 
     /**
-     * Return the passkey service of the named JWT guard, or of the current
-     * default guard when the name is omitted: its registration, sign-in and
-     * factor ceremonies, and the listing and removal of an identity's passkeys,
-     * for the guard's relying party.
+     * Return the passkey service of the named JWT guard, or of the default
+     * guard.
      *
      * @param  ?string  $guard
      * @return \SineMacula\Laravel\Authentication\Passkeys\PasskeyService
@@ -221,8 +186,7 @@ class AuthManager extends IlluminateAuthManager
 
     /**
      * Return the identifier change service of the named JWT guard, or of the
-     * current default guard when the name is omitted, to change an identity's
-     * email address or phone number once the new one is proven.
+     * default guard.
      *
      * @param  ?string  $guard
      * @return \SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeService
@@ -235,9 +199,8 @@ class AuthManager extends IlluminateAuthManager
     }
 
     /**
-     * Return the API keys of the named guard, or of the current default guard
-     * when the name is omitted: an `api_key` guard, whose requests present
-     * them, or a `jwt` guard, whose client credentials exchange takes them.
+     * Return the API key service of the named `api_key` or `jwt` guard, or of
+     * the default guard.
      *
      * @param  ?string  $guard
      * @return \SineMacula\Laravel\Authentication\ApiKeys\ApiKeyService
@@ -257,9 +220,7 @@ class AuthManager extends IlluminateAuthManager
 
     /**
      * Return the client credentials exchange of the named JWT guard, or of the
-     * current default guard when the name is omitted, which exchanges an API
-     * key, as an OAuth client's id and secret, for an access token of the
-     * guard.
+     * default guard.
      *
      * @param  ?string  $guard
      * @return \SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsExchange
@@ -272,16 +233,7 @@ class AuthManager extends IlluminateAuthManager
     }
 
     /**
-     * Return the caller of the request being served: who it is, as the
-     * credential its route authenticates with proves it (the guard's access
-     * credential, unless the route declares the refresh credential with
-     * `authentication.refresh` or the pending one with
-     * `authentication.pending`), with the guard, the identity, and the
-     * principal, active tenant and session the credential holds. `null` when
-     * the request carries no such credential or it is refused; a refused
-     * refresh or pending credential is reported once with
-     * `AuthenticationFailed`. Read at most once per request for a guard and a
-     * credential, so asking again proves nothing again.
+     * Return the caller the current request's credential proves, or `null`.
      *
      * @return ?\SineMacula\Laravel\Authentication\Callers\Caller
      *
@@ -301,12 +253,8 @@ class AuthManager extends IlluminateAuthManager
     }
 
     /**
-     * Reset every package guard already resolved to the current request, as a
-     * new HTTP request does, so nothing one unit of work bound (an identity, a
-     * principal, a session) carries into the next: a queued job in a worker,
-     * which keeps the application between jobs. Guards of other drivers are
-     * left alone; no guard is created and no rebinding callback registered, as
-     * `forgetGuards()` would on every job.
+     * Reset every resolved package guard to the current request, so nothing one
+     * queued job bound carries into the next.
      *
      * @return void
      *
@@ -327,8 +275,7 @@ class AuthManager extends IlluminateAuthManager
     }
 
     /**
-     * The named package guard, when it is already resolved; `null` when it is
-     * not, or is not a package guard. Creates no guard and resolves no request.
+     * The named package guard if it is already resolved, without creating it.
      *
      * @param  string  $name
      * @return (\SineMacula\Laravel\Authentication\Contracts\ContextualGuard&\SineMacula\Laravel\Authentication\Contracts\GuardBinding)|null
@@ -343,10 +290,7 @@ class AuthManager extends IlluminateAuthManager
     }
 
     /**
-     * The authentication context of the request being served: what the bound
-     * `AuthenticationContexts` answers (by default, the context the default
-     * guard holds), or `null` for a guest and on a guard that is not
-     * contextual. Built at most once per unchanged authentication state.
+     * The authentication context of the current request, or `null` for a guest.
      *
      * @return ?\SineMacula\Laravel\Authentication\Context\AuthenticationContext
      *
@@ -404,9 +348,7 @@ class AuthManager extends IlluminateAuthManager
     }
 
     /**
-     * The active tenant, the one the request acts in, when the active guard is
-     * contextual: `null` when it acts in none, and `TenantUnavailableException`
-     * when a trusted bind's tenant cannot be loaded.
+     * The active tenant, when the active guard is contextual.
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Tenant
      *
@@ -421,10 +363,7 @@ class AuthManager extends IlluminateAuthManager
     }
 
     /**
-     * The scopes the active request's credential grants, when the active guard
-     * is contextual: `null` for a human identity's session, which no credential
-     * limits (and when the guard is not contextual), otherwise the granted
-     * list.
+     * The scopes the request's credential grants; `null` for a human session.
      *
      * @return ?list<string>
      *
@@ -438,8 +377,7 @@ class AuthManager extends IlluminateAuthManager
     }
 
     /**
-     * Resolve the named guard, or the default one, as a JWT guard, or fail
-     * saying it has no such service.
+     * Resolve the named or default guard as a JWT guard.
      *
      * @param  ?string  $guard
      * @param  string  $service

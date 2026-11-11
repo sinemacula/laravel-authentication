@@ -15,21 +15,8 @@ use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
 
 /**
- * The package's application policy: each application is a guard, and its
- * `application` configuration applies over the package defaults in
- * `authentication.application`, with the guard's lifetimes.
- *
- * A key present in the guard's `application` block wins, `null` included;
- * otherwise the package value applies. Nothing falls back to a literal: a key
- * missing at both levels, a malformed value, or a key the policy does not know
- * fails closed with an `InvalidArgumentException` naming the guard and the key.
- * An empty `methods` list is valid and allows nothing, so every sign-in,
- * refresh and machine credential of the application is refused as
- * `method_not_allowed`; it is the package default, so each application lists
- * what it allows. The application settings are read on every call, so a change
- * to them applies at once; the lifetimes come from the guard's token service,
- * which the token service factory builds once and keeps. Which principals may
- * use the application is `ApplicationAccess`'s answer, not the policy's.
+ * The default application policy: each guard is an application whose
+ * `application` block applies over `authentication.application`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -86,12 +73,8 @@ final readonly class GuardApplicationPolicy implements ApplicationPolicy
     }
 
     /**
-     * For a guard that sets `require_verified_identifier` and a sign-in that
-     * used an identifier of a type, refuse the identity as
-     * `identifier_unverified` unless it reports that identifier verified (read
-     * on the write connection); otherwise admit it (`null`). The identity must
-     * implement `HasVerifiableIdentifiers` then; one that does not is a
-     * misconfiguration (`LogicException`).
+     * Refuse an unverified identifier when the guard sets
+     * `require_verified_identifier`, otherwise admit it (`null`).
      *
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -128,8 +111,7 @@ final readonly class GuardApplicationPolicy implements ApplicationPolicy
     }
 
     /**
-     * Validate every application setting of the guard, failing closed as any
-     * check would, without deciding anything; `authentication:check` runs it.
+     * Validate every application setting of the guard.
      *
      * @param  string  $guard
      * @return void
@@ -142,8 +124,7 @@ final readonly class GuardApplicationPolicy implements ApplicationPolicy
     }
 
     /**
-     * The names the guard's `methods` lists, validated as every check validates
-     * them; `authentication:check` reads them.
+     * The validated names the guard's `methods` lists.
      *
      * @param  string  $guard
      * @return list<non-empty-string>
@@ -156,8 +137,7 @@ final readonly class GuardApplicationPolicy implements ApplicationPolicy
     }
 
     /**
-     * Resolve and validate every application setting of the guard, so a
-     * malformed one fails closed whichever check runs first.
+     * Resolve and validate every application setting of the guard.
      *
      * @param  string  $guard
      * @return array{methods: list<non-empty-string>, require_verified_identifier: bool, client_secret_post: bool}
@@ -238,10 +218,8 @@ final readonly class GuardApplicationPolicy implements ApplicationPolicy
     }
 
     /**
-     * Whether the value is a list, possibly empty, of names a sign-in method
-     * can be registered under, so a name no method can have (a casing slip such
-     * as `Password`) fails closed as misconfiguration rather than refusing
-     * every sign-in as `method_not_allowed`.
+     * Whether the value is a list, possibly empty, of valid sign-in method
+     * names.
      *
      * @param  mixed  $value
      * @return bool

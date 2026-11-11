@@ -7,18 +7,7 @@ namespace SineMacula\Laravel\Authentication\Freshness;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 
 /**
- * How fresh a session's authentication must be for an operation: the proof
- * kinds that count, how recently one of them must have been made, and whether
- * it must also have reported multifactor authentication or observed resistance
- * to phishing.
- *
- * It is what the stored proofs can show, and no more: an additional
- * verification or a minimum assurance level is not part of it, so a caller that
- * needs those rebinds the freshness policy. The stricter of two requirements
- * (`stricter()`) keeps the shorter age, the kinds both take, and either's
- * flags; two that take no kind in common can never be met together. A caller
- * that only means "within so many seconds" passes `within()`, which takes every
- * kind, so it shortens the configured age without narrowing its kinds.
+ * How fresh a session's authentication must be for an operation.
  *
  * @api
  *
@@ -65,8 +54,7 @@ final readonly class FreshnessRequirement
     }
 
     /**
-     * A requirement of a maximum age alone: every proof kind counts, and
-     * neither flag is asked for.
+     * A requirement of a maximum age alone, taking every proof kind.
      *
      * @param  int  $maxAgeSeconds
      * @return self
@@ -79,10 +67,8 @@ final readonly class FreshnessRequirement
     }
 
     /**
-     * The stricter of this requirement and the other: the shorter maximum age,
-     * the proof kinds both take (in this one's order), and each flag either
-     * asks for; `null` when they take no kind in common, as nothing could meet
-     * both.
+     * The stricter of this requirement and the other, or `null` when they take
+     * no kind in common.
      *
      * @param  self  $other
      * @return ?self

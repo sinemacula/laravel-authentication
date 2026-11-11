@@ -13,18 +13,8 @@ use SineMacula\Laravel\Authentication\ApiKeys\ApiKeySettings;
 use SineMacula\Laravel\Authentication\Database\StorageConnection;
 
 /**
- * An API key: its public part, the digest of its secret, the one guard it
- * authenticates for, the non-human identity that owns it, the one principal it
- * acts as and that principal's tenant, its scopes, and when it was last used,
- * rotated, revoked or expires.
- *
- * Kept on the storage connection (see `Database\StorageConnection`), in the
- * table named by `authentication.api_keys.table`. Keys revoked or expired more
- * than `authentication.api_keys.prune_after_days` ago are pruned by Laravel's
- * `model:prune --model` with this class.
- *
- * Only the class name is public, for applications to schedule that pruning
- * with; its columns and behaviour belong to the API key service and guard.
+ * An API key a non-human identity authenticates with, pruned by `model:prune`
+ * once revoked or expired past the retention.
  *
  * @api
  *
@@ -68,9 +58,7 @@ final class ApiKey extends Model
     protected $hidden = ['secret_hash'];
 
     /**
-     * Create a key on the storage connection, in the configured table. Both are
-     * applied here, before Eloquent reads them, so this is construction rather
-     * than model behaviour.
+     * Create a key on the storage connection, in the configured table.
      *
      * @param  array<string, mixed>  $attributes
      *
@@ -87,8 +75,7 @@ final class ApiKey extends Model
     }
 
     /**
-     * The keys revoked, or expired, more than the retention ago: a rotated key
-     * expires when its overlap ends, so it is pruned that long after.
+     * The keys revoked, or expired, more than the retention ago.
      *
      * @return \Illuminate\Database\Eloquent\Builder<self>
      *

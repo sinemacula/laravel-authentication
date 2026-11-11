@@ -8,18 +8,7 @@ use Carbon\CarbonInterface;
 
 /**
  * Default `HasTokensValidAfter` implementation for an Eloquent identity or
- * principal, over a nullable whole-second `dateTime` column the application
- * adds (`tokens_valid_after` unless `getTokensValidAfterName()` is overridden).
- *
- * The column must be loaded: a model selected without it throws rather than
- * reading as having no cutoff, so a partial select surfaces as a
- * misconfiguration instead of admitting tokens that were cut off. Moving the
- * cutoff is one conditional `UPDATE` on the model's own connection that only
- * ever moves it forward, so two racing calls cannot move it back, and it is
- * mirrored on the in-memory model only when it changed the row. Eloquent events
- * do not fire for it. Besides session-less tokens, the cutoff ends a sign-in, a
- * choice of principal or a switch still in flight when it moves (see
- * `HasTokensValidAfter`).
+ * principal, over a nullable `tokens_valid_after` column.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -60,8 +49,8 @@ trait ProvidesTokensValidAfter
     }
 
     /**
-     * Move the cutoff forward to `$time`, never back, with one conditional
-     * update on the model's own connection. Returns whether it moved.
+     * Move the cutoff forward to `$time`, never back, and answer whether it
+     * moved.
      *
      * @param  \Carbon\CarbonInterface  $time
      * @return bool

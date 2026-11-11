@@ -10,24 +10,7 @@ use SineMacula\Laravel\Authentication\Http\ClientText;
 
 /**
  * The checks other packages add to `authentication:check`, in the order they
- * were registered. Register one in a service provider's `boot()`:
- *
- * ```php
- * $this->app->make(ConfigurationChecks::class)->register(FactorConfigurationCheck::class);
- * ```
- *
- * Each is a container abstract that resolves to a `ConfigurationCheck`,
- * resolved each time the command runs. Registering one twice registers it once.
- *
- * `findings()` runs every registered check and answers what they found, in the
- * order the checks were registered, then by guard (the package-wide findings
- * first, then the guards in the order they are checked, then any other guard),
- * then in the order the check gave them. A check that cannot be resolved, that
- * throws, or that answers anything but findings does not stop the others: it is
- * reported as an error finding naming its class, and, for a throw, the class of
- * the exception, never its message, which may carry a value. Messages and guard
- * names are cleaned of control characters, as a client's text is, so a finding
- * cannot carry a terminal escape sequence.
+ * were registered.
  *
  * @api
  *

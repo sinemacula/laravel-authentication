@@ -5,14 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Contracts;
 
 /**
- * Eloquent session origin contract.
- *
- * The column-name accessors of an Eloquent session for what it started with:
- * the guard, the sign-in method and the type of identifier it used, the name
- * and platform the client gave, and the IP address and user agent it came from.
- * Part of `EloquentSession`, so a custom session model implements it by
- * implementing that contract; the session service writes these columns when it
- * creates a session.
+ * The column-name accessors of an Eloquent session for what it started with.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

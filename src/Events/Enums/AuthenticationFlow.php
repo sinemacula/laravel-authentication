@@ -22,15 +22,13 @@ enum AuthenticationFlow: string
     // A refresh-token exchange: the session service's refresh()
     case REFRESH = 'refresh';
 
-    // A switch of the principal a session acts as, its active tenant, or both:
-    // the session service's switchTo()
+    // A switch of a session's principal, active tenant or both: switchTo()
     case SWITCH = 'switch';
 
     // A sign-out by refresh credential: the session service's signOutWith()
     case SIGN_OUT = 'sign_out';
 
-    // A request for a one-time code: a sign-in code or an identifier
-    // verification code
+    // A request for a sign-in or identifier verification code
     case CODE_REQUEST = 'code_request';
 
     // A check of an identifier verification code or link
@@ -48,25 +46,22 @@ enum AuthenticationFlow: string
     // A request for, or a confirmation of, a change of identifier
     case IDENTIFIER_CHANGE = 'identifier_change';
 
-    // A step-up of an active session with a further factor: the session
-    // service's stepUp()
+    // A step-up of an active session with a further factor: stepUp()
     case STEP_UP = 'step_up';
 
-    // A reauthentication of an active session with the first factor, or at the
-    // external provider it began with: the session service's reauthenticate()
-    // and reauthenticateExternally()
+    // A reauthentication of an active session: reauthenticate() and
+    // reauthenticateExternally()
     case REAUTHENTICATION = 'reauthentication';
 
-    // A request for, or a check of, a further factor's code or an enrolment's:
-    // the code service's sendFactorCode() and verifyFactorCode()
+    // A further factor's or an enrolment's code: sendFactorCode() and
+    // verifyFactorCode()
     case FACTOR_CODE = 'factor_code';
 
     // A change or an establishment of the password from a signed-in session:
     // the password service's change() and establish()
     case PASSWORD_CHANGE = 'password_change';
 
-    // A recheck of the current session after one of the factor package's
-    // factors was removed or changed: the session service's factorRemoved() and
-    // factorChanged()
+    // A recheck of the session after a factor was removed or changed:
+    // factorRemoved() and factorChanged()
     case FACTOR_CHANGE = 'factor_change';
 }

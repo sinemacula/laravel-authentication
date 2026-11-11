@@ -8,16 +8,8 @@ use Carbon\CarbonImmutable;
 use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
 
 /**
- * Dispatched when a change of an identity's identifier of a type (its email
- * address, its phone number) is requested and waits for its proof, once the
- * request is committed on the identity's connection: at once when that
- * connection has no open transaction, after its transaction commits otherwise,
- * and never for a request that is rolled back.
- *
- * The context carries the guard the change was requested through, the identity
- * and the client that asked. The new identifier is a snapshot in its normal
- * form, so a queued audit listener needs no query back; it is not a secret. It
- * carries no code, link or token.
+ * Dispatched once a requested change of an identity's identifier, waiting for
+ * its proof, is committed.
  *
  * @api
  *

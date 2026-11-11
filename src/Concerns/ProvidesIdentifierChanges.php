@@ -9,9 +9,7 @@ use SineMacula\Laravel\Authentication\Identifiers\IdentifierType;
 
 /**
  * Provides a default `HasChangeableIdentifiers` implementation on an Eloquent
- * identity, on the columns `ProvidesIdentifierVerification` reads: use it in
- * place of that trait on a model that declares `HasChangeableIdentifiers`, to
- * change its identifiers through `Auth::identifierChanges()`.
+ * identity, on the columns `ProvidesIdentifierVerification` reads.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -23,14 +21,8 @@ trait ProvidesIdentifierChanges
     use ProvidesIdentifierVerification;
 
     /**
-     * Replace the identifier with one already proven and record it as verified
-     * now, in one transaction on the identity's connection: the row is read
-     * again under a lock (`FOR UPDATE` where the database has one), and written
-     * only when its identifier is `$current` byte for byte (not merely equal
-     * under the column's collation; `null` stands for none, a `null` or empty
-     * column). `updated_at` is set too when the model keeps timestamps. The
-     * model is updated to match only when the row changed. The write fires no
-     * model events, and a violation of a unique index on the column propagates.
+     * Replace the identifier with one already proven and record it as verified,
+     * when the locked row still holds `$current` byte for byte.
      *
      * @param  string  $type
      * @param  ?string  $current
@@ -74,9 +66,8 @@ trait ProvidesIdentifierChanges
     }
 
     /**
-     * Whether the stored value of an identifier column is the identifier given,
-     * byte for byte; `null` stands for none, which a `null` or empty column
-     * holds.
+     * Whether the stored identifier is the one given, byte for byte, `null`
+     * matching a `null` or empty column.
      *
      * @param  mixed  $stored
      * @param  ?string  $identifier

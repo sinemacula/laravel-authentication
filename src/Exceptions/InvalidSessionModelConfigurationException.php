@@ -8,9 +8,8 @@ use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 
 /**
- * Thrown when the configured session model does not satisfy the explicit
- * Eloquent-backed persistence boundary required by refresh and last-use flows,
- * or does not live on the storage connection.
+ * Thrown when the configured session model is not an Eloquent session or is off
+ * the storage connection.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -33,8 +32,7 @@ final class InvalidSessionModelConfigurationException extends \RuntimeException
     }
 
     /**
-     * Build an exception for a session model that does not live on the storage
-     * connection, naming both connections.
+     * Build an exception for a session model off the storage connection.
      *
      * @param  string  $configured
      * @param  string  $session

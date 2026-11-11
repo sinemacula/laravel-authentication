@@ -11,18 +11,8 @@ use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
 
 /**
- * What a requirement check judges: the identity, the application, the session
- * when there is one, the first factor it signed in with (always at hand, so a
- * check can see the first factor's channel however long the history is), the
- * time it is judged at, and a bounded query over its counting proofs (not
- * voided, and a further factor or recovery code only when accepted), never the
- * whole history in memory.
- *
- * The package builds every subject: at sign-in its proofs are the ones the
- * sign-in is about to record, held in memory; otherwise each query is one
- * indexed read on the write connection, and, when the package judges the
- * session under its row's lock, a current read of what is committed rather than
- * of the snapshot the transaction took first.
+ * What a requirement check judges: the identity, session and first factor, the
+ * time, and a bounded query over its counting proofs.
  *
  * @api
  *
@@ -76,10 +66,8 @@ final readonly class RequirementSubject
     ) {}
 
     /**
-     * The counting proofs, newest first by time and then by id, only those made
-     * at or after `$since` when it is given (the same instant in any time zone,
-     * and never changed: the reader is given an immutable copy) and of the
-     * given kinds when they are, at most `$limit` of them (1 to `MAX_LIMIT`).
+     * The counting proofs, newest first, made at or after `$since` and of the
+     * given kinds when given, at most `$limit` of them.
      *
      * @param  ?\Carbon\CarbonInterface  $since
      * @param  ?list<\SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind>  $kinds

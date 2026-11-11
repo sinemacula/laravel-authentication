@@ -11,22 +11,7 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\SubjectType;
 
 /**
  * What the request is authenticated as, as plain values a policy condition can
- * be judged on: built once per unchanged authentication state from what the
- * guard validated (the credential, the session and its proofs, the request the
- * trusted proxies resolved), never from input, and held by the guard, so it
- * lives as long as the request does, under Octane too.
- *
- * The package's own keys are under the reserved `authentication` namespace, one
- * per property (see `toArray()`); `mfa` is an accepted further factor, or an
- * external provider's evidence accepted for an additional verification or
- * multifactor authentication, never counted from `amr`. A contributor the
- * application or a sibling package registers adds keys under a namespace of its
- * own (`mfa` and `sso` are kept for those siblings), so no key can collide with
- * another's: `get('sso.connection_id')`.
- *
- * Holds no model and no secret, so it can be logged, compared or queued as it
- * is. Its constructor is public, so a test builds one; it refuses contributed
- * keys a contributor could not have given.
+ * be judged on.
  *
  * @api
  *
@@ -145,9 +130,8 @@ final readonly class AuthenticationContext implements Arrayable
     }
 
     /**
-     * The value of the key, `namespace.key` (`authentication.mfa`,
-     * `sso.connection_id`), or the default when the context does not hold it; a
-     * key held with a `null` value gives `null`.
+     * The value of the key, `namespace.key`, or the default when the context
+     * does not hold it.
      *
      * @param  string  $key
      * @param  mixed  $default
@@ -163,9 +147,8 @@ final readonly class AuthenticationContext implements Arrayable
     }
 
     /**
-     * Every key as plain values, by namespace: the package's under
-     * `authentication`, with the enums as their values and `auth_time` as Unix
-     * seconds, then each contributor's.
+     * Every key as plain values, by namespace, with `auth_time` as Unix
+     * seconds.
      *
      * @return array<string, array<string, mixed>>
      */
@@ -216,8 +199,8 @@ final readonly class AuthenticationContext implements Arrayable
     }
 
     /**
-     * The contributed keys, once every namespace is one a contributor may have
-     * and every key and value one it may give.
+     * The contributed keys, once every namespace, key and value is one a
+     * contributor may give.
      *
      * @param  array<array-key, mixed>  $contributed
      * @return array<string, array<string, mixed>>

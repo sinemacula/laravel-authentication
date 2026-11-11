@@ -8,17 +8,8 @@ use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
 
 /**
- * Default Eloquent-backed accessors for a session's standing, using
- * conventional attribute names: whether it is active or pending, what a pending
- * one waits on and the digest of its credential, the session its sign-in proved
- * and the attempt-limit slots it holds until it first activates, its active
- * tenant, and the tenant policy version it was checked against. Override the
- * `*Name()` methods to remap columns.
- *
- * Each is session state: a session loaded without the column throws a
- * `LogicException` rather than reading the missing value as `null`, and a
- * status or list of requirements the package cannot read throws one too, so a
- * row is never taken for an active session it may not be.
+ * Default Eloquent-backed accessors for a session's standing: its status, its
+ * pending state and its active tenant.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -52,7 +43,7 @@ trait RecordsSessionStanding
 
     /**
      * Return what a pending session waits on, in order; empty when it waits on
-     * nothing. The column is read as cast (a list) or as stored (its JSON).
+     * nothing.
      *
      * @return list<\SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement>
      *

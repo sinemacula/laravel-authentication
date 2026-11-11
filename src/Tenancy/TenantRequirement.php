@@ -7,14 +7,8 @@ namespace SineMacula\Laravel\Authentication\Tenancy;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 
 /**
- * A tenant authentication policy's answer: the further factor a session acting
- * in the tenant must have, the connections it must have been established
- * through, and the version of the answer.
- *
- * The version must change whenever anything the answer depends on changes (the
- * requirement, the connections and the exemptions alike): a session recorded at
- * the answered version is not judged again when the policy changes. A `null`
- * version is allowed but never taken as already checked.
+ * A tenant authentication policy's answer: the further factor, the connections
+ * and the version.
  *
  * @api
  *

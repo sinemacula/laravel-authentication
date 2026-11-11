@@ -9,12 +9,7 @@ use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
 use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 
 /**
- * What a sign-in proved, held in memory before its session is written: its
- * first factor (under the id it will be recorded with), its proofs, the
- * connection it was established through, if an external provider established
- * it, and the evidence that provider asserted, once accepted. The
- * identity-level requirement and a tenant policy are judged against it at
- * sign-in, so a sign-in with nothing outstanding reads nothing more.
+ * What a sign-in proved, held in memory before its session is written.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

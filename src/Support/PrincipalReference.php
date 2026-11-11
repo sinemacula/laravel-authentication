@@ -9,9 +9,7 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 
 /**
- * How a principal is recorded on the rows that remember it (a session, active
- * or pending): a polymorphic type, which is an Eloquent principal's morph class
- * and any other principal's class name, and its identifier as a string.
+ * How a principal is recorded on session rows: a morph type and a string id.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -37,8 +35,8 @@ final class PrincipalReference
     }
 
     /**
-     * The identifier recorded for the principal, or `null` when it has none
-     * that can be written (an unsaved model's).
+     * The identifier recorded for the principal, or `null` for an unsaved
+     * model.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return ?string
@@ -49,9 +47,7 @@ final class PrincipalReference
     }
 
     /**
-     * Whether the session records the principal as the one it acts as: the same
-     * type and identifier, read from the columns of the session's `principal()`
-     * relation without a query.
+     * Whether the session records the principal, read without a query.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -66,10 +62,10 @@ final class PrincipalReference
     }
 
     /**
-     * The session's principal morph type and identifier columns, read from its
-     * `principal()` relation on a blank instance: building the relation on a
-     * session that records a principal would instantiate the recorded type,
-     * which for a principal that is not an Eloquent model is not a model.
+     * The session's principal morph type and identifier columns.
+     *
+     * Read on a blank instance, since a recorded non-model type cannot build
+     * the relation.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @return array{0: string, 1: string}

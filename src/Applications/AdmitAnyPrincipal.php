@@ -8,9 +8,7 @@ use SineMacula\Laravel\Authentication\Contracts\ApplicationAccess;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 
 /**
- * The package's default application access: any principal may use any
- * application. Bind another `ApplicationAccess` to keep some principals out of
- * an application.
+ * The default application access: any principal may use any application.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

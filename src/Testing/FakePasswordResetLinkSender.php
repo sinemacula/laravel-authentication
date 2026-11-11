@@ -10,15 +10,8 @@ use SineMacula\Laravel\Authentication\Contracts\PasswordResetLinkSender;
 use SineMacula\Laravel\Authentication\Passwords\PasswordResetLink;
 
 /**
- * A password reset link sender for tests: keeps every link it is given instead
- * of delivering it, so a test can read the token a request sent and reset the
- * password with it.
- *
- * `FakePasswordResetLinkSender::fake()` binds a fresh instance as the
- * application's sender and returns it. Delivery runs in the queued job, so the
- * link arrives when the job runs: on a `sync` connection, once the response is
- * sent (`$this->app->terminate()` in a test), or when the test runs the queued
- * job. Assert on what it holds with the test framework's own assertions.
+ * A password reset link sender for tests that keeps every link instead of
+ * delivering it.
  *
  * @api
  *
@@ -31,8 +24,7 @@ final class FakePasswordResetLinkSender implements PasswordResetLinkSender
     private array $links = [];
 
     /**
-     * Bind a fresh fake as the sender in the container (the application's, when
-     * none is given) and return it.
+     * Bind a fresh fake as the sender in the container and return it.
      *
      * @param  ?\Illuminate\Contracts\Container\Container  $container
      * @return self
@@ -70,8 +62,7 @@ final class FakePasswordResetLinkSender implements PasswordResetLinkSender
     }
 
     /**
-     * The token last sent to the identifier, as delivered (in its normal form),
-     * revealed for the test to submit; `null` when none was.
+     * The token last sent to the identifier, or `null` when none was.
      *
      * @param  string  $identifier
      * @return ?string

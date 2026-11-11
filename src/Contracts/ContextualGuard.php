@@ -9,13 +9,8 @@ use SineMacula\Laravel\Authentication\Context\AuthenticationContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 
 /**
- * Contextual guard contract.
- *
- * Extends Laravel's `Guard` with the package's contextual surface (identity,
- * principal, session, tenant, scopes, the authentication context,
- * principal/session setters, contextual `attempt` and `login`). Like `user()`,
- * the accessors and setters resolve the current request on first access, at
- * most once per request.
+ * Extends Laravel's `Guard` with the package's identity, principal, session,
+ * tenant, scopes and authentication context.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -23,12 +18,8 @@ use SineMacula\Laravel\Authentication\Http\ClientContext;
 interface ContextualGuard extends Guard
 {
     /**
-     * Contextual attempt with optional principal and session pinning.
-     *
-     * Signature diverges from Laravel's `StatefulGuard::attempt()`: the second
-     * and third parameters are contextual pins, not a remember-me flag. This
-     * package is stateless-only. Pins are verified against the authenticated
-     * identity before they are bound.
+     * Attempt with optional principal and session pins, verified against the
+     * authenticated identity before they are bound.
      *
      * @param  array<string, mixed>  $credentials
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -40,18 +31,8 @@ interface ContextualGuard extends Guard
     public function attempt(#[\SensitiveParameter] array $credentials, ?Principal $principal = null, ?Session $session = null): bool;
 
     /**
-     * Bind a fully resolved identity, principal, and optional session.
-     *
-     * The trusted entry point: the arguments are bound as given, so the caller
-     * must already have proven that the principal and session belong to the
-     * identity.
-     *
-     * The client is the one the bind's own events describe (`PrincipalAssigned`
-     * and `SessionAuthenticated`, and so the session's last use), for a flow
-     * acting for a client it was given as plain values (a console command or a
-     * queued job); without one, the guard's request's. It describes this bind
-     * only: the guard keeps no client, and its later events describe its
-     * request.
+     * Bind a resolved identity, principal and optional session, unchecked; the
+     * caller must have proven they belong together.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -91,14 +72,7 @@ interface ContextualGuard extends Guard
     public function session(): ?Session;
 
     /**
-     * Return the active tenant, the tenant the request acts in, if any,
-     * resolving the request on first access: a session's is the one it records,
-     * and a token without a session acts in the principal's own. A trusted bind
-     * (`login()`, `setUser()`, `setPrincipal()`) binds the tenant the bound
-     * session records, or the principal's own without a session, unchecked.
-     * `null` only ever means the request acts in no tenant: a trusted bind's
-     * tenant that cannot be loaded or no longer resolves throws
-     * `TenantUnavailableException`.
+     * Return the tenant the request acts in, or `null` when it acts in none.
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Tenant
      *
@@ -108,10 +82,8 @@ interface ContextualGuard extends Guard
     public function tenant(): ?Tenant;
 
     /**
-     * Return the scopes the request's credential grants, resolving the request
-     * on first access: `null` for a human identity's session, which no
-     * credential limits, otherwise the granted list (`[]` for none). The scopes
-     * are opaque strings and a ceiling, never a permission.
+     * Return the scopes the request's credential grants, or `null` for a
+     * person's session, which no credential limits.
      *
      * @return ?list<string>
      *
@@ -120,10 +92,8 @@ interface ContextualGuard extends Guard
     public function scopes(): ?array;
 
     /**
-     * Return the authentication context of what the guard bound, resolving the
-     * request on first access: built from the validated credential, the session
-     * and its proofs, never from input, on the first ask after the bound state
-     * last changed, and held while it is unchanged. `null` for a guest.
+     * Return the authentication context of what the guard bound, or `null` for
+     * a guest.
      *
      * @return ?\SineMacula\Laravel\Authentication\Context\AuthenticationContext
      *
@@ -136,15 +106,8 @@ interface ContextualGuard extends Guard
     public function authenticationContext(): ?AuthenticationContext;
 
     /**
-     * Bind the active principal for the current request, resolving the request
-     * first so it replaces the principal the request's credential binds rather
-     * than being replaced by it.
-     *
-     * A trusted bind, like `login()`: the principal is bound as given, with no
-     * check that it belongs to the identity, is active, or acts within an
-     * active tenant. A principal taken from request input must be proven to
-     * belong to the identity first, as `attempt()` does for the principal
-     * pinned on it.
+     * Bind the active principal for the current request, unchecked. One taken
+     * from request input must be proven to belong to the identity first.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return static
@@ -154,15 +117,8 @@ interface ContextualGuard extends Guard
     public function setPrincipal(Principal $principal): static;
 
     /**
-     * Bind the active session for the current request, resolving the request
-     * first so it replaces the session the request's credential binds rather
-     * than being replaced by it.
-     *
-     * A trusted bind, like `login()`: the session is bound as given, with no
-     * check that it belongs to the identity, is not revoked, or has not ended.
-     * A session taken from request input must be proven to be one of the
-     * identity's live sessions first, as `attempt()` does for the session
-     * pinned on it.
+     * Bind the active session for the current request, unchecked. One taken
+     * from request input must be proven to be the identity's first.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @return static

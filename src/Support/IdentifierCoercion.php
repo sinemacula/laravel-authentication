@@ -5,11 +5,9 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Support;
 
 /**
- * Coerce identifier values returned by package contracts into JWT claim
- * strings, and compare identifiers in that form.
+ * Coerces contract identifiers into JWT claim strings and compares them.
  *
- * RFC 7519 §4.1.2 requires `sub` (and the package's `principal`, `sid`,
- * `tenant_id` and `jti`) to be a `StringOrURI`, but the contract getters return
+ * RFC 7519 requires `sub` to be a `StringOrURI`; the contract getters return
  * `mixed`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -23,8 +21,7 @@ final class IdentifierCoercion
     private function __construct() {}
 
     /**
-     * Coerce an identifier to a string for embedding in a JWT claim. Returns
-     * `null` for `null` and for non-scalar, non-Stringable input.
+     * Coerce an identifier to a claim string, or `null` when it cannot be.
      *
      * @param  mixed  $identifier
      * @return ?string
@@ -42,10 +39,8 @@ final class IdentifierCoercion
     }
 
     /**
-     * Whether a known identifier equals a supplied one (a claim or a
-     * caller-supplied hint) once both are coerced to strings, compared in
-     * constant time. Fails closed: returns `false` when either one does not
-     * coerce, such as the `null` identifier of an unsaved model.
+     * Whether two identifiers match as strings, in constant time; `false` when
+     * either does not coerce.
      *
      * @param  mixed  $identifier
      * @param  mixed  $supplied

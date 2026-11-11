@@ -7,17 +7,7 @@ namespace SineMacula\Laravel\Authentication\Proofs;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 
 /**
- * What a sign-in method verified: the identity, the channel it proved itself
- * over, what was observed about the authenticator, and the authentication
- * method reference values (`amr`) the proof stands for.
- *
- * The session service records it as the session's first-factor proof, timed
- * when the method returned it, and derives the access token's `amr` from its
- * values; the method decides acceptance, so this carries no evaluation. The
- * values are at most 8, each 1 to 48 printable ASCII characters other than a
- * quote (`"`) or a backslash (`\`), and never `mfa`, which only an adapter's
- * evaluation of a further factor can add; anything else is refused here with an
- * `InvalidArgumentException`.
+ * What a sign-in method verified, recorded as the session's first-factor proof.
  *
  * @api
  *
@@ -26,7 +16,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
  */
 final readonly class FirstFactor
 {
-    /** @var string The `amr` value of a sign-in through an external identity provider: a private, namespaced value (RFC 8176 names none for it). */
+    /** @var string The private `amr` value for a sign-in through an external identity provider; RFC 8176 names none. */
     public const string EXTERNAL_PROVIDER_METHOD = 'urn:sinemacula:amr:external_provider';
 
     /** @var list<string> The authentication method reference values the proof stands for. */

@@ -9,22 +9,8 @@ use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 
 /**
- * Dispatched when an active session that fell short of a requirement during a
- * request (a refresh, a switch to a tenant whose policy asks for a further
- * factor the session lacks, the removal of the factor that met it, or another
- * change of the identity's factors that leaves it short) returns to pending
- * instead of being re-issued its pair: from then on its access and refresh
- * tokens are refused, and it holds only the pending credential the call handed
- * out until it activates again, which dispatches `SessionActivated`.
- *
- * Dispatched once the return is committed on the session's own connection: at
- * once when that connection has no open transaction, after its transaction
- * commits otherwise, and never for one that is rolled back.
- *
- * The context carries the destination the session waits to activate in: its
- * principal and active tenant. The previous principal and tenant are named when
- * the destination changed them (a switch), and are `null` otherwise. Never
- * carries the pending credential, a token or any other secret.
+ * Dispatched once an active session that fell short of a requirement returns to
+ * pending.
  *
  * @api
  *

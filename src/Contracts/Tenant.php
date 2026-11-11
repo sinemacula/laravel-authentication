@@ -5,14 +5,8 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Contracts;
 
 /**
- * Tenant contract.
- *
- * Describes an isolation boundary a principal acts within in the 3D model - a
- * company, workspace, project, or any other domain-specific container the
- * consumer models.
- *
- * A tenant that can be deactivated also implements `CanBeActive`; the guards
- * then reject every principal acting within it while it is inactive.
+ * An isolation boundary a principal acts within, such as a company or
+ * workspace.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -20,7 +14,7 @@ namespace SineMacula\Laravel\Authentication\Contracts;
 interface Tenant
 {
     /**
-     * Return the tenant's stable identifier (typically the model key).
+     * Return the tenant's stable identifier.
      *
      * @return mixed
      */

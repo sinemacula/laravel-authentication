@@ -15,21 +15,8 @@ use SineMacula\Laravel\Authentication\Codes\CodeSettings;
 use SineMacula\Laravel\Authentication\Database\StorageConnection;
 
 /**
- * The live one-time code challenge of one delivery key (a purpose, a guard, a
- * destination and, where the purpose has one, its owner): the challenge's id
- * and transaction, the keyed hash of its code, the issuance the code belongs
- * to, the checks made against it, the deliveries made to the key in its current
- * window, and when the window began and the code was issued, expires and was
- * used. The row is stored under a keyed digest of its key, so neither the code
- * nor the destination can be read back from the table.
- *
- * Kept on the storage connection (see `Database\StorageConnection`), in the
- * table named by `authentication.codes.table`. The code engine writes the rows
- * with single statements of its own; the model exists so `model:prune --model`
- * with this class can delete expired codes.
- *
- * Only the class name is public, for applications to schedule that pruning
- * with; its columns and behaviour belong to the code engine.
+ * The live one-time code challenge of one delivery key, stored under a keyed
+ * digest of the key and pruned by `model:prune` once expired.
  *
  * @api
  *
@@ -70,9 +57,7 @@ final class OneTimeCode extends Model
     protected $hidden = ['id', 'challenge_id', 'context', 'issue_id', 'code_hash'];
 
     /**
-     * Create a code on the storage connection, in the configured table. Both
-     * are applied here, before Eloquent reads them, so this is construction
-     * rather than model behaviour.
+     * Create a code on the storage connection, in the configured table.
      *
      * @param  array<string, mixed>  $attributes
      *
@@ -89,10 +74,7 @@ final class OneTimeCode extends Model
     }
 
     /**
-     * The codes that have expired and whose delivery window has ended: none can
-     * be used any more, the resend cooldown, never longer than a code's
-     * lifetime, has ended with each, and deleting one starts no delivery window
-     * afresh before its time.
+     * The codes that have expired and whose delivery window has ended.
      *
      * @return \Illuminate\Database\Eloquent\Builder<self>
      *

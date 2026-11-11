@@ -5,10 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Proofs\Enums;
 
 /**
- * What a proof recorded on a session proved, each kind kept apart from the
- * others: the first factor at sign-in, a reauthentication with the first
- * factor, an additional factor, a recovery code, and a reauthentication at the
- * external provider the session was established through.
+ * What a proof recorded on a session proved.
  *
  * The first four values are the further-factor package's own, so an adapter
  * maps one onto the other by value.
@@ -32,13 +29,11 @@ enum ProofKind: string
     // A recovery code an adapter accepted in place of a further factor
     case RECOVERY_CODE = 'recovery_code';
 
-    // A reauthentication at the external provider the session began with,
-    // through the link that established it
+    // A reauthentication at the external provider the session began with
     case EXTERNAL_REAUTHENTICATION = 'external_reauthentication';
 
     /**
-     * Whether the kind is a further factor or its recovery-code fallback: the
-     * only kinds an adapter's verification records.
+     * Whether the kind is a further factor or its recovery-code fallback.
      *
      * @return bool
      */
@@ -48,11 +43,7 @@ enum ProofKind: string
     }
 
     /**
-     * Whether the kind proves the first factor again on an active session, with
-     * this package's method or at the external provider: it renews the
-     * authentication time and nothing else, unless it carries an accepted
-     * evaluation, which only a reauthentication at the external provider whose
-     * evidence the evidence contract accepted can.
+     * Whether the kind proves the first factor again on an active session.
      *
      * @return bool
      */

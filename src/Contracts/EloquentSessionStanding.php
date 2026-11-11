@@ -5,14 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Contracts;
 
 /**
- * Eloquent session standing contract.
- *
- * The column-name accessors of an Eloquent session for where it stands: active
- * or pending, what a pending session waits on and the digest of its credential,
- * the session its first activation supersedes and the attempt slots it keeps
- * until then, and its active tenant with the tenant policy version it was last
- * checked against. Part of `EloquentSession`, so a custom session model
- * implements it by implementing that contract.
+ * The column-name accessors of an Eloquent session for where it stands.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

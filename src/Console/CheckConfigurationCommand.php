@@ -38,49 +38,8 @@ use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Formatter\OutputFormatter;
 
 /**
- * `authentication:check`: resolves every setting of each `jwt` and `api_key`
- * guard the way the guard would, and the package-wide settings, and exits
- * non-zero on a problem, for deploy pipelines and readiness probes.
- *
- * Every check runs, so one run lists every problem, each as `[<guard>]
- * <message>`. For a `jwt` guard: the token service (keys, active kid,
- * algorithm, key lengths, lifetimes, leeway, and the issuer and audience, which
- * are required, so a guard with either unset reports it), the identity
- * provider, a principal resolver override, its application (the package
- * application policy's settings, or that a policy of the application's own
- * answers), every flow's rate limits, the password identifier, the refresh
- * token transport, its own freshness block, and the passkey relying party when
- * the guard's application allows passkeys or the guard configures one. For an
- * `api_key` guard: the identity provider, a principal resolver override, its
- * application (that it allows `api_key`, and with the package's policy that its
- * settings are valid), and every flow's rate limits. The package-wide settings
- * are reported as `[storage]` (the storage connection and the rate limits
- * connection, each a connection name configured in `database.connections`, or
- * none), `[session]` (while a `jwt` guard is configured: the session model,
- * which must live on the storage connection, the pruning retention, and the
- * pending credential's lifetime and body field), `[passwords]` (the password
- * policy settings), `[codes]` (the one-time code settings and key, a sender
- * bound when a guard allows a code sign-in method, the package's or an
- * application's own `CodeSignIn`, and an exception a guard's application policy
- * throws when asked whether it allows one, for a guard `--guard` leaves out; a
- * checked guard reports it as its own problem), `[delivery]` (the delivery
- * queue, with a warning, not a problem, when a `jwt` guard is configured and
- * deliveries run on a `sync` queue connection, or a `failover` one that can
- * fall back to `sync`), `[passkeys]` (the passkey challenge lifetime),
- * `[api_keys]` (the key prefix, the rotation overlaps, the last-use throttle
- * and the pruning retention), `[identifier_changes]` (the pending change
- * lifetime) and `[freshness]` (the package's freshness requirements). It also
- * warns about a `jwt` guard whose package application settings allow no sign-in
- * method or machine credential (see `ApplicationChecks::warnings()`), and one
- * whose password resets and identifier changes would refuse to run (see
- * `PasswordChecks::warnings()`). The command reads configuration only: its own
- * checks open no database connection, though a policy of the application's own
- * may open one when asked, and it prints no secret.
- *
- * Checks other packages registered with `ConfigurationChecks` run after the
- * command's own, for the same guards: an error finding is a problem and fails
- * the command, a warning is shown with the built-in warnings, each as
- * `[<guard>] <message>`, or the message alone when it names no guard.
+ * `authentication:check`: resolves each guard's settings and the package-wide
+ * settings as the package would, and exits non-zero on a problem.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -152,13 +111,8 @@ final class CheckConfigurationCommand extends Command
     }
 
     /**
-     * The package-wide checks, by what they check: the connections the
-     * package's tables live on, the session model and how long pruning keeps a
-     * session and the lifetime and body field of a pending session's credential
-     * (only while a `jwt` guard, which keeps sessions, is configured), the API
-     * key settings, the identifier change settings, the revocation settings and
-     * the freshness requirements, each of which otherwise fails only when it is
-     * first used.
+     * The package-wide checks, by what they check, each of which otherwise
+     * fails only when it is first used.
      *
      * @param  \Illuminate\Config\Repository  $config
      * @param  list<string>  $checked
@@ -233,9 +187,7 @@ final class CheckConfigurationCommand extends Command
     }
 
     /**
-     * The checks of the identifier change settings, each of which otherwise
-     * fails only when a change is first requested or confirmed: the pending
-     * change's lifetime.
+     * The checks of the identifier change settings.
      *
      * @param  \Illuminate\Config\Repository  $config
      * @return list<\Closure(): mixed>
@@ -250,10 +202,7 @@ final class CheckConfigurationCommand extends Command
     }
 
     /**
-     * The checks of the one-time code settings, each of which otherwise fails
-     * only when a code is first issued: the numbers, the key, a sender bound
-     * when a guard allows a code sign-in method, and the exception a policy
-     * throws when asked whether a guard `--guard` leaves out does.
+     * The checks of the one-time code settings, their key and their sender.
      *
      * @param  \Illuminate\Config\Repository  $config
      * @param  list<string>  $checked
@@ -286,12 +235,8 @@ final class CheckConfigurationCommand extends Command
     }
 
     /**
-     * Warn, without failing, when a `jwt` guard is configured and the package's
-     * deliveries (one-time codes, password reset links and codes, identifier
-     * change codes and notices) run on a `sync` queue connection, or on a
-     * `failover` one that can fall back to `sync`: delivery then runs in the
-     * web process after a response, where a worker is the production setting.
-     * Malformed queue settings are left to the `[delivery]` check.
+     * Warn when a `jwt` guard is configured and deliveries run on a `sync`
+     * queue connection, or a `failover` one that can fall back to it.
      *
      * @param  \Illuminate\Config\Repository  $config
      * @return void
@@ -323,10 +268,7 @@ final class CheckConfigurationCommand extends Command
 
     /**
      * The `jwt` guards whose application allows a code sign-in method, and a
-     * problem for each guard outside the checked ones whose application policy
-     * throws when asked. A guard that is checked has its policy asked again by
-     * its own application check, which reports what it throws, so it is left
-     * out of both here.
+     * problem for each unchecked guard whose policy throws when asked.
      *
      * @param  \Illuminate\Config\Repository  $config
      * @param  list<string>  $checked
@@ -375,10 +317,7 @@ final class CheckConfigurationCommand extends Command
 
     /**
      * The names of the registered sign-in methods that sign in with one-time
-     * codes: the package's `phone_code` and `email_code`, and any the
-     * application registered as a `CodeSignIn` of its own. A method that cannot
-     * be built, whatever its factory throws (an exception, or an error such as
-     * a `TypeError`), is left to the sign-ins that use it.
+     * codes; one that cannot be built is left out.
      *
      * @return array<int, string>
      */
@@ -451,8 +390,8 @@ final class CheckConfigurationCommand extends Command
     }
 
     /**
-     * Run every check of the guard, reporting it as checked when none finds a
-     * problem: what each check found, `null` for none.
+     * Run every check of the guard, reporting OK when none finds a problem, and
+     * answer what each found, `null` for none.
      *
      * @param  string  $guard
      * @param  \Illuminate\Config\Repository  $config
@@ -517,10 +456,8 @@ final class CheckConfigurationCommand extends Command
     }
 
     /**
-     * The passkey check of a `jwt` guard: its relying party, resolved as its
-     * passkeys would resolve it, when it sets a `passkeys` block or the bound
-     * application policy allows it the `passkey` method. An exception the
-     * policy throws when asked is reported by the application check alone.
+     * The passkey check of a `jwt` guard: its relying party, when it sets a
+     * `passkeys` block or its policy allows `passkey`.
      *
      * @param  \Illuminate\Foundation\Application  $app
      * @param  string  $guard
@@ -648,8 +585,7 @@ final class CheckConfigurationCommand extends Command
 
     /**
      * The messages of the findings of the severity, each prefixed with its
-     * guard when it names one, and escaped so that markup in a check's text is
-     * printed as it is and never read as a style tag.
+     * guard and escaped so markup prints as text.
      *
      * @param  list<\SineMacula\Laravel\Authentication\Console\ConfigurationFinding>  $findings
      * @param  \SineMacula\Laravel\Authentication\Console\Enums\FindingSeverity  $severity

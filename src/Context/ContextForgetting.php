@@ -11,15 +11,8 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
 
 /**
- * Has every package guard already resolved forget the authentication context it
- * holds for a session whose proofs changed, once the change commits on the
- * session's connection, so the rest of the request builds it from the proofs as
- * they now are. A rolled-back change forgets it too: a context built inside the
- * transaction, after the change, read proofs that never committed, and must not
- * outlive them. A change that takes proofs away is forgotten at once as well,
- * so nothing later in its transaction is answered with proofs that no longer
- * count there. No guard is created and no request resolved: only the guards
- * resolved under the configured names are asked.
+ * Has every resolved package guard forget the authentication context it holds
+ * for a session whose proofs changed.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

@@ -10,20 +10,7 @@ use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 
 /**
  * The freshness each operation requires, from `authentication.freshness` and a
- * guard's own `freshness` block on its `config/auth.php` entry, read on every
- * call.
- *
- * Each block maps operation names to an entry: `max_age_seconds` (an integer,
- * or the digit string `env()` returns for one, from 1 to 86400), `proofs` (a
- * list of proof kinds by value) and, optionally, `multifactor` and
- * `phishing_resistant` (booleans, `false` by default). A guard's block replaces
- * the package's entry for every operation it names, and `null` there removes
- * the operation, so it is never fresh without a caller's own requirement.
- * Operation names are the blocks' keys, read whole, never through a dotted
- * path, so `mfa.add_factor` is one name. A block that is not a map, a name that
- * is not an operation's, and a malformed entry fail closed with an
- * `InvalidArgumentException` naming the block and the operation;
- * `authentication:check` reports them.
+ * guard's own `freshness` block.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -64,9 +51,8 @@ final readonly class FreshnessSettings
     }
 
     /**
-     * The freshness the operation requires on the guard: the guard's own entry
-     * when its block names the operation (`null` when that removes it), else
-     * the package's, else `null`; `null` for a name that is not an operation's.
+     * The freshness the operation requires on the guard, from its own block
+     * before the package's.
      *
      * @param  string  $guard
      * @param  string  $operation
@@ -93,8 +79,7 @@ final readonly class FreshnessSettings
 
     /**
      * Read the package's block, or the guard's when one is named, failing
-     * closed on the first malformed name or entry; `authentication:check` runs
-     * it.
+     * closed on the first malformed entry.
      *
      * @param  ?string  $guard
      * @return void
@@ -220,9 +205,7 @@ final readonly class FreshnessSettings
     }
 
     /**
-     * Whether the entry requires the flag: `false` when it does not set it. An
-     * explicit `null` (an unset environment value, say) is refused rather than
-     * read as `false`, so a requirement is never dropped silently.
+     * Whether the entry requires the flag: `false` when it does not set it.
      *
      * @param  array<array-key, mixed>  $entry
      * @param  string  $flag

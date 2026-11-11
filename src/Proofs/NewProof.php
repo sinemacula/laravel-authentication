@@ -10,9 +10,8 @@ use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 
 /**
- * A proof about to be recorded on a session: everything its row holds but the
- * binding, which the session it is written for gives (its owner, its guard and
- * its key).
+ * A proof about to be recorded on a session, without the binding the session
+ * supplies.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

@@ -7,17 +7,7 @@ namespace SineMacula\Laravel\Authentication\Events;
 use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
 
 /**
- * Dispatched when an identity's identifier of a type (its email address, its
- * phone number) is verified.
- *
- * Fired only by the call that recorded the verification, not for one already
- * verified, and only once the record is committed on the identity's own
- * connection: at once when that connection has no open transaction, after its
- * transaction commits otherwise, and never for a record that is rolled back.
- *
- * The context carries the guard the verification was made for, the identity,
- * and the client the verification was given, which proved the identifier. It
- * carries no identifier, code, link or token.
+ * Dispatched once the verification of an identity's identifier is committed.
  *
  * @api
  *

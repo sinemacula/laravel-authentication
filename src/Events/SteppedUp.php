@@ -7,16 +7,7 @@ namespace SineMacula\Laravel\Authentication\Events;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 
 /**
- * Dispatched when a session is stepped up, once its new proof is committed on
- * the session's own connection: at once when that connection has no open
- * transaction, after its transaction commits otherwise, and never for a step-up
- * that is rolled back.
- *
- * The context carries the guard, the client, the identity, principal and tenant
- * the step-up admitted, the session (which keeps its key, its refresh token and
- * its deadlines) and the method the adapter verified the proof with, such as
- * `totp`; the kind says whether the proof was a further factor or a recovery
- * code.
+ * Dispatched once a session's step-up proof is committed.
  *
  * @api
  *

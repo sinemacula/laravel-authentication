@@ -12,21 +12,7 @@ use SineMacula\Laravel\Authentication\Identifiers\IdentifierType;
 
 /**
  * Designates an identity attribute as an identifier of a type, so it is stored
- * in its normal form and looked up in it.
- *
- * Declare it on the identity model with the identifier type as its argument:
- *
- *     protected function casts(): array
- *     {
- *         return ['email' => NormalizedIdentifier::using('email')];
- *     }
- *
- * Setting the attribute stores the value as the type's normaliser returns it
- * (`Ben@Example.com ` becomes `ben@example.com`), and the `model` provider
- * normalises a credential for the attribute the same way before it queries, so
- * lookups match on every database whatever its collation. Reading returns the
- * stored value unchanged: rows written before the cast was added keep their
- * form until they are normalised (see docs/guides/identity-models.md).
+ * and looked up in its normal form.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -65,8 +51,8 @@ final readonly class NormalizedIdentifier implements CastsAttributes
     }
 
     /**
-     * The cast a model's cast declaration makes, when it designates an
-     * identifier, otherwise `null`.
+     * The cast a model's cast declaration makes, or `null` when it designates
+     * no identifier.
      *
      * @param  mixed  $declaration
      * @return ?self
@@ -127,8 +113,8 @@ final readonly class NormalizedIdentifier implements CastsAttributes
     }
 
     /**
-     * Normalise a value with the type's normaliser: `null` when it cannot be an
-     * identifier of the type.
+     * Normalise a value with the type's normaliser, or `null` when it cannot be
+     * an identifier of the type.
      *
      * @param  string  $identifier
      * @return ?string

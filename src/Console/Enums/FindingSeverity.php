@@ -5,9 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Console\Enums;
 
 /**
- * How serious a configuration check's finding is: an error fails
- * `authentication:check`, as a failing built-in validation does, and a warning
- * is shown without changing the exit code.
+ * How serious a configuration check's finding is.
  *
  * @api
  *

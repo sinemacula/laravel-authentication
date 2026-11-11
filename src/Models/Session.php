@@ -14,30 +14,8 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Database\StorageConnection;
 
 /**
- * Default shipped Session Eloquent model.
- *
- * Polymorphic session record bound to an authenticatable identity via the
- * `authenticatable()` morphTo relation, and optionally to the principal it acts
- * as via `principal()`. UUID v7 primary key. Swappable via
- * `config('authentication.session.model')` / `session.table` as the package's
- * default Eloquent adapter. Non-`final` so consumers may subclass; subclasses
- * that remain refreshable MUST continue satisfying the `EloquentSession`
- * persistence boundary.
- *
- * Kept on the storage connection (see `Database\StorageConnection`), with the
- * package's other tables, unless a subclass names a connection of its own,
- * which must then be the storage connection too.
- *
- * Only the client-described metadata is mass assignable. Ownership, the
- * request-derived columns, and the session state (generation, status and
- * requirements, digests, rotation time, start, context changes, active tenant
- * and policy version, deadlines, revocation, last use) are not: the package
- * writes the columns it owns with query-builder updates, and code that creates
- * a session sets the rest with `forceFill()`.
- *
- * `model:prune --model` with this class deletes sessions that ended (revoked,
- * or past either deadline) more than `authentication.session.prune_after_days`
- * ago.
+ * The package's default Eloquent session, swappable through
+ * `authentication.session.model`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -95,11 +73,8 @@ class Session extends Model implements EloquentSession
     ];
 
     /**
-     * Create a new Session bound to the package-configured table name and,
-     * unless the class names a connection of its own, the storage connection.
-     * Reads both lazily on each instantiation so runtime config swaps (tests,
-     * tenancy) take effect immediately. Both have to be applied here, before
-     * Eloquent reads them, so this is construction rather than model behaviour.
+     * Create a session bound to the configured table and, unless the class
+     * names a connection of its own, the storage connection.
      *
      * @param  array<string, mixed>  $attributes
      *
@@ -202,9 +177,8 @@ class Session extends Model implements EloquentSession
     }
 
     /**
-     * Read the configured session table, falling back to
-     * `'authentication_sessions'` when the key is absent or the Config facade
-     * is not yet bootstrapped.
+     * Read the configured session table, or the default before the Config
+     * facade is bootstrapped.
      *
      * @return string
      */
@@ -220,9 +194,8 @@ class Session extends Model implements EloquentSession
     }
 
     /**
-     * Read the storage connection, or `null` (the default connection) while the
-     * Config facade is not yet bootstrapped. A malformed setting is not
-     * swallowed: it fails closed.
+     * Read the storage connection, or `null` (the default connection) before
+     * the Config facade is bootstrapped.
      *
      * @return ?string
      *

@@ -14,18 +14,8 @@ use Illuminate\Container\Container;
 use SineMacula\Laravel\Authentication\Sessions\Methods\Rehashing;
 
 /**
- * Follows every guard's credential attempts through Laravel's auth events, so
- * the automatic rehash a guard runs between validating an attempt's credentials
- * and ending the attempt is marked as one (see `Rehashing`): a password-change
- * listener then does not take Laravel's own rehash on login for a change of
- * password. `OtherDeviceLogout` sets apart the forced rehash of
- * `logoutOtherDevices()`, which is a change.
- *
- * The provider registers it for every application: nothing tells it in time
- * that the password-change observer is in use, since `observe()` and
- * `#[ObservedBy]` pass through no package code, and the attribute registers the
- * observer only when the model first boots, inside the guard's lookup, after
- * `Attempting`. With no observer it checks no hash and runs no query.
+ * Follows every guard's credential attempts through Laravel's auth events, so a
+ * password-change listener can tell Laravel's own rehash from a change.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

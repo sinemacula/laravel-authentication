@@ -18,37 +18,7 @@ use SineMacula\Laravel\Authentication\Support\MorphClass;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
- * Who and what a package event is about, as plain values: the guard, the client
- * the request came from, the identity, principal, tenant and session, each by
- * morph class and identifier, the sign-in method, the credential (an API key or
- * a passkey) with the scopes it grants, and, for what an external provider's
- * result was redeemed into, the connection and the authorisation request's
- * public reference. Every package event carries one, so a single listener on
- * `AuthenticationEvent` can attribute them all the same way.
- *
- * It is an allowlist of values fixed when the context is built, never a model:
- * the identity, principal, tenant and session it is built from are read once,
- * and none of them is kept, so the event crosses a queue as it is, its restore
- * runs no query and cannot fail on a row that is gone, and a listener that
- * needs a model loads it itself, on the write connection, from the type and
- * identifier. The morph class is an Eloquent model's morph class, else the
- * class name, which also stands for a model an enforced morph map leaves out.
- * `toArray()` gives the record an audit sink keeps.
- *
- * A part the event's flow did not establish is `null`: a failure carries only
- * as much as it got to before it failed, the session before one exists has no
- * identifier, and a session id a token named is kept even when no session row
- * was loaded. An event about the session row itself (a revocation, or a refresh
- * or switch refused on the row's own state before its owner was read) is built
- * with `fromSession`: an identity, principal or tenant it is not given then
- * takes the owner, the principal and the active tenant's identifier the row
- * records (a tenant has no morph class there: the row records only its opaque
- * identifier). Every other event names only what it is given, so an identity's
- * sign-out everywhere, a pending choice of principal or a refused switch to
- * another principal names no principal, even when it names a session. `scopes`
- * is `null` for a human identity's session, which no credential limits, and the
- * list the credential grants otherwise (`[]` grants none). Never carries a
- * token, a key, a digest, a password or any other secret.
+ * Who and what a package event is about, as plain values.
  *
  * @api
  *
@@ -160,9 +130,7 @@ final readonly class EventContext implements Arrayable
     }
 
     /**
-     * Return the context as scalars, the record an audit sink keeps: the time
-     * as an ISO 8601 UTC string to the microsecond, and the client as its IP
-     * address and user agent.
+     * Return the context as scalars, the record an audit sink keeps.
      *
      * @return array<string, mixed>
      */
@@ -190,11 +158,8 @@ final readonly class EventContext implements Arrayable
     }
 
     /**
-     * What an Eloquent session row records, read from its attributes without a
-     * query: its owner's morph class (`ownerType`) or identifier (`owner`), its
-     * principal's morph class (`type`) or identifier (`id`), or its active
-     * tenant's identifier (`tenant`); `null` when the row records none or there
-     * is no such row.
+     * Read what an Eloquent session row records for the given part, without a
+     * query.
      *
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  'id'|'owner'|'ownerType'|'tenant'|'type'  $part

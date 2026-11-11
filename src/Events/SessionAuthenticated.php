@@ -6,8 +6,7 @@ namespace SineMacula\Laravel\Authentication\Events;
 
 /**
  * Dispatched when a session is bound to a guard during authentication, after
- * `PrincipalAssigned`. The context's session is never `null`; the package's own
- * listener records the session's last use from it.
+ * `PrincipalAssigned`.
  *
  * @api
  *

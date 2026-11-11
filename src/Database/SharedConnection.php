@@ -8,18 +8,8 @@ use Illuminate\Config\Repository;
 use Illuminate\Database\Eloquent\Model;
 
 /**
- * The connection rule of the helpers that spend a proof together with a change
- * to an identity (a password reset, an identifier change): the proof (a code or
- * token, and an identifier change's pending row, on the storage connection, see
- * `StorageConnection`) and the identity, with a reset's "tokens valid after"
- * cutoff and sessions, must be written in one transaction, so the identity must
- * live on the storage connection. Two connections cannot commit as one, and a
- * failure between their commits would leave a proof spent without its change,
- * or a change made with its proof still live. Both helpers refuse such an
- * identity before anything is counted or written.
- *
- * Connections are compared by name, the model's own or the default one, so the
- * check opens none.
+ * Refuses an identity off the storage connection, since a proof and the change
+ * it makes to the identity must commit in one transaction.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -54,10 +44,8 @@ final class SharedConnection
     }
 
     /**
-     * Refuse a guard whose provider's configured model (see `providerModel()`)
-     * does not live on the storage connection, before any identity is looked
-     * up; a provider whose configuration names no model is left to `assert()`
-     * on the identity it finds.
+     * Refuse a guard whose provider's configured model does not live on the
+     * storage connection, before any identity is looked up.
      *
      * @param  string  $guard
      * @param  string  $flow
@@ -103,9 +91,8 @@ final class SharedConnection
     }
 
     /**
-     * A new instance of the Eloquent model the guard's provider returns, when
-     * its configuration names one (`auth.providers.<name>.model`), so the rule
-     * can be checked before any identity is looked up.
+     * A new instance of the Eloquent model the guard's provider configures, or
+     * `null` when it names none.
      *
      * @param  string  $guard
      * @param  \Illuminate\Config\Repository  $config

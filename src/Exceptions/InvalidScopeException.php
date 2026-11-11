@@ -5,10 +5,8 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Exceptions;
 
 /**
- * Thrown when a credential is issued or rotated with scopes that are malformed
- * (not RFC 6749 scope tokens) or that the scope registry rejects. Issuing a
- * credential is a trusted, programmatic action, so a bad scope is the caller's
- * error rather than a failed authentication.
+ * Thrown when a credential is issued or rotated with malformed or rejected
+ * scopes.
  *
  * @api
  *

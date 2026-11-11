@@ -8,10 +8,8 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 
 /**
- * What an adapter's proof was made for: the identity, the application (the
- * guard), the session (its key, which a pending session keeps when it
- * activates) and the purpose. A proof whose binding does not match the
- * operation it is handed to is refused.
+ * The identity, application, session and purpose an adapter's proof was made
+ * for.
  *
  * @api
  *

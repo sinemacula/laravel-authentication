@@ -96,16 +96,15 @@ use SineMacula\Laravel\Authentication\Tenancy\RequireNothingOfTenants;
 use SineMacula\Laravel\Authentication\Tenancy\ResolveNoTenant;
 
 /**
- * Package service provider: registers the package's configuration, auth
- * manager, guard (`jwt`, `api_key`) and provider drivers, sign-in collaborators
- * and policies, middleware, listener, publishing tags and console command.
+ * Registers the package's bindings, auth manager, guard and provider drivers,
+ * middleware, listeners and publishing tags.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
 final class AuthenticationServiceProvider extends ServiceProvider
 {
-    /** @var list<string> File names of the shipped migrations, published under the `authentication-migrations` tag. */
+    /** @var list<string> The shipped migrations, published under `authentication-migrations`. */
     private const array MIGRATIONS = [
         '2026_04_06_000000_create_authentication_sessions_table.php',
         '2026_04_06_000002_create_rate_limits_table.php',
@@ -119,13 +118,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
     ];
 
     /**
-     * Register container bindings.
-     *
-     * Every binding is a default: one that the application or another package
-     * made before this provider registers is kept, so a sibling's policy is
-     * never replaced by the package's (an additional-factor policy by
-     * `NeverRequireAdditionalFactor`, a scope registry by `AcceptAnyScope`),
-     * and one made after replaces the default, as any later binding does.
+     * Register the package's default container bindings.
      *
      * @return void
      */
@@ -192,9 +185,8 @@ final class AuthenticationServiceProvider extends ServiceProvider
     }
 
     /**
-     * Construct a `JwtGuard` from the supplied container, guard name, and
-     * Laravel guard config block. A session model that is misconfigured, or not
-     * on the storage connection, fails here rather than on the first request.
+     * Construct a `JwtGuard`, failing here rather than on the first request
+     * when the session model is misconfigured.
      *
      * @param  \Illuminate\Foundation\Application  $app
      * @param  string  $name
@@ -239,10 +231,8 @@ final class AuthenticationServiceProvider extends ServiceProvider
     }
 
     /**
-     * Construct an `ApiKeyGuard` from the supplied container, guard name, and
-     * Laravel guard config block. A malformed storage connection, where the
-     * guard's keys live, fails here rather than on the first request; the
-     * session model is not read, since keys have no sessions.
+     * Construct an `ApiKeyGuard`, failing here rather than on the first request
+     * when the storage connection is malformed.
      *
      * @param  \Illuminate\Foundation\Application  $app
      * @param  string  $name
@@ -278,14 +268,8 @@ final class AuthenticationServiceProvider extends ServiceProvider
     }
 
     /**
-     * Resolve the effective principal resolver for the guard; the guard driver
-     * and `authentication:check` both use it, which is the only reason it is
-     * public: it is not part of the package's API.
-     *
-     * Guards without a `principal_resolver` override track the global
-     * `PrincipalResolver::class` binding and should therefore receive future
-     * container refreshes. Guard-local overrides resolve once at construction
-     * time and are fixed thereafter.
+     * Resolve the guard's principal resolver and whether it tracks the global
+     * binding.
      *
      * @param  \Illuminate\Foundation\Application  $app
      * @param  string  $name
@@ -332,18 +316,8 @@ final class AuthenticationServiceProvider extends ServiceProvider
     }
 
     /**
-     * Make the `auth` binding the package's `AuthManager`: the package owns it,
-     * and its guards, its accessors and the facade rely on it.
-     *
-     * A manager that is already the package's, or a subclass of it (how an
-     * application customises the manager, bound in a `register()`), is kept.
-     * Any other is replaced by the package's, which takes over its guard and
-     * provider creators, its user resolver and its resolved guards
-     * (`AuthManager::inheritStateFrom()`); a subclass's own behaviour is lost.
-     * Applied when `auth` resolves, or at once when it already has; a binding
-     * of `auth` made after the package boots is not supported. The facades'
-     * cached manager is forgotten, so a facade used before the swap reaches the
-     * package's.
+     * Make the `auth` binding the package's `AuthManager`, keeping one that
+     * already is or extends it.
      *
      * @return void
      */
@@ -365,8 +339,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
     }
 
     /**
-     * Register the `model` user provider driver against Laravel's `Auth`
-     * factory.
+     * Register the `model` user provider driver.
      *
      * @return void
      */
@@ -380,8 +353,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
     }
 
     /**
-     * Register the `jwt` and `api_key` guard driver creators against Laravel's
-     * `Auth` factory.
+     * Register the `jwt` and `api_key` guard drivers.
      *
      * @return void
      */
@@ -399,9 +371,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
     }
 
     /**
-     * Register the `SessionAuthenticated` listener, the reset of the package
-     * guards before each queued job, and the tracking of credential attempts
-     * that marks an automatic rehash.
+     * Register the package's event listeners.
      *
      * @return void
      */
@@ -414,7 +384,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
 
     /**
      * Register the package guards' `401` guest response with the exception
-     * handler, after any render callbacks the application registered itself.
+     * handler, after the application's own render callbacks.
      *
      * @return void
      */
@@ -469,15 +439,8 @@ final class AuthenticationServiceProvider extends ServiceProvider
     }
 
     /**
-     * Register the package's route middleware aliases, each opt-in per route,
-     * and order them in the HTTP kernel's middleware priority:
-     * `authentication.no-store` first, so on a route that lists it, it wraps
-     * every other route middleware the kernel sorts; `authentication.refresh`
-     * and `authentication.pending`, with which a route declares the credential
-     * it authenticates with, before `SubstituteBindings`, so the declaration is
-     * in place before any parameter is bound. The priority is changed once the
-     * kernel is resolved, after the application's own `withMiddleware()`
-     * settings.
+     * Register the package's route middleware aliases and their place in the
+     * kernel's middleware priority.
      *
      * @param  \Illuminate\Routing\Router  $router
      * @return void
@@ -501,9 +464,8 @@ final class AuthenticationServiceProvider extends ServiceProvider
     }
 
     /**
-     * Register container `refresh` hooks that propagate runtime rebinds of
-     * `request`, `events`, and optionally the global `PrincipalResolver` onto
-     * the supplied guard.
+     * Propagate rebinds of `request`, `events` and, optionally, the global
+     * `PrincipalResolver` onto the guard.
      *
      * @param  \Illuminate\Foundation\Application  $app
      * @param  \SineMacula\Laravel\Authentication\Guards\AbstractGuard  $guard

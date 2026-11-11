@@ -10,11 +10,7 @@ use SineMacula\Laravel\Authentication\Sessions\Enums\PendingAction;
 
 /**
  * The credential a route reads its caller from, as its middleware declares it
- * on the request: the access credential of the default guard unless
- * `authentication.refresh` declares the refresh credential, or
- * `authentication.pending` the pending one for a pending action, each of the
- * guard it names or the default one. The declaration is never inferred from
- * what the request carries.
+ * on the request; never inferred from what the request carries.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -46,8 +42,7 @@ final readonly class DeclaredCredential
     ) {}
 
     /**
-     * The access credential of the default guard: what a route reads unless it
-     * declares another.
+     * The access credential of the default guard.
      *
      * @return self
      */
@@ -106,8 +101,7 @@ final readonly class DeclaredCredential
     }
 
     /**
-     * Declare the credential on the request. A route declares one: a second,
-     * different declaration is a misconfiguration.
+     * Declare the credential on the request, refusing a second, different one.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return void

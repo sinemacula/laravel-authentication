@@ -9,40 +9,15 @@ use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalizers;
 
 /**
- * The package's attempt limiter: per guard and flow, one counter per identifier
- * and one per IP address, kept in the `rate_limits` table on the write
- * connection, so the limits hold across servers without a cache.
- *
- * A counter's key is a keyed digest of what it counts (see `CounterKeys`). An
- * identifier is counted in its canonical form, the one an identity is looked up
- * by, and an IP address by the client it stands for (see
- * `canonicalIdentifier()` and `canonicalIp()`).
- *
- * An account a subject names (the row an Eloquent identity is stored in, see
- * `AttemptSubject::$account`) gets a counter of its own, kept as given and
- * shared by every guard (its key leaves the guard out), which each guard holds
- * to its own identifier limit. A lookup can find one account by many
- * identifiers (a column collation that ignores accents, widths or invisible
- * characters, a list of values, a query closure, another column), and through
- * every guard whose provider returns it, so the account's one counter is what
- * bounds the guesses made at its secret, to the most permissive limit among the
- * guards that check it (the largest `max`, in windows of the shortest
- * `decay_seconds`): a guard with a looser limit raises the bound for every
- * guard, one with a lower limit only stops sooner itself, and one whose
- * identifier limit is off neither checks nor counts it.
- *
- * Counts change only through single statements (see `RateLimitStore`), and
- * reservations record the window each slot came from, so concurrent attempts
- * never exceed a limit and giving a slot back never touches a later window.
- * Database errors propagate: a limiter that cannot count does not let attempts
- * through.
+ * The package's attempt limiter, counting per identifier, account and IP
+ * address in the `rate_limits` table on the write connection.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
 final readonly class DatabaseAttemptLimiter implements AttemptLimiter
 {
-    /** @var list<string> The first twelve bytes of the IPv6 prefixes whose last four carry an IPv4 client's address: IPv4-mapped (`::ffff:0:0/96`) and the NAT64 well-known prefix (`64:ff9b::/96`). */
+    /** @var list<string> First twelve bytes of the IPv4-mapped (`::ffff:0:0/96`) and NAT64 (`64:ff9b::/96`) prefixes. */
     private const array IPV4_CARRYING_PREFIXES = ["\0\0\0\0\0\0\0\0\0\0\xff\xff", "\0\x64\xff\x9b\0\0\0\0\0\0\0\0"];
 
     /**
@@ -69,10 +44,8 @@ final readonly class DatabaseAttemptLimiter implements AttemptLimiter
     ) {}
 
     /**
-     * Take a slot from each counter the subject counts against, in turn: the
-     * identifier's, the account's, then the IP address's. When one is full,
-     * every slot taken before it is given back, and the wait is until the full
-     * counter's window, as stored, ends.
+     * Take a slot from each counter the subject counts against, giving them all
+     * back when one is full.
      *
      * @param  \SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject  $subject
      * @return \SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation
@@ -167,9 +140,7 @@ final readonly class DatabaseAttemptLimiter implements AttemptLimiter
 
     /**
      * The counters the subject's attempt counts against, by key, with their
-     * limits: the identifier's when there is one and its limit is on, then the
-     * account's (shared by every guard) under the guard's identifier limit,
-     * then the IP address's likewise.
+     * limits.
      *
      * @param  \SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject  $subject
      * @return array<string, \SineMacula\Laravel\Authentication\RateLimiting\AttemptLimit>
@@ -200,9 +171,8 @@ final readonly class DatabaseAttemptLimiter implements AttemptLimiter
     }
 
     /**
-     * The canonical form of an identifier: its type's normal form when a
-     * normaliser is registered for the type and accepts the value, otherwise
-     * the value trimmed and lower-cased, with invalid UTF-8 replaced.
+     * The canonical form of an identifier: its type's normal form, otherwise
+     * the value trimmed and lower-cased.
      *
      * @param  string  $identifier
      * @param  ?string  $type
@@ -218,13 +188,8 @@ final readonly class DatabaseAttemptLimiter implements AttemptLimiter
     }
 
     /**
-     * The canonical form of an IP address: an IPv4 address, or the IPv4 address
-     * an IPv6 address carries (IPv4-mapped, or translated through the NAT64
-     * well-known prefix, as a server reached only over IPv6 sees every IPv4
-     * client), in dotted decimal; any other IPv6 address as the /64 network it
-     * belongs to, since a single client is usually given a whole /64 and could
-     * otherwise count each of its addresses separately. Anything that is not an
-     * IP address is counted as given.
+     * The canonical form of an IP address: the IPv4 address it carries, or the
+     * /64 network of any other IPv6 address.
      *
      * @param  string  $ip
      * @return string

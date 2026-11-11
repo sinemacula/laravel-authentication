@@ -10,10 +10,8 @@ use Illuminate\Database\Query\Builder;
 use SineMacula\Laravel\Authentication\Models\RateLimit;
 
 /**
- * The statements behind the attempt limiter, on the counters' own connection
- * and always on its write PDO. Every change to a count is one statement that
- * the database applies atomically, so concurrent attempts on any number of
- * servers can never read a count, add to it, and write it back over each other.
+ * The statements behind the attempt limiter, each change to a count a single
+ * atomic statement on the write PDO.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -23,16 +21,8 @@ use SineMacula\Laravel\Authentication\Models\RateLimit;
 final readonly class RateLimitStore
 {
     /**
-     * Take one slot of the counter's window, unless the window is full: a
-     * counter whose window has ended starts the window that ends at `$end` with
-     * this attempt, and a missing counter is created with it. Returns the end
-     * of the window the slot was taken from, as stored; when the window is
-     * full, the Unix time it ends instead.
-     *
-     * A live counter whose window does not end at `$end` was started under a
-     * different `decay_seconds`, or by a server whose clock is ahead: its own
-     * window is kept and counted in, so a change of configuration neither
-     * forgives earlier attempts nor loses track of the window a slot came from.
+     * Take one slot of the counter's window, returning the window as stored, or
+     * the Unix time a full window ends.
      *
      * @param  string  $key
      * @param  int  $max
@@ -68,8 +58,7 @@ final readonly class RateLimitStore
 
     /**
      * Give back one slot taken from the window that ends at `$window`, as
-     * `take()` returned it; a counter that has moved on to a later window, or
-     * holds no attempt, is left alone.
+     * `take()` returned it.
      *
      * @param  string  $key
      * @param  string  $window
@@ -103,12 +92,8 @@ final readonly class RateLimitStore
     }
 
     /**
-     * Read the counter the statements could not take a slot from, and take one
-     * from its stored window when that is live, does not end at the computed
-     * end, and has room. Returns that window as stored, or the Unix time the
-     * attempt may be made again: the stored window's end, and never earlier
-     * than a second from now (a counter that ended or went in the meantime is
-     * worth one more try).
+     * Take a slot from the counter's stored window when it is live and has
+     * room, else return the Unix time the attempt may be made again.
      *
      * @param  string  $key
      * @param  int  $max
@@ -133,8 +118,8 @@ final readonly class RateLimitStore
     }
 
     /**
-     * Add one attempt to the counter's stored window, in one statement, while
-     * that window is still the one stored and has room. Returns whether it did.
+     * Add one attempt to the counter's stored window while it is still stored
+     * and has room.
      *
      * @param  string  $key
      * @param  string  $window
@@ -155,14 +140,11 @@ final readonly class RateLimitStore
     }
 
     /**
-     * Add one attempt to an existing counter in one statement: the counter's
-     * window restarts when it has ended, and, given a maximum, only a window
-     * that ends at `$end` and has room is counted in (any other live window is
-     * left untouched). Returns whether the counter was changed.
+     * Add one attempt to an existing counter, restarting its window when it has
+     * ended, and returning whether the counter was changed.
      *
-     * The count is assigned before the window: MySQL evaluates the assignments
-     * of an UPDATE from left to right, so the count's condition must read the
-     * window before it is moved.
+     * The count is assigned first since MySQL applies UPDATE assignments left
+     * to right.
      *
      * @param  string  $key
      * @param  int  $now
@@ -196,8 +178,8 @@ final readonly class RateLimitStore
     }
 
     /**
-     * Create the counter with this attempt, unless another request created it
-     * first. Returns whether this call created it.
+     * Create the counter with this attempt, returning whether this call created
+     * it.
      *
      * @param  string  $key
      * @param  int  $end
@@ -215,8 +197,7 @@ final readonly class RateLimitStore
     }
 
     /**
-     * A query on the counters' table, for the writes the query builder can
-     * express.
+     * A query on the counters' table.
      *
      * @return \Illuminate\Database\Query\Builder
      */
@@ -247,8 +228,7 @@ final readonly class RateLimitStore
     }
 
     /**
-     * Format a Unix time as the counters' connection stores times, in the
-     * application timezone.
+     * Format a Unix time as the counters' connection stores times.
      *
      * @param  int  $timestamp
      * @return string

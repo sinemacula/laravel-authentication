@@ -5,10 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Proofs\Enums;
 
 /**
- * How the key behind a proof was observed to be protected: in hardware or in
- * software. Not observed at all is no value, never either of these.
- *
- * The values are the further-factor package's own.
+ * How the key behind a proof was observed to be protected.
  *
  * @api
  *

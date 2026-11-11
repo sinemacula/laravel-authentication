@@ -16,15 +16,7 @@ use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
- * Records proofs and provenance on a session, in the caller's transaction on
- * the storage connection, where the session itself is written, voids the proofs
- * a removed factor made, and clears what an earlier session left under a new
- * session's key.
- *
- * A proof's binding is the session it is recorded on: its owner (the identity),
- * its guard (the application) and its key; the purpose is the proof's own.
- * Every time is kept to the whole second, in the application's time zone, as
- * the session's own times are.
+ * Writes, voids and clears the proofs and provenance recorded on a session.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -87,10 +79,7 @@ final class ProofWriter
     }
 
     /**
-     * Record how the session, established through an external provider, began,
-     * with the provider's evidence when it was accepted and the provider
-     * context in the form the package encodes it in, never through a cast an
-     * application could replace.
+     * Record how the session, established through an external provider, began.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Proofs\Provenance  $provenance
@@ -119,11 +108,8 @@ final class ProofWriter
     }
 
     /**
-     * Void the session's proofs made with the factor, so none of them counts
-     * again: one `UPDATE` that marks every proof not voided yet that is bound
-     * to the session as `record()` binds it (its key, the guard given and its
-     * owner) and records that very factor reference, compared byte for byte.
-     * Returns how many proofs it voided.
+     * Void the session's proofs made with the factor, returning how many it
+     * voided.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  string  $guard
@@ -149,27 +135,11 @@ final class ProofWriter
     }
 
     /**
-     * Delete every proof and provenance recorded under the new session's key,
-     * before it records its own. A key the database issues again (an integer
-     * key whose counter a truncation reset) would otherwise inherit what an
-     * earlier session holding it left behind, which is bound to the same owner
-     * and guard when the same identity signs in again.
+     * Delete any proofs and provenance an earlier session left under the new
+     * session's key.
      *
-     * The rows are found with a plain read on the write connection and deleted
-     * by their own keys only when there are any. A delete that matches nothing
-     * locks the gap its key would go in on MySQL (InnoDB at REPEATABLE READ),
-     * and a new session's key, time-ordered by default, falls in the last gap
-     * of the proofs' and the provenance's indexes, so two sign-ins that each
-     * held that lock and then inserted their own proof would deadlock. A plain
-     * read takes no lock, and a delete by the key of a row that exists locks
-     * only that row. Orphans under a new key were committed before the earlier
-     * session's row was deleted (a proof is written under that row's lock), so
-     * before the new row could be inserted, and nothing writes them
-     * concurrently. The plain read sees them unless the transaction's snapshot
-     * is older: on MySQL at REPEATABLE READ, a sign-in inside an application's
-     * transaction whose first plain read came before they were committed does
-     * not see them. Deleting a session's proofs with it, as pruning does, is
-     * what keeps a reissued key clean; this is the second line.
+     * Read before deleting by key: on MySQL a delete matching nothing
+     * gap-locks, so two concurrent sign-ins would deadlock.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @return void
@@ -193,11 +163,8 @@ final class ProofWriter
     }
 
     /**
-     * Whether the proof is recorded as an additional verification: an accepted
-     * further factor always is and a recovery code never is, whatever the
-     * adapter reported, so a proof read back says what the authentication
-     * context reads; any other evaluation (an external proof's) decides for
-     * itself, and a proof without one records `null`.
+     * Whether the proof is recorded as an additional verification, or `null`
+     * for a proof without an evaluation.
      *
      * @param  \SineMacula\Laravel\Authentication\Proofs\NewProof  $proof
      * @return ?bool
@@ -233,7 +200,7 @@ final class ProofWriter
 
     /**
      * The time in the application's time zone, the one the session's times are
-     * written in, or `null`.
+     * written in.
      *
      * @param  ?\Carbon\CarbonInterface  $time
      * @return ?\Carbon\CarbonInterface
@@ -244,8 +211,7 @@ final class ProofWriter
     }
 
     /**
-     * Insert the row, or throw when a model event cancelled the insert, so the
-     * session written with it is rolled back rather than left without it.
+     * Insert the row, or throw when a model event cancelled the insert.
      *
      * @param  \Illuminate\Database\Eloquent\Model  $row
      * @return void

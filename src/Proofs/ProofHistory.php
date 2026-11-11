@@ -9,35 +9,7 @@ use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 
 /**
  * What a session's counting proofs say about its authentication, worked out
- * from the summary rows `SessionProofs::history()` reads: one per kind, set of
- * `amr` values, multifactor report, additional verification and acceptance,
- * with the newest time among the proofs it summarises.
- *
- * - `authenticatedAt()` (the token's `auth_time`) is the newest time of any
- *   kind: a step-up refreshes it, and so does either reauthentication.
- * - `methods()` (the token's `amr`) is the values of the first factor, the
- *   further factors, the recovery codes and the reauthentications with an
- *   accepted evaluation, once each, in the order of their rows' times and then
- *   of their values, so the claim is the same whatever order the database
- *   returns the rows in. A stored `mfa` is dropped, and `mfa` is added only
- *   when an accepted evaluation reported multifactor authentication: a further
- *   factor's or a recovery code's, or an external proof's whose evidence the
- *   evidence contract accepted as multifactor. It is never worked out from the
- *   values. A reauthentication with no accepted evaluation (one with the first
- *   factor, or at the provider when its evidence was not accepted) adds
- *   nothing: it renews the authentication time and nothing else.
- * - `hasAdditionalVerification()` (the authentication context's `mfa`) is
- *   whether an accepted evaluation is an additional verification: an accepted
- *   further factor always is, and an external proof is when the evidence
- *   contract accepted its evidence for an additional verification or
- *   multifactor authentication. A recovery code never is (`hasRecoveryCode()`
- *   says whether one counts), and neither is anything worked out from the `amr`
- *   values.
- * - `isMultifactor()` is whether an accepted evaluation reported multifactor
- *   authentication: exactly when `methods()` carries `mfa`.
- * - `steppedUpAt()` is the newest time among the proofs that make
- *   `hasAdditionalVerification()` or `hasRecoveryCode()` true, at sign-in or
- *   later.
+ * from the summary rows `SessionProofs::history()` reads.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -61,7 +33,7 @@ final readonly class ProofHistory
      */
     public function __construct(
 
-        /** The summary rows: one per kind, `amr` values, multifactor report, additional verification and acceptance, with its newest time. */
+        /** The summary rows, each with the newest time among the proofs it groups. */
         private array $rows,
     ) {}
 
@@ -98,7 +70,8 @@ final readonly class ProofHistory
     }
 
     /**
-     * The session's `amr` values, as the class describes.
+     * The session's `amr` values, ordered by time then value so the claim is
+     * stable, with `mfa` only when an accepted evaluation reported it.
      *
      * @return list<string>
      */
@@ -124,7 +97,7 @@ final readonly class ProofHistory
 
     /**
      * Whether an accepted evaluation on the session is an additional
-     * verification, as the class describes.
+     * verification.
      *
      * @return bool
      */
@@ -194,8 +167,7 @@ final readonly class ProofHistory
     }
 
     /**
-     * Whether a row is an accepted additional verification: a further factor,
-     * or another kind whose evaluation says it is one, never a recovery code.
+     * Whether a row is an accepted additional verification.
      *
      * @formatter:off
      *

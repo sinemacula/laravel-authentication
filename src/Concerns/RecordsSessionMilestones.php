@@ -7,15 +7,8 @@ namespace SineMacula\Laravel\Authentication\Concerns;
 use Carbon\CarbonInterface;
 
 /**
- * Default Eloquent-backed accessors for the generation a session started with,
- * when it started and the floor its context changes set for its access tokens'
- * issue time, and the name of its issuance guard, using conventional attribute
- * names. Override the `*Name()` methods to remap columns.
- *
- * The times are session state: a session loaded without either column throws a
- * `LogicException` rather than reading the missing value as `null`. The
- * generation is compared as loaded, so a session loaded without it is never
- * taken for the session stored under its key.
+ * Default Eloquent-backed accessors for a session's generation, start, context
+ * change floor and issuance sequence.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

@@ -16,16 +16,8 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
 
 /**
- * The tenant a principal is to act in (a session's active tenant): the one a
- * selection asks for, or the one a session records, resolved, held to
- * `TenantAccess` and checked active.
- *
- * The principal's own tenant is read from its `getTenant()` and never from the
- * `TenantResolver`, so with the defaults no resolver is asked; any other tenant
- * is resolved by its identifier, and a tenant the resolver returns under
- * another identifier is not taken for it. Every read, and both contracts, run
- * inside `WriteConnection::during()` for the principal (and for the tenant when
- * there is one), with the bindings in effect when they are asked.
+ * Resolves the tenant a principal is to act in, held to `TenantAccess` and
+ * checked active.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -41,11 +33,7 @@ final class TenantAdmission
 
     /**
      * The tenant the principal is to act in for the selection (`null` for
-     * none), or why not: `tenant_ineligible` when a named tenant cannot be
-     * resolved or `TenantAccess` refuses it, and `tenant_inactive` when it is
-     * inactive or when the principal's own tenant cannot be loaded. Activity is
-     * checked only for a tenant the principal may act in, so the answer says
-     * nothing about any other.
+     * none), or why not.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  \SineMacula\Laravel\Authentication\Tenancy\TenantSelection  $selection
@@ -74,11 +62,7 @@ final class TenantAdmission
 
     /**
      * The active tenant a session records (`null` for none), for the principal
-     * it acts as, or why not: `tenant_inactive` when the tenant cannot be
-     * resolved, is inactive, or the principal's own tenant cannot be loaded;
-     * with `$checkAccess` (a refresh, a switch), `tenant_ineligible` when
-     * `TenantAccess` no longer lets the principal act in it. A bearer request
-     * does not ask the access contract.
+     * it acts as, or why not.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?string  $tenantId
@@ -107,11 +91,7 @@ final class TenantAdmission
     }
 
     /**
-     * The tenant the identifier names, with no access or activity check: the
-     * principal's own when its identifier matches, otherwise the resolver's
-     * answer, asked on the write connection for the principal, when that answer
-     * has the identifier asked for, else `null`. For a trusted bind, which
-     * binds the tenant a session records without checking it.
+     * The tenant the identifier names, with no access or activity check.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $own
@@ -133,8 +113,7 @@ final class TenantAdmission
     }
 
     /**
-     * The principal's own tenant, read on the write connection, `null` for a
-     * platform principal, or `tenant_inactive` when it opts into activation and
+     * The principal's own tenant, `null` for none, or `tenant_inactive` when it
      * cannot be loaded.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -152,9 +131,7 @@ final class TenantAdmission
     }
 
     /**
-     * The tenant once the principal may act in it (asked only with
-     * `$checkAccess`, `tenant_ineligible` otherwise) and it is active
-     * (`tenant_inactive` otherwise); no tenant is never inactive.
+     * The tenant once the principal may act in it and it is active, or why not.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
@@ -174,7 +151,7 @@ final class TenantAdmission
 
     /**
      * Whether `TenantAccess` lets the principal act in the tenant, asked on the
-     * write connection for the principal and the tenant.
+     * write connection.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant

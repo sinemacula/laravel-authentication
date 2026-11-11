@@ -15,24 +15,8 @@ use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
- * Decides whether a proof an adapter hands over may be recorded: on a pending
- * session it satisfies, or on a session it steps up.
- *
- * Either takes only a further factor or a recovery code (an
- * `external_reauthentication` or a first-factor kind is refused: an external
- * reauthentication is recorded only through the package's own entry point, and
- * counts for MFA only through the acceptance of its evidence by the evidence
- * contract, `External\EvidenceAcceptance`), over any channel but `recovery`
- * (the application's own account recovery is a first factor that only
- * `SessionService::start()` records, never a further factor, so it can neither
- * add `mfa` nor satisfy a requirement that takes one), made for the operation's
- * purpose (`sign_in` for a pending session, or `enrollment` for the further
- * factor that confirms a factor enrolled while it waits; `step_up` for a
- * step-up), accepted by its adapter, and made no later than now and no earlier
- * than what it adds to (the time the pending session began waiting, or the
- * session's start): anything else is `proof_invalid`. Its binding must then
- * name the session's owner, the application and the session's key exactly:
- * anything else is `proof_binding_mismatch`.
+ * Decides whether an adapter's proof may satisfy a pending session or step a
+ * session up.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -47,12 +31,8 @@ final class ProofAcceptance
     private function __construct() {}
 
     /**
-     * Why the proof cannot satisfy the pending session of the guard, the
-     * session having waited since the time given, or `null` when it can: a
-     * further factor or recovery code made for the sign-in, or a further factor
-     * confirming a factor enrolled while the session waited (its purpose
-     * `enrollment`), accepted by its adapter, made by the session's owner on
-     * the guard for the session.
+     * Why the proof cannot satisfy the pending session of the guard, waiting
+     * since the time given, or `null` when it can.
      *
      * @param  \SineMacula\Laravel\Authentication\Proofs\ProofResult  $proof
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
@@ -70,8 +50,8 @@ final class ProofAcceptance
     }
 
     /**
-     * Why the proof cannot step the session of the guard up, the session having
-     * started at the time given, or `null` when it can.
+     * Why the proof cannot step up the session of the guard, started at the
+     * time given, or `null` when it can.
      *
      * @param  \SineMacula\Laravel\Authentication\Proofs\ProofResult  $proof
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
@@ -86,9 +66,8 @@ final class ProofAcceptance
     }
 
     /**
-     * `proof_binding_mismatch` for a proof made by another identity than the
-     * session's owner, on another application, or for another session; `null`
-     * otherwise.
+     * `proof_binding_mismatch` unless the proof is bound to the session's
+     * owner, the guard and the session's key.
      *
      * @param  \SineMacula\Laravel\Authentication\Proofs\ProofResult  $proof
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
@@ -105,9 +84,8 @@ final class ProofAcceptance
     }
 
     /**
-     * `proof_invalid` for a proof of a kind the operations do not take, over
-     * the `recovery` channel, of another purpose, not accepted by its adapter,
-     * or made after now or before what it adds to; `null` otherwise.
+     * `proof_invalid` for a proof of the wrong kind, channel, purpose or time,
+     * or one its adapter did not accept.
      *
      * @param  \SineMacula\Laravel\Authentication\Proofs\ProofResult  $proof
      * @param  \SineMacula\Laravel\Authentication\Proofs\Enums\Purpose  $purpose

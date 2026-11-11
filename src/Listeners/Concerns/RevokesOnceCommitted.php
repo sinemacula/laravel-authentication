@@ -10,22 +10,11 @@ use SineMacula\Laravel\Authentication\Database\AfterCommit;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 
 /**
- * What the revoking listeners share: a jwt guard's session service, resolved
- * when the listener runs, and running the revocation only once the change that
- * caused it is committed on the changed model's connection, so a change that is
- * rolled back revokes nothing.
+ * Resolves a jwt guard's session service and runs a revocation only once the
+ * change that caused it commits.
  *
- * Revocation covers every guard; the guard only names the acting guard and the
- * request in the events. It is the guard given to the listener (a contextual
- * binding of `$guard`), else the current default guard when that is a jwt
- * guard, else the first jwt guard configured, so a route guarded by another
- * driver (which makes that driver's guard the default through `shouldUse()`)
- * still revokes.
- *
- * The session service, the configuration and the transactions manager come from
- * the application now serving, not from the container the listener was built
- * with: the event dispatcher builds its listeners, and under Octane its
- * container is the application the worker booted, not the request's sandbox.
+ * Services come from the container serving now: under Octane the listener's own
+ * container is the booted application, not the request's sandbox.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -46,10 +35,8 @@ trait RevokesOnceCommitted
     ) {}
 
     /**
-     * Run the revocation once the change to the model is committed: at once
-     * when its connection has no open transaction, when that transaction
-     * commits otherwise, and never when it is rolled back. A subject that is
-     * not an Eloquent model has no transaction to wait for.
+     * Run the revocation once the change to the model commits, and never when
+     * it is rolled back.
      *
      * @param  object  $subject
      * @param  \Closure(\SineMacula\Laravel\Authentication\Sessions\SessionService): mixed  $revoke

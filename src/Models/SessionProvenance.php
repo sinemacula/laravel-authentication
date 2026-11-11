@@ -10,19 +10,10 @@ use SineMacula\Laravel\Authentication\Database\StorageConnection;
 
 /**
  * How a session established through an external identity provider began, one
- * row per such session, keyed by the session's key: the connection and its
- * tenant, the provider's authentication time, the evidence it asserted once the
- * evidence contract accepted it, the provider's session deadline, the policy
- * version the caller checked, the id of the link the result was mapped to its
- * identity through, and the provider context the adapter gave with the result,
- * as the JSON the package encodes it to (no cast, so an application's JSON
- * encoder never changes what is stored).
+ * row per such session.
  *
- * Kept on the storage connection with the sessions, in the table named by
- * `authentication.proofs.provenance_table`, written once with the session and
- * never rewritten by a later reauthentication. Indexed by connection, which
- * finds a connection's sessions to revoke, and by tenant, which nothing queries
- * yet. The session model's pruning deletes it with its session.
+ * `provider_context` has no cast, so an application's JSON encoder never
+ * changes what is stored.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -62,8 +53,6 @@ final class SessionProvenance extends Model
 
     /**
      * Create a provenance on the storage connection, in the configured table.
-     * Both are applied here, before Eloquent reads them, so this is
-     * construction rather than model behaviour.
      *
      * @param  array<string, mixed>  $attributes
      *

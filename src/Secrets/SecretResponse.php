@@ -8,14 +8,7 @@ use Illuminate\Http\JsonResponse;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Responses that carry a secret: the only bodies a `Secret` is revealed into
- * without the caller revealing it, and always marked not to be stored, so no
- * browser, proxy or shared cache keeps a copy of the token, credential or key.
- *
- * Use `json()` for a body built from the package's results, and
- * `withoutStoring()` for a response built some other way. To cover every
- * response of a route, the secrets of other packages and error responses
- * included, place the `authentication.no-store` middleware on it.
+ * Responses that carry a secret, always marked not to be stored.
  *
  * @api
  *
@@ -30,9 +23,8 @@ final class SecretResponse
     private function __construct() {}
 
     /**
-     * A JSON response of the data with every `Secret` in it, at any depth of
-     * arrays, revealed, and with `Cache-Control: no-store` and `Pragma:
-     * no-cache`, which replace any caching headers given.
+     * A JSON response of the data with every `Secret` in it revealed, marked
+     * not to be stored.
      *
      * @param  array<array-key, mixed>  $data
      * @param  int  $status
@@ -45,8 +37,7 @@ final class SecretResponse
     }
 
     /**
-     * Mark the response not to be stored: `Cache-Control: no-store` and
-     * `Pragma: no-cache`, replacing whatever caching it allowed.
+     * Mark the response not to be stored.
      *
      * @template TResponse of \Symfony\Component\HttpFoundation\Response
      *

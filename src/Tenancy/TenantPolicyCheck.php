@@ -21,24 +21,6 @@ use SineMacula\Laravel\Authentication\Tenancy\Enums\TenantPolicyStanding;
  * Judges a session, or a sign-in about to write one, against the authentication
  * policy of the tenant it is to act in.
  *
- * The policy is asked inside `WriteConnection::during()` for the tenant. A
- * session falls short as `SSO_REQUIRED` when the answer names connections and
- * it was not established through one of them, else as `FACTOR_REQUIRED` when
- * the answer requires a further factor that `RequirementJudge` does not find
- * met, and its verdict then names that requirement; otherwise it meets the
- * policy. The evidence is the sign-in's own, in memory, or the session's
- * provenance and proofs, read on the write connection only when the answer
- * needs them, so the default policy costs no query. The connection the policy
- * is told (`TenantPolicyContext::connectionId()`) is found on the first ask, by
- * the policy or the judgement, and shared by both; it is expired when the check
- * ends, so a context a policy keeps cannot read it later. With neither a
- * session nor evidence, no connection and no further factor is met. A
- * destination of no tenant has no policy: it is met, with no version, and
- * nothing is asked. A judgement made while the transaction holds the session's
- * row locked reads current (`ProofSource::$current`), and its provenance and
- * proofs are then read as committed (`SessionProofs`), whatever snapshot the
- * transaction took first.
- *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
@@ -53,8 +35,7 @@ final class TenantPolicyCheck
 
     /**
      * Ask the tenant's policy and judge the session, or the sign-in's evidence,
-     * against it. Read current only for a session whose row this transaction
-     * holds locked.
+     * against it.
      *
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -91,12 +72,7 @@ final class TenantPolicyCheck
     }
 
     /**
-     * What the policy is asked about: the application, the identity, the
-     * principal, the tenant and the session, with the connection the session
-     * was established through found when first asked and shared by the policy
-     * and the judgement: the sign-in's own, in memory, before its session is
-     * written, otherwise the one the session's provenance records, read current
-     * when the source asks.
+     * The context the policy is asked about, with its connection found lazily.
      *
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -118,8 +94,7 @@ final class TenantPolicyCheck
     }
 
     /**
-     * What the tenant's policy requires of the session, asked inside
-     * `WriteConnection::during()` for the tenant.
+     * What the tenant's policy requires of the session.
      *
      * @param  \SineMacula\Laravel\Authentication\Tenancy\TenantPolicyContext  $context
      * @return \SineMacula\Laravel\Authentication\Tenancy\TenantRequirement
@@ -135,11 +110,7 @@ final class TenantPolicyCheck
 
     /**
      * Judge the session, or the sign-in's evidence, against the tenant's
-     * answer. A verdict on a further factor carries the first factor it was
-     * judged on, so a caller that goes on to judge the session again reads it
-     * no more. Read current only for a session whose row this transaction holds
-     * locked. The connection judged is the context's, read once with the
-     * policy's.
+     * answer.
      *
      * @param  \SineMacula\Laravel\Authentication\Tenancy\TenantRequirement  $requirement
      * @param  \SineMacula\Laravel\Authentication\Tenancy\TenantPolicyContext  $context
