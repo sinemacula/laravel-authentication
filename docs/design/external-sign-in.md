@@ -21,10 +21,10 @@ link contract answers, and the package starts, reauthenticates and ends sessions
   and `reauthenticate()` refuse it as their method (`SessionPreconditions::assertSessionMethod()`). Only
   `signInExternally()` records a session under it.
 - A cookie application's `signInExternally()` makes no same-site check, which holds `signIn()`, `start()`, `satisfy()`
-  and `choose()` (`SessionPreconditions::crossSite()`): the provider's callback is a cross-site navigation by design.
-  The defence against signing a browser into another account is the adapter's, and the guides require it of an adapter:
-  it binds its `state` and nonce to the browser that began the flow, refuses a callback that does not match them, and
-  redeems the handoff once, for that browser.
+  and `choose()` (`SessionPreconditions::crossSite()`): the provider's callback is a cross-site navigation. The defence
+  against signing a browser into another account is the adapter's, and the guides require it of an adapter: it binds its
+  `state` and nonce to the browser that began the flow, refuses a callback that does not match them, and redeems the
+  handoff once, for that browser.
 - The identity is the one `Contracts\ExternalIdentityLinks::find($connectionId, $issuer, $subject)` answers, through a
   link made through exactly that connection for exactly that issuer and subject, never by email or any other attribute
   the provider asserted. Its answer (`External\ExternalLink`) is the identity and the link's own opaque id. The link id
@@ -62,12 +62,10 @@ link contract answers, and the package starts, reauthenticates and ends sessions
   it itself (`toStored()`: `JSON_PRESERVE_ZERO_FRACTION`, so a float stays one, and the default escaping, so the stored
   form is ASCII) into a nullable text column with no Eloquent cast, so an application's `Json::encodeUsing()` never
   changes what is stored or measured. The cap, `STORED_MAX_BYTES` (4096), is measured on that string, every character
-  outside ASCII escaped (up to twelve bytes for one): details of how a session began are small, the contributor's read
-  of the provenance happens wherever a context is built, so a bounded row keeps that read small, and the cap fits every
-  engine's text column with room to spare; a context over it is refused, never truncated. A stored value that is
-  malformed or no longer validates reads as no context. It is never logged, never in an event, the event context or an
-  exception message, and its column is hidden from the provenance model's serialisation; it is provider metadata, not a
-  place for a secret, and is not protected as a credential is.
+  outside ASCII escaped (up to twelve bytes for one), and keeps the read every context build may make small; a context
+  over it is refused, never truncated. A stored value that is malformed or no longer validates reads as no context. It
+  is never logged, never in an event, the event context or an exception message, and its column is hidden from the
+  provenance model's serialisation; it is provider metadata, never a secret, and is not protected as a credential is.
 - A session reauthenticates at the provider only through the very link that established it: the link's identity must own
   it and its provenance must record exactly the result's connection and the link's id (`link_mismatch`); a session
   recorded with no link never matches. Only an access token is issued; the refresh token, the session row (apart from

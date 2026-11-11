@@ -163,7 +163,7 @@ the same whether or not anyone has the identifier, and who a code is ever delive
   package builds a `JwtGuard` only under the name of a guard with the `jwt` driver, so a code sent through another
   driver that builds one names, and is delivered through, that `jwt` guard.
 - On a `sync` connection with after-response dispatching turned off (`Bus::withoutDispatchingAfterResponses()`) Laravel
-  runs the job during the call; this is the documented fallback, not the package's choice.
+  runs the job during the call.
 - Malformed settings (`length` 6 to 10, `ttl_seconds` 60 to 3600, `max_attempts` 1 to 20, `resend_cooldown_seconds` 0 to
   `ttl_seconds`, `max_deliveries` 1 to 10, `delivery_window_seconds` `ttl_seconds` to 86400, a queue connection that is
   not configured, a key shorter than 32 bytes, no key and no `app.key`) fail closed with an `InvalidArgumentException`
@@ -176,7 +176,7 @@ the same whether or not anyone has the identifier, and who a code is ever delive
 
 ## Enumeration Criteria
 
-Each flow is held to the same criterion, and its tests prove it rather than assume it:
+Each flow is held to the same criterion, and its tests prove it:
 
 - Code request: the result, the statements run (compared in order, known number against unknown, from clients whose
   limits start alike) and the time taken are the same for a number no one has; against an identity store whose lookup

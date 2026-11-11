@@ -3,7 +3,7 @@
 These notes document the package's security and lifecycle contracts that are easy to miss if you only read the
 quick-start material or skim the test suite.
 
-Each note is intentionally short and follows the same structure:
+Each note follows the same structure:
 
 - `Purpose`
 - `Invariants`
@@ -34,7 +34,7 @@ The current note set is:
 - `token-profile.md`: the claims each token carries, the header type that tells access and refresh tokens apart, the
   subject type that tells a person's token from a machine's, what every parse checks, and what the bearer path does not
   read.
-- `fail-closed-pid-did.md`: why the `principal` and `sid` claims are treated as commitments rather than advisory hints.
+- `fail-closed-pid-did.md`: why the `principal` and `sid` claims are commitments a token must prove.
 - `storage.md`: where the package's tables live, why the session-backed ones share one connection, and how the models
   and the published migrations choose the same one.
 - `access-only-mode.md`: the supported bearer-only, no-sessions migration path.
@@ -91,5 +91,4 @@ The current note set is:
 - `testing-helpers.md`: how a test acts as an identity, principal or session on a package guard, how that survives the
   requests it sends and ends on a sign-out, what the bound-context assertions compare, and the fakes.
 
-These documents are secondary to the code and tests, not a replacement for them. If a note and a cited test disagree,
-the test should be treated as authoritative until the mismatch is resolved.
+These documents are secondary to the code and tests. If a note and a cited test disagree, the test is authoritative.

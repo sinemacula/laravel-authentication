@@ -45,10 +45,10 @@ authorisation package decides what they allow.
   the subject type `person`, or `parse()` rejects it, so a machine's token and a person's are never confused. The RFC
   6749 5.1 response carries `scope` only when the token grants at least one: RFC 6749 3.3 has no empty scope value,
   while the claim is `""` for none.
-- A client token is held to its key on every request (decided: reject at once rather than at token expiry): the key,
-  read by primary key on the writer, must be the token's guard's, not revoked and not expired, the subject a machine,
-  and `CredentialBinding` must hold for the loaded identity, principal and tenant. Revoking the key, or the end of a
-  rotation's overlap, ends its tokens at the next request.
+- A client token is held to its key on every request: the key, read by primary key on the writer, must be the token's
+  guard's, not revoked and not expired, the subject a machine, and `CredentialBinding` must hold for the loaded
+  identity, principal and tenant. Revoking the key, or the end of a rotation's overlap, ends its tokens at the next
+  request.
 - A bearer credential's kind is decided by form, totally: one with a `.` is a `jwt` guard's, one without an `api_key`
   guard's (`Http\BearerForms`). The package's `auth` middleware records the guards a route lists on the request
   (`BearerForms::ROUTE_GUARDS`, `null` for the default guard); a package guard reading a credential of the other kind's
@@ -86,8 +86,8 @@ authorisation package decides what they allow.
   record the last use at most once per throttle with one conditional update.
 - `rotate()` ends the replaced key at `now + overlap` or its own expiry, whichever comes first, with an explicit `CASE`
   (never `LEAST()` over a nullable column), and inserts the replacement with the same binding and scopes but only the
-  expiry the call names: none by default (settled design 6.3), so rotating a key that expires without `expiresAt`
-  issues one that never does, as the machine credentials guide states.
+  expiry the call names: none by default, so rotating a key that expires without `expiresAt` issues one that never does,
+  as the machine credentials guide states.
 - An application issues a credential with scopes; the scopes are normalised and the registry is asked which of them
   the principal may not be granted on the guard (`AcceptAnyScope`, the default, rejects none).
 - A request authenticated by the credential binds its identity and principal with the credential's scopes;
@@ -116,8 +116,8 @@ authorisation package decides what they allow.
   is the deployment's to require (RFC 6749 3.2), since `isSecure()` depends on the trusted proxies. Each failure's
   `AuthenticationFailed` names the client id only when it is a key's public part in form
   (`PresentedClient::reportedId()`), else none: a client that sends its whole key as the id, or swaps id and secret,
-  would otherwise put the secret in an event (rule: no event field carries a secret), as the `api_key` guard already
-  never names one.
+  would otherwise put the secret in an event (rule: no event field carries a secret), as the `api_key` guard never names
+  one.
 - `client_credentials.per_identifier` (per client id as given) is off by default. A client id is public (RFC 6749 2.2;
   it is the key's public part, shown in summaries and events), so a count on it lets anyone who knows it keep the real
   client out from any address, and it buys nothing against a 238-bit secret, the reason the `api_key` guard counts

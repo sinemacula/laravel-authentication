@@ -42,7 +42,7 @@ checked before it gets here is in `session-service.md`; the choice of principal 
 - A credential names a live pending session only while the session is this guard's, pending, unrevoked and before its
   idle deadline, the digest matches, the owner reloads through the guard's provider as the recorded one, and the
   principal it records, if any, resolves through the hinted path as that principal and is still owned
-  (`PendingSessions::find()`). Anything else is "not found": `null` from `pending()`, `pending_invalid` from the rest,
+  (`PendingLookup::find()`). Anything else is "not found": `null` from `pending()`, `pending_invalid` from the rest,
   without saying why.
 - A request presents the credential only in the body field `session.pending_credential_field`, read by
   `PendingCredential::extract()` (the JSON body, or the form body of a method that may have one; never the query string
@@ -164,8 +164,8 @@ checked before it gets here is in `session-service.md`; the choice of principal 
 
 ## Implementation Anchors
 
-- `src/Sessions/PendingSessions.php`: `pending()`, `satisfy()`, `choose()`, `discard()`, `find()`, `admitted()`,
-  `chosen()`, `settle()`, `atomically()`; `src/Sessions/PendingActionRefused.php`.
+- `src/Sessions/PendingSessions.php`: `pending()`, `satisfy()`, `choose()`, `discard()`, `admitted()`, `chosen()`,
+  `settle()`, `atomically()`; `src/Sessions/PendingLookup.php`: `find()`; `src/Sessions/PendingActionRefused.php`.
 - `src/Sessions/PendingEvaluation.php`: the gate's building blocks (`identityRefusal()`, `allowsMethod()`,
   `principals()`, `selection()`, `named()`, `destination()`, `recorded()`, `owedFactor()`, `tenantPolicy()`,
   `requirements()`).

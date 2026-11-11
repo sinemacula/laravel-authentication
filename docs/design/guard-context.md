@@ -10,8 +10,7 @@ shared and mutable, how it is rebound, and what a flow may keep from it.
 
 - A guard built on `AbstractGuard` builds one `Runtime\GuardContext` in its constructor, from the six collaborators the
   constructor takes, and keeps it for its life (`protected readonly GuardContext $context`, and `context()` through
-  `Contracts\HasGuardContext`). The constructor's signature is the one it always had, so a guard type an application
-  writes still constructs.
+  `Contracts\HasGuardContext`).
 - There is one copy of each collaborator. The guard's getters (`getName()`, `getProvider()`, `getPrincipalResolver()`,
   `getDispatcher()`, `getRequest()`) read the context, and its setters (`setRequest()`, `setDispatcher()`,
   `setPrincipalResolver()`) rebind it. A JWT guard builds the session revocations its `logout()` signs out through
@@ -34,17 +33,17 @@ shared and mutable, how it is rebound, and what a flow may keep from it.
   `Passkeys\PasskeyService`, `ApiKeys\ApiKeyService`, `ClientCredentials\ClientCredentialsExchange`,
   `Passwords\PasswordService`, `IdentifierChanges\IdentifierChangeService`) take the guard's context, not the guard, and
   so do the classes they build (`ResetRequests`, `ResetSubmissions`, `ChangeRequests`, `ChangeConfirmation`, and
-  `Sessions\RecentAuthentication`, the reauthentication check), and `Sessions\SessionSwitch`, which the session
-  service builds per switch. `ResetRecipient`'s static checks take the guard's name and provider. `AuthManager` resolves
-  the guard, refuses one the service does not belong to with the message it always gave, and passes the guard's
-  `context()`; for the password service it also passes the session revocations a change or a reset ends sessions
-  through, built on that context (`SessionRevocations::forContext()`, on the container's connections and transactions
-  manager). The queued `Codes\SendOneTimeCode` and `Passwords\SendPasswordReset` carry only the guard's name: when one
-  runs it resolves the guard, accepts it only when `auth.guards` configures it with the `jwt` driver
-  (`Config\JwtGuards::names()`), and takes its context through `HasGuardContext`, failing with a `LogicException` when
-  the application replaced the `jwt` driver with a guard that has none (`Runtime\JwtGuardContexts::named()`, which both
-  call). None of the six services' namespaces names a `Guards` class, nor does `Sessions`; outside the composition root
-  (`AuthManager`, `AuthenticationServiceProvider`), `Guards`, `Testing` and `Console`, nothing does.
+  `Sessions\RecentAuthentication`, the reauthentication check), and `Sessions\SessionSwitch`, which the session service
+  builds per switch. `ResetRecipient`'s static checks take the guard's name and provider. `AuthManager` resolves the
+  guard, refuses one the service does not belong to, and passes the guard's `context()`; for the password service it
+  also passes the session revocations a change or a reset ends sessions through, built on that context
+  (`SessionRevocations::forContext()`, on the container's connections and transactions manager). The queued
+  `Codes\SendOneTimeCode` and `Passwords\SendPasswordReset` carry only the guard's name: when one runs it resolves the
+  guard, accepts it only when `auth.guards` configures it with the `jwt` driver (`Config\JwtGuards::names()`), and takes
+  its context through `HasGuardContext`, failing with a `LogicException` when the application replaced the `jwt` driver
+  with a guard that has none (`Runtime\JwtGuardContexts::named()`, which both call). None of the six services'
+  namespaces names a `Guards` class, nor does `Sessions`; outside the composition root (`AuthManager`,
+  `AuthenticationServiceProvider`), `Guards`, `Testing` and `Console`, nothing does.
 - Only the owning guard rebinds a context: `rebindRequest()`, `rebindEvents()` and `rebindResolver()` are internal, and
   the architecture test fails a call of any of them outside `Guards`. The container's rebinds (`wireGuardRebinds()`:
   `request`, `events`, and the global `PrincipalResolver` unless the guard has a resolver of its own), `Event::fake()`,
@@ -101,8 +100,6 @@ shared and mutable, how it is rebound, and what a flow may keep from it.
   and the dispatcher bound at the write receives none. A write rolled back reports to neither.
 - A flow that copied a collaborator out of the context would freeze it at that moment; none does, and the rebind tests
   hold every long-lived holder to reading per use.
-- A subclass that read the protected properties a guard had before the context (`$this->name`, `$this->provider`,
-  `$this->resolver`, `$this->events`, `$this->request`, `$this->timebox`) reads `$this->context` instead.
 
 ## Implementation Anchors
 

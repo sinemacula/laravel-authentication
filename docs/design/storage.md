@@ -13,9 +13,8 @@ and how the runtime models and the published migrations are kept choosing the sa
   `InvalidArgumentException` naming the key, rather than putting a table on another connection than the one meant.
 - Every shipped model takes its connection from the resolver when it is built: `SessionProof`, `SessionProvenance`,
   `OneTimeCode`, `Passkey`, `PasskeyChallenge`, `ApiKey` and `IdentifierChange` from `name()`,
-  `RateLimit` from `forRateLimits()`, and
-  the shipped `Session` from `name()` unless its class names a connection of its own. No persistence model reads the
-  session model, or `SessionRecords\SessionLookup`, for its connection.
+  `RateLimit` from `forRateLimits()`, and the shipped `Session` from `name()` unless its class names a connection of its
+  own. No persistence model reads the session model, or `SessionRecords\SessionLookup`, for its connection.
 - Every published migration's `getConnection()` returns the same value its model reads, and its collision guard,
   `create()` and `dropIfExists()` run on `Schema::connection($this->getConnection())`. Laravel's migrator runs a
   migration, and its schema transaction, on the connection the migration names, so `php artisan migrate` and a direct

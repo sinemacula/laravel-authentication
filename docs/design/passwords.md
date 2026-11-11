@@ -10,10 +10,10 @@ hashing, the write, the proofs and the revocation that follows them.
 
 ## Laravel's password broker, assessed
 
-The approval asks to build on Laravel's broker where it fits. Each place it could fit was assessed against what a reset
-must guarantee (single-use, expiring tokens stored hashed; consumed atomically with the password and the revocation; the
-same outcome, delivery and timing for an unknown identifier; per-identifier and per-IP limits counted in the database;
-every read that decides a proof on the write connection):
+Each place Laravel's broker could fit was assessed against what a reset must guarantee (single-use, expiring tokens
+stored hashed; consumed atomically with the password and the revocation; the same outcome, delivery and timing for an
+unknown identifier; per-identifier and per-IP limits counted in the database; every read that decides a proof on the
+write connection):
 
 - **The stock `PasswordBroker` with `DatabaseTokenRepository`.** `sendResetLink()` answers `INVALID_USER` for an
   unknown identifier and `RESET_THROTTLED` only for a known one, and sends the notification inline, so the answer and
@@ -50,8 +50,8 @@ and `set()` still apply the package's policy.
 
 Reset requests answer with `Codes\CodeRequest` and `Codes\Enums\CodeRequestStatus`, the code requests' types, rather
 than a reset type of their own: a link's token is issued, limited and cooled down by the same engine as a code, with
-the same four outcomes (`sent`, `rate_limited`, `method_not_allowed`, `identifier_invalid`) and fields, and a copy would
-only duplicate them.
+the same outcomes (`sent`, `rate_limited`, `deliveries_exhausted`, `method_not_allowed`, `identifier_invalid`) and
+fields, and a copy would only duplicate them.
 
 ## Invariants
 
@@ -88,10 +88,10 @@ only duplicate them.
 - A new password outdates every reset link and code still waiting for the identity, whatever the flow, and a change or a
   reset, which end sessions, outdates its sign-in codes too, and their revocation cancels its pending identifier changes
   (a registration ends no session and leaves them): the same transaction invalidates them (`OutdatedProofs`,
-  `RevocationWriter`), so a link or code someone
-  else obtained earlier (a forwarded mail, a mailbox read while it was compromised) cannot take the account back after
-  its owner recovers it, through any guard whose provider can return the identity. A guard whose provider reads another
-  table binds its links and codes to the identities there, so they are kept (`JwtGuards::namesFor()`).
+  `RevocationWriter`), so a link or code someone else obtained earlier (a forwarded mail, a mailbox read while it was
+  compromised) cannot take the account back after its owner recovers it, through any guard whose provider can return the
+  identity. A guard whose provider reads another table binds its links and codes to the identities there, so they are
+  kept (`JwtGuards::namesFor()`).
 
 ## Success Path
 
@@ -103,9 +103,9 @@ only duplicate them.
    `$identity->getConnection()->transaction()`:
    - a stored identity: one query-builder `UPDATE` of the password column (and `updated_at` when the model keeps
      timestamps) on its row by key without scopes, and for a registration only while the column is `null` or empty; 0
-     rows is a `LogicException`. No other dirty attribute is saved or
-     discarded and no model event fires, so `RevokeSessionsOnPasswordChange` neither sees the write nor undoes the
-     session a change kept. The model is given the hash with `forceFill()` and `syncOriginalAttributes()`.
+     rows is a `LogicException`. No other dirty attribute is saved or discarded and no model event fires, so
+     `RevokeSessionsOnPasswordChange` neither sees the write nor undoes the session a change kept. The model is given
+     the hash with `forceFill()` and `syncOriginalAttributes()`.
    - an unsaved identity (registration only): `forceFill()->save()`; a save a model event cancels is a `LogicException`.
    - `OutdatedProofs::invalidate()`: one `UPDATE` on the codes' table (see `one-time-codes.md`; each row keeps its
      delivery window and cooldown) that ends the reset link and code bindings, and for a change or a reset the sign-in
@@ -168,7 +168,8 @@ only duplicate them.
    released (`rate_limited`).
 4. Issue for the binding (`CodeBinding::passwordResetLink()` / `passwordReset()`, no identity): a token
    (`OneTimeCodes::issueToken()`: 32 random bytes, base64url, 43 characters, stored as its keyed hash, lifetime
-   `passwords.reset.link_ttl_seconds`) or a code (`issue()`). Within the resend cooldown: `rate_limited`.
+   `passwords.reset.link_ttl_seconds`) or a code (`issue()`). Within the resend cooldown: `rate_limited`; once the
+   delivery window has had `codes.max_deliveries`: `deliveries_exhausted`.
 5. `QueuedDelivery::dispatch(new SendPasswordReset($binding, $issued), new OneTimeCode)`; the answer is
    `CodeRequest::sent($expiresAt, $resendAvailableAt)`. No identity is looked up, so the statements and the time are the
    same for any identifier.
@@ -220,8 +221,7 @@ code to `OneTimeCodeSender` with the purpose `password_reset`; anyone else gets 
   rolls the password and the cutoff back but leaves the sessions revoked. More is ended, never less, and calling again
   finishes the job.
 - Laravel's `Password` rule in a form accepts a breached password, and a bcrypt password over 72 bytes or holding a null
-  character; `set()` refuses
-  both.
+  character; `set()` refuses both.
 - Two resets with one token or code: the conditional consume lets exactly one reset; the other is `invalid`.
 - A password write racing a reset or an identifier change confirmation on one identity: every transaction that writes an
   identity with its proofs locks the identity's row first (`Database\IdentityLock`). `set()` does it with its `UPDATE`,

@@ -2,8 +2,8 @@
 
 ## Purpose
 
-This note records the rule that `principal` and `sid` are treated as commitments, not best-effort hints. If a token
-claims a specific principal or session and the runtime cannot prove that claim, authentication fails.
+This note records the rule that `principal` and `sid` are commitments: if a token claims a specific principal or session
+and the runtime cannot prove that claim, authentication fails.
 
 ## Invariants
 
@@ -40,8 +40,8 @@ claims a specific principal or session and the runtime cannot prove that claim, 
 - A `sid` is checked against the session model's key format before any query; one that cannot be a key fails closed as
   an unresolved session, and a database error on a well-formed `sid` propagates instead of reading as a missing session.
 - Unsupported or transient identifiers stringify to `null` and therefore fail matching rather than being tolerated.
-- Failure attribution should still point at the already resolved identity when `principal` or `sid` rejection happens
-  late in the bearer flow.
+- Failure attribution still points at the already resolved identity when `principal` or `sid` rejection happens late in
+  the bearer flow.
 - `principal`, `sid`, and active-state checks run live on every request; nothing is cached across requests.
 - The identity, principal, tenant, and session reads behind those checks go to the write connection, so a lagging read
   replica cannot satisfy a `principal` or `sid`, or an activity check, the primary no longer recognises. The identity,
@@ -69,11 +69,11 @@ claims a specific principal or session and the runtime cannot prove that claim, 
 ## Failure / Edge Cases
 
 - The default resolver may fall through from a hinted miss to the 2D or 3D default principal path. The guard and the
-  refresh exchange explicitly prevent that fallback from becoming an auth downgrade by re-checking the resolved
-  identifier against the hinted `principal`.
+  refresh exchange prevent that fallback from becoming an auth downgrade by re-checking the resolved identifier against
+  the hinted `principal`.
 - Identities may implement `ResolvesHintedPrincipal` to short-circuit the hinted lookup, but a `null` / non-Principal
-  result still falls through to the existing default resolver path and is therefore subject to the same fail-closed
-  `principal` re-check.
+  result still falls through to the default resolver path and is therefore subject to the same fail-closed `principal`
+  re-check.
 - A resolver that returns an unsaved principal with a `null` identifier is rejected for the same reason.
 - On the bearer path, `sid` resolution is identity-scoped through `HasSessions`; a token that claims a session against
   an identity with no session capability fails closed instead of silently binding no session, and a `sessions()`
@@ -87,7 +87,7 @@ claims a specific principal or session and the runtime cannot prove that claim, 
 ## Implementation Anchors
 
 - `src/Guards/BearerAuthentication.php`: `authenticate()`, `admitAs()` (the exact `principal` match), `onSession()` and
-  `principalRefusal()`; `src/SessionRecords/OwnedSession.php`: `refusal()`, `actsAs()` and `isIssuedSinceSwitch()`,
+  `contextRefusal()`; `src/SessionRecords/OwnedSession.php`: `refusal()`, `actsAs()` and `isIssuedSinceSwitch()`,
   shared with the `attempt()` session pin.
 - `src/SessionRecords/IdentitySessions.php`: `find()`, the identity-scoped session lookup behind a bearer `sid`, a
   session pinned on `attempt()` and the session service's `revokeSession()`.

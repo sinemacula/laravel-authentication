@@ -44,8 +44,8 @@ to these events, so the shape and the timing are a contract.
 - Everything in a context is the snapshot: facts fixed at event time, the record audit sinks keep, which survives a
   queue unchanged; `toArray()` gives it as scalars (snake_case keys, `occurred_at` as an ISO 8601 UTC string to the
   microsecond, the client as `ip` and `user_agent` only, and `connection_id` and `request_reference`), a payload a sink
-  can store or queue on its own. It is attribution, not the whole record: the event's class and its own fields (a
-  failure's flow, reason and challenge, a switch's previous principal) say what happened.
+  can store or queue on its own. It is attribution only: the event's class and its own fields (a failure's flow, reason
+  and challenge, a switch's previous principal) say what happened.
 - No package event holds a model. `EventContext` takes the identity, principal, tenant and session as constructor inputs
   only, reads their types and identifiers once and keeps none of them, and an event's own fields are values too
   (`PrincipalSwitched` keeps the previous principal's morph class and identifier, not the principal). So no package
@@ -97,8 +97,9 @@ to these events, so the shape and the timing are a contract.
   `code_exhausted`, `passkey_challenge_invalid`, `passkey_challenge_expired`, `passkey_challenge_used` and
   `passkey_counter_regressed`); any other reason is the session service's to give, and a method that returns one is a
   misconfiguration (`LogicException`). A concealed reason (`FailureReason::isConcealed()`: `account_rate_limited`,
-  `code_expired`, `code_exhausted`, `passkey_counter_regressed`) reaches only the event: `SignInResult::failed()`
-  answers it as `invalid_credentials`, with no wait, so the client learns nothing a guess could use.
+  `code_expired`, `code_exhausted`, `link_expired`, `passkey_counter_regressed`) reaches only the event:
+  `SignInResult::failed()` answers it as `invalid_credentials`, with no wait, so the client learns nothing a guess could
+  use.
 - `RefreshTokenExchange::exchange()` returns its `AuthenticationFailed` undispatched and its caller (the guard)
   dispatches it; the exchange itself dispatches only `SessionRevoked`, after commit.
 
@@ -127,9 +128,8 @@ to these events, so the shape and the timing are a contract.
   reaches the caller, and the events still never fire for a rolled-back write. With no transaction open they are
   dispatched before the bind events, so a listener on them reads the context, not the guard; inside a transaction they
   follow its commit, and the bind events of a sign-in, a refresh or a switch follow them there, since each binds only
-  once it commits. A
-  listener that throws on a lifecycle event propagates as any listener does and stops what follows it, so independence
-  from bind listeners is the guarantee, not delivery to every subscriber.
+  once it commits. A listener that throws on a lifecycle event propagates as any listener does and stops what follows
+  it, so only independence from bind listeners is guaranteed.
 - Revocation: each `SessionRevoked` carries the revoked session, the session's own guard and the method it records, with
   the identity, principal and tenant the revocation knew, and the snapshots of the owner and principal the row records
   for those it did not; a bulk revocation then dispatches one `SignedOutEverywhere` per scope with the acting guard, the
@@ -249,7 +249,7 @@ to these events, so the shape and the timing are a contract.
 - `tests/Feature/Sessions/SessionServiceTest.php`
   `testAMethodThatRefusesWithAServiceReasonIsAMisconfiguration`, `testASignInWhoseBindListenerThrowsIsStillReported`,
   `testAStartedSessionWhoseBindListenerThrowsIsStillReported`,
-  `testAnActivationWhoseBindListenerThrowsIsStillReportedAndGivesItsSlotsBack`,
+  `testAnActivationWhoseBindListenerThrowsIsStillReportedAndKeepsItsSlots`,
   `testAnActivationWhoseBindListenerThrowsFollowsTheCallersTransaction`, `testALifecycleListenerThatThrowsStopsTheBind`
 - `tests/Feature/Sessions/SessionSwitchTest.php`
   `testASwitchWhoseBindListenerThrowsIsStillReported`, `testASwitchWhoseBindListenerThrowsIsReportedOnTheCallersCommit`

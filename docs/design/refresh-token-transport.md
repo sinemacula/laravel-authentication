@@ -53,9 +53,9 @@ a cookie application's results hand back the cookie instead of the token.
   and the expiry: the earlier of the session's deadlines, read on the write connection, which is the token's own
   `exp`) at the three places a result leaves the service: `SessionService::bound()` (sign-in, `start()`, activation by
   `satisfy()` and `choose()`), `SessionRefresh` (refresh) and `SessionService::switched()` (switch), keeping the
-  pair's `expiresAt` and `expiresIn`, which are the access token's. `RefreshCookie`
-  makes the Symfony `Cookie` only on `cookie()`, since a `Cookie` shows its value to dumps and serialises it;
-  `attachTo()` adds it to a response and marks the response `no-store`. `deliver()` adds no query.
+  pair's `expiresAt` and `expiresIn`, which are the access token's. `RefreshCookie` makes the Symfony `Cookie` only on
+  `cookie()`, since a `Cookie` shows its value to dumps and serialises it; `attachTo()` adds it to a response and marks
+  the response `no-store`. `deliver()` adds no query.
 - `forgetCookie()` makes the same cookie, empty and expired; a path limits where a browser sends a cookie, not which
   response may set it, so a route outside the path may clear it. A response may carry it only for a request that
   signed its session out by its access token (which a cross-site page cannot send) or that passes
@@ -85,17 +85,16 @@ a cookie application's results hand back the cookie instead of the token.
   (`SessionPreconditions::crossSite()`) after the transport is built and before the package's first read or write (only
   the driver's resolution, the identifier's extraction and `Attempting` listeners, the application's code, run before it
   on `signIn()`), and refresh, switch and sign-out judge the token through `judge()`, which makes the same checks on the
-  client given. Without it a cross-site page could
-  auto-submit a form with an attacker's credentials and leave the attacker's refresh cookie in the victim's browser (a
-  browser keeps a `SameSite=Strict` cookie set by the response to a top-level navigation), where the victim's own
-  scripts would then pass every refresh check. `signIn()` and `start()` judge the `SignInContext`'s client, `satisfy()`
-  and `choose()` the `ClientContext` they are given, each a required plain value. The check is pure (no query,
-  no lock, no event of its own) and fails closed. A body application is never refused. `signInExternally()` is exempt:
-  an external provider's callback is a cross-site top-level navigation by design, so the defence is the adapter's to
-  keep, and the guides require it of an adapter that calls `signInExternally()`: it binds its `state` and nonce to the
-  browser that began the flow, refuses a callback that does not match them, and redeems the result once, through a
-  single-use handoff, for that browser. `isSameSiteRequest()` and `isSameSiteClient()` stay public for an application's
-  own routes, such as one that clears the cookie.
+  client given. Without it a cross-site page could auto-submit a form with an attacker's credentials and leave the
+  attacker's refresh cookie in the victim's browser (a browser keeps a `SameSite=Strict` cookie set by the response to a
+  top-level navigation), where the victim's own scripts would then pass every refresh check. `signIn()` and `start()`
+  judge the `SignInContext`'s client, `satisfy()` and `choose()` the `ClientContext` they are given, each a required
+  plain value. The check is pure (no query, no lock, no event of its own) and fails closed. A body application is never
+  refused. `signInExternally()` is exempt: an external provider's callback is a cross-site top-level navigation by
+  design, so the defence is the adapter's to keep, and the guides require it of an adapter that calls
+  `signInExternally()`: it binds its `state` and nonce to the browser that began the flow, refuses a callback that does
+  not match them, and redeems the result once, through a single-use handoff, for that browser. `isSameSiteRequest()` and
+  `isSameSiteClient()` stay public for an application's own routes, such as one that clears the cookie.
 - The pending credential is never a cookie: a cookie application's pending results carry it in the body.
 
 ## Success Path
@@ -113,19 +112,18 @@ a cookie application's results hand back the cookie instead of the token.
   (`PendingTransitions` built with it, `forClient()` for a switch), and so does the guard's bind: `SessionRefresh` hands
   it to `GuardBinding::loginVerified()` and the switch to `authenticateAs()`, so `PrincipalAssigned` and
   `SessionAuthenticated`, and the last use `SessionAuthenticated` records, are that client's, as they are for
-  `signIn()`, `start()` and
-  `signInExternally()` given a `SignInContext`. The client is a parameter of that one bind, never guard state, so the
-  guard's later events (and the next request on a long-lived worker) describe its own request. A cookie application's
-  refreshed pair carries the `RefreshCookie`; a sign-out's result the expired cookie only for a same-site client whose
-  token was not refused as a conflict. A sign-out binds nothing.
+  `signIn()`, `start()` and `signInExternally()` given a `SignInContext`. The client is a parameter of that one bind,
+  never guard state, so the guard's later events (and the next request on a long-lived worker) describe its own request.
+  A cookie application's refreshed pair carries the `RefreshCookie`; a sign-out's result the expired cookie only for a
+  same-site client whose token was not refused as a conflict. A sign-out binds nothing.
 
 ## Failure / Edge Cases
 
 - A refusal by the judgement dispatches `Attempting`, `Failed` and `AuthenticationFailed` (flow `refresh`, the reason,
   the guard and the client given, no identity) and returns a failed `RefreshResult` with the reason and the `source` it
   was presented from; a reason handed in, the same with no `source`. A switch's refusal dispatches only
-  `AuthenticationFailed` (flow `switch`), a sign-out's only `AuthenticationFailed` (flow `sign_out`).
-  It reaches no session and no limit.
+  `AuthenticationFailed` (flow `switch`), a sign-out's only `AuthenticationFailed` (flow `sign_out`). It reaches no
+  session and no limit.
 - A plain refusal (a reason handed in, or `judge()`'s) is reported with the client given and costs no query; a refused
   token's result carries its `source`, a reason handed in none. `null` answers `null` (refresh) or nothing signed out,
   dispatching nothing.
@@ -153,8 +151,8 @@ a cookie application's results hand back the cookie instead of the token.
 - `src/Sessions/SessionService.php`: `signIn()`, `start()`, `satisfy()`, `choose()`, `bound()`;
   `src/Sessions/Concerns/SwitchesSessions.php`: `switchTo()`, `refuseSwitch()`, `switched()`;
   `src/Sessions/SessionRefresh.php`: `refresh()`, `credential()`, `handedIn()`; and `src/Sessions/SessionSignOut.php`:
-  `signOutWith()`; which build the application's transport from the
-  configuration (`RefreshTokenTransport::forGuard()`), as the guard's own factory does.
+  `signOutWith()`; which build the application's transport from the configuration (`RefreshTokenTransport::forGuard()`),
+  as the guard's own factory does.
 - `src/Http/RefreshTokenSettings.php`: `forGuard()`.
 - `src/Guards/JwtGuard.php`: `refreshTransport()`.
 - `src/AuthManager.php`: `refreshTransport()`.
