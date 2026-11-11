@@ -234,7 +234,7 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
 
         $this->clearContextualState();
 
-        $this->bindContext($user, $principal, null, self::boundTenant($principal), null);
+        $this->bindContext($user, $principal, null, TrustedTenant::of($principal, null), null);
 
         return $this;
     }
@@ -341,7 +341,7 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
             $identity,
             $principal,
             $session,
-            $tenant ?? self::trustedTenant($principal, $session),
+            $tenant ?? TrustedTenant::of($principal, $session),
             $session?->getSignInMethod(),
             false,
             null,
@@ -468,7 +468,7 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
      */
     protected function bindAuthenticationLifecycle(Identity $identity, Principal $principal, ?Session $session = null, ?ClientContext $client = null): void
     {
-        $this->bindVerifiedContext($identity, $principal, $session, self::trustedTenant($principal, $session), $session?->getSignInMethod(), true, client: $client);
+        $this->bindVerifiedContext($identity, $principal, $session, TrustedTenant::of($principal, $session), $session?->getSignInMethod(), true, client: $client);
     }
 
     /**
