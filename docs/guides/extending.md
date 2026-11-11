@@ -487,6 +487,21 @@ replaces a default even once it has resolved, for every caller that resolves it 
 not, as Laravel loads one only for a service that has no instance yet. Resolve none of them while providers register,
 or a deferred provider's binding of it is passed over.
 
+A package that ships its own adapter for one of these contracts but should give way to the application's binds it only
+when `AuthenticationServiceProvider::isPackageDefault($app, $contract)` is `true`, from its `register()` or after boot:
+
+```php
+use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
+
+if (AuthenticationServiceProvider::isPackageDefault($this->app, AdditionalFactorPolicy::class)) {
+    $this->app->singleton(AdditionalFactorPolicy::class, FactorPolicy::class);
+}
+```
+
+It is `true` for a contract from `PrincipalResolver` to `AuthenticationContexts` still bound to the package's default,
+resolved or not, and `false` for anything else: an unbound contract, another binding, an alias, an `extend()` or an
+`instance()` of another class. An `extend()` of a resolved default that returns the default's class goes unseen.
+
 A `FreshnessPolicy` of your own is asked `freshProof()` plainly wherever the package judges a session without its lock,
 and with the read mode set (`current: true`) under a session's lock (the factor-change gate, an identifier change
 request, a password establishment), and `freshUntil()` takes the same mode for a caller of yours. Honour it: one that
