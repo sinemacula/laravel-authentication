@@ -575,6 +575,40 @@ final class TenantPolicyChangesTest extends TestCase
     }
 
     /**
+     * The second pass still runs when the request ends after a commit callback
+     * of the application's, registered first, threw.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheSecondPassRunsAtTheEndOfTheRequestWhenAnEarlierCommitCallbackThrew(): void
+    {
+        [, , $tenant] = $this->seedMember();
+
+        $session = $this->signedIn()->record->getKey();
+
+        DB::beginTransaction();
+        DB::afterCommit(static fn () => throw new \RuntimeException('application'));
+
+        self::assertSame(0, $this->sessions('members')->tenantPolicyChanged($tenant));
+
+        $this->policy->requirement = new TenantRequirement('v1', connections: ['conn-a']);
+
+        try {
+            DB::commit();
+        } catch (\RuntimeException $exception) {
+            self::assertSame('application', $exception->getMessage());
+        }
+
+        self::assertNull($this->rowOf($session)->getRevokedAt());
+
+        app()->terminate();
+
+        self::assertSame(RevocationReason::TENANT_POLICY_CHANGED->value, $this->rowOf($session)->getRevokedReason());
+    }
+
+    /**
      * Register the session guards.
      *
      * @param  mixed  $app
