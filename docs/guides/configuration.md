@@ -377,8 +377,8 @@ By default, every guard uses the app-wide `PrincipalResolver` binding. Any guard
 ],
 ```
 
-Precedence: guard-local `principal_resolver` → app-wide `PrincipalResolver::class` binding → package default
-`DefaultPrincipalResolver`. The same resolver is used on bearer-token and refresh paths.
+Precedence: the guard-local `principal_resolver`, then the app-wide `PrincipalResolver::class` binding, then the
+package default `DefaultPrincipalResolver`. The same resolver is used on bearer-token and refresh paths.
 
 ## Session
 
@@ -892,13 +892,13 @@ database applies atomically. A database error propagates as a server error: a li
 through. The one exception is giving back a completed further factor's slots after its commit, which is reported instead
 (see [Writing a sign-in method](signing-in.md#writing-a-sign-in-method)).
 
-> **Transactions:** the counters live on `rate_limits.connection`, the storage connection (see [Storage](#storage)) when
-> `null`. Counts written on the same connection as a transaction you open around a sign-in are rolled back with it, so a
-> sign-in that your code rolls back is not counted, and attempts made that way are not limited. If you wrap sign-ins in
-> transactions you may roll back, point `rate_limits.connection` at a connection of its own (a second connection to the
-> same database will do). Do the same on MySQL when you call a limited flow, such as an identifier change request,
-> inside a transaction of yours: until your commit, a counter's row stays locked, and so does the gap of the index a
-> counter not created yet would go in, so two such transactions that each create a counter in one gap deadlock.
+The counters live on `rate_limits.connection`, the storage connection (see [Storage](#storage)) when `null`. Counts
+written on the same connection as a transaction you open around a sign-in are rolled back with it, so a sign-in that
+your code rolls back is not counted, and attempts made that way are not limited. If you wrap sign-ins in transactions
+you may roll back, point `rate_limits.connection` at a connection of its own (a second connection to the same database
+will do). Do the same on MySQL when you call a limited flow, such as an identifier change request, inside a transaction
+of yours: until your commit, a counter's row stays locked, and so does the gap of the index a counter not created yet
+would go in, so two such transactions that each create a counter in one gap deadlock.
 
 Ended windows stay in the table until they are pruned. Schedule Laravel's pruning command with the attempt model and
 the session model (which prunes expired pending sessions too), as shown in [Pruning sessions](operations.md#pruning).

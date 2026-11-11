@@ -76,8 +76,8 @@ checker throws propagates.
 
 `check($password)` gives the policy's verdict, a `PasswordCheck` whose `violations` list every rule the password breaks
 (`passes()` when there is none), as `PasswordViolation` cases: `too_short`, `too_long`, `null_character`, `letters`,
-`mixed_case`,
-`numbers`, `symbols`, and, only once the others pass, `breached` or `breach_check_unavailable`. `rule()` returns
+`mixed_case`, `numbers`,
+`symbols`, and, only once the others pass, `breached` or `breach_check_unavailable`. `rule()` returns
 Laravel's `Password` rule with the same length and composition, for a form request's validation:
 
 ```php
@@ -87,8 +87,8 @@ $request->validate(['password' => ['required', 'confirmed', Auth::passwords('api
 ```
 
 The rule runs no breached check (it does not add `uncompromised()`) and cannot see bcrypt's byte limit or its null
-character, so `set()` (or
-`check()`) has the last word. It is built from the package's settings, not from `Password::defaults()`: a form that
+character, so `set()` (or `check()`)
+has the last word. It is built from the package's settings, not from `Password::defaults()`: a form that
 validates with your own defaults is checked against those, and `set()` still applies the package's policy. The
 policy applies only to passwords being set: the automatic rehash of an outdated hash on sign-in re-encodes the password
 the identity already has, so an older password shorter than today's minimum still signs in, and is rehashed.
@@ -96,10 +96,10 @@ the identity already has, so an older password shorter than today's minimum stil
 ## Changing or establishing a password
 
 `change($session, $current, $password, $client)` changes the password of the identity signed in with `$session`, given
-its current one; `establish($session, $password, $client)` gives an
-identity that has no password (one that signs in by code, a passkey or an external provider) its first, on the strength
-of a recent authentication. Both keep `$session` signed in and end every other session of the identity, through every
-guard, pending ones included, moving its cutoff, and answer a `PasswordResult`:
+its current one; `establish($session, $password, $client)` gives an identity that has no password (one that signs in by
+code, a passkey or an external provider) its first, on the strength of a recent authentication. Both keep `$session`
+signed in and end every other session of the identity, through every guard, pending ones included, moving its cutoff,
+and answer a `PasswordResult`:
 
 ```php
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -156,11 +156,10 @@ default, any proof made within the last 900 seconds, so a session signed in mome
 one reauthenticates first. The freshness is judged under the identity's and the session's locks, the freshness policy
 asked current, on the session's proofs as committed (see [Issuance order](sessions.md#issuance-order)): a proof voided
 before the establishment never counts, and one recorded before it does, whatever a transaction of yours around the call
-read first. The password is written
-only while the row still has none, in the same statement, so of two establishments, or an establishment and a reset, at
-most one writes; every other session ends (`password_established`), and `PasswordSet` reports the flow
-`establishment`. Every refusal but a rejected password is reported by `AuthenticationFailed` on the `password_change`
-flow.
+read first. The password is written only while the row still has none, in the same statement, so of two establishments,
+or an establishment and a reset, at most one writes; every other session ends (`password_established`), and
+`PasswordSet` reports the flow `establishment`. Every refusal but a rejected password is reported by
+`AuthenticationFailed` on the `password_change` flow.
 
 On MySQL and MariaDB at REPEATABLE READ the judgement's read of the proofs holds the gaps beside the session's proofs
 until the establishment's transaction ends (yours, when you wrap the call), and the establishment then ends the
@@ -172,12 +171,11 @@ transaction back and retry it.
 
 ## Setting a password
 
-`set($identity, $password, $flow, $client, ?Session $except = null)` applies the policy, and only
-a password that passes is hashed with Laravel's `Hasher` and stored; a password that fails writes nothing and reports
-nothing. The result is a `PasswordResult`: `set` (or `isSet()`), the `violations` when it was not, and how many sessions
-the flow `revoked`. The events report `$client`: the request's `ClientContext`, or, from a queued job or a console
-command, one built for the client it acts for. The `PasswordFlow` decides what else happens, in one
-transaction on the identity's connection:
+`set($identity, $password, $flow, $client, ?Session $except = null)` applies the policy, and only a password that passes
+is hashed with Laravel's `Hasher` and stored; a password that fails writes nothing and reports nothing. The result is a
+`PasswordResult`: `set` (or `isSet()`), the `violations` when it was not, and how many sessions the flow `revoked`. The
+events report `$client`: the request's `ClientContext`, or, from a queued job or a console command, one built for the
+client it acts for. The `PasswordFlow` decides what else happens, in one transaction on the identity's connection:
 
 | Flow           | For                                                       | Ends                                                |
 |----------------|-----------------------------------------------------------|-----------------------------------------------------|
@@ -228,30 +226,30 @@ Route::middleware('auth:api')->put('/password', function (Request $request, Atte
 on the server, never from input, because a registration ends no session. Prefer `change()`, which does all of the
 following for you; with `set()`, ask for a recent reauthentication before a change, as above, so a stolen session cannot
 change the password and keep itself signed in. An establishment is `establish()`'s alone (`set()` refuses the flow with
-an `InvalidArgumentException`). Checking the current
-password with the provider's `validateCredentials()` counts no attempt, so the route takes a slot of the guard's
-`sign_in` limits from the bound `AttemptLimiter` first, as a sign-in's password does, counted in the database for the
-identifier and the IP address, and gives it back once the password is right. The transaction locks the identity's row
-before the current password is checked and holds it through `set()`, so a reset racing the change comes either before
-the check, which then fails against the reset's password, or after the change, whose new password outdates the reset's
-link or code. Without the lock, a request that checked the old password before a reset could set its own after it. The
-current password is checked against the row the transaction locked, not against an identity looked up by its address: by
-then another identity may hold the address the session was opened with. Take and give back the slot outside the
-transaction: inside it, the counters' rows would stay locked until the commit, and on MySQL two transactions that each
-create a counter in the same gap of the index deadlock. A change ends every session of the identity, through every
-guard, but the session in `$except` (the request's own session, to keep it signed in; `null` ends them all); a reset
-ends every session. Both move the identity's "tokens valid after" cutoff when it keeps one, its pending sessions ended
-with the rest (see [Revoking on security changes](sessions.md#revoking-on-security-changes)), and report each revoked
-session with `SessionRevoked` and then `SignedOutEverywhere`. `$except` is for a change only. Whatever the flow, the
-same transaction invalidates every password reset link and code still waiting for the identity's identifiers, through
-every guard whose provider returns the identity (a provider whose configuration names no model, a custom
-`Auth::provider()` driver, is assumed to; see [Password reset](#password-reset)): a link or code someone else obtained
-before cannot take the account back once its owner has set a new password. A change or a reset also invalidates the
-sign-in codes waiting for those identifiers, which would open a session after the ones it ended, and cancels every
-identifier change the identity has pending (see [Changing identifiers](identifier-changes.md)); a registration ends no
-session and leaves them. The identifiers are those its row holds, read again inside the transaction, so a model you
-loaded with only some columns, or before its identifier changed, outdates them all. A guard whose provider's configured
-model reads another table binds its links and codes to the identities there, so they are left alone.
+an `InvalidArgumentException`). Checking the current password with the provider's `validateCredentials()` counts no
+attempt, so the route takes a slot of the guard's `sign_in` limits from the bound `AttemptLimiter` first, as a sign-in's
+password does, counted in the database for the identifier and the IP address, and gives it back once the password is
+right. The transaction locks the identity's row before the current password is checked and holds it through `set()`, so
+a reset racing the change comes either before the check, which then fails against the reset's password, or after the
+change, whose new password outdates the reset's link or code. Without the lock, a request that checked the old password
+before a reset could set its own after it. The current password is checked against the row the transaction locked, not
+against an identity looked up by its address: by then another identity may hold the address the session was opened with.
+Take and give back the slot outside the transaction: inside it, the counters' rows would stay locked until the commit,
+and on MySQL two transactions that each create a counter in the same gap of the index deadlock. A change ends every
+session of the identity, through every guard, but the session in `$except` (the request's own session, to keep it signed
+in; `null` ends them all); a reset ends every session. Both move the identity's "tokens valid after" cutoff when it
+keeps one, its pending sessions ended with the rest (see [Revoking on security
+changes](sessions.md#revoking-on-security-changes)), and report each revoked session with `SessionRevoked` and then
+`SignedOutEverywhere`. `$except` is for a change only. Whatever the flow, the same transaction invalidates every
+password reset link and code still waiting for the identity's identifiers, through every guard whose provider returns
+the identity (a provider whose configuration names no model, a custom `Auth::provider()` driver, is assumed to; see
+[Password reset](#password-reset)): a link or code someone else obtained before cannot take the account back once its
+owner has set a new password. A change or a reset also invalidates the sign-in codes waiting for those identifiers,
+which would open a session after the ones it ended, and cancels every identifier change the identity has pending (see
+[Changing identifiers](identifier-changes.md)); a registration ends no session and leaves them. The identifiers are
+those its row holds, read again inside the transaction, so a model you loaded with only some columns, or before its
+identifier changed, outdates them all. A guard whose provider's configured model reads another table binds its links and
+codes to the identities there, so they are left alone.
 
 A stored identity gets one query-builder update of its password column (and `updated_at` when the model keeps
 timestamps) on its own row, without its scopes: nothing else you changed on the model is saved or discarded, and no
@@ -383,7 +381,7 @@ in the URL's fragment (`https://app.example/reset#token=...`), which a browser n
 page post it in a JSON body, as the mailer above does; with Laravel's notification, `ResetPassword::createUrlUsing()`
 builds that link. There is no lookup of a reset's status (whether a token is still valid, or whose it is): it would tell
 anyone holding or guessing a token, or an identifier, what a reset's answer deliberately does not, and a reset submitted
-with an expired or spent token simply answers `invalid`. The identifier as given and the IP address are counted under
+with an expired or spent token answers `invalid`. The identifier as given and the IP address are counted under
 the `password_reset` limits before anything else, so a flood of guesses never reaches the hasher or your
 breached-password checker; a reset that succeeds gives its slots back. The rest runs inside the guard's credential
 timebox (see [Credential validation timing](configuration.md#credential-validation-timing)): a missing or malformed
@@ -411,10 +409,10 @@ model's connection (which the codes' table shares): a guard whose provider's mod
 `LogicException` naming both connections from a request for a link or code and from a reset, before anything is counted
 or issued, and `authentication:check` warns about it. A provider whose configuration names no model (a custom
 `Auth::provider()` driver) cannot be checked in advance: its identity is checked once a reset's proof is accepted, so
-only someone holding a valid link or code ever sees the refusal, and the proof stays unspent. Of two
-resets with one token or code exactly one resets; a reset that loses to a newer link or code is `invalid`; and any
-failure after the proof is accepted undoes the proof, the password, the cutoff and the revocations together: at once
-outside a transaction of yours, and inside one once you roll it back.
+only someone holding a valid link or code ever sees the refusal, and the proof stays unspent. Of two resets with one
+token or code exactly one resets; a reset that loses to a newer link or code is `invalid`; and any failure after the
+proof is accepted undoes the proof, the password, the cutoff and the revocations together: at once outside a transaction
+of yours, and inside one once you roll it back.
 
 Inside a transaction of yours the reset's transaction is nested in it: a refused proof completes it with its attempt
 counted, kept only when you commit; a proof accepted for no identity that may reset rolls back only what the reset

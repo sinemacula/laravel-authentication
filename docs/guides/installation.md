@@ -4,10 +4,11 @@
 composer require sinemacula/laravel-authentication
 ```
 
-Publish the config and the migrations (the `authentication_sessions`, `rate_limits`,
-`one_time_codes`, `passkeys`, `passkey_challenges`, `api_keys` and `identifier_changes` tables, created on the storage
-connection: the default connection unless `authentication.storage.connection` names another, see
-[Storage](configuration.md#storage)), then migrate:
+Publish the config and the migrations (the `authentication_sessions`, `authentication_proofs`,
+`authentication_provenance`, `authentication_connection_guards`, `rate_limits`, `one_time_codes`, `passkeys`,
+`passkey_challenges`, `api_keys` and `identifier_changes` tables, created on the storage connection: the default
+connection unless `authentication.storage.connection` names another, see [Storage](configuration.md#storage)), then
+migrate:
 
 ```bash
 php artisan vendor:publish --tag=authentication-config
@@ -16,9 +17,9 @@ php artisan migrate
 ```
 
 Each migration refuses to run over an existing table of the same name, before changing anything, with a
-`TableAlreadyExistsException` that names the configuration key renaming its table (`session.table`,
-`rate_limits.table`, `codes.table`, `passkeys.table`, `passkeys.challenges_table`,
-`api_keys.table`, `identifier_changes.table`).
+`TableAlreadyExistsException` that names the configuration key renaming its table (`session.table`, `proofs.table`,
+`proofs.provenance_table`, `proofs.guards_table`, `rate_limits.table`, `codes.table`, `passkeys.table`,
+`passkeys.challenges_table`, `api_keys.table`, `identifier_changes.table`).
 
 Generate a random JWT signing key into `.env`:
 
@@ -26,7 +27,7 @@ Generate a random JWT signing key into `.env`:
 echo "AUTHENTICATION_JWT_KEY=$(openssl rand -base64 48)" >> .env
 ```
 
-Signing keys are always configured as a `kid → secret` map. Out of the box the map holds one key, `default`, read from
+Signing keys are a map of kid to secret. By default the map holds one key, `default`, read from
 `AUTHENTICATION_JWT_KEY`, and `AUTHENTICATION_JWT_ACTIVE_KID` (default `default`) selects the key that signs new
 tokens. Every token carries its kid in the JWT header. See [Key Rotation](operations.md#key-rotation) for adding keys.
 
@@ -89,9 +90,8 @@ Non-human identities authenticate with API keys on a guard of the `api_key` driv
 
 A guest on a route that only package guards protect (`auth:api`, or `auth` when the default guard is a package guard)
 gets `401` with `{"message": "Unauthenticated."}` in the application's locale (see [below](#localising-messages)),
-whatever its `Accept` header. The guards are stateless, so there is no login page to redirect to, and an API without a
-`login` route no longer answers browser-style requests with a server error. Laravel's own guards keep their guest
-redirect, and so does a route that also accepts one of them (`auth:web,api`).
+whatever its `Accept` header. The guards are stateless, so there is no login page to redirect to. Laravel's own guards
+keep their guest redirect, and so does a route that also accepts one of them (`auth:web,api`).
 
 The package binds its `SineMacula\Laravel\Authentication\Http\Middleware\Authenticate` in place of Laravel's `auth`
 middleware and registers the `401` as an exception-handler render callback, after any your application registers for

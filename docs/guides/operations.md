@@ -6,10 +6,9 @@ checking the configuration before a deploy.
 
 ## Read replicas
 
-Every read that decides authentication - the identity, the principal and the tenant it acts within, the session with its
-guard, sign-in method, refresh digests, rotation time, session deadlines and revocation state, and the session's proofs
-
-- goes to the write connection, even when the database connection has `read` and `write` hosts. A replica can lag behind
+Every read that decides authentication (the identity, the principal and the tenant it acts within, the session with its
+guard, sign-in method, refresh digests, rotation time, session deadlines and revocation state, and the session's proofs)
+goes to the write connection, even when the database connection has `read` and `write` hosts. A replica can lag behind
 a revocation, a deactivation, a refresh rotation, or an ended session, and a lookup it served could admit a credential
 the primary has already rejected.
 
@@ -60,16 +59,11 @@ applies to that request alone) and the dispatcher bound in it. The sign-in metho
 method registered at boot included, and so are the revoking listeners' session services, though the event dispatcher
 builds those listeners with the booted application. Keep Octane's default listeners (`FlushAuthenticationState` and
 `FlushTemporaryContainerInstances` among them), and leave the package's services out of `octane.warm`: a service warmed
-at boot keeps the booted configuration, so a request that changes its own would not reach it. The package is tested
-through Octane's own worker, sandbox and listeners (without a server), across sequences of requests: people of different
-tenants and principals on different applications, a switch of principal and tenant, an API key, a client credentials
-token, a request that throws after authenticating, a sign-in that ends pending and its pending credential, and queued
-jobs between them, in either order, each request seeing only its own identity, principal, tenant, session, scopes,
-caller, default guard and authentication context (`Auth::context()`), and reporting only its own failures. A context
-contributor is resolved from the container serving the request each time a context is built, so one that depends on a
-scoped service gets that request's instance. Register contributors only in a provider's `boot()`: the registry the boot
-resolved is the one every request's sandbox shares, so a registration made inside a request outlives it, reaches every
-later request the worker serves, and the same registration in the next request throws as a duplicate.
+at boot keeps the booted configuration, so a request that changes its own would not reach it. A context contributor is
+resolved from the container serving the request each time a context is built, so one that depends on a scoped service
+gets that request's instance. Register contributors only in a provider's `boot()`: the registry the boot resolved is the
+one every request's sandbox shares, so a registration made inside a request outlives it, reaches every later request the
+worker serves, and the same registration in the next request throws as a duplicate.
 
 Outside Octane, each request rebinds Laravel's `request`, which resets every package guard already resolved: the
 identity, principal and session it bound, and whether it has resolved the request. A queue worker forgets only scoped
@@ -117,10 +111,9 @@ for as long as it runs. To change a kept setting, change the configuration and r
 Like every setting, a change to an application's `application.methods` in the configuration files reaches a long-running
 process only after the restart above; the list itself is read on every use, so a runtime `config([...])` applies at
 once. Emptying the list (or removing a method) to stop an application's sign-ins and refreshes is therefore a deploy
-plus a worker restart, after which every sign-in, refresh, switch, one-time code and password reset request
-and machine credential it no longer lists is refused (see [Applications](configuration.md#applications)). Nothing is
-revoked: access tokens already issued keep working until they expire, and sessions refresh again once the method is
-listed again.
+plus a worker restart, after which every sign-in, refresh, switch, one-time code and password reset request and machine
+credential it no longer lists is refused (see [Applications](configuration.md#applications)). Nothing is revoked: access
+tokens already issued keep working until they expire, and sessions refresh again once the method is listed again.
 
 Under Octane, each request runs in a copy of the application with its own copy of the configuration. A singleton first
 resolved while a request is served, the token service factory included, lives only as long as that request; one resolved
@@ -130,7 +123,7 @@ reads the worker's configuration, not the request's copy.
 
 ## Key Rotation
 
-Signing keys live in `jwt.keys` as a `kid → secret` map, and `jwt.active_kid` names the key that signs new tokens.
+Signing keys live in `jwt.keys` as a `kid -> secret` map, and `jwt.active_kid` names the key that signs new tokens.
 New tokens carry the active kid in their JWT header; the verifier accepts any kid in the map. To rotate, add the new
 key to the published `config/authentication.php` alongside the current one and point `active_kid` at it:
 
@@ -164,24 +157,23 @@ The application key (`APP_KEY`) is not the JWT signing key, but a few things the
 signing keys in `jwt.keys` are configured on their own (see [Key Rotation](#key-rotation)): rotating `APP_KEY` does not
 sign, verify or invalidate any token, and rotating a signing key does not touch what follows.
 
-- **Attempt counters.** The keys the attempt limiter stores its counters under are HMAC digests keyed from the
-  application key. A new `APP_KEY` digests every identifier, IP address and account to a new key, so every counter
-  starts afresh: the limits reset in effect, and the old counters sit unused until their windows end and they are
-  pruned. The limiter looks nothing up under a previous key.
-- **One-time codes.** The hash of a code, the digest that binds it to its identifier and the digest of the transaction
-  it belongs to are each keyed from `authentication.codes.key` when you set it (at least 32 bytes), and from the
-  application key when you do not. With no explicit key, a new `APP_KEY` makes every outstanding code fail, a code
-  already sent included, and the one-live-code binding and the windows kept under the old digests are no longer found,
-  so a user asks for a new code. There is no previous-key support. Set `authentication.codes.key`
-  (`AUTHENTICATION_CODES_KEY`) to isolate codes from `APP_KEY`: they then survive its rotation, and are rotated, with
-  the same effect, only by changing that key.
-- **Signed links.** Laravel validates a signed link against the current application key and the keys listed in
-  `app.previous_keys`, and so does the package (`Http\SignedLink`), so a link signed before a rotation stays valid until
-  it expires if the old key is listed.
-- **Queued delivery.** The jobs that deliver a code, a password reset or an identifier-change notice are encrypted on
-  the queue with the application key, and Laravel decrypts them with the current key and `app.previous_keys` alike.
-  Removing an old key from `app.previous_keys` while such jobs are still waiting (or being retried) strands their
-  payloads: they fail to decrypt and cannot be delivered.
+- The keys the attempt limiter stores its counters under are HMAC digests keyed from the application key. A new
+  `APP_KEY` digests every identifier, IP address and account to a new key, so every counter starts afresh: the limits
+  reset in effect, and the old counters sit unused until their windows end and they are pruned. The limiter looks
+  nothing up under a previous key.
+- The hash of a code, the digest that binds it to its identifier and the digest of the transaction it belongs to are
+  each keyed from `authentication.codes.key` when you set it (at least 32 bytes), and from the application key when you
+  do not. With no explicit key, a new `APP_KEY` makes every outstanding code fail, a code already sent included, and the
+  one-live-code binding and the windows kept under the old digests are no longer found, so a user asks for a new code.
+  There is no previous-key support. Set `authentication.codes.key` (`AUTHENTICATION_CODES_KEY`) to isolate codes from
+  `APP_KEY`: they then survive its rotation, and are rotated, with the same effect, only by changing that key.
+- Laravel validates a signed link against the current application key and the keys listed in `app.previous_keys`, and so
+  does the package (`Http\SignedLink`), so a link signed before a rotation stays valid until it expires if the old key
+  is listed.
+- The jobs that deliver a code, a password reset or an identifier-change notice are encrypted on the queue with the
+  application key, and Laravel decrypts them with the current key and `app.previous_keys` alike. Removing an old key
+  from `app.previous_keys` while such jobs are still waiting (or being retried) strands their payloads: they fail to
+  decrypt and cannot be delivered.
 
 To rotate, set the new key in `APP_KEY` and the old one in `APP_PREVIOUS_KEYS` (comma-separated), so that
 signed links and queued payloads keep working. Rebuild the configuration cache (`php artisan config:cache`) if you use
@@ -286,26 +278,25 @@ method (`phone_code`, `email_code`, or a `CodeSignIn` you registered), the deliv
 (`authentication.delivery.queue`), the passkey challenge lifetime (`authentication.passkeys.challenge_ttl_seconds`), the
 API key settings (`authentication.api_keys`), the identifier change settings (`authentication.identifier_changes`), the
 freshness requirements (`authentication.freshness`) and the revocation settings (`authentication.revocation`). Every
-check runs, so one run lists every problem, each as
-`[<guard>] <message>` (`[storage]` for the connections, `[session]` for the session model, retention and pending
-lifetime, `[passwords]` for the password policy, `[codes]` for the code settings and sender, `[delivery]` for the
-delivery queue, `[passkeys]` for the challenge lifetime, `[api_keys]` for the API key settings, `[identifier_changes]`
-for the identifier change settings, `[freshness]` for the freshness requirements, `[revocation]` for the revocation
-settings), and a subject without one as
-`[<guard>] OK`. Delivery on a `sync` queue connection, or on a `failover` one that can fall back to `sync`, while any
-`jwt` guard is configured (any of them may send codes, reset links and codes, or identifier change codes and notices),
-is a `[delivery]` warning that leaves the exit code alone, as is a `jwt` guard whose package application settings allow
-nothing (its `methods` lists nothing, or only `api_key`; see [Applications](configuration.md#applications); a policy of
-your own, even one that wraps the package's, gets no such warning, since the names it allows are its own), and a `jwt`
-guard whose password resets or identifier changes would refuse to run: its provider's model on another connection than
-the storage connection, or, for resets, a password identifier other than `email` while Laravel's notification is the
-reset link sender (see [Password reset](passwords.md#password-reset)). Only the named guards are checked with
-`--guard=api --guard=admin`; a named guard that is not configured, or neither a `jwt` nor an `api_key` guard, is a
-problem. The `[codes]` sender check still asks every `jwt` guard's application whether it allows a code sign-in method,
-and an exception the policy throws for a guard left out of the run, whether the package's over settings it cannot read
-or one of your own, is a `[codes]` problem naming that guard. The package's checks read configuration only: they open no
-database connection and never print a key, though a policy of your own that reads the database when asked whether it
-allows a method opens a connection. Checks other packages registered with `ConfigurationChecks` run after these, for the
-same guards: an error they report fails the command and a warning is shown with the other warnings (see
-[Adding checks to `authentication:check`](extending.md#adding-checks-to-authenticationcheck)). The package does not run
-these checks at boot; a misconfiguration otherwise surfaces when a guard first uses the setting.
+check runs, so one run lists every problem, each as `[<guard>] <message>` (`[storage]` for the connections, `[session]`
+for the session model, retention and pending lifetime, `[passwords]` for the password policy, `[codes]` for the code
+settings and sender, `[delivery]` for the delivery queue, `[passkeys]` for the challenge lifetime, `[api_keys]` for the
+API key settings, `[identifier_changes]` for the identifier change settings, `[freshness]` for the freshness
+requirements, `[revocation]` for the revocation settings), and a subject without one as `[<guard>] OK`. Delivery on a
+`sync` queue connection, or on a `failover` one that can fall back to `sync`, while any `jwt` guard is configured (any
+of them may send codes, reset links and codes, or identifier change codes and notices), is a `[delivery]` warning that
+leaves the exit code alone, as is a `jwt` guard whose package application settings allow nothing (its `methods` lists
+nothing, or only `api_key`; see [Applications](configuration.md#applications); a policy of your own, even one that wraps
+the package's, gets no such warning, since the names it allows are its own), and a `jwt` guard whose password resets or
+identifier changes would refuse to run: its provider's model on another connection than the storage connection, or, for
+resets, a password identifier other than `email` while Laravel's notification is the reset link sender (see [Password
+reset](passwords.md#password-reset)). Only the named guards are checked with `--guard=api --guard=admin`; a named guard
+that is not configured, or neither a `jwt` nor an `api_key` guard, is a problem. The `[codes]` sender check still asks
+every `jwt` guard's application whether it allows a code sign-in method, and an exception the policy throws for a guard
+left out of the run, whether the package's over settings it cannot read or one of your own, is a `[codes]` problem
+naming that guard. The package's checks read configuration only: they open no database connection and never print a key,
+though a policy of your own that reads the database when asked whether it allows a method opens a connection. Checks
+other packages registered with `ConfigurationChecks` run after these, for the same guards: an error they report fails
+the command and a warning is shown with the other warnings (see [Adding checks to
+`authentication:check`](extending.md#adding-checks-to-authenticationcheck)). The package does not run these checks at
+boot; a misconfiguration otherwise surfaces when a guard first uses the setting.

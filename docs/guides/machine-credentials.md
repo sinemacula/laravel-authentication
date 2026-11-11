@@ -139,8 +139,8 @@ digest of the secret in constant time, and then requires, in order:
 | the principal and its tenant are, by type and identifier, the ones recorded   | `principal_mismatch`        |
 | the application admits the principal                                          | `principal_ineligible`      |
 
-The last check reports the reason the application policy gives: `principal_ineligible` for a principal a policy of your
-own keeps out (see [Extending](extending.md#deciding-which-principals-may-use-an-application)), the reason to return.
+The last check refuses a principal that `ApplicationAccess` keeps out (see
+[Extending](extending.md#deciding-which-principals-may-use-an-application)), always as `principal_ineligible`.
 
 A malformed key, an unknown public part and a wrong secret are refused alike, and an unknown public part is compared
 against a fixed digest so it costs the same as a wrong secret. A refused key dispatches one `AuthenticationFailed` (flow
@@ -174,8 +174,7 @@ guards the route lists on the request before trying them, and the rule holds for
 route listing both kinds, a controller's `Auth::guard('machine')->user()` with a JWT answers `null` and reports nothing,
 since the JWT is not its own. A route listing one kind of guard, and a guard asked on a request the middleware did not
 record (no `auth` middleware, or asked before it runs), reads every credential itself. A route listing two guards of one
-kind (`auth:api,m2m`) gets one report from each guard that refuses the credential, each naming its guard: they are two
-applications' refusals, not one.
+kind (`auth:api,m2m`) gets one report from each guard that refuses the credential, each naming its guard.
 
 Every other operation names the principal the key must belong to, and treats a key of another principal or guard as
 absent, even one whose guard, type or identifier the column's collation counts as equal (`alice` and `Alice` under
@@ -284,19 +283,18 @@ without `scope` when the token grants none (RFC 6749 has no empty scope value; t
 `""`), and never a `refresh_token`. Every `invalid_client` is a 401 with `WWW-Authenticate: Basic realm="<guard>"`,
 however the client authenticated: a 401 always carries a challenge (RFC 7235 section 3.1), and Basic is the method every
 client may use. An error body is `{"error": "<code>"}` alone: `error_description` is optional in RFC 6749 section 5.2,
-and the package words nothing a client reads, so add one in your own response if you want it. A principal the
-application policy refuses as `principal_ineligible` is `unauthorized_client`, and one it refuses for any other reason
-`invalid_client`. `invalid_grant` is never answered: for this grant the client's own authentication is the grant, and a
-failed one is `invalid_client`. `slow_down` is outside RFC 6749, which defines no rate-limit error: it is the package's
-own answer to a client past its limit, with a code the OAuth registry holds (RFC 8628). Only failures to authenticate
-the client count against the `client_credentials` limits (100 per IP address a minute by default), and each is answered
-alike. Failures are not counted per client id by default: a client id is not a secret (RFC 6749 section 2.2), so a limit
-on it would let anyone who knows it hold the real client back from any address, while against a 40-character random
-secret it protects nothing. Set `rate_limits.client_credentials.per_identifier` only if you accept that. No scope asks
-for every scope the key grants; otherwise the token grants exactly those asked for. Every failure dispatches
-`AuthenticationFailed` (flow `client_credentials`, the client id when it is a key's public part in form, else none, so a
-whole key or a secret sent as the id never reaches a listener, and the key once found) and a grant
-`ClientCredentialsGranted`, with the key and the scopes granted.
+and the package words nothing a client reads, so add one in your own response if you want it. `invalid_grant` is never
+answered: for this grant the client's own authentication is the grant, and a failed one is `invalid_client`. `slow_down`
+is outside RFC 6749, which defines no rate-limit error: it is the package's own answer to a client past its limit, with
+a code the OAuth registry holds (RFC 8628). Only failures to authenticate the client count against the
+`client_credentials` limits (100 per IP address a minute by default), and each is answered alike. Failures are not
+counted per client id by default: a client id is not a secret (RFC 6749 section 2.2), so a limit on it would let anyone
+who knows it hold the real client back from any address, while against a 40-character random secret it protects nothing.
+Set `rate_limits.client_credentials.per_identifier` only if you accept that. No scope asks for every scope the key
+grants; otherwise the token grants exactly those asked for. Every failure dispatches `AuthenticationFailed` (flow
+`client_credentials`, the client id when it is a key's public part in form, else none, so a whole key or a secret sent
+as the id never reaches a listener, and the key once found) and a grant `ClientCredentialsGranted`, with the key and the
+scopes granted.
 
 RFC 6749 section 3.2 requires TLS on the token endpoint. That is the deployment's to enforce, since whether a request
 arrived over TLS depends on your trusted proxies (`$request->isSecure()`); the exchange does not check it.

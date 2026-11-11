@@ -46,33 +46,32 @@ that cannot be loaded makes it throw `TenantUnavailableException`. `actingInTena
 guard's provider and the principal through the guard's resolver, and throws an `InvalidArgumentException` when either is
 not found or when a guard is named that the session does not record.
 
-Every method takes the guard last and uses the default guard when it is left out; acting makes the guard the default,
-as `actingAs()` does. The context is bound through the guard's trusted `authenticateAs()`, so nothing is checked: a
-test can act as a revoked session, an inactive principal or a machine, which is limited to the scopes given (`[]`, none,
-when the test names none), as if its credential granted them, so a test of a scope-gated route needs no real API key
+Every method takes the guard last and uses the default guard when it is left out; acting makes the guard the default, as
+`actingAs()` does. The context is bound through the guard's trusted `authenticateAs()`, so nothing is checked: a test
+can act as a revoked session, an inactive principal or a machine, which is limited to the scopes given (`[]`, none, when
+the test names none), as if its credential granted them, so a test of a scope-gated route needs no real API key
 (`$this->actingAsIdentity($client, scopes: ['orders:read'], guard: 'api_keys')`); scopes for a human identity throw an
-`InvalidArgumentException`. Each request
-the test sends fires `Authenticated`, `PrincipalAssigned` and, with a session, `SessionAuthenticated` (which records the
-session's use), as a bearer request does, and a context acted as wins over a credential the request carries.
+`InvalidArgumentException`. Each request the test sends fires `Authenticated`, `PrincipalAssigned` and, with a session,
+`SessionAuthenticated` (which records the session's use), as a bearer request does, and a context acted as wins over a
+credential the request carries.
 
 Acting on a guard ends with `stopActing()`, when the request signs out (Laravel's `Logout` for the guard, which
 `Auth::logout()`, `Auth::sessions()->signOut()` and a sign-out endpoint dispatch), or when the test acts on that guard
 again; each guard keeps its own context. With `Logout` faked (`Event::fake()` without a list of events fakes it) the
-helpers cannot see a sign-out, so call `stopActing()`. `Auth::forgetGuards()` creates new guards, which are not acted
-on until the test acts again. A queued job a worker runs (`queue:work`, or a
-`Worker` in the test) still starts signed out, as in production, and the next request is acted as again.
+helpers cannot see a sign-out, so call `stopActing()`. `Auth::forgetGuards()` creates new guards, which are not acted on
+until the test acts again. A queued job a worker runs (`queue:work`, or a `Worker` in the test) still starts signed out,
+as in production, and the next request is acted as again.
 
 Acting on a session binds the guard to it and proves nothing about it. An access token for a session carries `auth_time`
 and `amr` derived from the proofs the session records, so a session the test made itself, with no first-factor proof,
 cannot be refreshed, switched, stepped up or reauthenticated (issuing for it throws a `LogicException`), and holds no
-proof a freshness check finds. A test that needs tokens or freshness for a session starts it through the session
-service (`Auth::sessions()->signIn()` or `start()` with a `FirstFactor`), which records the first factor as a real
-sign-in does. On a cookie
-application those calls are held to the [same-site check](refreshing.md#refresh-token-cookie), so a test's request,
-which carries no `Origin`, is refused as `cross_site_request`: pass a `SignInContext` whose client carries the facts
-(`new SignInContext(new ClientContext(null, null, 'http://localhost', 'http://localhost', ['X-Requested-With']))`, fixed
-values a test may use and an application must not), or send `Origin` and the `csrf_header` on the test's request and
-pass `SignInContext::fromRequest($request)`; `satisfy()` and `choose()` judge the `ClientContext` they are given the
+proof a freshness check finds. A test that needs tokens or freshness for a session starts it through the session service
+(`Auth::sessions()->signIn()` or `start()` with a `FirstFactor`), which records the first factor as a real sign-in does.
+On a cookie application those calls are held to the [same-site check](refreshing.md#refresh-token-cookie), so a test's
+request, which carries no `Origin`, is refused as `cross_site_request`: pass a `SignInContext` whose client carries the
+facts (`new SignInContext(new ClientContext(null, null, 'http://localhost', 'http://localhost', ['X-Requested-With']))`,
+fixed values a test may use and an application must not), or send `Origin` and the `csrf_header` on the test's request
+and pass `SignInContext::fromRequest($request)`; `satisfy()` and `choose()` judge the `ClientContext` they are given the
 same way.
 
 `Auth::context()` under the helpers is built from what they bound, as it is for any trusted bind: `credential` is `null`

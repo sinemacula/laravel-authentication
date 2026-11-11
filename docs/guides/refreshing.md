@@ -259,14 +259,13 @@ with `403`, as the sign-in route above does.
 
 `signIn()` and `start()` judge the client of the `SignInContext` they are given, and `refresh()`, `switchTo()`,
 `signOutWith()`, `satisfy()` and `choose()` the `ClientContext` they are given; none reads the guard's request for it.
-`SignInContext::fromRequest()` and `ClientContext::fromRequest()` fill the
-client's `Origin`, the request's own scheme and host and the names of the headers it carried; a `ClientContext` you
-build from plain values is your trusted description of the request, and one built without those facts is refused on a
-cookie application. Its constructor takes them after the IP address and user agent: the `Origin` the request presented,
-the request's own scheme and host, and the names (never the values) of the headers it actually carried with a value (the
-check looks for the `csrf_header` among them). Copy them from the request each time; constant values pass the check for
-every request, a cross-site form post among them, and so turn it off. Here an application supplies its own IP address
-and user agent:
+`SignInContext::fromRequest()` and `ClientContext::fromRequest()` fill the client's `Origin`, the request's own scheme
+and host and the names of the headers it carried; a `ClientContext` you build from plain values is your trusted
+description of the request, and one built without those facts is refused on a cookie application. Its constructor takes
+them after the IP address and user agent: the `Origin` the request presented, the request's own scheme and host, and the
+names (never the values) of the headers it actually carried with a value (the check looks for the `csrf_header` among
+them). Copy them from the request each time; constant values pass the check for every request, a cross-site form post
+among them, and so turn it off. Here an application supplies its own IP address and user agent:
 
 ```php
 $facts  = ClientContext::fromRequest($request);
@@ -424,7 +423,7 @@ replay. With `refresh_grace_seconds` set to 0 the previous id is a replay too. A
 credential cannot tell a replay from anything else, so its tokens fail with `refresh_key_missing` and the session is
 left alone. When a parallel refresh changes the session between this refresh's read and its write, the row is judged
 again as it now is: usually that makes this refresh a grace retry; a deadline that moved in between fails it with
-`rotation_conflict`, without revoking anything, and the client can simply retry. So does a refresh that found the
+`rotation_conflict`, without revoking anything, and the client can retry. So does a refresh that found the
 session short of its tenant's policy and lost its revocation or return to pending to another request: the policy it
 asked refused a pair, so it gets none, and a revocation never applies to a session another request moved on (a switch
 to a tenant it meets, say), whose next refresh is judged afresh.

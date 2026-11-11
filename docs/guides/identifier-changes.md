@@ -102,7 +102,7 @@ recorded after your first read and refuse (`reauthentication_required`); it neve
 check under the lock refuses it. A password proof racing a revocation that leaves the password as it is is not
 serialised. The current identifier is read from the row as locked. The limits are counted before the transaction, never
 inside it, so no counter's row stays locked until its commit: on MySQL, two transactions that each create a counter in
-the same gap of the index deadlock (inside a transaction of yours, see the note on transactions under [Rate
+the same gap of the index deadlock (inside a transaction of yours, see the paragraph on transactions under [Rate
 limits](configuration.md#rate-limits)).
 
 ```php
