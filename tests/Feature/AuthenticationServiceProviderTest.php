@@ -15,6 +15,7 @@ use Illuminate\Auth\Events\Validated;
 use Illuminate\Auth\Middleware\Authenticate as IlluminateAuthenticate;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Console\Application as ConsoleApplication;
+use Illuminate\Console\Events\CommandFinished;
 use Illuminate\Contracts\Auth\Guard;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Contracts\Http\Kernel as HttpKernel;
@@ -23,7 +24,11 @@ use Illuminate\Events\Dispatcher;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Http\Kernel;
 use Illuminate\Http\Request;
+use Illuminate\Queue\Events\JobExceptionOccurred;
+use Illuminate\Queue\Events\JobFailed;
+use Illuminate\Queue\Events\JobProcessed;
 use Illuminate\Queue\Events\JobProcessing;
+use Illuminate\Queue\Jobs\SyncJob;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\Artisan;
@@ -100,6 +105,8 @@ use SineMacula\Laravel\Authentication\Sessions\WatchedSessions;
 use SineMacula\Laravel\Authentication\Tenancy\OwnTenantOnly;
 use SineMacula\Laravel\Authentication\Tenancy\RequireNothingOfTenants;
 use SineMacula\Laravel\Authentication\Tenancy\ResolveNoTenant;
+use Symfony\Component\Console\Input\ArrayInput;
+use Symfony\Component\Console\Output\NullOutput;
 use Symfony\Component\HttpFoundation\Response;
 use Tests\Concerns\BuildsPlainValues;
 use Tests\Fixtures\Context\ScriptedContributor;
@@ -304,6 +311,73 @@ final class AuthenticationServiceProviderTest extends TestCase
 
         self::assertIsArray($listeners);
         self::assertContains(ForgetGuardStateBeforeJob::class, $listeners);
+    }
+
+    /**
+     * Rows of `[an end of the request, job or command]`.
+     *
+     * @return iterable<string, array{0: \Closure(\Illuminate\Foundation\Application): mixed}>
+     */
+    public static function provideEndsOfTheUnitOfWork(): iterable
+    {
+        $job = static fn (Application $app): SyncJob => new SyncJob($app, '{}', 'sync', 'default');
+
+        yield 'the application terminating' => [static fn (Application $app) => $app->terminate()];
+        yield 'a job processed' => [static fn (Application $app) => Event::dispatch(new JobProcessed('sync', $job($app)))];
+        yield 'a job that threw' => [static fn (Application $app) => Event::dispatch(new JobExceptionOccurred('sync', $job($app), new \RuntimeException('job')))];
+        yield 'a job failed' => [static fn (Application $app) => Event::dispatch(new JobFailed('sync', $job($app), new \RuntimeException('job')))];
+        yield 'a command finished' => [static fn (Application $app) => Event::dispatch(new CommandFinished('command', new ArrayInput([]), new NullOutput, 0))];
+    }
+
+    /**
+     * The end of a request, job or command runs the held work that is due, and
+     * only that.
+     *
+     * @param  \Closure(\Illuminate\Foundation\Application): mixed  $end
+     * @return void
+     */
+    #[DataProvider('provideEndsOfTheUnitOfWork')]
+    public function testTheEndOfTheUnitOfWorkRunsTheHeldWorkThatIsDue(\Closure $end): void
+    {
+        $app = $this->app;
+
+        assert($app instanceof Application);
+
+        /** @var \ArrayObject<int, string> $calls */
+        $calls    = new \ArrayObject;
+        $required = $app->make(RequiredWork::class);
+
+        $required->hold(static fn (): bool => true, static function () use ($calls): void {
+            $calls->append('due');
+        });
+        $required->hold(static fn (): bool => false, static function () use ($calls): void {
+            $calls->append('waiting');
+        });
+
+        $end($app);
+        $end($app);
+
+        self::assertSame(['due'], $calls->getArrayCopy());
+    }
+
+    /**
+     * The end of a request, job or command never creates the held work.
+     *
+     * @param  \Closure(\Illuminate\Foundation\Application): mixed  $end
+     * @return void
+     */
+    #[DataProvider('provideEndsOfTheUnitOfWork')]
+    public function testTheEndOfTheUnitOfWorkCreatesNoHeldWork(\Closure $end): void
+    {
+        $app = $this->app;
+
+        assert($app instanceof Application);
+
+        self::assertFalse($app->resolved(RequiredWork::class));
+
+        $end($app);
+
+        self::assertFalse($app->resolved(RequiredWork::class));
     }
 
     /**

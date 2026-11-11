@@ -7,6 +7,7 @@ namespace Tests\Feature\Database;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Testing\DatabaseTransactionsManager as TestingTransactionsManager;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Exceptions;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
 use SineMacula\Laravel\Authentication\Database\RequiredWork;
@@ -649,8 +650,105 @@ final class AfterCommitTest extends TestCase
         });
         $afterCommit->runAcross([$session], self::counter($calls));
 
+        $exceptions = Exceptions::fake();
+
         self::assertSame('report', self::thrown(static fn () => DB::commit()));
         self::assertCount(1, $calls);
+        self::assertSame(['work', 'nested'], array_map(static fn (\Throwable $exception): string => $exception->getMessage(), $exceptions->reported()));
+    }
+
+    /**
+     * Required work that throws at a commit is reported rather than thrown, and
+     * the commit's later callbacks still run.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testRequiredWorkThatThrowsIsReportedAndTheLaterCallbacksRun(): void
+    {
+        $session    = $this->record();
+        $calls      = new \ArrayObject;
+        $exceptions = Exceptions::fake();
+
+        DB::beginTransaction();
+
+        $this->afterCommit()->runAcross([$session], self::thrower('work'));
+
+        DB::afterCommit(self::counter($calls));
+        DB::commit();
+
+        self::assertCount(1, $calls);
+        self::assertSame(['work'], array_map(static fn (\Throwable $exception): string => $exception->getMessage(), $exceptions->reported()));
+    }
+
+    /**
+     * Work run across models still runs when the request ends after a commit
+     * callback registered before it threw, and only once.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testRunsAcrossModelsWhenTheRequestEndsAfterAnEarlierCommitCallbackThrew(): void
+    {
+        $session = $this->record();
+        $calls   = new \ArrayObject;
+
+        DB::beginTransaction();
+        DB::afterCommit(self::thrower('application'));
+
+        $this->afterCommit()->runAcross([$session], self::counter($calls));
+
+        self::assertSame('application', self::thrown(static fn () => DB::commit()));
+        self::assertCount(0, $calls);
+
+        app()->terminate();
+
+        self::assertCount(1, $calls);
+
+        app()->terminate();
+
+        self::assertCount(1, $calls);
+    }
+
+    /**
+     * Work run at its commit is not run again when the request ends, and work
+     * whose transaction is still open waits for it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheEndOfTheRequestRunsNoWorkTwiceAndNoneStillWaiting(): void
+    {
+        $session = $this->record();
+        $calls   = new \ArrayObject;
+        $count   = self::counter($calls);
+
+        DB::beginTransaction();
+
+        $this->afterCommit()->runAcross([$session], $count);
+
+        DB::commit();
+
+        self::assertCount(1, $calls);
+
+        DB::beginTransaction();
+
+        $this->afterCommit()->runAcross([$session], $count);
+
+        app()->terminate();
+
+        self::assertCount(1, $calls);
+
+        DB::commit();
+
+        self::assertCount(2, $calls);
+
+        app()->terminate();
+
+        self::assertCount(2, $calls);
     }
 
     /**

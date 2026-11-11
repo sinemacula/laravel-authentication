@@ -13,6 +13,7 @@ use Illuminate\Auth\Events\OtherDeviceLogout;
 use Illuminate\Auth\Events\Validated;
 use Illuminate\Auth\Middleware\Authenticate as IlluminateAuthenticate;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Console\Events\CommandFinished;
 use Illuminate\Container\Container;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Contracts\Events\Dispatcher;
@@ -21,6 +22,9 @@ use Illuminate\Contracts\Http\Kernel as HttpKernel;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Exceptions\Handler;
 use Illuminate\Foundation\Http\Kernel;
+use Illuminate\Queue\Events\JobExceptionOccurred;
+use Illuminate\Queue\Events\JobFailed;
+use Illuminate\Queue\Events\JobProcessed;
 use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Routing\Router;
@@ -421,9 +425,26 @@ final class AuthenticationServiceProvider extends ServiceProvider
      */
     protected function registerListeners(): void
     {
+        $app = $this->app;
+
         Event::listen(SessionAuthenticated::class, RecordSessionUsage::class);
         Event::listen(JobProcessing::class, ForgetGuardStateBeforeJob::class);
         Event::listen([Attempting::class, Validated::class, Login::class, Authenticated::class, Failed::class, OtherDeviceLogout::class], TrackCredentialAttempts::class);
+
+        // Held work whose commit's callbacks stopped early runs once the
+        // request, job or command ends
+        $runDue = static function () use ($app): void {
+
+            if (!$app->resolved(RequiredWork::class)) {
+                return;
+            }
+
+            $app->make(RequiredWork::class)->runDue();
+        };
+
+        $app->terminating($runDue);
+
+        Event::listen([JobProcessed::class, JobExceptionOccurred::class, JobFailed::class, CommandFinished::class], $runDue);
     }
 
     /**

@@ -1115,14 +1115,16 @@ which the check waits for), is recorded with the session, and only a cutoff move
 start and that revocation's ends it. A keeping revocation whose move of an Eloquent identity's or principal's cutoff is
 rolled back (inside a nested transaction of yours) keeps nothing.
 
-The check and the second pass run after durable commits. Outside your transaction a database error in either is
-thrown from the call with the session (or the change) committed, and the call is not answered with the session: call
-the revocation again to end it. Inside your transaction the exception reaches the code that commits (or rolls back, for
-a transaction on another connection than the session's), as the observers' do. Nothing is retried by the package.
-Laravel stops running a commit's callbacks at the first that throws, so a listener that throws on an event the package
-reports at your commit (a first pass's `SessionRevoked`, another call's `SessionCreated`) would skip what follows it:
-the package runs every check and second pass due at that commit before the exception leaves it, and the exception is
-still thrown. A callback of your own (`DB::afterCommit()`) that throws stops them as it stops any callback after it.
+The check and the second pass run after durable commits. Outside your transaction a database error in either is thrown
+from the call with the session (or the change) committed, and the call is not answered with the session: call the
+revocation again to end it. Inside your transaction an exception in either (a listener's on an event the check reports
+among them) is reported through Laravel's exception handler, not thrown, so your commit's other callbacks still run;
+call the revocation again to end a session the failure left. Nothing is retried by the package. Laravel stops running a
+commit's callbacks at the first that throws, so a listener that throws on an event the package reports at your commit (a
+first pass's `SessionRevoked`, another call's `SessionCreated`) would skip what follows it: the package runs every check
+and second pass due at that commit before the exception leaves it, and the exception is still thrown. A callback of your
+own (`DB::afterCommit()`) that throws first stops them at the commit too; they then run when the request, job or command
+ends.
 
 ### Sign-in factors
 

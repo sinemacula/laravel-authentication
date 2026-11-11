@@ -4,9 +4,12 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Database;
 
+use Illuminate\Contracts\Container\Container;
+use Illuminate\Contracts\Debug\ExceptionHandler;
+
 /**
  * The work `AfterCommit` holds for a commit that must run whatever the reports
- * of that commit do.
+ * of that commit do, reporting what it throws.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -17,6 +20,17 @@ final class RequiredWork
 {
     /** @var array<int, array{0: \Closure(): bool, 1: \Closure(): void}> The work held, by number: whether it is due, and the work. */
     private array $held = [];
+
+    /**
+     * Constructor.
+     *
+     * @param  \Illuminate\Contracts\Container\Container  $container
+     */
+    public function __construct(
+
+        /** Container the exception handler is resolved from. */
+        private readonly Container $container,
+    ) {}
 
     /**
      * Hold the work, returning a closure that runs it once.
@@ -32,31 +46,34 @@ final class RequiredWork
         $number = array_key_last($this->held);
 
         return function () use ($number): void {
-            $this->take($number)?->__invoke();
+            $this->run($this->take($number));
         };
     }
 
     /**
-     * Run every work held that is due, each once, in the order it was held,
-     * swallowing their exceptions.
+     * Run every work held that is due, each once, in the order it was held.
      *
      * @return void
      */
     public function runDue(): void
     {
         foreach (array_keys($this->held) as $number) {
+            $this->run($this->takeDue($number));
+        }
+    }
 
-            $work = $this->takeDue($number);
-
-            if ($work === null) {
-                continue;
-            }
-
-            try {
-                $work();
-            } catch (\Throwable) {
-                continue;
-            }
+    /**
+     * Run the work, if any, reporting what it throws so the rest still runs.
+     *
+     * @param  ?\Closure(): void  $work
+     * @return void
+     */
+    private function run(?\Closure $work): void
+    {
+        try {
+            $work?->__invoke();
+        } catch (\Throwable $exception) {
+            $this->container->make(ExceptionHandler::class)->report($exception);
         }
     }
 

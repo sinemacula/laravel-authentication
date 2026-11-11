@@ -15,6 +15,7 @@ use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Exceptions;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Admission\Refused;
@@ -598,12 +599,11 @@ final class SessionEstablishmentTest extends TestCase
 
         IntegrationIdentity::query()->whereKey($identity->getKey())->update(['is_active' => false]);
 
-        try {
-            DB::commit();
-            self::fail('Expected the revocation listener to throw.');
-        } catch (\RuntimeException $exception) {
-            self::assertSame('revocation listener failed', $exception->getMessage());
-        }
+        $exceptions = Exceptions::fake();
+
+        DB::commit();
+
+        self::assertSame(['revocation listener failed'], array_map(static fn (\Throwable $exception): string => $exception->getMessage(), $exceptions->reported()));
 
         self::assertSame('identity_deactivated', DB::table('authentication_sessions')->where('id', $replaced->record->getKey())->value('revoked_reason'));
     }
