@@ -94,8 +94,8 @@ be read (no relation, or an owner that has been deleted) fails the attempt.
 ## Signing in: the session service
 
 Each JWT guard has a session service, `Auth::sessions('api')`, that signs in, creates the session, issues the first
-token pair and binds the guard in one call. The manager builds a new one from the guard on each call; the guard itself
-has no `sessions()` method:
+token pair and binds the guard in one call; `Auth::sessionGuards()` lists those guards without resolving them. The
+manager builds a new service from the guard on each call; the guard itself has no `sessions()` method:
 
 ```php
 use Illuminate\Http\Exceptions\ThrottleRequestsException;

@@ -149,6 +149,28 @@ final readonly class PlainSessionFixture implements Session
     }
 
     /**
+     * Return the principal type; it acts as none.
+     *
+     * @return ?string
+     */
+    #[\Override]
+    public function getPrincipalType(): ?string
+    {
+        return null;
+    }
+
+    /**
+     * Return the principal id; it acts as none.
+     *
+     * @return ?string
+     */
+    #[\Override]
+    public function getPrincipalId(): ?string
+    {
+        return null;
+    }
+
+    /**
      * Return the tenant policy version; none was checked.
      *
      * @return ?string

@@ -5,7 +5,6 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Contracts;
 
 use Carbon\CarbonInterface;
-use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
 
 /**
  * The read-only surface of one sign-in, on one application, on one device.
@@ -13,7 +12,7 @@ use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
-interface Session
+interface Session extends SessionStanding
 {
     /**
      * Return the session's primary key, which tokens carry in `sid`.
@@ -78,55 +77,6 @@ interface Session
      * @throws \LogicException
      */
     public function getSwitchedAt(): ?CarbonInterface;
-
-    /**
-     * Return whether the session is active or pending.
-     *
-     * @return \SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus
-     *
-     * @throws \LogicException
-     */
-    public function getStatus(): SessionStatus;
-
-    /**
-     * Return what a pending session waits on, in the order it must be met;
-     * empty for an active session.
-     *
-     * @return list<\SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement>
-     *
-     * @throws \LogicException
-     */
-    public function getRequires(): array;
-
-    /**
-     * Return the digest, never the plaintext, of a pending session's credential
-     * secret, or `null` for an active session.
-     *
-     * @return ?string
-     *
-     * @throws \LogicException
-     */
-    public function getPendingKey(): ?string;
-
-    /**
-     * Return the opaque id of the session's active tenant, or `null` when it
-     * acts in none.
-     *
-     * @return ?string
-     *
-     * @throws \LogicException
-     */
-    public function getTenantId(): ?string;
-
-    /**
-     * Return the version of the tenant authentication policy the session was
-     * last checked against, or `null` when the policy answered none.
-     *
-     * @return ?string
-     *
-     * @throws \LogicException
-     */
-    public function getTenantPolicyVersion(): ?string;
 
     /**
      * Return the idle deadline a refresh extends; `null` fails closed

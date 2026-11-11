@@ -6,13 +6,18 @@ namespace SineMacula\Laravel\Authentication\Concerns;
 
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
+use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
  * Default Eloquent-backed accessors for a session's standing: its status, its
- * pending state and its active tenant.
+ * pending state, its active tenant and its principal.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
+ *
+ * @phpstan-require-extends \Illuminate\Database\Eloquent\Model
+ *
+ * @phpstan-require-implements \SineMacula\Laravel\Authentication\Contracts\EloquentSession
  */
 trait RecordsSessionStanding
 {
@@ -151,6 +156,30 @@ trait RecordsSessionStanding
     public function getTenantIdName(): string
     {
         return 'tenant_id';
+    }
+
+    /**
+     * Return the stored type of the principal the session acts as, or `null`.
+     *
+     * @return ?string
+     *
+     * @throws \LogicException
+     */
+    public function getPrincipalType(): ?string
+    {
+        return $this->toSessionString($this->loadedSessionAttribute(PrincipalReference::columns($this)[0], 'principal'));
+    }
+
+    /**
+     * Return the stored id of the principal the session acts as, or `null`.
+     *
+     * @return ?string
+     *
+     * @throws \LogicException
+     */
+    public function getPrincipalId(): ?string
+    {
+        return $this->toSessionString($this->loadedSessionAttribute(PrincipalReference::columns($this)[1], 'principal'));
     }
 
     /**
