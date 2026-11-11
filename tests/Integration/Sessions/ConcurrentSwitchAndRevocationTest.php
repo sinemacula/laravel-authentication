@@ -42,26 +42,8 @@ use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\TestCase;
 
 /**
- * Races a switch of principal, a step-up and the revocation of a session
- * against each other and against a refresh, on PostgreSQL and MySQL, each side
- * in a process with a database connection of its own: one side writes the
- * session inside a transaction it holds open, and the other, started meanwhile,
- * waits on the session's row. When the first commits, the second finds the row
- * it read changed under it and is answered from the row as it now is; when the
- * first rolls back, the second goes ahead as if alone. Either way each change
- * is made, and reported, once.
- *
- * A grace retry of a refresh or a switch, which writes no compare-and-swap, is
- * raced the same way against a revocation, and, inside a caller's REPEATABLE
- * READ transaction that read the session first, against a revocation, a return
- * to pending or another switch that a second connection commits before the
- * retry's issuance guard: the retry is judged on the row it reads after the
- * guard, so it never hands out a pair for a session that changed before it held
- * the row; PostgreSQL refuses the guard of a snapshot older than the change
- * with a serialisation failure instead.
- *
- * Skipped on SQLite, whose in-memory database each process would have to
- * itself, and where `pcntl` is not available.
+ * Races switches, step-ups, revocations and refreshes of one session, each in
+ * its own process.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -150,9 +132,7 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
     }
 
     /**
-     * Two revocations of an identity's sessions: the one that waited finds them
-     * revoked once the first commits, and revokes and reports none of them; it
-     * revokes and reports them itself when the first rolls back.
+     * Two concurrent revocations report each session once.
      *
      * @return void
      *
@@ -192,10 +172,7 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
     }
 
     /**
-     * A switch waiting on a revocation of its session fails as
-     * `session_revoked` once the revocation commits, leaving the session
-     * revoked and unswitched; when the revocation rolls back, the switch goes
-     * ahead.
+     * A switch waiting on a revocation follows its outcome.
      *
      * @return void
      *
@@ -240,9 +217,7 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
     }
 
     /**
-     * A switch waiting on a refresh of the same token is a conflict once the
-     * refresh commits, leaving the refresh's rotation and the principal as they
-     * were; when the refresh rolls back, the switch goes ahead.
+     * A switch waiting on a refresh of its token follows its outcome.
      *
      * @return void
      *
@@ -294,9 +269,7 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
     }
 
     /**
-     * Two identical switches of one token: the one that waited is answered with
-     * the switch the first committed, which is reported once; when the first
-     * rolls back, the second makes the switch and reports it.
+     * Two concurrent identical switches report the switch once.
      *
      * @return void
      *
@@ -346,11 +319,7 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
     }
 
     /**
-     * A revocation waiting on a step-up of the session, which holds the
-     * session's row locked until its transaction ends, revokes the session once
-     * the step-up commits, its proof and access token already issued and
-     * reported; when the step-up rolls back, the revocation goes ahead alone
-     * and no proof is left.
+     * A revocation waits on a step-up of its session.
      *
      * @return void
      *
@@ -384,10 +353,7 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
     }
 
     /**
-     * A step-up waiting on a revocation of its session, which locks the row
-     * first, is refused as `session_revoked` once the revocation commits, with
-     * no proof recorded; when the revocation rolls back, the step-up goes
-     * ahead.
+     * A step-up waiting on a revocation follows its outcome.
      *
      * @return void
      *
@@ -428,8 +394,7 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
     }
 
     /**
-     * Rows of `[grace retry]`: a refresh with the token a refresh replaced, and
-     * a switch with the token a switch to the same target replaced.
+     * Rows of `[grace retry]`.
      *
      * @return iterable<string, array{0: string}>
      */
@@ -440,10 +405,7 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
     }
 
     /**
-     * A grace retry waiting on a revocation of its session, which its issuance
-     * guard waits for, fails as `session_revoked` once the revocation commits,
-     * handing out no pair, although the row its lookup found was live; when the
-     * revocation rolls back, the retry is answered with the current credential.
+     * A grace retry waiting on a revocation follows its outcome.
      *
      * @param  string  $retry
      * @return void
@@ -483,9 +445,7 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
     }
 
     /**
-     * Rows of `[grace retry, change, failure]`: each retry against a
-     * revocation, a return to pending and another switch, which leaves the
-     * retried token two rotations old.
+     * Rows of `[grace retry, change, failure]`.
      *
      * @return iterable<string, array{0: string, 1: string, 2: \SineMacula\Laravel\Authentication\Events\Enums\FailureReason}>
      */
@@ -499,12 +459,8 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
     }
 
     /**
-     * A grace retry inside a caller's REPEATABLE READ transaction, whose lookup
-     * read the session live, after which another connection commits a change to
-     * the session before the retry's issuance guard: on MySQL the retry is
-     * judged on the row it reads after the guard and fails for that change,
-     * handing out no pair; on PostgreSQL the guard fails to serialise, for the
-     * caller to retry the whole transaction.
+     * A grace retry inside a REPEATABLE READ transaction is judged after its
+     * guard.
      *
      * @param  string  $retry
      * @param  string  $change
@@ -609,9 +565,8 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
     }
 
     /**
-     * Sign the member in as the membership given, which a member with two must
-     * name or be held pending for the choice, then move the clocks on, so a
-     * switch or a refresh of the session is never in its first second.
+     * Sign the member in as the membership, then move the clocks on past its
+     * first second.
      *
      * @param  \Tests\Integration\Fixtures\ActivatableTenantMembership  $membership
      * @return \SineMacula\Laravel\Authentication\Sessions\SignedInSession
@@ -631,11 +586,8 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
     }
 
     /**
-     * Make the session's first refresh token one a grace retry may present:
-     * refresh the session with it, or switch it with it to the target, then
-     * move the clocks on inside the grace window, and return the retry, which
-     * presents that token again (to the same target, for a switch) and reports
-     * whether it was answered with a credential, and why not.
+     * Use the session's first refresh token once and return a grace retry that
+     * presents it again.
      *
      * @param  string  $retry
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
@@ -683,9 +635,8 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
     }
 
     /**
-     * Run the first side here inside a transaction, start the second in another
-     * process once the first has written, hold the transaction open while the
-     * second waits on it, then commit or roll back, and return both outcomes.
+     * Run the first side in an open transaction, race the second in another
+     * process, then commit or roll back.
      *
      * @template TFirst
      *
@@ -730,9 +681,8 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
     }
 
     /**
-     * In the forked process: wait to be started, run the second side on a
-     * connection of its own, report its outcome, and end without running the
-     * parent's shutdown.
+     * Run the second side in the forked process, report its outcome and exit
+     * without the parent's shutdown.
      *
      * @param  \Closure(): mixed  $second
      * @return never
@@ -761,7 +711,7 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
     }
 
     /**
-     * Clear the rows and the outcome a race left, for the next one.
+     * Clear the rows and the outcome a race left.
      *
      * @return void
      */

@@ -30,19 +30,8 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
 /**
- * Races a sign-in that proves the client's previous session, and so replaces
- * it, against another such sign-in, a refresh, a revocation of that session and
- * a revocation of every session of the identity, on PostgreSQL and MySQL, each
- * side in a process with a database connection of its own: one side writes
- * inside a transaction it holds open, and the other, started meanwhile, waits
- * on the previous session's row. The compare-and-swap that revokes the previous
- * session orders only that row: the first to commit changes it, and a
- * replacement that loses is reconsidered without the proof, creating a session
- * and revoking nothing. When the first side rolls back, the second goes ahead
- * as if alone.
- *
- * Skipped on SQLite, whose in-memory database each process would have to
- * itself, and where `pcntl` is not available.
+ * Races a sign-in that replaces the client's previous session against other
+ * writers of that session, each in its own process.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -123,10 +112,7 @@ final class ConcurrentSignInReplacementTest extends TestCase
     }
 
     /**
-     * Two sign-ins presenting the same proof: the first to commit revokes the
-     * previous session, once; the one that waited misses the swap and starts a
-     * session of its own, revoking nothing. When the first rolls back, the
-     * second replaces the session itself.
+     * Two sign-ins with the same proof revoke the previous session once.
      *
      * @return void
      *
@@ -167,10 +153,7 @@ final class ConcurrentSignInReplacementTest extends TestCase
     }
 
     /**
-     * A sign-in waiting on a refresh of the token it proves with: once the
-     * refresh commits, the digest it proved is gone, so the sign-in starts a
-     * session of its own and the refreshed session stays live; when the refresh
-     * rolls back, the sign-in replaces the session.
+     * A sign-in waiting on a refresh of its proof follows its outcome.
      *
      * @return void
      *
@@ -210,10 +193,7 @@ final class ConcurrentSignInReplacementTest extends TestCase
     }
 
     /**
-     * A refresh waiting on a sign-in that replaces the refreshed session: once
-     * the sign-in commits, the refresh finds the session revoked
-     * (`session_revoked`), not replayed, and the new session is untouched; when
-     * the sign-in rolls back, the refresh goes ahead.
+     * A refresh waiting on a replacement follows its outcome.
      *
      * @return void
      *
@@ -251,10 +231,7 @@ final class ConcurrentSignInReplacementTest extends TestCase
     }
 
     /**
-     * A revocation of the one session racing a sign-in that replaces it, in
-     * both orders: the first to commit revokes it and reports it, the other
-     * changes nothing there, and a replacement that loses starts a session of
-     * its own, revoking nothing.
+     * A revocation of the session and a replacement revoke it once.
      *
      * @return void
      *
@@ -297,12 +274,7 @@ final class ConcurrentSignInReplacementTest extends TestCase
     }
 
     /**
-     * A sign-in that replaces a session waiting on a revocation of every
-     * session of the identity, which is not synchronised with sign-ins: once
-     * the bulk revocation commits, the previous session carries its reason, and
-     * the sign-in, admitted on its own credentials, starts a session the bulk
-     * call never saw. When the bulk call rolls back, the sign-in replaces the
-     * session.
+     * A replacement waiting on a sign-out everywhere follows its outcome.
      *
      * @return void
      *
@@ -340,12 +312,7 @@ final class ConcurrentSignInReplacementTest extends TestCase
     }
 
     /**
-     * A revocation of every session of the identity waiting on a sign-in that
-     * replaces one: once the sign-in commits, the previous session is already
-     * `superseded` and the bulk call, which read the sessions before the new
-     * one was committed, revokes and reports none of them, leaving the new
-     * session live. When the sign-in rolls back, the bulk call revokes the
-     * previous session itself.
+     * A sign-out everywhere waiting on a replacement follows its outcome.
      *
      * @return void
      *
@@ -400,8 +367,8 @@ final class ConcurrentSignInReplacementTest extends TestCase
     }
 
     /**
-     * Start a session for the identity, then move the clocks on, so a refresh
-     * or a replacement of it is never in its first second.
+     * Start a session for the identity, then move the clocks on past its first
+     * second.
      *
      * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
      * @return \SineMacula\Laravel\Authentication\Sessions\SignedInSession
@@ -420,10 +387,8 @@ final class ConcurrentSignInReplacementTest extends TestCase
     }
 
     /**
-     * Start a session for the identity proving the previous one with its
-     * refresh token, and return the new session's key. `start()` takes no
-     * attempt-limit slot, so the only row both sides contend for is the
-     * previous session's.
+     * Start a session for the identity that proves the previous one, and return
+     * its key.
      *
      * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $previous
@@ -479,9 +444,8 @@ final class ConcurrentSignInReplacementTest extends TestCase
     }
 
     /**
-     * Run the first side here inside a transaction, start the second in another
-     * process once the first has written, hold the transaction open while the
-     * second waits on it, then commit or roll back, and return both outcomes.
+     * Run the first side in an open transaction, race the second in another
+     * process, then commit or roll back.
      *
      * @template TFirst
      *
@@ -526,9 +490,8 @@ final class ConcurrentSignInReplacementTest extends TestCase
     }
 
     /**
-     * In the forked process: wait to be started, run the second side on a
-     * connection of its own, report its outcome, and end without running the
-     * parent's shutdown.
+     * Run the second side in the forked process, report its outcome and exit
+     * without the parent's shutdown.
      *
      * @param  \Closure(): mixed  $second
      * @return never
@@ -557,7 +520,7 @@ final class ConcurrentSignInReplacementTest extends TestCase
     }
 
     /**
-     * Clear the rows and the outcome a race left, for the next one.
+     * Clear the rows and the outcome a race left.
      *
      * @return void
      */

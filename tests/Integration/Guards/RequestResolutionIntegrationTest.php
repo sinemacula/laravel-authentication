@@ -21,9 +21,7 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
 
 /**
- * Request resolution through the `Auth` facade: a rejected bearer token is
- * attempted once per request, and `Auth::logout()` keeps the request signed out
- * although its bearer token is still valid.
+ * Tests request resolution through the `Auth` facade.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -66,8 +64,7 @@ final class RequestResolutionIntegrationTest extends TestCase
 
     /**
      * Repeated `Auth` calls on a request with a rejected token report one
-     * failure, as the package's `AuthenticationFailed` (bearer), and no Laravel
-     * `Failed`.
+     * bearer failure.
      *
      * @return void
      */
@@ -100,8 +97,7 @@ final class RequestResolutionIntegrationTest extends TestCase
     }
 
     /**
-     * After `Auth::logout()` the request stays signed out for the rest of the
-     * request although its bearer token is still valid.
+     * After `Auth::logout()` the request stays signed out despite its token.
      *
      * @return void
      *
@@ -133,9 +129,8 @@ final class RequestResolutionIntegrationTest extends TestCase
     }
 
     /**
-     * A request that binds another identity with `Auth::setUser()` and then
-     * calls `Auth::logout()` stays signed out: its still-valid bearer token
-     * does not sign the token's identity back in.
+     * A request that calls `Auth::setUser()` then `Auth::logout()` stays signed
+     * out.
      *
      * @return void
      *

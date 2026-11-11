@@ -29,31 +29,8 @@ use Tests\Concerns\InteractsWithSessions;
 use Tests\TestCase;
 
 /**
- * Races a refresh against a change of its session's proofs on PostgreSQL and
- * MySQL, each side in a process with a database connection of its own: the
- * first side changes the proofs (a step-up that adds `hwk` and `mfa`, or the
- * removal of the factor a step-up was made with) inside a transaction it holds
- * open; the second side refreshes the session meanwhile, starting a second
- * before the step-up's proof. The refresh writes the session's issuance guard
- * before anything else it reads, so it waits on the first side's lock of the
- * row, takes its time once the first side has committed, and then reads the
- * proofs as committed: its token carries the step-up's `auth_time` and values,
- * not the second it started in, and never the removed factor's values. A
- * refresh that read the proofs before it waited (only its compare-and-swap
- * waiting) would have handed out a token older than the step-up's, or one that
- * still counts the removed factor; one that took its time before the guard
- * would carry the second it started in. On MySQL the shared lock of the current
- * read waits on the first side's uncommitted proof rows too; on PostgreSQL only
- * the guard makes the refresh wait.
- *
- * Under PostgreSQL's REPEATABLE READ the refresh's transaction takes its
- * snapshot at the guard, before it waits, so the guard fails to serialise once
- * the first side commits, and the refresh retried carries the step-up's
- * authentication; under MySQL's it waits and reads current, as at READ
- * COMMITTED.
- *
- * Skipped on SQLite, whose in-memory database each process would have to
- * itself, and where `pcntl` is not available.
+ * Races a refresh against a change of its session's proofs, each in its own
+ * process.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -135,10 +112,7 @@ final class ConcurrentRefreshAndProofChangeTest extends TestCase
     }
 
     /**
-     * A refresh that starts while a step-up holds the session's row waits for
-     * it, and its token carries the step-up's `auth_time`, a second after the
-     * refresh started, and its `hwk` and `mfa`; under PostgreSQL's REPEATABLE
-     * READ it fails to serialise first and carries them once retried.
+     * A refresh that waits on a step-up carries its authentication.
      *
      * @param  string  $level
      * @return void
@@ -174,11 +148,7 @@ final class ConcurrentRefreshAndProofChangeTest extends TestCase
     }
 
     /**
-     * A refresh that starts while the removal of a factor holds the session's
-     * row waits for it, and its token never counts the factor removed: the
-     * step-up made with it no longer adds `hwk` or `mfa`, and the time is the
-     * sign-in's again; under PostgreSQL's REPEATABLE READ it fails to serialise
-     * first, and the refresh retried still never counts the factor.
+     * A refresh that waits on a factor removal never counts the factor.
      *
      * @param  string  $level
      * @return void
@@ -245,13 +215,8 @@ final class ConcurrentRefreshAndProofChangeTest extends TestCase
     }
 
     /**
-     * Change the session's proofs here inside a transaction, start the refresh
-     * in another process at `refreshedAt`, hold the transaction open until the
-     * refresh is about to write the session's issuance guard and a little
-     * longer, then commit, and return what the refresh reported: whether it
-     * failed to serialise first, how long it took, and its access token's
-     * claims. The refresh's clock moves to `$resumesAt` once its guard is
-     * written, as time passes while it waits.
+     * Change the session's proofs in an open transaction, race the refresh in
+     * another process and return what it reported.
      *
      * @param  string  $level
      * @param  \Closure(): void  $change
@@ -305,10 +270,8 @@ final class ConcurrentRefreshAndProofChangeTest extends TestCase
     }
 
     /**
-     * In the forked process: refresh at the isolation level, signalling just
-     * before the issuance guard is sent and moving the clock once it has been
-     * written, retry once after a failure to serialise, and return the access
-     * token's claims.
+     * Refresh at the isolation level in the forked process and return the
+     * access token's claims.
      *
      * @param  string  $level
      * @param  string  $refreshToken
@@ -357,9 +320,8 @@ final class ConcurrentRefreshAndProofChangeTest extends TestCase
     }
 
     /**
-     * In the forked process: wait to be started, run the second side on a
-     * connection of its own, report its outcome, and end without running the
-     * parent's shutdown.
+     * Run the second side in the forked process, report its outcome and exit
+     * without the parent's shutdown.
      *
      * @param  \Closure(): array<string, mixed>  $second
      * @return never
@@ -385,8 +347,7 @@ final class ConcurrentRefreshAndProofChangeTest extends TestCase
     }
 
     /**
-     * Wait for the other side to create the signal file, for no longer than the
-     * timeout: whether it did.
+     * Wait, up to the timeout, for the other side to create the signal file.
      *
      * @param  string  $signal
      * @return bool
@@ -403,9 +364,8 @@ final class ConcurrentRefreshAndProofChangeTest extends TestCase
     }
 
     /**
-     * Fail the race that was never set up: roll the first side's transaction
-     * back and stop and reap the second side, so neither is left holding locks
-     * on the tables the teardown drops.
+     * Fail the unstarted race, rolling back the first side and reaping the
+     * second so neither holds locks.
      *
      * @param  positive-int  $pid
      * @param  string  $message

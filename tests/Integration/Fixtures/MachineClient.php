@@ -13,9 +13,8 @@ use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 
 /**
- * A non-human identity (an API client) that acts as its own principal, stored
- * in `machine_clients`. It has a password column only so the tests can prove a
- * machine is refused even when a password happens to match.
+ * Non-human identity that acts as its own principal, with a password column so
+ * a matching password is still refused.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

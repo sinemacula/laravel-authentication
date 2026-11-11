@@ -7,9 +7,8 @@ namespace Tests\Integration\Fixtures;
 use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
- * The shipped session model kept on its own connection, `session_store`, apart
- * from the identities and from any transaction the application opens on the
- * default connection.
+ * Shipped session model on its own `session_store` connection, outside any
+ * transaction on the default one.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

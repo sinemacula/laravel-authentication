@@ -43,11 +43,7 @@ use Tests\Integration\Fixtures\SeparateConnectionSessionIdentity;
 use Tests\TestCase;
 
 /**
- * End-to-end tests for a session model kept on its own connection, apart from
- * the identities: refresh and the bearer path read and write the session on
- * that connection, every issuance runs in a transaction on it, and a replay
- * revocation is reported once it is committed there, whatever a transaction on
- * another connection does.
+ * Tests a session model kept on its own connection, apart from the identities.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -78,10 +74,8 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
     private \ArrayObject $dispatched;
 
     /**
-     * Freeze the clocks, create the identity table on the default connection
-     * (the shipped migrations created the session table on the storage
-     * connection), record the refresh outcome events, and register a route
-     * behind the `auth` middleware.
+     * Freeze the clocks, create the identity table, record the refresh outcome
+     * events, and register a route behind the `auth` middleware.
      *
      * @return void
      */
@@ -133,9 +127,7 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * A refresh rotates the session on its own connection, the new access token
-     * authenticates through the `auth` middleware, and the default connection
-     * has no sessions table at all.
+     * Refresh and the bearer path use the session's own connection.
      *
      * @return void
      *
@@ -160,11 +152,8 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * A replay revokes the session on its own connection, which commits at
-     * once, so `SessionRevoked` is dispatched at once, before `Failed` and
-     * `AuthenticationFailed`, even inside a transaction on the default
-     * connection; that transaction rolling back neither undoes the revocation
-     * nor withdraws the event.
+     * A replay is reported at once whatever a transaction on another connection
+     * does.
      *
      * @return void
      *
@@ -187,10 +176,8 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * Inside a transaction on the session's own connection the revocation is
-     * reported only when that transaction commits, after `Failed` and
-     * `AuthenticationFailed`, and never when it is rolled back, which also
-     * leaves the session live.
+     * A replay inside a transaction on the session's connection is reported
+     * only when it commits.
      *
      * @return void
      *
@@ -225,9 +212,7 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * A revocation made inside a nested transaction on the session's own
-     * connection that is rolled back is never reported, even though the outer
-     * transaction then commits, and the session stays live.
+     * A revocation rolled back with a nested transaction is never reported.
      *
      * @return void
      *
@@ -252,9 +237,8 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * A refresh is reported once its rotation is committed on the session's own
-     * connection: at once while only another connection has a transaction open,
-     * and that transaction rolling back does not withdraw it.
+     * A refresh is reported at once whatever a transaction on another
+     * connection does.
      *
      * @return void
      *
@@ -281,9 +265,8 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * Inside a transaction on the session's own connection a refresh is
-     * reported only when that transaction commits, and never when it rolls
-     * back, which also leaves the presented token current.
+     * A refresh inside a transaction on the session's connection is reported
+     * only when it commits.
      *
      * @return void
      *
@@ -317,9 +300,7 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * A refresh opens its transaction on the session's own connection, not the
-     * default one: the issuance guard, the re-read and the rotation all run
-     * inside it.
+     * A refresh runs in a transaction on the session's own connection.
      *
      * @return void
      */
@@ -334,9 +315,7 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * A switch opens its transaction on the session's own connection, not the
-     * default one: the issuance guard, the re-read and the compare-and-swap all
-     * run inside it.
+     * A switch runs in a transaction on the session's own connection.
      *
      * @return void
      */
@@ -357,9 +336,8 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * An access token issued for the session opens its transaction on the
-     * session's own connection, not the default one: the issuance guard and the
-     * read of the session's proofs run inside it.
+     * An access token is issued in a transaction on the session's own
+     * connection.
      *
      * @return void
      */
@@ -373,19 +351,14 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * A sign-in made inside a transaction on the identity's connection, with
-     * the sessions on their own, commits its session at once and binds the
-     * guard to it, while the check of what it acts as waits for that
-     * transaction to end, and the events that report the session with it:
-     * when it rolls back, the check still runs and the session is reported;
-     * when it commits the identity's deletion made in it, the check ends the
-     * session, which the caller holds, and reports that instead.
+     * A sign-in inside a transaction on the identity's connection is checked
+     * when that transaction ends.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testASignInInsideATransactionOnTheIdentitysConnectionIsCheckedWhenThatTransactionEnds(): void
+    public function testASignInInsideTheIdentitysTransactionIsCheckedWhenItEnds(): void
     {
         $identity            = new SeparateConnectionSessionIdentity;
         $identity->email     = 'checked@example.test';
@@ -434,11 +407,8 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * With the sessions on their own connection, a session committed and bound
-     * at once whose check ends it when the identity's transaction commits its
-     * deletion leaves the guard with nothing bound, even when a listener of the
-     * revocation throws and the caller catches it: the session is revoked and
-     * the guard has forgotten its identity, principal and session.
+     * A guard forgets a session its deferred check ends, even when a listener
+     * of the revocation throws.
      *
      * @return void
      *
@@ -484,18 +454,14 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * A password change that keeps the session a sign-in wrote inside a
-     * transaction on the identity's connection, made a second after the sign-in
-     * began and before that transaction commits, leaves the session standing:
-     * its check, which waits for that transaction, does not take the cutoff the
-     * change moved for a revocation that could not see the session, so the
-     * session stays live and the guard stays bound to it.
+     * A password change that keeps a session whose check waits for the
+     * identity's transaction leaves it standing.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAPasswordChangeThatKeepsASessionCheckedAfterTheIdentitysTransactionLeavesItStanding(): void
+    public function testAPasswordChangeKeepingASessionAwaitingItsCheckLeavesItStanding(): void
     {
         Schema::create('cutoff_identities', static function (Blueprint $blueprint): void {
             $blueprint->increments('id');
@@ -538,9 +504,8 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * Keep the sessions on their own connection, a separate database, as the
-     * storage connection, the counters on the default one, and configure the
-     * `api` guard.
+     * Keep the sessions on their own database and the counters on the default
+     * connection, and configure the guards.
      *
      * @param  mixed  $app
      * @return void
@@ -602,9 +567,8 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * Sign in, rotate the session's row past `ROTATION_ID` an hour ago, and
-     * return a validly signed refresh token carrying `ROTATION_ID`, which is
-     * now a replay.
+     * Sign in, rotate the session past `ROTATION_ID` an hour ago, and return a
+     * refresh token carrying `ROTATION_ID`.
      *
      * @return string
      *
@@ -624,9 +588,8 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * Run the operation, asserting it returned something, and return each
-     * statement it ran: its connection, that connection's transaction level and
-     * the default connection's, and its SQL.
+     * Run the operation and return each statement it ran with its connection,
+     * both transaction levels and its SQL.
      *
      * @param  \Closure(): mixed  $operation
      * @return list<array{0: string, 1: int, 2: int, 3: string}>
@@ -646,10 +609,8 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * Assert the issuance guard is written on the session's connection, and
-     * that it and every statement on that connection up to the last one whose
-     * SQL holds the marker run inside one transaction there, while the default
-     * connection never opens one.
+     * Assert the issuance guard and the statements up to the marker run in one
+     * transaction on the session's connection.
      *
      * @param  list<array{0: string, 1: int, 2: int, 3: string}>  $statements
      * @param  string  $last

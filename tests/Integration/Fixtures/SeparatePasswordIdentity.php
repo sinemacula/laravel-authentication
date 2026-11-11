@@ -11,9 +11,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 
 /**
- * 2D identity whose password hash lives outside the identity row: the getter
- * reads it from `identity_passwords`, as an application keeping credentials in
- * a table of their own might.
+ * 2D identity whose password hash is read from `identity_passwords`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

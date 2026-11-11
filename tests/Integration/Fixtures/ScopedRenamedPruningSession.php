@@ -13,10 +13,8 @@ use SineMacula\Laravel\Authentication\Concerns\PrunesSessions;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 
 /**
- * Custom session model that opts into pruning, with its revocation time and
- * deadlines in renamed columns and a global scope that keeps it to the `api`
- * guard's sessions, so pruning must take its columns from the name accessors
- * and keep its conditions grouped inside the scope.
+ * Prunable session model with renamed revocation and deadline columns and a
+ * global scope limited to the `api` guard.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

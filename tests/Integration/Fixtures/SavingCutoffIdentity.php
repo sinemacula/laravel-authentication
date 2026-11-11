@@ -16,10 +16,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
- * 2D identity whose own `HasTokensValidAfter` persists its cutoff, in the
- * `tokens_valid_after` column of `saving_cutoff_identities`, through `save()`
- * rather than the shipped trait's conditional update, as an application's own
- * implementation may; it owns sessions of the shipped model.
+ * 2D identity with sessions whose own `HasTokensValidAfter` persists its cutoff
+ * through `save()`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

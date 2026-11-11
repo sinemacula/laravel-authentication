@@ -24,10 +24,8 @@ use Tests\Integration\Fixtures\DefaultUsersTableIdentity;
 use Tests\TestCase;
 
 /**
- * Proves that activation is opt-in end to end: a 2D user on a table shaped like
- * Laravel's default `users` table, with no `is_active` column and no
- * `CanBeActive` capability, signs in with credentials, authenticates bearer
- * requests, and refreshes.
+ * A user on Laravel's default `users` table, with no activation support, signs
+ * in, authenticates bearer requests and refreshes.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

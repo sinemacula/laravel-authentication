@@ -14,11 +14,8 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 
 /**
- * 2D identity whose sessions are `UncastSession` rows, a custom session model
- * without a `datetime` cast on `revoked_at`.
- *
- * Keyed by UUID so the polymorphic `authenticatable_id` string column compares
- * against a string key on every database driver.
+ * 2D identity whose sessions are `UncastSession` rows, keyed by UUID so
+ * `authenticatable_id` compares as text.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

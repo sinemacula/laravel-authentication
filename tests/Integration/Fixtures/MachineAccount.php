@@ -14,9 +14,7 @@ use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 
 /**
- * A non-human identity (a service account) whose principals are memberships in
- * activatable tenants, stored in `machine_accounts`: the 3D shape of a machine
- * credential.
+ * Non-human identity whose principals are memberships in activatable tenants.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

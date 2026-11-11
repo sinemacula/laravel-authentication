@@ -13,9 +13,8 @@ use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 
 /**
- * A non-human identity that, though it can report and replace identifiers in
- * `changeable_identities`, must never have one changed: it has no interactive
- * identifiers.
+ * Non-human identity over `changeable_identities` that must never have an
+ * identifier changed.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

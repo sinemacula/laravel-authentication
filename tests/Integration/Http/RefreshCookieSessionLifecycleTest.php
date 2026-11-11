@@ -41,13 +41,8 @@ use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\TestCase;
 
 /**
- * End-to-end tests for a browser whose refresh token lives in the HttpOnly
- * cookie, through the rest of its session: a switch of principal proven by the
- * cookie, held to the cookie's cross-site checks and answered with the rotated
- * cookie; a sign-out from a route outside the cookie's path that revokes the
- * session and clears the cookie; and a sign-out under the cookie's path by
- * whichever credential the browser holds, which still signs out once the access
- * token has expired, as the documented routes do.
+ * End-to-end tests for a browser session whose refresh token lives in the
+ * HttpOnly cookie.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -75,9 +70,7 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
     private const array SAME_ORIGIN = ['Origin' => 'http://localhost', 'X-Requested-With' => 'XMLHttpRequest'];
 
     /**
-     * Freeze the clocks, create the tables, and add the browser routes:
-     * sign-in, refresh, switch and a sign-out by either credential under the
-     * cookie's `/auth` path, and logout and a protected route outside it.
+     * Freeze the clocks, create the tables and add the browser routes.
      *
      * @return void
      */
@@ -122,10 +115,8 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
     }
 
     /**
-     * A switch proven by the cookie moves the session to the other membership
-     * and sets the rotated cookie: the old membership's access token stops at
-     * once, the new one acts as the target, and the new cookie keeps
-     * refreshing.
+     * A switch proven by the cookie moves the session and sets the rotated
+     * cookie.
      *
      * @return void
      */
@@ -156,9 +147,7 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
     }
 
     /**
-     * A switch that sends the cookie from another site is refused by the
-     * cookie's checks before the session service is reached: the session keeps
-     * its principal and its credential, and the cookie still refreshes.
+     * A switch sent from another site is refused before the session is touched.
      *
      * @return void
      */
@@ -184,9 +173,7 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
     }
 
     /**
-     * A refresh the limits refuse is answered by the route with a 429 carrying
-     * `Retry-After`, so the client waits; the cookie is left as it was, and the
-     * session as well.
+     * A rate-limited refresh is answered with a 429 carrying `Retry-After`.
      *
      * @return void
      */
@@ -211,9 +198,7 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
     }
 
     /**
-     * A switch the refresh limits refuse is answered as a refused refresh is,
-     * with a 429 carrying `Retry-After`, so the client waits; the session is
-     * left as it was.
+     * A rate-limited switch is answered with a 429 carrying `Retry-After`.
      *
      * @return void
      */
@@ -237,11 +222,7 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
     }
 
     /**
-     * A browser that signs in again while it holds the refresh cookie proves
-     * its session through it, so the sign-in replaces that session with a new
-     * one: the old session is revoked as `superseded`, its access token stops
-     * authenticating at once and its cookie is refused as revoked, while the
-     * new cookie refreshes the new session.
+     * Signing in while holding the refresh cookie supersedes the old session.
      *
      * @return void
      */
@@ -271,11 +252,7 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
     }
 
     /**
-     * A sign-in posted from another site (a cross-site form carries another
-     * site's `Origin` and no custom header), or without the custom header, or
-     * with no `Origin`, is refused by the session service before any session
-     * starts, though the route makes no check of its own, and sets no cookie,
-     * so a cross-site form cannot sign the browser into another account.
+     * A sign-in from another site or without the custom header sets no cookie.
      *
      * @return void
      */
@@ -304,9 +281,7 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
     }
 
     /**
-     * Logging out from a route outside the cookie's path revokes the session
-     * and clears the cookie: the cookie it held no longer refreshes and the
-     * access token no longer authenticates.
+     * Logging out revokes the session and clears the cookie.
      *
      * @return void
      */
@@ -331,11 +306,7 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
     }
 
     /**
-     * A browser whose access token has expired signs out under the cookie's
-     * path with the cookie alone: the session is revoked as `signed_out`, the
-     * cookie is cleared, and the cookie it held no longer refreshes. A browser
-     * still holding that dead cookie that signs out again is refused as
-     * `session_revoked`, and the cookie is cleared all the same.
+     * A browser whose access token expired signs out with the cookie alone.
      *
      * @return void
      */
@@ -371,14 +342,7 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
     }
 
     /**
-     * A sign-out posted from another site neither revokes nor clears anything,
-     * with or without the cookie (a browser withholds a `SameSite=Strict`
-     * cookie from a cross-site form, but keeps one the response sets): the
-     * cookie's cross-site checks refuse it, so a cross-site form can neither
-     * end the browser's session nor sign the browser out of it, and the cookie
-     * still refreshes. Nor does the logout route outside the cookie's path,
-     * which clears the cookie only for a request whose access token signed its
-     * session out.
+     * A sign-out posted from another site neither revokes nor clears anything.
      *
      * @return void
      */
@@ -427,12 +391,8 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
     }
 
     /**
-     * Sign the member in as its default membership, named at sign-in (a member
-     * with more than one membership would otherwise be held pending for the
-     * choice), and answer with the access token in the body and the refresh
-     * token in the cookie. The route makes no same-site check of its own: the
-     * session service refuses a request from another site, which it answers
-     * with a 403. A browser that holds the cookie proves its session with it.
+     * Sign the member in as its default membership and answer with the token
+     * pair.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\JsonResponse
@@ -459,9 +419,7 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
     }
 
     /**
-     * Refresh with the cookie and answer with the rotated one, a rate-limited
-     * refresh with a 429 carrying `Retry-After`, or another refusal with its
-     * reason.
+     * Refresh with the cookie and answer with the rotated one or the refusal.
      *
      * @return \Illuminate\Http\JsonResponse
      *
@@ -487,10 +445,8 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
     }
 
     /**
-     * Switch the session proven by the refresh token the application's
-     * transport reads from the request to the membership named, answering the
-     * switch with the cookie its pair carries, a rate-limited one with a 429
-     * carrying `Retry-After`, or another refusal with its reason.
+     * Switch the session to the membership named and answer with the rotated
+     * cookie or the refusal.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\JsonResponse
@@ -519,10 +475,8 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
     }
 
     /**
-     * Sign the request's session out by its access token, from a route outside
-     * the cookie's path, and clear the cookie only when that signed a session
-     * out: a cross-site page cannot send the access token, so it cannot have
-     * the browser's cookie cleared either.
+     * Sign the session out by its access token and clear the cookie only if
+     * that succeeded.
      *
      * @return \Illuminate\Http\JsonResponse
      *

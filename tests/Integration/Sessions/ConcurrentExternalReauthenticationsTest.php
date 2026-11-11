@@ -24,21 +24,8 @@ use Tests\Concerns\InteractsWithSessions;
 use Tests\TestCase;
 
 /**
- * Races two external reauthentications of one session on PostgreSQL and MySQL,
- * each side in a process with a database connection of its own: the first holds
- * its reauthentication, whose provider time is the later, open in a
- * transaction; the second, whose provider time is the earlier, reaches the
- * session's lock meanwhile and waits on it. Once the first commits, the second
- * records its proof and its token's `auth_time` is still the first's, the later
- * of the two: the renewal is decided under the session's lock, never from what
- * either side read before it. So it is when the second side runs inside a
- * caller's REPEATABLE READ transaction that read before the first committed: on
- * MySQL its proofs are read current, and on PostgreSQL its lock fails to
- * serialise on the row the first side's issuance guard wrote, and the caller's
- * retry of the whole transaction reads the first's proof.
- *
- * Skipped on SQLite, whose in-memory database each process would have to
- * itself, and where `pcntl` is not available.
+ * Races two external reauthentications of one session, each in its own process,
+ * so the later provider time wins.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -63,8 +50,8 @@ final class ConcurrentExternalReauthenticationsTest extends TestCase
     private string $outcomes;
 
     /**
-     * Skip where processes cannot share the database, freeze the clocks so both
-     * processes see one moment, and create the tables.
+     * Skip where processes cannot share the database, freeze the clocks and
+     * create the tables.
      *
      * @return void
      *
@@ -117,9 +104,7 @@ final class ConcurrentExternalReauthenticationsTest extends TestCase
     }
 
     /**
-     * The second side waits on the first's lock, then records its earlier
-     * proof, and its token's `auth_time` is the first's later one; both proofs
-     * are recorded.
+     * The later provider time wins whichever side commits last.
      *
      * @return void
      *
@@ -182,10 +167,8 @@ final class ConcurrentExternalReauthenticationsTest extends TestCase
     }
 
     /**
-     * The second side, inside a caller's REPEATABLE READ transaction that read
-     * before the first committed, still issues the first's later `auth_time`:
-     * at once on MySQL, and on PostgreSQL once the caller has retried the whole
-     * transaction its lock failed to serialise.
+     * The later provider time wins inside a caller's REPEATABLE READ
+     * transaction.
      *
      * @return void
      *
@@ -286,8 +269,7 @@ final class ConcurrentExternalReauthenticationsTest extends TestCase
     }
 
     /**
-     * The `auth_time` of the access token a reauthentication issued, and
-     * whether it issued one.
+     * The `auth_time` of the access token a reauthentication issued, if any.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\AccessTokenResult  $result
      * @return array{0: mixed, 1: bool}
@@ -300,8 +282,7 @@ final class ConcurrentExternalReauthenticationsTest extends TestCase
     }
 
     /**
-     * Reauthenticate the session through its link, the provider authenticating
-     * the identity at the time given.
+     * Reauthenticate the session through its link at the given provider time.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\Session  $session
      * @param  \Carbon\CarbonImmutable  $at
@@ -319,9 +300,8 @@ final class ConcurrentExternalReauthenticationsTest extends TestCase
     }
 
     /**
-     * In the forked process: wait to be started, run the second side on a
-     * connection of its own, report its outcome, and end without running the
-     * parent's shutdown.
+     * Run the second side in the forked process, report its outcome and exit
+     * without the parent's shutdown.
      *
      * @param  \Closure(): mixed  $second
      * @return never
@@ -348,8 +328,7 @@ final class ConcurrentExternalReauthenticationsTest extends TestCase
     }
 
     /**
-     * Wait for the other side to create the signal file, for no longer than the
-     * timeout: whether it did.
+     * Wait, up to the timeout, for the other side to create the signal file.
      *
      * @param  string  $signal
      * @return bool
@@ -366,9 +345,8 @@ final class ConcurrentExternalReauthenticationsTest extends TestCase
     }
 
     /**
-     * Fail the race that was never set up: roll the first side's transaction
-     * back and stop and reap the second side, so neither is left holding locks
-     * on the tables the teardown drops.
+     * Fail the unstarted race, rolling back the first side and reaping the
+     * second so neither holds locks.
      *
      * @param  positive-int  $pid
      * @param  string  $message

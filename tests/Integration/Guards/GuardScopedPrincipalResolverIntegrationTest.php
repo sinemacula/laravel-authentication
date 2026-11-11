@@ -24,11 +24,8 @@ use Tests\Unit\Stubs\StubPrincipal;
 use Tests\Unit\Stubs\StubTenant;
 
 /**
- * Integration tests for guard-local principal resolvers.
- *
- * Verifies that two JWT guards can share one identity model while resolving
- * distinct principals and tenants from guard-specific resolver bindings
- * configured in `auth.guards.<name>.principal_resolver`.
+ * Two guards over one identity model resolve principals through their own
+ * `principal_resolver`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -85,10 +82,8 @@ final class GuardScopedPrincipalResolverIntegrationTest extends TestCase
     }
 
     /**
-     * The same identity can authenticate through two guards that resolve
-     * different principals, and a token minted for one guard's resolver is
-     * rejected by the other guard's resolver. Rebinding the request clears the
-     * previously memoised principal on the old guard instance.
+     * One identity resolves a different principal on each guard, and each guard
+     * rejects the other's token.
      *
      * @return void
      *

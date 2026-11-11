@@ -27,9 +27,8 @@ use Tests\Integration\Fixtures\RenamedKeySessionIdentity;
 use Tests\TestCase;
 
 /**
- * The session identifier a token carries is always the session's primary key,
- * so a session model whose key column is not `id` is found again by both the
- * bearer path and the refresh exchange, which look sessions up by primary key.
+ * Tests that a token names its session by primary key when the key column is
+ * not `id`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -81,8 +80,8 @@ final class SessionIdentifierRoundTripIntegrationTest extends TestCase
     }
 
     /**
-     * An access token names the session by its `session_uuid` key, and a
-     * request carrying it through the `auth` middleware binds that session.
+     * A bearer request binds the session its access token names by
+     * `session_uuid`.
      *
      * @return void
      *
@@ -105,8 +104,7 @@ final class SessionIdentifierRoundTripIntegrationTest extends TestCase
     }
 
     /**
-     * A refresh token names the session by its `session_uuid` key, and the
-     * exchange finds and rotates that session.
+     * A refresh rotates the session its refresh token names by `session_uuid`.
      *
      * @return void
      *

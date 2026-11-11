@@ -34,18 +34,7 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
 
 /**
- * Integration test for the package's custom contextual events.
- *
- * Boots a Testbench application with a `jwt` guard, then exercises the
- * lifecycle points (`attempt()`, bearer authentication, and refresh) where
- * `PrincipalAssigned`, `SessionAuthenticated`, and `Refreshed` are expected to
- * fire. Verifies each event carries the expected payload and that they dispatch
- * via Laravel's standard event dispatcher (so consumers can subscribe via
- * `Event::listen`).
- *
- * The `StubPrincipal` model implements both `Identity` and `Principal` so the
- * 2D-mode resolver returns the identity itself, avoiding the need for a
- * separate principal table.
+ * Integration tests for the package's contextual events through a `jwt` guard.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -79,8 +68,7 @@ final class CustomEventsIntegrationTest extends TestCase
     private Carbon $now;
 
     /**
-     * Create the identity table, freeze time, seed a user, and seed a session
-     * the jwt guard can bind and refresh against.
+     * Create the identity table, freeze time, and seed a user and a session.
      *
      * @return void
      */
@@ -112,7 +100,7 @@ final class CustomEventsIntegrationTest extends TestCase
     }
 
     /**
-     * Drop the seeded identity table and release the frozen clocks.
+     * Drop the identity table and release the clocks.
      *
      * @return void
      */
@@ -129,9 +117,8 @@ final class CustomEventsIntegrationTest extends TestCase
     }
 
     /**
-     * A successful attempt through the jwt guard binds a principal and
-     * dispatches exactly one `PrincipalAssigned` event carrying the guard name
-     * and the resolved principal.
+     * A successful attempt dispatches one `PrincipalAssigned` with the guard
+     * and the principal.
      *
      * @return void
      */
@@ -156,16 +143,14 @@ final class CustomEventsIntegrationTest extends TestCase
     }
 
     /**
-     * A successful JWT authentication whose token carries a `sid` claim binds a
-     * session and dispatches exactly one `SessionAuthenticated` event carrying
-     * the guard name and session.
+     * Authenticating a token with a `sid` claim dispatches one
+     * `SessionAuthenticated`.
      *
      * @return void
      */
     public function testSessionAuthenticatedFiresWhenSessionIsBound(): void
     {
-        // Fake the event BEFORE any guard resolution so the guard captures the
-        // faked dispatcher in its constructor.
+        // Fake first, as the guard captures the dispatcher when built.
         Event::fake([SessionAuthenticated::class]);
 
         $user = $this->freshSeededUser();
@@ -203,8 +188,7 @@ final class CustomEventsIntegrationTest extends TestCase
     }
 
     /**
-     * A JWT authentication whose token has no `sid` claim does not dispatch
-     * `SessionAuthenticated`.
+     * A token without a `sid` claim does not dispatch `SessionAuthenticated`.
      *
      * @return void
      */
@@ -227,8 +211,8 @@ final class CustomEventsIntegrationTest extends TestCase
     }
 
     /**
-     * A successful refresh through the session service dispatches exactly one
-     * `Refreshed` event carrying the guard name and the bound identity.
+     * A successful refresh dispatches one `Refreshed` with the guard and the
+     * identity.
      *
      * @return void
      *
@@ -288,9 +272,7 @@ final class CustomEventsIntegrationTest extends TestCase
     }
 
     /**
-     * Registering an `Event::listen` callback for `PrincipalAssigned` proves
-     * the custom events are observable via Laravel's standard event dispatcher
-     * (i.e. not a private pub/sub channel).
+     * The custom events reach a listener registered with `Event::listen`.
      *
      * @return void
      */
@@ -313,9 +295,8 @@ final class CustomEventsIntegrationTest extends TestCase
     }
 
     /**
-     * One listener registered for the `AuthenticationEvent` contract receives
-     * every package event of a flow, and only those: a failed attempt reports
-     * its failure, a successful refresh its rotation and then its binds.
+     * One listener on the `AuthenticationEvent` contract receives every package
+     * event of a flow, and only those.
      *
      * @return void
      *
@@ -366,9 +347,8 @@ final class CustomEventsIntegrationTest extends TestCase
     }
 
     /**
-     * Register the `api` (jwt) guard plus the `api_users` provider and align
-     * the package's JWT secret with the test secret so hand-rolled tokens
-     * decode cleanly.
+     * Register the `api` guard and the `api_users` provider, and use the test
+     * secret as the signing key.
      *
      * @param  mixed  $app
      * @return void
@@ -413,11 +393,7 @@ final class CustomEventsIntegrationTest extends TestCase
     }
 
     /**
-     * Encode a JWT access token payload (with `iat`, `exp`, the test issuer,
-     * audience and guard, and the `at+jwt` header type) using the shared test
-     * secret so the `JwtTokenService::parse()` path accepts it as a valid,
-     * unexpired access token; a token that names a session carries a password
-     * authentication at its issue time.
+     * Encode a valid, unexpired access token with the test secret.
      *
      * @param  array<string, mixed>  $claims
      * @return string
@@ -441,9 +417,7 @@ final class CustomEventsIntegrationTest extends TestCase
     }
 
     /**
-     * Rebind the container's `request` singleton with an HTTP request carrying
-     * the supplied bearer token so the active `JwtGuard` re-reads it via
-     * `$app->refresh('request', ...)`.
+     * Rebind the container's request with one carrying the bearer token.
      *
      * @param  string  $token
      * @return void

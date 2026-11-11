@@ -28,17 +28,8 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
 
 /**
- * Integration test for the six standard Laravel auth events.
- *
- * Boots a Testbench application, registers an `api` guard driven by the
- * package's `jwt` driver against a `StubPrincipal` identity table seeded with a
- * single user, and exercises the successful `attempt`, failed `attempt`, and
- * `logout` paths to assert the dispatched standard events (`Attempting`,
- * `Validated`, `Login`, `Authenticated`, `Failed`, `Logout`) match Laravel's
- * first-party contract with the expected constructor payload shapes.
- *
- * Credentials are passed directly via `attempt()`, keeping the assertions
- * focused on the event-emission contract of the shared guard lifecycle.
+ * Integration tests for the six standard Laravel auth events through a `jwt`
+ * guard.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -58,8 +49,7 @@ final class StandardAuthEventsIntegrationTest extends TestCase
     private const string USER_PASSWORD = 'correct horse battery staple';
 
     /**
-     * Create the identity table, hash a password, and insert one user that the
-     * successful-attempt tests authenticate against.
+     * Create the identity table and insert one user with a hashed password.
      *
      * @return void
      */
@@ -85,7 +75,7 @@ final class StandardAuthEventsIntegrationTest extends TestCase
     }
 
     /**
-     * Drop the seeded identity table so each test starts with a clean schema.
+     * Drop the identity table.
      *
      * @return void
      */
@@ -98,8 +88,8 @@ final class StandardAuthEventsIntegrationTest extends TestCase
     }
 
     /**
-     * A successful `attempt()` dispatches all four success-path standard
-     * events: `Attempting`, `Validated`, `Login`, and `Authenticated`.
+     * A successful `attempt()` dispatches the four success-path standard
+     * events.
      *
      * @return void
      */
@@ -129,8 +119,7 @@ final class StandardAuthEventsIntegrationTest extends TestCase
     }
 
     /**
-     * A failed `attempt()` dispatches `Attempting` and `Failed`, but NOT
-     * `Validated`, `Login`, or `Authenticated`.
+     * A failed `attempt()` dispatches `Attempting` and `Failed` only.
      *
      * @return void
      */
@@ -160,15 +149,13 @@ final class StandardAuthEventsIntegrationTest extends TestCase
     }
 
     /**
-     * Calling `logout()` on a guard with a bound identity dispatches the
-     * standard Laravel `Logout` event.
+     * `logout()` dispatches the standard `Logout` event.
      *
      * @return void
      */
     public function testLogoutDispatchesLogoutEvent(): void
     {
-        // Fake the Logout event BEFORE resolving the guard so the guard
-        // captures the faked dispatcher in its constructor.
+        // Fake first, as the guard captures the dispatcher when built.
         Event::fake([Logout::class]);
 
         $guard = Auth::guard(self::GUARD_NAME);
@@ -186,13 +173,11 @@ final class StandardAuthEventsIntegrationTest extends TestCase
     }
 
     /**
-     * The dispatched `Authenticated` instance carries the guard name and the
-     * resolved identity on its public properties, matching Laravel's
-     * first-party guard payload shape.
+     * `Authenticated` carries the guard name and the identity.
      *
      * @return void
      */
-    public function testStandardAuthenticatedEventConstructorReceivesGuardNameAndUser(): void
+    public function testAuthenticatedCarriesTheGuardAndUser(): void
     {
         Event::fake([Authenticated::class]);
 
@@ -213,13 +198,11 @@ final class StandardAuthEventsIntegrationTest extends TestCase
     }
 
     /**
-     * The dispatched `Login` instance carries the guard name, the resolved
-     * identity, and a `false` remember flag on its public properties, matching
-     * Laravel's first-party guard payload shape.
+     * `Login` carries the guard name, the identity and a `false` remember flag.
      *
      * @return void
      */
-    public function testStandardLoginEventConstructorReceivesGuardNameUserAndRememberFlag(): void
+    public function testLoginCarriesTheGuardUserAndRememberFlag(): void
     {
         Event::fake([Login::class]);
 
@@ -241,13 +224,12 @@ final class StandardAuthEventsIntegrationTest extends TestCase
     }
 
     /**
-     * The dispatched `Failed` instance carries the guard name, the resolved
-     * user (or null), and the supplied credentials without the password on its
-     * public properties, matching Laravel's first-party guard payload shape.
+     * `Failed` carries the guard name, the user and the credentials without the
+     * password.
      *
      * @return void
      */
-    public function testStandardFailedEventConstructorReceivesGuardNameUserAndRedactedCredentials(): void
+    public function testFailedCarriesTheGuardUserAndRedactedCredentials(): void
     {
         Event::fake([Failed::class]);
 
@@ -269,8 +251,7 @@ final class StandardAuthEventsIntegrationTest extends TestCase
     }
 
     /**
-     * Neither `Attempting` nor `Failed` carries a password-like credential,
-     * while the identifier stays for throttling and audit listeners.
+     * Neither `Attempting` nor `Failed` carries a password-like credential.
      *
      * @return void
      */
@@ -289,9 +270,7 @@ final class StandardAuthEventsIntegrationTest extends TestCase
     }
 
     /**
-     * A wrong password ends in the package's `AuthenticationFailed` after
-     * `Failed`: `invalid_credentials`, the identifier as given and the
-     * request's client, no identity (the password was never accepted), and
+     * A wrong password dispatches `AuthenticationFailed` after `Failed`, with
      * nothing secret.
      *
      * @return void
@@ -324,10 +303,7 @@ final class StandardAuthEventsIntegrationTest extends TestCase
     }
 
     /**
-     * Register the `api` guard against the `jwt` driver and the `users`
-     * provider pointing at the `StubPrincipal` identity model before the
-     * Testbench application boots so the package service provider picks up the
-     * driver registration at the appropriate time.
+     * Register the `api` guard on the `jwt` driver and the `users` provider.
      *
      * @param  mixed  $app
      * @return void

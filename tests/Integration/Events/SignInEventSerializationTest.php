@@ -41,13 +41,7 @@ use Tests\Integration\Fixtures\RecordSignedInLater;
 use Tests\TestCase;
 
 /**
- * Integration tests for the sign-in events as a queued listener receives them:
- * serialised and restored as the plain values they hold, with no query and no
- * model, so the identity, principal, tenant and session are named as they were
- * when the event was built, whatever was changed or deleted meanwhile, and the
- * client, the method and the other values are kept as they were; through a real
- * queued listener, on the `sync` connection and through a worker on the
- * `database` one.
+ * Integration tests for the sign-in events as a queued listener receives them.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -113,9 +107,7 @@ final class SignInEventSerializationTest extends TestCase
     }
 
     /**
-     * `SignedIn` and `SessionCreated` from a sign-in on a new session come back
-     * naming the member, membership, tenant and session, with the guard, method
-     * and client unchanged.
+     * `SignedIn` and `SessionCreated` restore their values.
      *
      * @return void
      *
@@ -145,10 +137,7 @@ final class SignInEventSerializationTest extends TestCase
     }
 
     /**
-     * The `SessionRevoked` (`superseded`) of a session a sign-in replaced comes
-     * back naming the member, membership and tenant the sign-in admitted and
-     * the replaced session, with the method that session records and the reason
-     * unchanged.
+     * A `superseded` `SessionRevoked` restores its values and reason.
      *
      * @return void
      *
@@ -177,9 +166,7 @@ final class SignInEventSerializationTest extends TestCase
     }
 
     /**
-     * `SessionPending` for a sign-in that waits for a further factor comes back
-     * naming its member, membership, tenant and pending session, with what the
-     * session waits on and when its credential expires.
+     * `SessionPending` restores its values.
      *
      * @return void
      *
@@ -207,9 +194,7 @@ final class SignInEventSerializationTest extends TestCase
     }
 
     /**
-     * `AuthenticationFailed` for an `attempt()` refused because a further
-     * factor is required comes back naming the member, membership and tenant,
-     * with its reason and identifier unchanged.
+     * `AuthenticationFailed` restores its values.
      *
      * @return void
      *
@@ -234,9 +219,7 @@ final class SignInEventSerializationTest extends TestCase
     }
 
     /**
-     * A queued event holds plain values, no model and no model identifier, and
-     * never the session's secrets: no token, no refresh digest, no password
-     * hash.
+     * A queued event holds plain values and no model or secret.
      *
      * @return void
      *
@@ -264,8 +247,7 @@ final class SignInEventSerializationTest extends TestCase
     }
 
     /**
-     * The values an event holds come back unchanged after a queue, and those of
-     * a real sign-in are exactly the documented keys.
+     * An event's values survive the queue, under exactly the documented keys.
      *
      * @return void
      *
@@ -299,9 +281,7 @@ final class SignInEventSerializationTest extends TestCase
     }
 
     /**
-     * An event whose session, identity, principal and tenant were all deleted
-     * while it waited (a pruned session, an erased account) still restores,
-     * naming them as they were.
+     * An event whose rows were all deleted still restores.
      *
      * @return void
      *
@@ -327,9 +307,8 @@ final class SignInEventSerializationTest extends TestCase
     }
 
     /**
-     * A queued listener on the `sync` connection, which serialises the event as
-     * any queue does, gets it after an earlier listener deleted its rows, with
-     * every value as dispatched.
+     * A queued listener on the `sync` connection gets the event as dispatched
+     * after its rows are deleted.
      *
      * @return void
      *
@@ -352,8 +331,8 @@ final class SignInEventSerializationTest extends TestCase
     }
 
     /**
-     * A queued listener on the `database` connection, run by a worker after the
-     * rows were deleted, gets the event with every value as dispatched.
+     * A queued listener run by a worker gets the event as dispatched after its
+     * rows are deleted.
      *
      * @return void
      *

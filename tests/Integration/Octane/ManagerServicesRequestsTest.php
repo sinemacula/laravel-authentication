@@ -41,14 +41,8 @@ use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\TestCase;
 
 /**
- * End-to-end tests for the auth manager's services served by one Laravel Octane
- * worker. The worker shares one auth manager between requests, and Octane hands
- * it each request's sandbox, so `Auth::sessions()`, `Auth::jwt()` and
- * `Auth::codes()` act on the request being served: its client, its
- * configuration and the dispatcher bound in it, never those of the application
- * the worker booted or of an earlier request. A sign-in method registered at
- * boot, as a service provider registers one, is built with each request's
- * sandbox too.
+ * End-to-end tests that the auth manager's services act on the request an
+ * Octane worker is serving.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -136,12 +130,8 @@ final class ManagerServicesRequestsTest extends TestCase
     }
 
     /**
-     * A sign-in naming the first of the member's two memberships, a refresh, a
-     * switch to the second and a sign-out, each in a request of its own from
-     * its own address, through a guard resolved before the request bound a
-     * dispatcher of its own: each reports through its own request's dispatcher,
-     * with its own client, and only its own events, none reaching an earlier
-     * request's; the session ends signed out, and its last token is refused.
+     * A session's lifecycle reports through each request's own dispatcher and
+     * client.
      *
      * @return void
      */
@@ -181,10 +171,8 @@ final class ManagerServicesRequestsTest extends TestCase
     }
 
     /**
-     * A refresh from plain values for a client unlike the request's binds the
-     * guard with that client, so its `PrincipalAssigned` and the last use its
-     * `SessionAuthenticated` records name that client; the worker keeps no
-     * client, so the next request's bearer bind names its own request.
+     * A refresh from plain values names its own client, which the worker does
+     * not keep.
      *
      * @return void
      */
@@ -215,10 +203,7 @@ final class ManagerServicesRequestsTest extends TestCase
     }
 
     /**
-     * A token lifetime changed in one request's configuration applies to that
-     * request alone: `Auth::jwt()` and the session it signs in use it, the next
-     * request is back to the configured lifetime, and the booted application's
-     * configuration never changed.
+     * A configuration changed in one request applies to that request alone.
      *
      * @return void
      */
@@ -233,9 +218,7 @@ final class ManagerServicesRequestsTest extends TestCase
     }
 
     /**
-     * A sign-in method registered on the manager at boot is built with the
-     * sandbox of each request that signs in with it, never with the booted
-     * application, so it resolves what it needs from the request being served.
+     * A sign-in method registered at boot is built with each request's sandbox.
      *
      * @return void
      */
@@ -253,10 +236,7 @@ final class ManagerServicesRequestsTest extends TestCase
     }
 
     /**
-     * The password method, built by a manager resolved at boot, reads the
-     * configuration of the request it signs in: a request that turns the rehash
-     * on sign-in off keeps the outdated hash, and the next request, with the
-     * setting as configured, upgrades it.
+     * The password method reads each request's rehash configuration.
      *
      * @return void
      */
@@ -278,9 +258,8 @@ final class ManagerServicesRequestsTest extends TestCase
     }
 
     /**
-     * A code sent through `Auth::codes()` in one request is delivered once its
-     * response is sent, through the sender bound in that request's sandbox, and
-     * signs in on the next request, which reports through its own dispatcher.
+     * A code sent in one request is delivered after the response and signs in
+     * on the next.
      *
      * @return void
      */

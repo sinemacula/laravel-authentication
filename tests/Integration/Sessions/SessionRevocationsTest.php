@@ -28,12 +28,8 @@ use Tests\Integration\Fixtures\CutoffIdentity;
 use Tests\TestCase;
 
 /**
- * Integration tests of a guard's session revocations signing a binding out
- * everywhere for an identity that records a "tokens valid after" cutoff: the
- * cutoff stays where it is only when the binding's own token is kept and names
- * no session, and moves to now otherwise; and each logout everywhere inside an
- * application's transaction, which commits or rolls back with it, cutoff
- * included, and reports only once committed.
+ * Integration tests of a guard's logout everywhere for an identity with a
+ * tokens-valid-after cutoff.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -90,8 +86,7 @@ final class SessionRevocationsTest extends TestCase
     }
 
     /**
-     * Keeping a binding's access-only token leaves the cutoff where it is,
-     * while the identity's sessions are revoked.
+     * Keeping a binding's session-less token leaves the cutoff.
      *
      * @return void
      *
@@ -113,8 +108,7 @@ final class SessionRevocationsTest extends TestCase
     }
 
     /**
-     * Keeping a binding's session keeps it and still moves the cutoff, which
-     * only session-less tokens are held to.
+     * Keeping a binding's session still moves the cutoff.
      *
      * @return void
      *
@@ -134,8 +128,8 @@ final class SessionRevocationsTest extends TestCase
     }
 
     /**
-     * Without the keep, a binding's access-only token ends with the rest: the
-     * cutoff moves.
+     * Without the keep, a binding's session-less token ends as the cutoff
+     * moves.
      *
      * @return void
      *
@@ -153,9 +147,7 @@ final class SessionRevocationsTest extends TestCase
     }
 
     /**
-     * Rows of `[the logout everywhere]`: revoking the identity's sessions,
-     * revoking those of the principal it acts as, and signing the binding out
-     * everywhere.
+     * Rows of `[logout everywhere]`.
      *
      * @formatter:off
      *
@@ -183,9 +175,7 @@ final class SessionRevocationsTest extends TestCase
     }
 
     /**
-     * A logout everywhere inside an application's transaction on the storage
-     * connection that rolls back revokes nothing, leaves the cutoff where it
-     * was and reports nothing, with the application's own change.
+     * A logout everywhere rolls back with the caller's transaction.
      *
      * @formatter:off
      *
@@ -228,10 +218,8 @@ final class SessionRevocationsTest extends TestCase
     }
 
     /**
-     * A logout everywhere inside an application's transaction that commits
-     * revokes the sessions and moves the cutoff with the application's own
-     * change, and reports each revocation and the logout once, after the
-     * commit.
+     * A logout everywhere commits with the caller's transaction and reports
+     * once after the commit.
      *
      * @formatter:off
      *
@@ -310,8 +298,7 @@ final class SessionRevocationsTest extends TestCase
     }
 
     /**
-     * Sign the identity in on a new session and return the session's access
-     * token.
+     * Sign the identity in and return the session's access token.
      *
      * @param  \Tests\Integration\Fixtures\CutoffIdentity  $identity
      * @return string
@@ -330,8 +317,8 @@ final class SessionRevocationsTest extends TestCase
     }
 
     /**
-     * Record the class of every revocation and logout everywhere reported from
-     * now on, in order.
+     * Record the class of every revocation and logout everywhere reported, in
+     * order.
      *
      * @return \ArrayObject<int, class-string>
      */
@@ -348,8 +335,7 @@ final class SessionRevocationsTest extends TestCase
     }
 
     /**
-     * A fresh `api` guard serving a request that bears the token, not resolved
-     * yet.
+     * A fresh, unresolved `api` guard for a request bearing the token.
      *
      * @param  string  $token
      * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard

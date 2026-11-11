@@ -30,13 +30,8 @@ use Tests\Fixtures\Http\SetLocaleFromRequest;
 use Tests\TestCase;
 
 /**
- * End-to-end tests for the `jwt` guard served by one Laravel Octane worker,
- * through its real request lifecycle: each request runs in a sandbox cloned
- * from the application the worker booted, and Octane's
- * `FlushAuthenticationState` hands the package's auth manager that sandbox and
- * forgets its guards. Nothing one request binds (an identity, a principal, a
- * session, a tenant, a refusal, a sign-in, a logout) is seen by the next, which
- * authenticates from its own token or not at all.
+ * End-to-end tests for the `jwt` guard served by one Octane worker, where
+ * nothing one request binds is seen by the next.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -117,9 +112,7 @@ final class JwtGuardRequestsTest extends TestCase
     }
 
     /**
-     * One identity's token, then no token, then another identity's: the guest
-     * request binds nothing, and the third sees only the second identity, its
-     * principal and its session.
+     * One identity's token, then none, then another's: each sees only its own.
      *
      * @return void
      */
@@ -166,9 +159,8 @@ final class JwtGuardRequestsTest extends TestCase
     }
 
     /**
-     * A logout, which revokes the session and keeps the guard signed out for
-     * the rest of its request, then another identity's token: the second is
-     * signed in, and the logged-out token stays refused on a later request.
+     * After a logout, another identity signs in and the logged-out token stays
+     * refused.
      *
      * @return void
      */
@@ -188,9 +180,8 @@ final class JwtGuardRequestsTest extends TestCase
     }
 
     /**
-     * A member's token, which binds a principal within a tenant, then a 2D
-     * identity's token on another guard, then no token on the first: neither
-     * later request sees the tenant or the membership.
+     * A tenant's member, then another guard, then a guest: none sees the
+     * tenant.
      *
      * @return void
      */
@@ -210,9 +201,7 @@ final class JwtGuardRequestsTest extends TestCase
     }
 
     /**
-     * Requests behind `auth:api` answer each by its own token: a guest between
-     * two signed-in requests gets the package's `401`, and the signed-in
-     * request after it is let through.
+     * A guest between signed-in requests behind `auth:api` is refused.
      *
      * @return void
      */
@@ -227,10 +216,7 @@ final class JwtGuardRequestsTest extends TestCase
     }
 
     /**
-     * The worker answers each guest's `401` in the locale its own request set,
-     * through the translator its booted application resolved: French where the
-     * application translates the message, and English for a locale it does not
-     * translate, after a French request and before another.
+     * Each guest's `401` is worded in its own request's locale.
      *
      * @return void
      */
@@ -242,10 +228,7 @@ final class JwtGuardRequestsTest extends TestCase
     }
 
     /**
-     * With the exception handler resolved by the worker's booted application,
-     * as a provider that registers a reporter at boot resolves it, each guest's
-     * `401` is still worded by the translator its own request's sandbox bound,
-     * and a request that binds none gets the booted application's.
+     * Each guest's `401` is worded by the translator its own request bound.
      *
      * @return void
      */

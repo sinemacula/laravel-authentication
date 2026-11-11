@@ -36,9 +36,7 @@ use Tests\TestCase;
 
 /**
  * End-to-end tests of the optional security-change listeners against a real
- * database, as an application registers them: once the change commits, the
- * sessions it ends are refused at the `auth` middleware and can no longer be
- * refreshed, while a session started afterwards works.
+ * database.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -106,9 +104,7 @@ final class SecurityChangeEndToEndTest extends TestCase
     }
 
     /**
-     * A new password saved in a transaction leaves the session working until
-     * the transaction commits; then its access token is refused and its refresh
-     * token refreshes nothing, while a sign-in with the new password works.
+     * A changed password ends the session once its transaction commits.
      *
      * @return void
      *
@@ -132,12 +128,8 @@ final class SecurityChangeEndToEndTest extends TestCase
     }
 
     /**
-     * A sign-in through a user provider whose rehash of an outdated hash fires
-     * model events, with a listener of the rehash's save that changes the
-     * password through another instance, signs in with the new one, then saves
-     * the sign-in password back through the instance the rehash saved: the
-     * change back ends the session started between the two changes, as the
-     * first change ended the one before, while the sign-in around them works.
+     * Changing the password back inside the automatic rehash ends the session
+     * started between.
      *
      * @return void
      *
@@ -205,9 +197,8 @@ final class SecurityChangeEndToEndTest extends TestCase
     }
 
     /**
-     * Laravel's session guard rehashing an outdated hash on `attempt()`, for a
-     * model whose `#[ObservedBy]` observer first registers inside that attempt,
-     * leaves the session working; a new password saved afterwards ends it.
+     * Laravel's rehash keeps the session for an observer registered by
+     * `#[ObservedBy]`.
      *
      * @return void
      *
@@ -246,8 +237,7 @@ final class SecurityChangeEndToEndTest extends TestCase
     }
 
     /**
-     * A deactivated identity's session stays ended once the identity is active
-     * again: the revocation outlasts the reactivation.
+     * A deactivated identity's session stays ended after reactivation.
      *
      * @return void
      *
@@ -302,8 +292,7 @@ final class SecurityChangeEndToEndTest extends TestCase
     }
 
     /**
-     * Assert the session's access token is refused at the `auth` middleware and
-     * its refresh token refreshes nothing.
+     * Assert the session's access and refresh tokens no longer work.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
      * @return void

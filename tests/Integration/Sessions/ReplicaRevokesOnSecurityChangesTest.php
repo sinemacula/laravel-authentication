@@ -22,11 +22,8 @@ use Tests\Integration\Fixtures\TenantAware3dTenant;
 use Tests\TestCase;
 
 /**
- * Proves a tenant's deactivation reads each principal's tenant from the write
- * connection: a principal the primary has just moved into a new tenant acts
- * within it, though the replica does not hold that tenant yet, and one whose
- * tenant, not opted into activation, was deleted acts within none. A
- * principal's deactivation reads its owner from the write connection too.
+ * Integration tests that tenant and principal deactivations read on the primary
+ * while the replica lags.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -89,8 +86,8 @@ final class ReplicaRevokesOnSecurityChangesTest extends TestCase
     }
 
     /**
-     * The principal is accepted as acting within the new tenant, which only the
-     * primary holds, and its sessions are ended for that tenant.
+     * A principal in a tenant only the primary holds acts within it and its
+     * sessions end.
      *
      * @return void
      *
@@ -116,8 +113,7 @@ final class ReplicaRevokesOnSecurityChangesTest extends TestCase
     }
 
     /**
-     * A principal's owner that only the primary holds is read all the same, and
-     * carried as the identity whose sessions ended.
+     * A principal's owner only the primary holds is read and carried.
      *
      * @return void
      *
@@ -144,10 +140,8 @@ final class ReplicaRevokesOnSecurityChangesTest extends TestCase
     }
 
     /**
-     * A tenant that does not opt into activation reads as no tenant once it is
-     * deleted, so its deactivation can no longer tell that its principals act
-     * within it and refuses them, writing nothing: the application calls
-     * `tenantDeactivated()` before deleting such a tenant.
+     * A deleted tenant that does not opt into activation reads as no tenant and
+     * its deactivation writes nothing.
      *
      * @return void
      *

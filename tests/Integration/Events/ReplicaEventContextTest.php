@@ -18,10 +18,7 @@ use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\TestCase;
 
 /**
- * Proves a queued event needs no database to come back: built from a model
- * written moments ago, which only the primary holds yet, it restores from the
- * values it holds, reading neither the replica, which would not find the row,
- * nor the primary.
+ * Tests that a queued event restores without reading the database.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -66,8 +63,7 @@ final class ReplicaEventContextTest extends TestCase
     }
 
     /**
-     * An event about a tenant only the primary holds restores with the tenant's
-     * type and identifier, and runs no query.
+     * An event about a tenant only the primary holds restores without a query.
      *
      * @return void
      */

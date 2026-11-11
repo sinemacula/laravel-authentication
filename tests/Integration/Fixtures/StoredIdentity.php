@@ -19,10 +19,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
- * 2D identity kept with the package's tables on the storage connection,
- * `package_store`, in the `stored_identities` table the test creates: a
- * normalised email address that can be changed, a password, a "tokens valid
- * after" cutoff, and sessions of the shipped model.
+ * 2D identity on the `package_store` connection with the package's tables, with
+ * a changeable email address and sessions.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

@@ -15,12 +15,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
- * 2D identity fixture, stored in `mapped_email_identities`, whose email address
- * lives in an `email_address` column: it reports the identifier of the `email`
- * type through `HasVerifiableIdentifiers`, as the contract allows, and has no
- * attribute named after the type. It has no identifier of any other type, and
- * says so with a `LogicException`, as `ProvidesIdentifierVerification` does for
- * a column a model does not load.
+ * 2D identity whose `email` identifier lives in an `email_address` column and
+ * that has no identifier of another type.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

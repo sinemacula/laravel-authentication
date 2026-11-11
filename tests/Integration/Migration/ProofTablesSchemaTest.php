@@ -14,16 +14,8 @@ use Tests\Concerns\RunsMigrationSteps;
 use Tests\TestCase;
 
 /**
- * Integration tests for the shape of the tables the shipped proofs and
- * provenance migrations create (the provenance migration creates the connection
- * guards too), on whichever engine the suite runs against.
- *
- * Each migration runs for a configured table name other than the default, with
- * the schema builder's default time precision raised, so the index names and
- * the whole-second precision are what the migrations themselves declare.
- *
- * Marked `#[CoversNothing]` because a migration is an anonymous class PHPUnit
- * cannot attribute coverage to.
+ * Integration tests for the shape of the tables the proofs and provenance
+ * migrations create.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -93,12 +85,8 @@ final class ProofTablesSchemaTest extends TestCase
     }
 
     /**
-     * The proofs table holds each proof's session, kind and purpose, method,
-     * channel and factor, observations, evaluation, accepted external evidence,
-     * `amr` values, binding, time and voiding; only what a proof may lack is
-     * nullable (each observation, the evaluation and the evidence, which are
-     * `null` when not observed, not an adapter's or not accepted), and the id
-     * is the primary key.
+     * The proofs table holds its columns, nullable only where a proof may lack
+     * a value.
      *
      * @return void
      */
@@ -140,10 +128,8 @@ final class ProofTablesSchemaTest extends TestCase
     }
 
     /**
-     * The provenance table holds one row per session: the connection and its
-     * tenant, the provider's time and deadline, the accepted evidence, the
-     * policy version, the link and the provider context, as text; only the
-     * session and the connection are required.
+     * The provenance table holds its columns, only the session and connection
+     * required.
      *
      * @return void
      */
@@ -171,9 +157,7 @@ final class ProofTablesSchemaTest extends TestCase
     }
 
     /**
-     * The connection guard table holds only a connection and a slot, both
-     * required, which together are its primary key, and nothing else is
-     * indexed.
+     * The connection guard table is keyed by its connection and slot alone.
      *
      * @return void
      */
@@ -213,11 +197,7 @@ final class ProofTablesSchemaTest extends TestCase
     }
 
     /**
-     * The string columns are as long as what they hold: a channel reference of
-     * 255 characters, a kind, a purpose and a key protection, the `amr` list's
-     * JSON, and a policy version of 64. The session key, owner, guard, factor
-     * reference, connection and link hold 255 characters, which on MySQL and
-     * MariaDB, where they are binary, is 1020 bytes.
+     * The string columns are as long as what they hold.
      *
      * @return void
      */
@@ -251,9 +231,7 @@ final class ProofTablesSchemaTest extends TestCase
     }
 
     /**
-     * The proofs are indexed by session, kind and time, for the claims and the
-     * freshness reads, and the provenance by connection and by tenant and
-     * connection; each index is named after the configured table.
+     * The proofs and provenance are indexed for their lookups.
      *
      * @return void
      */
@@ -267,13 +245,8 @@ final class ProofTablesSchemaTest extends TestCase
     }
 
     /**
-     * The session key, the guard, the owner, the factor reference, the `amr`
-     * values, the connection and the link compare byte for byte on every
-     * engine, MySQL's default case-insensitive collations and its padding
-     * `utf8mb4_bin` included: a lookup of one finds no value that differs from
-     * it only in case or by a trailing space, a group keeps such values apart,
-     * and provenances whose session keys, or guards whose connections, differ
-     * only in those are all kept.
+     * The binding and the values compare byte for byte on every engine, MySQL's
+     * case-insensitive collations included.
      *
      * @return void
      */
@@ -335,11 +308,8 @@ final class ProofTablesSchemaTest extends TestCase
     }
 
     /**
-     * A session key, owner and guard of 255 characters that each take four
-     * bytes are stored and found again whole on every engine, and so is a
-     * provenance under that key with such a link, and a guard of such a
-     * connection: a binary column on MySQL and MariaDB holds what a string
-     * column of 255 characters holds elsewhere.
+     * Bindings of 255 four-byte characters are stored and found whole on every
+     * engine.
      *
      * @return void
      */

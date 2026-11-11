@@ -12,15 +12,7 @@ use PHPUnit\Framework\Attributes\CoversNothing;
 use Tests\TestCase;
 
 /**
- * Integration tests for the shape of the table the shipped API keys migration
- * creates, on whichever engine the suite runs against.
- *
- * The migration runs for a configured table name other than the default and
- * with the schema builder's default time precision raised, so the index names
- * and the whole-second precision are what the migration itself declares.
- *
- * Marked `#[CoversNothing]` because a migration is an anonymous class PHPUnit
- * cannot attribute coverage to.
+ * Integration tests for the shape of the table the API keys migration creates.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -75,10 +67,7 @@ final class ApiKeysTableSchemaTest extends TestCase
     }
 
     /**
-     * The table holds the public part, the secret's digest, the guard and name,
-     * the owner, principal and tenant, the scopes, the expiry, last use,
-     * rotation and revocation, and the timestamps; only what a key may lack is
-     * nullable, and the id is the primary key.
+     * The table holds its columns, nullable only where a key may lack a value.
      *
      * @return void
      */
@@ -165,10 +154,7 @@ final class ApiKeysTableSchemaTest extends TestCase
     }
 
     /**
-     * The public part is unique, so a key is found by one indexed lookup and a
-     * colliding draw is refused; the owner and the principal are indexed for
-     * listing a principal's keys; each index is named after the configured
-     * table.
+     * The public part is unique and the owner and principal are indexed.
      *
      * @return void
      */

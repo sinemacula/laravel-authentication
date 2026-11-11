@@ -7,9 +7,8 @@ namespace Tests\Integration\Fixtures;
 use Illuminate\Database\Eloquent\Model;
 
 /**
- * A row of a member's roles, stored in one table under a `kind`: a role that is
- * not a principal (an invitation not yet accepted, say) beside the memberships,
- * which `MemberRoleMembership` reads as principals.
+ * A member's role, stored under a `kind`, of which `MemberRoleMembership` reads
+ * only the memberships as principals.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

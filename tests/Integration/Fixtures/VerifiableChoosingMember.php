@@ -15,9 +15,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
- * 3D identity fixture, like `ChoosingMember`, with no default membership, that
- * reports its email verified only when its `email_verified` column, which the
- * test adds, is set.
+ * 3D identity with no default membership whose email counts as verified only
+ * when its `email_verified` column is set.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

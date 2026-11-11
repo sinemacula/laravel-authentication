@@ -30,11 +30,8 @@ use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\TestCase;
 
 /**
- * Proves an application policy of the application's own is asked on the write
- * connection on every session path: the policy reads its own grant and
- * verification rows through the query builder, so a row only the primary holds
- * admits the sign-in, refresh, switch or choice, and a row the primary has
- * withdrawn, while the replica still holds it, refuses it.
+ * Tests that an application policy of the application's own is asked on the
+ * write connection on every session path.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -51,8 +48,8 @@ final class ReplicaApplicationPolicyTest extends TestCase
     use InteractsWithApplicationGrants, InteractsWithLaggingReplica, InteractsWithSessions;
 
     /**
-     * Create the identity, member, membership and tenant tables on the primary
-     * and the replica, and bind the policy that reads its own rows.
+     * Create the tables on the primary and the replica, and bind the policy
+     * that reads its own rows.
      *
      * @return void
      */
@@ -108,10 +105,8 @@ final class ReplicaApplicationPolicyTest extends TestCase
     }
 
     /**
-     * A password sign-in, through `attempt()` and the session service, is
-     * admitted on a verification and a grant only the primary holds, refused as
-     * `identifier_unverified` once the primary withdraws the verification, and
-     * as `principal_ineligible` once it withdraws the grant.
+     * A password sign-in is admitted or refused as the primary holds the
+     * verification and the grant.
      *
      * @return void
      *
@@ -138,9 +133,7 @@ final class ReplicaApplicationPolicyTest extends TestCase
     }
 
     /**
-     * A session started for an externally verified identity is admitted on a
-     * grant only the primary holds, and refused as `principal_ineligible` once
-     * the primary withdraws it.
+     * A started session is admitted or refused as the primary holds the grant.
      *
      * @return void
      *
@@ -159,9 +152,8 @@ final class ReplicaApplicationPolicyTest extends TestCase
     }
 
     /**
-     * A refresh is admitted on a grant only the primary holds, and refused as
-     * `principal_ineligible`, without revoking the session, once the primary
-     * withdraws it.
+     * A refresh is admitted or refused as the primary holds the grant, without
+     * revoking the session.
      *
      * @return void
      *
@@ -188,9 +180,7 @@ final class ReplicaApplicationPolicyTest extends TestCase
     }
 
     /**
-     * A switch of principal is admitted with the session's identifier type on a
-     * verification and a grant only the primary holds, and refused as
-     * `identifier_unverified` once the primary withdraws the verification.
+     * A switch is admitted or refused as the primary holds the verification.
      *
      * @return void
      *
@@ -228,10 +218,8 @@ final class ReplicaApplicationPolicyTest extends TestCase
     }
 
     /**
-     * The principals offered to a sign-in that used an identifier are those a
-     * verification and a grant only the primary holds admit; once the primary
-     * withdraws the grant, the principal is no longer offered, and once it
-     * withdraws the verification, none is.
+     * The principals offered are those the primary's verification and grant
+     * admit.
      *
      * @return void
      *
@@ -291,9 +279,8 @@ final class ReplicaApplicationPolicyTest extends TestCase
     }
 
     /**
-     * Sign in to the guard with the password of the identity with the email, as
-     * the principal named, if one is: an identity with more than one principal
-     * must name one, or it is held pending for the choice.
+     * Sign in to the guard with the identity's password, as the principal named
+     * if one is.
      *
      * @param  string  $guard
      * @param  string  $email

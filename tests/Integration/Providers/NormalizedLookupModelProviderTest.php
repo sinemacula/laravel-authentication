@@ -22,10 +22,8 @@ use Tests\Integration\Fixtures\NormalizedEmailIdentity;
 use Tests\TestCase;
 
 /**
- * Integration tests for looking identities up by a designated identifier: the
- * `model` provider normalises the credential the way the cast stored it, so the
- * lookup matches on every database engine, PostgreSQL's case-sensitive
- * comparison included.
+ * Integration tests of the `model` provider normalising a designated identifier
+ * before the lookup.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -44,7 +42,7 @@ final class NormalizedLookupModelProviderTest extends TestCase
 
     /**
      * Create the identity table, seed one identity through the cast, and record
-     * the queries the tests run.
+     * the queries.
      *
      * @return void
      */
@@ -86,8 +84,8 @@ final class NormalizedLookupModelProviderTest extends TestCase
     }
 
     /**
-     * The identifier was stored in its normal form, and a lookup with any
-     * casing and surrounding whitespace finds it, also as a `Stringable`.
+     * A lookup with any casing or surrounding whitespace finds the stored
+     * normal form.
      *
      * @return void
      */
@@ -114,9 +112,8 @@ final class NormalizedLookupModelProviderTest extends TestCase
     }
 
     /**
-     * A credential key qualified with the model's own table counts as the
-     * attribute; one qualified with another table, even one whose name starts
-     * with the model's, does not.
+     * A key qualified with the model's own table is normalised; one qualified
+     * with another table is not.
      *
      * @return void
      */
@@ -131,7 +128,7 @@ final class NormalizedLookupModelProviderTest extends TestCase
     }
 
     /**
-     * Every designated credential is normalised, wherever it comes among the
+     * Every designated credential is normalised wherever it comes among the
      * others.
      *
      * @return void
@@ -143,8 +140,7 @@ final class NormalizedLookupModelProviderTest extends TestCase
     }
 
     /**
-     * A rejected identifier ends the lookup before any clause is applied, so a
-     * closure credential that comes first is never run.
+     * A rejected identifier ends the lookup before a closure credential runs.
      *
      * @return void
      */
@@ -164,8 +160,7 @@ final class NormalizedLookupModelProviderTest extends TestCase
     }
 
     /**
-     * Credentials for attributes that are not designated identifiers, and
-     * values that are not strings, are applied as given.
+     * Other credentials and non-string values are applied as given.
      *
      * @return void
      */
@@ -177,8 +172,7 @@ final class NormalizedLookupModelProviderTest extends TestCase
     }
 
     /**
-     * A closure credential receives the query as before; the identifier it
-     * filters on is the closure's own business.
+     * A closure credential receives the query untouched.
      *
      * @return void
      */
@@ -208,8 +202,7 @@ final class NormalizedLookupModelProviderTest extends TestCase
     }
 
     /**
-     * A value that cannot be an identifier cannot name an account: the lookup
-     * returns `null` without running a query.
+     * A rejected identifier finds nothing without running a query.
      *
      * @param  mixed  $email
      * @return void
@@ -222,8 +215,7 @@ final class NormalizedLookupModelProviderTest extends TestCase
     }
 
     /**
-     * A credential sign-in through the guard finds the identity whatever the
-     * casing the person typed.
+     * A sign-in through the guard finds the identity whatever the casing.
      *
      * @return void
      */

@@ -12,9 +12,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 
 /**
- * 2D fixture whose activity check reads the database: it is inactive while a
- * row in `user_suspensions` names it, as an application might record a ban or a
- * lapsed subscription outside the user row.
+ * 2D identity that is inactive while a `user_suspensions` row names it.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

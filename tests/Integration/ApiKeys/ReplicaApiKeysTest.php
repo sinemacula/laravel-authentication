@@ -33,13 +33,8 @@ use Tests\Integration\Fixtures\MachineMembership;
 use Tests\TestCase;
 
 /**
- * Proves every read that decides an API key is from the write connection: a key
- * issued, revoked or rotated moments ago, which only the primary holds yet, is
- * accepted or refused as the primary says by the `api_key` guard, the client
- * credentials exchange and the bearer path of the tokens it issues, and the
- * service finds it; a principal's tenant changed moments ago is the one a new
- * key records; and an application policy of the application's own decides from
- * the rows the primary holds.
+ * Integration tests proving every read that decides an API key is from the
+ * write connection.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -124,9 +119,7 @@ final class ReplicaApiKeysTest extends TestCase
     }
 
     /**
-     * A key only the primary holds authenticates its request and is found,
-     * listed and revoked by the service; once revoked on the primary, while the
-     * replica still holds it live, it is refused.
+     * The `api_key` guard and the service read the key on the primary.
      *
      * @return void
      *
@@ -167,9 +160,8 @@ final class ReplicaApiKeysTest extends TestCase
     }
 
     /**
-     * A key only the primary holds is exchanged for a token, which works on its
-     * guard; once the key is revoked on the primary, while the replica still
-     * holds it live, the token is refused at once.
+     * The client credentials exchange and its tokens read the key on the
+     * primary.
      *
      * @return void
      *
@@ -194,9 +186,7 @@ final class ReplicaApiKeysTest extends TestCase
     }
 
     /**
-     * A key records the principal's tenant as the primary holds it, and the
-     * key's revocation reports it: a membership moved moments ago to a tenant
-     * only the primary holds yet.
+     * A key records the principal's tenant as the primary holds it.
      *
      * @return void
      *
@@ -228,12 +218,7 @@ final class ReplicaApiKeysTest extends TestCase
     }
 
     /**
-     * An application policy of the application's own is asked on the primary: a
-     * grant only the primary holds lets keys be issued for the machine, its
-     * requests authenticate and the exchange grants a token; once the primary
-     * withdraws the grant, while the replica still holds it, its requests are
-     * refused as `principal_ineligible`, the exchange answers
-     * `unauthorized_client`, and no key is issued.
+     * An application policy of the application's own is asked on the primary.
      *
      * @return void
      *

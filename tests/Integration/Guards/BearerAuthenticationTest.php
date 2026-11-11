@@ -46,12 +46,8 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
 /**
- * End-to-end tests for the events of a request's access token, against a real
- * database on whichever engine the suite runs on. A request's token is an
- * authentication, not a sign-in: it reports only `Authenticated` and the
- * package's contextual events, and a rejected one only `AuthenticationFailed`
- * with the reason the real rows give, never Laravel's `Attempting`,
- * `Validated`, `Login` or `Failed`.
+ * Events a bearer request dispatches against a real database, which never
+ * include Laravel's sign-in events.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -79,8 +75,8 @@ final class BearerAuthenticationTest extends TestCase
     ];
 
     /**
-     * Freeze the clocks, create the tables, and add a route behind the `auth`
-     * middleware of each guard.
+     * Freeze the clocks, create the tables and add a route behind each guard's
+     * `auth` middleware.
      *
      * @return void
      */
@@ -121,10 +117,8 @@ final class BearerAuthenticationTest extends TestCase
     }
 
     /**
-     * A valid access token authenticates the request with exactly
-     * `Authenticated`, `PrincipalAssigned` and `SessionAuthenticated`, which
-     * carry the guard, the request's client, the identity, the session and the
-     * method it records.
+     * A valid access token dispatches exactly `Authenticated`,
+     * `PrincipalAssigned` and `SessionAuthenticated`.
      *
      * @return void
      *
@@ -179,8 +173,8 @@ final class BearerAuthenticationTest extends TestCase
     }
 
     /**
-     * A token for a session acting in a tenant below the member's own reports
-     * that tenant, resolved from the row, and never the membership's own.
+     * A session acting in a descendant tenant reports that tenant, not the
+     * membership's own.
      *
      * @return void
      *
@@ -214,9 +208,8 @@ final class BearerAuthenticationTest extends TestCase
     }
 
     /**
-     * A bearer request checks the tenant the session acts in without asking
-     * `TenantAccess`: access is decided at sign-in, on a switch and on refresh,
-     * never per request.
+     * A bearer request checks the session's tenant without asking
+     * `TenantAccess`.
      *
      * @return void
      *
@@ -262,8 +255,7 @@ final class BearerAuthenticationTest extends TestCase
     }
 
     /**
-     * Rows of `[what the rows say, the reason]`: each way the real rows make a
-     * token fail, after it was issued.
+     * Each way the stored rows reject a token after it was issued.
      *
      * @formatter:off
      *
@@ -361,9 +353,8 @@ final class BearerAuthenticationTest extends TestCase
     }
 
     /**
-     * A token the rows reject is answered `401` and reported once, as
-     * `AuthenticationFailed` for the bearer flow with the reason, attributed to
-     * the guard and the client, and nothing else is dispatched.
+     * A token the rows reject is answered `401` and reported once as
+     * `AuthenticationFailed`.
      *
      * @param  \Closure(\Tests\Integration\Fixtures\IntegrationIdentity, \SineMacula\Laravel\Authentication\Sessions\SignedInSession): ?string  $change
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
@@ -395,9 +386,8 @@ final class BearerAuthenticationTest extends TestCase
     }
 
     /**
-     * A session failure is attributed to the identity, the principal and the
-     * session the rows hold, with the method the session records; a missing
-     * session keeps the id the token named.
+     * A session failure is attributed to the identity, principal and session
+     * the rows hold.
      *
      * @return void
      *
@@ -434,12 +424,8 @@ final class BearerAuthenticationTest extends TestCase
     }
 
     /**
-     * A switch away from a principal and back again does not revive the tokens
-     * issued to it before the first switch: each switch is recorded on the
-     * session, and a token issued before the last one is rejected as
-     * `session_switched` even though the session records its principal again. A
-     * token issued in the second of the switch back is accepted, as the
-     * switch's own tokens are.
+     * Switching away from a principal and back does not revive its earlier
+     * tokens.
      *
      * @return void
      *
@@ -477,8 +463,8 @@ final class BearerAuthenticationTest extends TestCase
     }
 
     /**
-     * A member whose tenant is deactivated after the token was issued is
-     * rejected as `tenant_inactive`, attributed to the member and membership.
+     * A member whose tenant is deactivated after issue is rejected as
+     * `tenant_inactive`.
      *
      * @return void
      *

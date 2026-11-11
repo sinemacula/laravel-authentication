@@ -13,9 +13,8 @@ use SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 
 /**
- * 3D principal of a `SoftDeletingMember` that soft-deletes, acts within no
- * tenant, and records a "tokens valid after" cutoff in the `tokens_valid_after`
- * column of `soft_deleting_memberships`.
+ * Soft-deleting 3D principal of a `SoftDeletingMember` with a cutoff and no
+ * tenant.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

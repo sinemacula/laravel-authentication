@@ -19,16 +19,9 @@ use Tests\Integration\Fixtures\ChangeableIdentity;
 use Tests\TestCase;
 
 /**
- * Races identifier change confirmations on PostgreSQL and MySQL, each in a
- * process with a database connection of its own: one runs inside a transaction
- * it holds open, and the other, started meanwhile, waits on a row the first
- * wrote. Two confirmations of one change make it once; two identities
- * confirming changes to one identifier get it once, the other refused by the
- * unique index as taken with its change left pending; and when the first rolls
- * back, the one that waited makes its change.
- *
- * Skipped on SQLite, whose in-memory database each process would have to
- * itself, and where `pcntl` is not available.
+ * Races identifier change confirmations in two processes on PostgreSQL and
+ * MySQL. SQLite is skipped, as each process would get its own in-memory
+ * database.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -125,9 +118,8 @@ final class ConcurrentIdentifierChangesTest extends TestCase
     }
 
     /**
-     * Two identities confirming changes to one identifier: the provider's look
-     * finds neither holding it, so the unique index decides; the one that
-     * waited on it is taken, and its change stays pending, proof unspent.
+     * Two identities racing for one identifier get it once, the unique index
+     * deciding.
      *
      * @return void
      *
@@ -210,9 +202,8 @@ final class ConcurrentIdentifierChangesTest extends TestCase
     }
 
     /**
-     * Run the first confirmation here inside a transaction, start the second in
-     * another process, hold the transaction open while the second waits, then
-     * commit or roll back, and return both outcomes.
+     * Run one confirmation here in a transaction and the other in a forked
+     * process, and return both outcomes.
      *
      * @param  \Closure(): string  $first
      * @param  \Closure(): string  $second
@@ -252,9 +243,8 @@ final class ConcurrentIdentifierChangesTest extends TestCase
     }
 
     /**
-     * In the forked process: wait to be started, run the confirmation on a
-     * connection of its own, report the outcome, and end without running the
-     * parent's shutdown.
+     * Run the confirmation in the forked process and exit without the parent's
+     * shutdown.
      *
      * @param  \Closure(): string  $operation
      * @return never

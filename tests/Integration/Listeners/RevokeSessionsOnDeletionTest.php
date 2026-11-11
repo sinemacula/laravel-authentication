@@ -40,13 +40,8 @@ use Tests\Integration\Fixtures\SoftDeletingMembership;
 use Tests\TestCase;
 
 /**
- * End-to-end tests of the optional `RevokeSessionsOnDeletion` observer against
- * a real database, registered on both models as an application registers it: a
- * soft-deleted identity's or principal's session stays refused at the `auth`
- * middleware and unrefreshable after a restore, a session-less token issued
- * before the soft delete stays refused through the cutoff it moved, and a
- * database cascade that removes the principals with their identity needs no
- * event of theirs.
+ * End-to-end tests of the `RevokeSessionsOnDeletion` observer against a real
+ * database.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -140,9 +135,7 @@ final class RevokeSessionsOnDeletionTest extends TestCase
     }
 
     /**
-     * A soft-deleted identity's session is refused, and stays refused as
-     * revoked once the identity is restored; a force delete afterwards revokes
-     * nothing more.
+     * A soft-deleted identity's session stays revoked after a restore.
      *
      * @return void
      *
@@ -234,9 +227,7 @@ final class RevokeSessionsOnDeletionTest extends TestCase
     }
 
     /**
-     * Rows of `[the soft delete made after the sign-in admitted the member,
-     * before its session was written, the restore, the reason the sign-in is
-     * refused for]`.
+     * Rows of `[soft delete after admission, restore, refusal reason]`.
      *
      * @formatter:off
      *
@@ -263,10 +254,7 @@ final class RevokeSessionsOnDeletionTest extends TestCase
     }
 
     /**
-     * A sign-in that admitted the member before a soft delete committed, the
-     * observer's revocation finding no session of it, is refused once its
-     * session is written, so once the identity or principal is restored no
-     * session of it works: the member signs in afresh.
+     * A sign-in admitted before a soft delete never outlives the restore.
      *
      * @formatter:off
      *
@@ -301,10 +289,7 @@ final class RevokeSessionsOnDeletionTest extends TestCase
     }
 
     /**
-     * Deleting the identity removes its memberships by a database cascade,
-     * which fires no event of theirs; the identity's own revocation ends every
-     * session, those acting as each membership included, and reports each with
-     * the principal it acted as although that row is gone.
+     * A cascade from the identity needs no event of its principals.
      *
      * @return void
      *
@@ -339,9 +324,8 @@ final class RevokeSessionsOnDeletionTest extends TestCase
     }
 
     /**
-     * A token issued without a session before the identity's soft delete stays
-     * refused after its restore, through the identity's cutoff the soft delete
-     * moved; one issued afterwards works.
+     * An identity's soft delete cuts off the session-less tokens issued before
+     * it.
      *
      * @return void
      *
@@ -363,9 +347,8 @@ final class RevokeSessionsOnDeletionTest extends TestCase
     }
 
     /**
-     * A token issued without a session before the principal's soft delete stays
-     * refused after its restore, through the principal's cutoff the soft delete
-     * moved; one issued afterwards works.
+     * A principal's soft delete cuts off the session-less tokens issued before
+     * it.
      *
      * @return void
      *

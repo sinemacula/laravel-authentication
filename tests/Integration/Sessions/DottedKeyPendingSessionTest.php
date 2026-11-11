@@ -29,9 +29,7 @@ use Tests\Integration\Fixtures\DottedKeySession;
 use Tests\TestCase;
 
 /**
- * Integration tests of a pending session whose key holds a `.`, against each
- * supported database: its credential is `<key>.<secret>`, split at its last
- * `.`, so it names the session, is satisfied in place, and is discarded.
+ * Integration tests of a pending session whose key holds a `.`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -47,8 +45,8 @@ final class DottedKeyPendingSessionTest extends TestCase
     private const string TABLE = 'dotted_key_sessions';
 
     /**
-     * Freeze the clocks, create the tables, point the session model and its
-     * table at the dotted-key ones, and ask every sign-in for a further factor.
+     * Freeze the clocks, create the tables, point the session model at the
+     * dotted-key table and require a further factor.
      *
      * @return void
      */
@@ -88,8 +86,7 @@ final class DottedKeyPendingSessionTest extends TestCase
     }
 
     /**
-     * Drop the tables, put the session table back for the migrations' rollback
-     * and release the clocks.
+     * Drop the tables, restore the session table and release the clocks.
      *
      * @return void
      */
@@ -111,9 +108,7 @@ final class DottedKeyPendingSessionTest extends TestCase
     }
 
     /**
-     * The pending credential of a session whose key holds a `.` carries the
-     * whole key before its secret, names the session for an action, and is
-     * satisfied in place: the same row activates, keeping its key.
+     * A dotted-key pending session is named and satisfied by its credential.
      *
      * @return void
      *
@@ -144,8 +139,7 @@ final class DottedKeyPendingSessionTest extends TestCase
     }
 
     /**
-     * A pending session whose key holds a `.` is discarded through its
-     * credential.
+     * A dotted-key pending session is discarded by its credential.
      *
      * @return void
      *

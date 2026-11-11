@@ -16,15 +16,8 @@ use Tests\Concerns\InteractsWithCodes;
 use Tests\TestCase;
 
 /**
- * Races one-time code operations on PostgreSQL and MySQL, each in a process
- * with a database connection of its own: one runs inside a transaction it holds
- * open, and the other, started meanwhile, waits on the code's row. Two checks
- * of the right code accept it once, locking ones included; a check racing a
- * resend that drew the same digits never accepts the code it read; two resends
- * deliver once; two first issues for one binding create one code.
- *
- * Skipped on SQLite, whose in-memory database each process would have to
- * itself, and where `pcntl` is not available.
+ * Races one-time code operations in two processes; skipped on SQLite and
+ * without `pcntl`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -55,8 +48,7 @@ final class ConcurrentOneTimeCodesTest extends TestCase
     private string $outcomes;
 
     /**
-     * Skip where processes cannot share the database, and freeze the clock so
-     * both processes see one moment.
+     * Skip where processes cannot share the database, and freeze the clock.
      *
      * @return void
      *
@@ -102,9 +94,7 @@ final class ConcurrentOneTimeCodesTest extends TestCase
     }
 
     /**
-     * Of two checks of the right code, the one whose transaction commits first
-     * accepts it; the one that waited on its row finds the code used and says
-     * so.
+     * Of two checks of the right code, only the first to commit accepts it.
      *
      * @return void
      *
@@ -151,10 +141,8 @@ final class ConcurrentOneTimeCodesTest extends TestCase
     }
 
     /**
-     * A check of a code that a resend replaces, with the same digits, while the
-     * check waits never accepts: it read the old issuance, so it cannot count
-     * an attempt against it once the resend commits. The new issuance, of the
-     * same challenge, is untouched and accepts the code.
+     * A check racing a resend of the same digits never accepts the code it
+     * read.
      *
      * @return void
      *
@@ -180,10 +168,8 @@ final class ConcurrentOneTimeCodesTest extends TestCase
     }
 
     /**
-     * Of two locking checks of the right code, the second waits on the row the
-     * first locked until the first's transaction commits, then finds the code
-     * used and says so without counting: so a factor code's counters, asked and
-     * told inside that transaction, hear of the one attempt only.
+     * A locking check waits for the check holding the challenge, then finds the
+     * code used.
      *
      * @return void
      *
@@ -206,9 +192,7 @@ final class ConcurrentOneTimeCodesTest extends TestCase
     }
 
     /**
-     * Two resends of one challenge made at once deliver once: the one that
-     * waited on the other's write finds it replaced and is told to wait out the
-     * cooldown.
+     * Two resends of one challenge made at once deliver once.
      *
      * @return void
      *
@@ -237,8 +221,7 @@ final class ConcurrentOneTimeCodesTest extends TestCase
     }
 
     /**
-     * Two first issues for one binding create one code: the one that waited on
-     * the other's insert is told to wait out the cooldown.
+     * Two first issues for one binding create one code.
      *
      * @return void
      *
@@ -279,8 +262,7 @@ final class ConcurrentOneTimeCodesTest extends TestCase
     }
 
     /**
-     * Run the first operation here inside a transaction, start the second in
-     * another process, hold the transaction open while the second waits, then
+     * Race the first operation here against the second in a child process, then
      * commit or roll back, and return both outcomes.
      *
      * @param  \Closure(): (int|string)  $first
@@ -321,9 +303,8 @@ final class ConcurrentOneTimeCodesTest extends TestCase
     }
 
     /**
-     * In the forked process: wait to be started, run the operation on a
-     * connection of its own, report the outcome, and end without running the
-     * parent's shutdown.
+     * In the forked process, run the operation on its own connection, report
+     * the outcome and exit without the parent's shutdown.
      *
      * @param  \Closure(): (int|string)  $operation
      * @return never

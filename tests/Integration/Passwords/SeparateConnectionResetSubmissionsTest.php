@@ -28,13 +28,8 @@ use Tests\Integration\Fixtures\SeparateConnectionSession;
 use Tests\TestCase;
 
 /**
- * Integration tests of a password reset for identities on the default
- * connection while the package's tables, the sessions and the codes, live on a
- * storage connection of their own: the proof, the password and the revocation
- * cannot be one transaction, so a request and a reset are refused as a
- * misconfiguration before anything is counted when the provider's configuration
- * names its model, and a reset once its proof is accepted for the identity
- * found when it does not.
+ * Integration tests of a password reset for identities off the storage
+ * connection.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -55,9 +50,7 @@ final class SeparateConnectionResetSubmissionsTest extends TestCase
 
     /**
      * Create the identity table on the default connection and the session and
-     * code tables on the session connection, which is made the storage
-     * connection once the shipped migrations have run on the default one, while
-     * the counters stay there.
+     * code tables on the session connection.
      *
      * @return void
      */
@@ -102,9 +95,8 @@ final class SeparateConnectionResetSubmissionsTest extends TestCase
     }
 
     /**
-     * With the provider's model named in its configuration, a request for a
-     * link and a reset are both refused before anything is counted or issued:
-     * no link goes out that could never reset.
+     * With the provider's model configured, a request and a reset are refused
+     * before anything is counted.
      *
      * @return void
      *
@@ -134,11 +126,8 @@ final class SeparateConnectionResetSubmissionsTest extends TestCase
     }
 
     /**
-     * A provider whose configuration names no model has the identity it finds
-     * checked only once a proof is accepted: without one, a known identifier
-     * and an unknown one both answer `invalid`, so the refusal says nothing to
-     * someone guessing; with one, the reset is refused and the proof stays
-     * unspent.
+     * A provider without a configured model is refused only once a proof is
+     * accepted.
      *
      * @return void
      *

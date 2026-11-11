@@ -42,16 +42,8 @@ use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\TestCase;
 
 /**
- * Pins what the flows that write a session and then bind the guard do around
- * the database's transactions and the listeners they run: a sign-in inside a
- * transaction that commits or rolls back, whose bind waits for the commit, a
- * refresh rolled back, a bind listener and a lifecycle listener that throw (and
- * what becomes of the attempt-limit slots), a request or dispatcher rebound
- * between the scheduling of the lifecycle events and their dispatch, and a
- * completion whose session write fails.
- *
- * Each assertion records what the code does today, for the refactors of the
- * session service and the guard to keep.
+ * Pins what the flows that write a session and bind the guard do around
+ * transactions and the listeners they run.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -83,7 +75,7 @@ final class EventSequenceTest extends TestCase
 
     /**
      * Freeze the clocks, create the tables and seed the identity the flows sign
-     * in, its own principal.
+     * in.
      *
      * @return void
      */
@@ -126,9 +118,8 @@ final class EventSequenceTest extends TestCase
     }
 
     /**
-     * Inside a transaction on the session's connection, a sign-in binds nothing
-     * and gives nothing back until the transaction commits; then it reports its
-     * session, binds the guard and gives its slots back, in that order.
+     * A sign-in inside a transaction is reported, bound and gives its slots
+     * back only on commit.
      *
      * @return void
      *
@@ -155,8 +146,8 @@ final class EventSequenceTest extends TestCase
     }
 
     /**
-     * Inside a transaction that rolls back, a sign-in never binds the guard,
-     * and its session is never written or reported; nothing stays counted.
+     * A sign-in rolled back with its transaction is never written, bound or
+     * reported.
      *
      * @return void
      *
@@ -181,8 +172,7 @@ final class EventSequenceTest extends TestCase
     }
 
     /**
-     * A refresh rolled back with the caller's transaction neither reports its
-     * rotation nor binds the guard, and the presented token still refreshes.
+     * A refresh rolled back with the caller's transaction is never reported.
      *
      * @return void
      *
@@ -209,9 +199,8 @@ final class EventSequenceTest extends TestCase
     }
 
     /**
-     * A bind listener that throws after the session was written reaches the
-     * caller once the session is reported; the guard is left unbound and the
-     * sign-in's slots stay counted.
+     * A bind listener that throws after the write leaves the guard unbound and
+     * the slots counted.
      *
      * @return void
      *
@@ -236,8 +225,7 @@ final class EventSequenceTest extends TestCase
     }
 
     /**
-     * An activation whose bind listener throws keeps the slots its sign-in took
-     * counted: they are given back only once the bind returned.
+     * An activation whose bind listener throws keeps its slots counted.
      *
      * @return void
      *
@@ -262,8 +250,8 @@ final class EventSequenceTest extends TestCase
     }
 
     /**
-     * A lifecycle listener that throws with no transaction open stops the
-     * sign-in before the bind and before its slots are given back.
+     * A lifecycle listener that throws stops the sign-in before the bind and
+     * the give-back.
      *
      * @return void
      *
@@ -289,8 +277,7 @@ final class EventSequenceTest extends TestCase
 
     /**
      * A lifecycle listener that throws on an activation leaves the session
-     * active and its slots counted: the give-back is scheduled only after the
-     * report.
+     * active and its slots counted.
      *
      * @return void
      *
@@ -313,10 +300,7 @@ final class EventSequenceTest extends TestCase
     }
 
     /**
-     * A request rebound between the sign-in and the commit resets the guard,
-     * which the sign-in's bind, waiting for the commit, then leaves alone: the
-     * guard serves another request now. The events report the client the
-     * sign-in came from, and the slots are given back.
+     * A request rebound before the commit leaves the reset guard unbound.
      *
      * @return void
      *
@@ -349,8 +333,7 @@ final class EventSequenceTest extends TestCase
     }
 
     /**
-     * A dispatcher swapped in between the scheduling of the lifecycle events
-     * and the commit receives them.
+     * A dispatcher swapped in before the commit receives the lifecycle events.
      *
      * @return void
      *
@@ -379,9 +362,8 @@ final class EventSequenceTest extends TestCase
     }
 
     /**
-     * An activation whose proof write fails rolls back: the session stays
-     * pending, nothing is reported or given back, and the credential satisfies
-     * it afterwards, giving its slots back once.
+     * An activation whose proof write fails rolls back and leaves the session
+     * pending.
      *
      * @return void
      *
@@ -431,8 +413,8 @@ final class EventSequenceTest extends TestCase
     }
 
     /**
-     * The slots the sign-ins of the seeded identity hold on its identifier and
-     * on the client's IP address.
+     * The slots the seeded identity's sign-ins hold on its identifier and the
+     * client's IP address.
      *
      * @return array{0: int, 1: int}
      */
@@ -456,9 +438,8 @@ final class EventSequenceTest extends TestCase
     }
 
     /**
-     * Hold a sign-in of the seeded identity for a further factor, and return
-     * its pending credential and an accepted further factor's proof bound to
-     * its session.
+     * Hold a sign-in for a further factor and return its pending credential and
+     * an accepted factor's proof.
      *
      * @return array{0: string, 1: \SineMacula\Laravel\Authentication\Proofs\ProofResult}
      */
@@ -488,10 +469,8 @@ final class EventSequenceTest extends TestCase
     }
 
     /**
-     * Have a listener throw on the event, after the recording listener: for a
-     * package event it listens on the contract, as the recording listener does,
-     * since Laravel runs the listeners of a class before those of its
-     * interfaces.
+     * Have a listener throw on the event after the recording one, on the
+     * contract for a package event, as Laravel runs class listeners first.
      *
      * @param  class-string  $event
      * @return void

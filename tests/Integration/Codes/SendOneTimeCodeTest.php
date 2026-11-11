@@ -46,11 +46,7 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\PlainIdentityFixture;
 
 /**
- * Integration tests for the queued delivery of one-time codes: whom the job
- * sends a code to and whom it silently skips, that it sends only the live
- * issuance, that its payload is encrypted on a real queue and runs on a worker,
- * and that on a `sync` connection it runs after the response, never inside the
- * request.
+ * Integration tests for the queued delivery of one-time codes.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -112,9 +108,8 @@ final class SendOneTimeCodeTest extends TestCase
     }
 
     /**
-     * A sign-in code goes to the active identity the guard's provider finds by
-     * the number, which reports it verified: the message carries the guard,
-     * purpose, type, number, code, expiry and recipient.
+     * A sign-in code goes to the active identity that holds the number
+     * verified.
      *
      * @return void
      *
@@ -137,10 +132,7 @@ final class SendOneTimeCodeTest extends TestCase
 
     /**
      * A sender that throws while delivering leaves no plaintext code in the
-     * trace: neither as an argument nor a closure's capture, nor anywhere in
-     * the dumped objects of its frames (the container, the job and the message
-     * among them), which hold the code only as a secret. The code is a real one
-     * of ten digits, so no other value in the dump matches it by chance.
+     * trace.
      *
      * @return void
      *
@@ -198,8 +190,7 @@ final class SendOneTimeCodeTest extends TestCase
     }
 
     /**
-     * A sign-in code for a number no one may receive it at is not sent, and
-     * nothing says so.
+     * A sign-in code for a number no one may receive it at is not sent.
      *
      * @param  string  $guard
      * @param  \Closure(): mixed  $seed
@@ -219,7 +210,7 @@ final class SendOneTimeCodeTest extends TestCase
 
     /**
      * A machine identity found by a verified number gets no code because it is
-     * a machine: the same row, read as a person, would.
+     * a machine.
      *
      * @return void
      *
@@ -241,9 +232,8 @@ final class SendOneTimeCodeTest extends TestCase
     }
 
     /**
-     * A sign-in code bound to a look-alike of a verified address, whose lookup
-     * finds the address's holder, is not sent; the holder's own address gets
-     * its code, at that address in its normal form.
+     * A sign-in code is sent only to the exact holder of the address, in its
+     * normal form.
      *
      * @return void
      *
@@ -314,8 +304,7 @@ final class SendOneTimeCodeTest extends TestCase
     }
 
     /**
-     * A verification code goes to the identity it was issued for, while its
-     * number is still the one the code is bound to.
+     * A verification code goes to the identity it was issued for.
      *
      * @return void
      *
@@ -333,8 +322,8 @@ final class SendOneTimeCodeTest extends TestCase
     }
 
     /**
-     * A verification code is not sent once the identity's number has changed,
-     * or it has none: the code could verify nothing.
+     * A verification code is not sent once the identity's number has changed or
+     * gone.
      *
      * @return void
      *
@@ -357,8 +346,8 @@ final class SendOneTimeCodeTest extends TestCase
     }
 
     /**
-     * A verification job carrying a machine identity, an identity that holds no
-     * verifiable identifiers, or none, sends nothing.
+     * A verification job for a machine, an identity without verifiable
+     * identifiers, or none sends nothing.
      *
      * @return void
      *
@@ -382,8 +371,7 @@ final class SendOneTimeCodeTest extends TestCase
     }
 
     /**
-     * A factor code's job carrying a machine identity, or none, sends nothing,
-     * while one carrying a person delivers to it.
+     * A factor code's job for a machine identity, or none, sends nothing.
      *
      * @return void
      *
@@ -408,7 +396,7 @@ final class SendOneTimeCodeTest extends TestCase
     }
 
     /**
-     * A sender that fails fails the job; with no sender bound, the job cannot
+     * A sender that fails fails the job, and without a sender the job cannot
      * resolve one.
      *
      * @return void
@@ -473,9 +461,8 @@ final class SendOneTimeCodeTest extends TestCase
     }
 
     /**
-     * A sign-in job for a jwt guard whose driver the application replaced with
-     * a guard that is not the package's has no provider to find the recipient
-     * through, and sends nothing.
+     * A sign-in job for a jwt guard replaced by a guard outside the package
+     * sends nothing.
      *
      * @return void
      *
@@ -500,10 +487,8 @@ final class SendOneTimeCodeTest extends TestCase
     }
 
     /**
-     * A code sent through a guard of another driver that builds the package's
-     * jwt guard is bound to the jwt guard it was built for, which only a guard
-     * with the `jwt` driver can be, and a worker delivers it through that
-     * guard.
+     * A code sent through another driver's guard is delivered through the jwt
+     * guard it built.
      *
      * @return void
      *
@@ -533,10 +518,8 @@ final class SendOneTimeCodeTest extends TestCase
     }
 
     /**
-     * A sign-in job naming a guard of another driver is refused even when the
-     * guard resolves to the package's jwt guard: the jwt guards are the ones
-     * `auth.guards` configures with the `jwt` driver, the only ones whose
-     * sign-in codes a password or identifier change outdates.
+     * A sign-in job naming a guard of another driver is refused even when it
+     * resolves to a jwt guard.
      *
      * @return void
      *
@@ -563,9 +546,8 @@ final class SendOneTimeCodeTest extends TestCase
     }
 
     /**
-     * A sign-in job for a jwt guard whose driver the application replaced with
-     * another of the package's guards finds the recipient through that guard's
-     * provider.
+     * A sign-in job for a jwt guard replaced by another package guard uses that
+     * guard's provider.
      *
      * @return void
      *
@@ -605,9 +587,8 @@ final class SendOneTimeCodeTest extends TestCase
     }
 
     /**
-     * A code of any purpose but a sign-in or a verification has a delivery job
-     * of its own, so this one refuses it before reading the code or finding a
-     * recipient, even when the code is live and someone holds the number.
+     * A code of any purpose but a sign-in or a verification is refused before
+     * anything is read.
      *
      * @param  \Closure(): \SineMacula\Laravel\Authentication\Codes\CodeBinding  $binding
      * @return void
@@ -633,9 +614,8 @@ final class SendOneTimeCodeTest extends TestCase
     }
 
     /**
-     * On a worker-backed connection the job is pushed with its payload
-     * encrypted (neither the code nor the number can be read from the queue),
-     * and a worker delivers it.
+     * On a worker-backed connection the job's payload is encrypted and a worker
+     * delivers it.
      *
      * @return void
      *
@@ -667,8 +647,8 @@ final class SendOneTimeCodeTest extends TestCase
     }
 
     /**
-     * A queued verification job whose identity was deleted before it ran is
-     * dropped, not failed.
+     * A queued verification job whose identity was deleted is dropped, not
+     * failed.
      *
      * @return void
      *
@@ -699,9 +679,7 @@ final class SendOneTimeCodeTest extends TestCase
     }
 
     /**
-     * On the `sync` connection delivery never runs inside the request: the
-     * request sees nothing sent, and the code arrives once the response is
-     * sent.
+     * On the `sync` connection delivery runs after the response is sent.
      *
      * @return void
      *
@@ -725,9 +703,8 @@ final class SendOneTimeCodeTest extends TestCase
     }
 
     /**
-     * On a `failover` connection that falls back to `sync` delivery never runs
-     * inside the request either: the job is pushed once the response is sent,
-     * and when every connection before `sync` fails it runs then.
+     * On a `failover` connection that falls back to `sync`, delivery runs after
+     * the response.
      *
      * @return void
      *
@@ -755,9 +732,8 @@ final class SendOneTimeCodeTest extends TestCase
     }
 
     /**
-     * A `failover` connection that falls back to `sync` still hands the job to
-     * its first connection that works, once the response is sent, for a worker
-     * to deliver.
+     * A `failover` connection that falls back to `sync` pushes the job after
+     * the response.
      *
      * @return void
      *
@@ -788,8 +764,8 @@ final class SendOneTimeCodeTest extends TestCase
     }
 
     /**
-     * An application that turns dispatching after the response off gets
-     * Laravel's synchronous fallback: the code is delivered during the call.
+     * With dispatching after the response turned off, the code is delivered
+     * during the call.
      *
      * @return void
      *

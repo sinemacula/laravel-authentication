@@ -21,11 +21,7 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use Tests\Integration\Fixtures\AccessOnlyIdentity;
 
 /**
- * Verifies the "access-only" usage pattern: the package works end-to-end with
- * no sessions migration, no Session contract implementation, and no
- * refresh-token flow. Consumers who only need access tokens without session
- * binding or refresh can skip the sessions table entirely, while the bearer
- * path still rehydrates the persisted identity through the configured provider.
+ * Bearer authentication with access tokens alone and no sessions table.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -52,8 +48,7 @@ final class AccessOnlyIntegrationTest extends TestCase
     private const string AUDIENCE = 'https://api.example.test';
 
     /**
-     * Provision only the identity table; deliberately do not create the
-     * sessions table or any other package-owned schema.
+     * Create the identity table without any package-owned schema.
      *
      * @return void
      */
@@ -72,10 +67,7 @@ final class AccessOnlyIntegrationTest extends TestCase
     }
 
     /**
-     * Issuing an access token with `null` session produces a JWT with no `sid`
-     * claim (and no `auth_time`), so the bearer path sees no session hint and
-     * still resolves identity + principal without needing a sessions table. The
-     * identity is still loaded through the configured provider.
+     * A sessionless access token authenticates without a sessions table.
      *
      * @return void
      *
@@ -111,9 +103,7 @@ final class AccessOnlyIntegrationTest extends TestCase
     }
 
     /**
-     * A token that forges a non-null `sid` against an access-only identity must
-     * fail closed even though the deployment has no `authentication_sessions`
-     * table.
+     * A forged `sid` fails closed when there is no sessions table.
      *
      * @return void
      */
@@ -158,8 +148,7 @@ final class AccessOnlyIntegrationTest extends TestCase
     }
 
     /**
-     * Register the package service provider so the auth factory picks up the
-     * `jwt` and `model` drivers.
+     * Register the package service provider.
      *
      * @param  mixed  $app
      * @return array<int, class-string<\Illuminate\Support\ServiceProvider>>
@@ -171,8 +160,7 @@ final class AccessOnlyIntegrationTest extends TestCase
     }
 
     /**
-     * Do not run the package's shipped sessions migration; the test asserts the
-     * package works without it.
+     * Skip the package's migrations.
      *
      * @return void
      */
@@ -180,8 +168,7 @@ final class AccessOnlyIntegrationTest extends TestCase
     protected function defineDatabaseMigrations(): void {}
 
     /**
-     * Minimal Testbench environment: in-memory sqlite, a single `identities`
-     * auth provider, and the `api` jwt guard.
+     * Configure the `api` jwt guard over an in-memory sqlite database.
      *
      * @param  mixed  $app
      * @return void
@@ -224,8 +211,7 @@ final class AccessOnlyIntegrationTest extends TestCase
     }
 
     /**
-     * Seed a persisted access-only identity used as both the authenticated
-     * subject and the acting principal in 2D mode.
+     * Seed a persisted access-only identity.
      *
      * @return \Tests\Integration\Fixtures\AccessOnlyIdentity
      */

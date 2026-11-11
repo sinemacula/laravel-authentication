@@ -8,9 +8,7 @@ use Illuminate\Database\Eloquent\Builder;
 use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
- * Session model whose global scope selects only some columns, leaving out
- * `revoked_at`, so every lookup through the model loads it without the
- * revocation time.
+ * Session model whose global scope leaves out `revoked_at`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

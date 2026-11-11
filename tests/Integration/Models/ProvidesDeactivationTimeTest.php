@@ -32,12 +32,7 @@ use Tests\Integration\Fixtures\DeactivatableTenant;
 use Tests\TestCase;
 
 /**
- * Integration tests, against a real database and through the `Auth` facade and
- * the `auth` middleware, of active state stored as a deactivation time: an
- * identity, a principal and a tenant whose nullable `deactivated_at` (cast as a
- * `datetime`, an `immutable_datetime`, and not at all) is refused on every path
- * once it is set, and the observer that ends an identity's sessions when its
- * time is first set.
+ * Integration tests of active state stored as a nullable `deactivated_at` time.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -142,9 +137,8 @@ final class ProvidesDeactivationTimeTest extends TestCase
     }
 
     /**
-     * A bearer token is refused at the `auth` middleware as soon as its
-     * membership's deactivation time is set, and a refresh as soon as its
-     * tenant's is.
+     * A session stops at the `auth` middleware and on refresh as soon as a time
+     * is set.
      *
      * @return void
      *
@@ -189,9 +183,7 @@ final class ProvidesDeactivationTimeTest extends TestCase
     }
 
     /**
-     * Registered on the member, the observer ends its sessions when its
-     * deactivation time is first set, and not when the time moves to another or
-     * is cleared.
+     * The observer ends the member's sessions only when its time is first set.
      *
      * @return void
      *
@@ -249,9 +241,8 @@ final class ProvidesDeactivationTimeTest extends TestCase
     }
 
     /**
-     * Persist an active tenant, a member and its membership in the tenant, each
-     * created with its deactivation time, so the model holds the column as one
-     * read back would.
+     * Persist an active tenant, a member and its membership, each with its
+     * deactivation time.
      *
      * @formatter:off
      *

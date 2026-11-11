@@ -41,20 +41,8 @@ use Tests\Integration\Fixtures\RecheckedMembership;
 use Tests\TestCase;
 
 /**
- * Races a sign-in, a pending session's choice of principal and a switch against
- * a deactivation or deletion of the identity, principal or tenant they admit,
- * on PostgreSQL and MySQL, each side in a process with a database connection of
- * its own: the side that writes the session pauses after its admission while
- * the other commits the change and its revocation, or the change's transaction
- * stays open while the session is written. Whatever the order, the session
- * never works once the change is undone (reactivated, restored): it is refused
- * when written, or ended by the revocation, by its second pass, or by the
- * "tokens valid after" cutoff a revocation undone in the meantime moved. A
- * subject without a cutoff, whose change is undone before the paused call
- * checks its session, is the one documented exception.
- *
- * Skipped on SQLite, whose in-memory database each process would have to
- * itself, and where `pcntl` is not available.
+ * Races sign-ins, choices and switches against a deactivation or deletion of
+ * what they admit, each in its own process.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -80,8 +68,8 @@ final class ConcurrentSignInAndDeactivationTest extends TestCase
     private string $signals;
 
     /**
-     * Skip where processes cannot share the database, freeze the clocks so both
-     * processes see one moment, create the tables and register the observers.
+     * Skip where processes cannot share the database, freeze the clocks, create
+     * the tables and register the observers.
      *
      * @return void
      *
@@ -139,8 +127,7 @@ final class ConcurrentSignInAndDeactivationTest extends TestCase
     }
 
     /**
-     * Rows of `[the change, committed with its revocation, the undo, the
-     * reason the paused sign-in is refused for]`.
+     * Rows of `[change, revocation, undo, reason]`.
      *
      * @formatter:off
      *
@@ -186,10 +173,7 @@ final class ConcurrentSignInAndDeactivationTest extends TestCase
     }
 
     /**
-     * A change committed, with the revocation that finds no session, while a
-     * sign-in that admitted the subject before it is paused, refuses the
-     * sign-in once its session commits: the session is revoked, so once the
-     * subject is reactivated or restored no session of the member stands.
+     * A change committed while a sign-in is paused refuses it.
      *
      * @formatter:off
      *
@@ -226,11 +210,7 @@ final class ConcurrentSignInAndDeactivationTest extends TestCase
     }
 
     /**
-     * A sign-in that commits while the change's transaction is still open (its
-     * check reads the subject as last committed, still active) is ended by the
-     * change's revocation once the change commits, at either isolation level:
-     * its access token is refused and its refresh token refreshes nothing once
-     * the identity is reactivated.
+     * A sign-in committed before the change commits is ended by its revocation.
      *
      * @param  string  $level
      * @return void
@@ -258,11 +238,8 @@ final class ConcurrentSignInAndDeactivationTest extends TestCase
     }
 
     /**
-     * A revocation called inside the change's own transaction reads the
-     * sessions before a sign-in that admitted the subject commits; once the
-     * change commits, its second pass ends that session, at either isolation
-     * level, PostgreSQL's REPEATABLE READ (whose snapshot hides the session
-     * from the first pass) among them.
+     * A revocation inside the change's transaction ends a later session at the
+     * commit.
      *
      * @param  string  $level
      * @return void
@@ -292,10 +269,7 @@ final class ConcurrentSignInAndDeactivationTest extends TestCase
     }
 
     /**
-     * A deactivation, its revocation and a reactivation that all commit while a
-     * sign-in is paused after its admission leave the subject active, but the
-     * revocation moved the identity's "tokens valid after" cutoff past the
-     * second the sign-in began, so its session is refused all the same.
+     * A change undone while a sign-in is paused refuses it through the cutoff.
      *
      * @return void
      *
@@ -320,10 +294,8 @@ final class ConcurrentSignInAndDeactivationTest extends TestCase
     }
 
     /**
-     * The documented exception: an identity that records no "tokens valid
-     * after" cutoff, deactivated, revoked and reactivated while a sign-in is
-     * paused after admitting it, leaves no trace for the sign-in's check, so
-     * its session stands.
+     * A change undone while a sign-in is paused leaves a subject without a
+     * cutoff signed in.
      *
      * @return void
      *
@@ -355,9 +327,7 @@ final class ConcurrentSignInAndDeactivationTest extends TestCase
     }
 
     /**
-     * A pending session's choice of a principal whose tenant is deactivated,
-     * with the revocation that finds no session acting in it, while the choice
-     * is paused after admitting it, is refused, and its pending session ended.
+     * A change committed while a choice is paused refuses it.
      *
      * @return void
      *
@@ -396,9 +366,7 @@ final class ConcurrentSignInAndDeactivationTest extends TestCase
     }
 
     /**
-     * A switch to a principal deactivated, with the revocation that finds no
-     * session acting as it, while the switch is paused after admitting it, is
-     * refused, and the session ended.
+     * A change committed while a switch is paused refuses it.
      *
      * @return void
      *
@@ -444,8 +412,7 @@ final class ConcurrentSignInAndDeactivationTest extends TestCase
     }
 
     /**
-     * Register the guards: the members' as the default, which the observers
-     * revoke through.
+     * Register the guards, the members' as the default.
      *
      * @param  mixed  $app
      * @return void
@@ -469,8 +436,7 @@ final class ConcurrentSignInAndDeactivationTest extends TestCase
 
     /**
      * Start the member's session as the membership, pausing after its
-     * admission, before its session is written, until the other side has made
-     * its change.
+     * admission.
      *
      * @param  \Tests\Integration\Fixtures\RecheckedMember  $member
      * @param  \Tests\Integration\Fixtures\RecheckedMembership  $membership
@@ -486,8 +452,8 @@ final class ConcurrentSignInAndDeactivationTest extends TestCase
     }
 
     /**
-     * In the forked side: say it has been admitted, and wait for the other side
-     * to have made its change.
+     * Signal the admission from the forked side and wait for the other side's
+     * change.
      *
      * @return void
      *
@@ -505,11 +471,8 @@ final class ConcurrentSignInAndDeactivationTest extends TestCase
     }
 
     /**
-     * Race the forked side's call against the change: the forked side runs the
-     * call, pausing where it pauses (or not at all); this side makes the change
-     * once the forked side has paused or, for a call that never pauses, makes
-     * it first and lets the call run while it is still open, then finishes it
-     * once the call has returned. Returns what the forked side reported.
+     * Race the forked side's call against the change and return what the forked
+     * side reported.
      *
      * @param  \Closure(): mixed  $call
      * @param  \Closure(): void  $change
@@ -559,9 +522,8 @@ final class ConcurrentSignInAndDeactivationTest extends TestCase
     }
 
     /**
-     * In the forked process: wait for the change when the call does not pause
-     * for it, run the call on a connection of its own, report its outcome, and
-     * end without running the parent's shutdown.
+     * Run the call in the forked process, report its outcome and exit without
+     * the parent's shutdown.
      *
      * @param  \Closure(): mixed  $call
      * @param  bool  $pauses
@@ -588,8 +550,7 @@ final class ConcurrentSignInAndDeactivationTest extends TestCase
     }
 
     /**
-     * Assert the session the tokens belong to is ended: its access token is
-     * refused on a request and its refresh token refreshes nothing.
+     * Assert the session the tokens belong to is ended.
      *
      * @param  mixed  $tokens
      * @return void
@@ -640,7 +601,7 @@ final class ConcurrentSignInAndDeactivationTest extends TestCase
     }
 
     /**
-     * How many sessions stand: not revoked.
+     * How many sessions are not revoked.
      *
      * @return int
      */
@@ -650,8 +611,7 @@ final class ConcurrentSignInAndDeactivationTest extends TestCase
     }
 
     /**
-     * Wait for the other side to create the signal file, for no longer than the
-     * timeout: whether it did.
+     * Wait, up to the timeout, for the other side to create the signal file.
      *
      * @param  string  $signal
      * @return bool
@@ -668,11 +628,9 @@ final class ConcurrentSignInAndDeactivationTest extends TestCase
     }
 
     /**
-     * Fail the race that was never set up: roll back any transaction this side
-     * holds and stop and reap the forked side, so neither is left holding locks
-     * on the tables the teardown drops. The pid is the forked child's, never a
-     * failed fork's `-1`, which `posix_kill()` would send to every process the
-     * user may signal.
+     * Fail the unstarted race, rolling back this side and reaping the forked
+     * one so neither holds locks. A failed fork's pid of `-1` would make
+     * `posix_kill()` signal every process the user may.
      *
      * @param  positive-int  $pid
      * @param  string  $message

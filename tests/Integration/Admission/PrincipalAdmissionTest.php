@@ -23,13 +23,8 @@ use Tests\Unit\Stubs\PlainTenantFixture;
 use Tests\Unit\Stubs\StubPrincipal;
 
 /**
- * Integration tests for asking the access contracts and the tenant resolver on
- * the write connection, against a read/write split whose replica lags behind
- * its primary: the principal's (`landlord`).
- *
- * Each test writes a row through the split connection, so it exists on the
- * primary only, and the contract answers yes only when its query-builder read
- * on that connection finds it: a yes shows the read was served by the writer.
+ * Integration tests for asking the access contracts and tenant resolver on the
+ * write connection of a lagging read/write split.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -109,10 +104,7 @@ final class PrincipalAdmissionTest extends TestCase
     }
 
     /**
-     * `TenantResolver` and `TenantAccess` are asked with the principal's
-     * connection reading from its writer, so a tenant the resolver finds there
-     * and an access row granted there admit the selection, and the replica is
-     * read again afterwards.
+     * `TenantResolver` and `TenantAccess` are asked on the principal's writer.
      *
      * @return void
      */

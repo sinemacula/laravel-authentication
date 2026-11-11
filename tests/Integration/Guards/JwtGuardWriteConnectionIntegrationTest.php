@@ -54,13 +54,8 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
 
 /**
- * Proves that every read deciding authentication goes to the write connection.
- *
- * The default connection is a read/write split whose replica lags behind the
- * primary: rows written during the test exist on the primary only. A lookup
- * served by the replica would therefore reject the request, so each passing
- * assertion shows the identity, session, refresh digest, or principal was read
- * from the writer.
+ * Every read deciding authentication goes to the write connection, over a split
+ * whose replica lags behind the primary.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -147,9 +142,8 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * A bearer token for an identity and session that exist only on the primary
-     * authenticates and binds both, so the identity and session lookups read
-     * the writer.
+     * A bearer token for an identity and session only on the primary
+     * authenticates.
      *
      * @return void
      *
@@ -169,8 +163,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * A session revoked on the primary while the replica still shows it live
-     * rejects the bearer token: the revocation is read from the writer.
+     * A session revoked on the primary rejects the bearer token.
      *
      * @return void
      *
@@ -194,8 +187,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * A session that ended on the primary while the replica still shows it live
-     * rejects the bearer token: the deadlines are read from the writer.
+     * A session that ended on the primary rejects the bearer token.
      *
      * @return void
      *
@@ -219,10 +211,8 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * A retry of the previous rotation id is recognised from the primary while
-     * the replica still shows that id as current: the exchange hands back the
-     * current credential without attempting a rotation the replica's stale
-     * state would have led it to, its only write the session's issuance guard.
+     * A retry of the previous rotation id is recognised from the primary and
+     * does not rotate.
      *
      * @return void
      *
@@ -255,10 +245,8 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * A replay is recognised from the primary while the replica still shows the
-     * replayed id as current: the session is revoked, after its issuance guard,
-     * without first attempting the rotation the replica's stale state would
-     * have led to.
+     * A replay is recognised from the primary and revokes the session without
+     * rotating.
      *
      * @return void
      *
@@ -287,9 +275,8 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * A session pinned on `attempt()` that is revoked on the primary while the
-     * replica still shows it live fails the attempt: the pinned session is read
-     * from the writer, like a bearer `sid`.
+     * A session pinned on `attempt()` and revoked on the primary fails the
+     * attempt.
      *
      * @return void
      *
@@ -318,10 +305,8 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * A session that derives its revocation from another table, revoked on the
-     * primary while the replica lags, rejects the bearer token: the revocation
-     * is read inside the session lookup's write-connection pin, not only the
-     * lookup's own query.
+     * A revocation derived from another table is read inside the session
+     * lookup's write-connection pin.
      *
      * @return void
      *
@@ -342,10 +327,8 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * A session that derives its end from another table, ended on the primary
-     * while the replica lags, rejects the bearer token: the deadlines are read
-     * inside the session lookup's write-connection pin, not only the lookup's
-     * own query.
+     * An end derived from another table is read inside the session lookup's
+     * write-connection pin.
      *
      * @return void
      *
@@ -366,9 +349,8 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * A session pinned on `attempt()` that derives its end from another table,
-     * ended on the primary while the replica lags, fails the attempt: the pin's
-     * deadlines are read from the writer, like a bearer `sid`'s.
+     * A pinned session whose derived end is on the primary only fails the
+     * attempt.
      *
      * @return void
      *
@@ -393,9 +375,8 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * A refresh for a session that derives its end from another table, ended on
-     * the primary while the replica lags, fails with `session_expired`: the
-     * deadlines are read from the writer.
+     * Refresh of a session whose derived end is on the primary only fails with
+     * `session_expired`.
      *
      * @return void
      *
@@ -426,11 +407,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * A refresh that rotates a session that derives its end from another table
-     * and ends at 12:03 on the primary, while the replica still shows it ended
-     * at 11:00, succeeds and caps both tokens at 12:03: the deadlines that
-     * bound the issued pair are read from the writer too, not only the ones
-     * that judged the token.
+     * A rotated pair is capped at the session end the primary records.
      *
      * @return void
      *
@@ -461,10 +438,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * A grace retry for a session that derives its end from another table and
-     * ends at 12:01 on the primary, while the replica does not yet show it, is
-     * handed a pair that expires at 12:01: the reissue reads the session's end
-     * from the writer instead of minting tokens that outlive it.
+     * A grace retry's pair is capped at the session end the primary records.
      *
      * @return void
      *
@@ -495,9 +469,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * Tokens issued at sign-in for a session that derives its end from another
-     * table and ends at 12:01 on the primary, while the replica does not yet
-     * show it, expire at 12:01.
+     * Sign-in tokens are capped at the session end the primary records.
      *
      * @return void
      *
@@ -518,8 +490,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * Rows of `[session model]`: session models that derive their revocation
-     * from the `session_revocations` table.
+     * Session models that derive their revocation from `session_revocations`.
      *
      * @return iterable<string, array{0: class-string<\SineMacula\Laravel\Authentication\Models\Session>}>
      */
@@ -532,10 +503,8 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * A refresh for a session that derives its revocation from another table,
-     * by a read of its own or through a relation it eager-loads, revoked on the
-     * primary while the replica lags, fails with `session_revoked`: the session
-     * lookup and the revocation are both read from the writer.
+     * Refresh of a session whose derived revocation is on the primary only
+     * fails with `session_revoked`.
      *
      * @param  class-string<\SineMacula\Laravel\Authentication\Models\Session>  $model
      * @return void
@@ -568,11 +537,8 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * A refresh that loses its compare-and-swap judges the session again from
-     * the primary, relations it eager-loads included: when a competing rotation
-     * and a revocation recorded only on the primary land between the read and
-     * the swap, it fails with `session_revoked` and issues no pair, instead of
-     * reading the lagging replica and treating itself as a grace retry.
+     * A refresh that loses its compare-and-swap re-judges the session from the
+     * primary.
      *
      * @param  class-string<\SineMacula\Laravel\Authentication\Models\Session>  $model
      * @return void
@@ -616,9 +582,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * Rows of `[origin the primary records, refusal]`: a session that derives
-     * its guard and sign-in method from another table, whose origin the replica
-     * still shows as an `api` password session.
+     * Origins the primary records that the guard refuses, with the refusal.
      *
      * @return iterable<string, array{0: array{guard: string, sign_in_method: string}, 1: \SineMacula\Laravel\Authentication\Events\Enums\FailureReason}>
      */
@@ -631,10 +595,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * A refresh for a session that derives its guard and sign-in method from
-     * another table, whose origin the primary records as one the guard refuses
-     * while the replica still shows an `api` password session, is refused for
-     * the primary's origin and leaves the refresh digest as it was.
+     * Refresh is refused for a derived origin the primary records.
      *
      * @param  array{guard: string, sign_in_method: string}  $origin
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
@@ -676,8 +637,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * A refresh for a session whose digest exists only on the primary rotates
-     * successfully, so the session and owner lookups read the writer.
+     * A refresh for a session whose digest exists only on the primary rotates.
      *
      * @return void
      *
@@ -697,9 +657,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * A tenant deactivated on the primary while the replica still shows it
-     * active rejects its members' bearer tokens: the tenant the principal acts
-     * within is read from the writer.
+     * A tenant deactivated on the primary rejects its members' bearer tokens.
      *
      * @return void
      *
@@ -731,10 +689,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * A token for a membership names the membership's tenant when only the
-     * primary holds that tenant: the check that the tenant is the principal's
-     * own loads it from the writer, not the lagging replica, where it is
-     * missing and would read as a tenant that cannot be loaded.
+     * A membership's tenant held only on the primary is loaded from the writer.
      *
      * @return void
      *
@@ -761,9 +716,8 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * A membership pinned on `attempt()` whose member exists only on the
-     * primary is bound: the ownership check reads the membership's identity
-     * from the writer.
+     * A membership pinned on `attempt()` binds when its member is only on the
+     * primary.
      *
      * @return void
      *
@@ -788,9 +742,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * An identity suspended on the primary while the replica lags is rejected:
-     * its own `isActive()` check, which reads the database, runs against the
-     * writer.
+     * An identity suspended on the primary fails its own `isActive()` check.
      *
      * @return void
      *
@@ -841,9 +793,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * A credential closure that runs a query of its own reads the writer: a
-     * suspension recorded on the primary while the replica lags keeps the
-     * suspended identity out of the provider's lookup.
+     * A credential closure that runs its own query reads the writer.
      *
      * @return void
      */
@@ -862,9 +812,8 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * Signing in over HTTP with a credential closure that checks suspensions is
-     * refused once the identity is suspended on the primary, although the
-     * replica has not seen the suspension yet.
+     * Signing in over HTTP is refused once the identity is suspended on the
+     * primary.
      *
      * @return void
      */
@@ -891,9 +840,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * The default resolver finds a 3D principal that exists only on the primary
-     * through the identity's own `resolveDefaultPrincipal()` hook and through
-     * the hinted `principals()->find()` lookup.
+     * The default resolver finds a 3D principal held only on the primary.
      *
      * @return void
      */
@@ -918,10 +865,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * The default resolver runs the identity's `resolveHintedPrincipal()` hook
-     * with reads pinned to the writer: the principal comes back with the tenant
-     * the hook joins, which the fallback `principals()->find()` lookup would
-     * not attach.
+     * The default resolver runs `resolveHintedPrincipal()` on the writer.
      *
      * @return void
      */
@@ -1133,10 +1077,8 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * Write an identity with a `revocation_log` session that derives its
-     * revocation and its end from the `session_revocations` and `session_ends`
-     * tables through the split connection, creating those tables on the primary
-     * and the replica.
+     * Write an identity with a `revocation_log` session whose revocation and
+     * end come from other tables.
      *
      * @param  class-string<\SineMacula\Laravel\Authentication\Models\Session>  $model
      * @return array{0: \Tests\Integration\Fixtures\RevocationLogIdentity, 1: \SineMacula\Laravel\Authentication\Models\Session}
@@ -1238,9 +1180,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * Record the end of the session at the given time (default now), through
-     * the split connection unless another is named, so the replica does not see
-     * it.
+     * Record the end of the session at the given time, defaulting to now.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\Session  $session
      * @param  ?\Carbon\Carbon  $endedAt
@@ -1307,8 +1247,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * Record the SQL of every update of the sessions table run from here on (a
-     * failed refresh also counts the failure in the rate limits table).
+     * Record the SQL of every update of the sessions table from here on.
      *
      * @return \ArrayObject<int, string>
      */

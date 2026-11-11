@@ -16,13 +16,8 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
 
 /**
- * Integration tests for asking the application policy on the write connection,
- * against a read/write split whose replica lags behind its primary: the
- * identity's (the default connection).
- *
- * The test writes a row through the split connection, so it exists on the
- * primary only, and the policy admits only when its query-builder read finds
- * it: an answer of `null` shows the read was served by the writer.
+ * Integration tests for asking the application policy on the write connection
+ * of a lagging read/write split.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

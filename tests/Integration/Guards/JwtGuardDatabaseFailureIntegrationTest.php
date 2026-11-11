@@ -28,10 +28,6 @@ use Tests\TestCase;
  * A database that cannot be reached surfaces as a server error on refresh and
  * on bearer requests, not as an unknown session.
  *
- * The session model lives on a connection whose database does not exist, so the
- * session lookup fails while connecting, and an outage must not read as an
- * unknown session (a silent sign-out, or a 401 for every request).
- *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
@@ -132,9 +128,8 @@ final class JwtGuardDatabaseFailureIntegrationTest extends TestCase
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
         ]);
 
-        // Its sign-in's proof is on the storage connection; only its own row is
-        // out of reach, so the token is minted without the issuance guard the
-        // public issue writes to that row.
+        // Only the session row is out of reach, so the token skips the issuance
+        // guard that writes to it.
         self::recordProof($session, ProofKind::FIRST_FACTOR, Carbon::now(), ['pwd']);
 
         $token = $this->authManager()->jwt('api')->issueGuardedAccessToken($identity, $identity, null, $session, Carbon::now())->token->reveal();

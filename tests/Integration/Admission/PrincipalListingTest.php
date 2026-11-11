@@ -20,11 +20,7 @@ use Tests\TestCase;
 
 /**
  * Integration tests for reading listed principals' tenants on the writer of the
- * tenants' own connection: the members and memberships live on the default
- * split, the tenants on the `landlord` split, and both replicas lag behind
- * their primaries, so a tenant deactivated on the landlord primary would still
- * read as active if the tenants loaded together were served by the landlord
- * replica.
+ * tenants' own connection.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -89,10 +85,8 @@ final class PrincipalListingTest extends TestCase
     }
 
     /**
-     * A listed membership whose landlord tenant was deactivated on the landlord
-     * primary is refused as `tenant_inactive` and no longer offered, though the
-     * landlord replica still shows the tenant active; the other membership is
-     * offered, holding its tenant as the primary has it.
+     * A membership whose tenant was deactivated on the landlord primary is
+     * refused as `tenant_inactive`.
      *
      * @return void
      *

@@ -34,10 +34,7 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\StubFixedPrincipalResolver;
 
 /**
- * Tenant activity is enforced wherever principal activity is: a member of a
- * deactivated tenant cannot sign in, authenticate a bearer request, or refresh,
- * and the membership signs in again once the tenant is reactivated. A tenant
- * that is soft-deleted or deleted blocks its members the same way.
+ * Tests that tenant activity is enforced wherever principal activity is.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -178,8 +175,8 @@ final class TenantActivityIntegrationTest extends TestCase
     }
 
     /**
-     * Refresh for a member of a deactivated tenant fails with the
-     * `tenant_inactive` reason and leaves the stored rotation untouched.
+     * Refresh for a member of a deactivated tenant fails as `tenant_inactive`
+     * and leaves the rotation untouched.
      *
      * @return void
      *
@@ -218,9 +215,7 @@ final class TenantActivityIntegrationTest extends TestCase
     }
 
     /**
-     * A member of a soft-deleted tenant cannot sign in: the membership names a
-     * tenant the soft-delete scope hides, which is not the same as acting
-     * within no tenant.
+     * A member of a soft-deleted tenant cannot sign in.
      *
      * @return void
      *
@@ -277,9 +272,7 @@ final class TenantActivityIntegrationTest extends TestCase
     }
 
     /**
-     * A membership loaded without its tenant key (a partial select) is reported
-     * rather than read as acting within no tenant, so an inactive tenant cannot
-     * be skipped by leaving the key out.
+     * The tenant check throws for a membership loaded without its tenant key.
      *
      * @return void
      */
@@ -305,12 +298,8 @@ final class TenantActivityIntegrationTest extends TestCase
     }
 
     /**
-     * A membership whose tenant is a polymorphic relation, loaded without its
-     * type column, is reported rather than read as acting within no tenant:
-     * without the type Eloquent builds the relation against the membership's
-     * own model, so an inactive tenant would otherwise be skipped. The report
-     * comes before any lazy load, which PostgreSQL and MySQL reject for a
-     * relation built without its type.
+     * The tenant check throws, before any query, for a polymorphic membership
+     * loaded without its tenant type.
      *
      * @return void
      */
@@ -336,10 +325,8 @@ final class TenantActivityIntegrationTest extends TestCase
     }
 
     /**
-     * A polymorphic tenant whose key is set but whose type is empty cannot be
-     * loaded, so the membership is rejected rather than read as acting within
-     * no tenant, without the lazy load PostgreSQL and MySQL reject for an empty
-     * type.
+     * The tenant check rejects, without a query, a polymorphic membership whose
+     * tenant type is empty.
      *
      * @return void
      */
@@ -359,9 +346,8 @@ final class TenantActivityIntegrationTest extends TestCase
     }
 
     /**
-     * A tenant relation declared with `withDefault()` does not turn a deleted
-     * tenant into a present, active one: the unsaved placeholder it returns
-     * reads as a tenant that cannot be loaded.
+     * The tenant check rejects a `withDefault()` membership of a soft-deleted
+     * tenant.
      *
      * @return void
      */
@@ -383,9 +369,7 @@ final class TenantActivityIntegrationTest extends TestCase
     }
 
     /**
-     * Signing in with a resolver that loads the membership without its tenant
-     * key reports the misconfiguration instead of signing in as if the member
-     * acted within no tenant.
+     * Signing in with a membership loaded without its tenant key throws.
      *
      * @return void
      *
@@ -406,9 +390,8 @@ final class TenantActivityIntegrationTest extends TestCase
     }
 
     /**
-     * A bearer request whose resolver loads a polymorphic membership without
-     * its tenant type reports the misconfiguration instead of authenticating a
-     * member of an inactive tenant.
+     * A bearer request with a polymorphic membership loaded without its tenant
+     * type throws.
      *
      * @return void
      *
@@ -431,9 +414,8 @@ final class TenantActivityIntegrationTest extends TestCase
     }
 
     /**
-     * Refresh for a polymorphic membership whose tenant key is set but whose
-     * type is empty fails with `tenant_inactive` and leaves the stored rotation
-     * untouched.
+     * Refresh for a polymorphic membership whose tenant type is empty fails as
+     * `tenant_inactive`.
      *
      * @return void
      *
@@ -468,9 +450,8 @@ final class TenantActivityIntegrationTest extends TestCase
     }
 
     /**
-     * Signing in as a member whose `withDefault()` membership names a
-     * soft-deleted tenant fails: the placeholder the relation returns is not a
-     * present, active tenant.
+     * Signing in with a `withDefault()` membership of a soft-deleted tenant
+     * fails.
      *
      * @return void
      *
@@ -490,8 +471,7 @@ final class TenantActivityIntegrationTest extends TestCase
     }
 
     /**
-     * Refresh for a member of a soft-deleted tenant fails with the
-     * `tenant_inactive` reason.
+     * Refresh for a member of a soft-deleted tenant fails as `tenant_inactive`.
      *
      * @return void
      *
@@ -663,8 +643,7 @@ final class TenantActivityIntegrationTest extends TestCase
     }
 
     /**
-     * Resolve a fresh `api` JWT guard against a request carrying the bearer
-     * token.
+     * Resolve a fresh `api` guard against a request carrying the bearer token.
      *
      * @param  string  $token
      * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard

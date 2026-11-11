@@ -20,20 +20,8 @@ use Tests\Concerns\InteractsWithSessions;
 use Tests\TestCase;
 
 /**
- * Races a sign-in through a link against the widening of that link's scope on
- * PostgreSQL and MySQL, on two connections to one database, with the widening's
- * transaction at READ COMMITTED and at REPEATABLE READ: it reads before the
- * sign-in commits and widens after it, as it does when the adapter's lock on
- * the link made the sign-in wait for it. On MySQL's REPEATABLE READ that first
- * read fixes the snapshot a plain read would see, so only a locking read finds
- * the session the sign-in committed meanwhile. On PostgreSQL's REPEATABLE READ
- * not even that does, so both write the link's guard: the widening then fails
- * to serialise, and once its caller retries the whole transaction it finds the
- * session; a sign-in whose transaction read before a widening committed fails
- * the same way. A widening also holds up no other identity's sign-in.
- *
- * Skipped on SQLite, whose in-memory database each connection would have to
- * itself.
+ * Races an external sign-in against the widening of its link's scope, on two
+ * connections to one database.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -88,11 +76,7 @@ final class ConcurrentExternalSignInAndWideningTest extends TestCase
     }
 
     /**
-     * A sign-in through the link that commits after the widening's transaction
-     * first read is revoked by the widening: found by its locking reads, or,
-     * where those read the transaction's snapshot (PostgreSQL's REPEATABLE
-     * READ), once the widening has failed to serialise on the link's guard,
-     * revoked nothing, and been retried whole.
+     * A sign-in committed after the widening's first read is revoked.
      *
      * @param  string  $level
      * @return void
@@ -130,10 +114,8 @@ final class ConcurrentExternalSignInAndWideningTest extends TestCase
     }
 
     /**
-     * On PostgreSQL's REPEATABLE READ a sign-in through the link, in a
-     * transaction that read before a widening of the link committed, fails to
-     * serialise on the link's guard rather than establish a session the
-     * widening never saw; retried whole, it signs in.
+     * A sign-in whose transaction read before a widening committed fails to
+     * serialise on PostgreSQL.
      *
      * @return void
      *
@@ -166,12 +148,7 @@ final class ConcurrentExternalSignInAndWideningTest extends TestCase
     }
 
     /**
-     * A widening of one identity's link holds up no other identity's sign-in
-     * while its transaction is open: it writes only its own link's guard, and
-     * it asks the provenance only about the identity's external sessions, each
-     * of which has one, so on MySQL it locks those rows and no gap a later
-     * session's provenance would go in, even when the identity's newest session
-     * was signed in with a password and has none.
+     * A widening holds up no other identity's sign-in.
      *
      * @return void
      *
@@ -209,7 +186,7 @@ final class ConcurrentExternalSignInAndWideningTest extends TestCase
     }
 
     /**
-     * Register the guards.
+     * Run the work on the sign-in's connection as the default.
      *
      * @param  mixed  $app
      * @return void

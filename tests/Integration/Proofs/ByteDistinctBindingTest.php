@@ -33,13 +33,8 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
 /**
- * Integration tests, against each supported database, of proofs whose session
- * keys or `amr` values differ only in case or in trailing spaces: MySQL's
- * default collations count the first as equal and `utf8mb4_bin` the second, and
- * the proofs' columns must count neither. A session counts, clears and is
- * pruned with only the proofs and provenance recorded under its own key, byte
- * for byte, and the claims keep two values that differ only in case apart. A
- * key, owner or guard of 255 characters of four bytes each is kept whole.
+ * Integration tests of proofs whose session keys or `amr` values differ only in
+ * case or trailing spaces.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -96,8 +91,8 @@ final class ByteDistinctBindingTest extends TestCase
     }
 
     /**
-     * The ways a custom session model's key, on a table that keeps them apart,
-     * can differ from another only where MySQL's collations do not look.
+     * Ways a session key can differ from another only where MySQL's collations
+     * do not look.
      *
      * @return iterable<string, array{\Closure(string): string}>
      */
@@ -109,11 +104,8 @@ final class ByteDistinctBindingTest extends TestCase
     }
 
     /**
-     * A session of the same owner and guard whose key differs from this
-     * session's only in case or by a trailing space keeps its own step-up and
-     * provenance: neither counts for this session, both are recorded beside
-     * this session's own, and clearing that key leaves this session's first
-     * factor and provenance where they were.
+     * A session under a twin key shares no step-up, provenance or clearing with
+     * this one.
      *
      * @param  \Closure(string): string  $spell
      * @return void
@@ -140,8 +132,7 @@ final class ByteDistinctBindingTest extends TestCase
     }
 
     /**
-     * Pruning a session deletes its own proofs and provenance and leaves those
-     * of a key that differs from its only in case or by a trailing space.
+     * Pruning a session leaves the proofs and provenance of its twin key.
      *
      * @param  \Closure(string): string  $spell
      * @return void
@@ -166,10 +157,7 @@ final class ByteDistinctBindingTest extends TestCase
     }
 
     /**
-     * A session whose key, owner's morph alias, owner key and guard are each
-     * 255 characters of four bytes records its step-up and provenance under
-     * them whole: the step-up counts for it, and the provenance is found by its
-     * key.
+     * A key, owner and guard of 255 four-byte characters each are kept whole.
      *
      * @return void
      *
@@ -207,8 +195,7 @@ final class ByteDistinctBindingTest extends TestCase
     }
 
     /**
-     * Two further factors whose `amr` values differ only in case each keep
-     * their value in the claims, in the order they were made.
+     * Two `amr` values that differ only in case stay apart in the claims.
      *
      * @return void
      *
@@ -245,8 +232,8 @@ final class ByteDistinctBindingTest extends TestCase
     }
 
     /**
-     * A session an external provider established, with its provenance, and an
-     * unsaved session like it whose key is the first's spelled as given.
+     * An externally established session with its provenance, and an unsaved
+     * twin keyed by the given spelling.
      *
      * @param  \Closure(string): string  $spell
      * @return array{0: \SineMacula\Laravel\Authentication\Models\Session, 1: \SineMacula\Laravel\Authentication\Models\Session}

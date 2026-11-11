@@ -24,22 +24,8 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
 /**
- * Races sign-ins of different identities that each start a new session, on
- * PostgreSQL and MySQL, each side in a process with a database connection of
- * its own: one side signs in inside a transaction it holds open, the other,
- * started meanwhile, signs in, and the first, once the other has reached the
- * insert of its proof, signs in again before it commits. A new session's key
- * sorts after every key already recorded, so the sign-ins all write their
- * proofs and provenance at the end of the same indexes; clearing what an
- * earlier session left under a key must lock nothing there, or on MySQL the
- * second side waits on the first and the first's next sign-in then waits on the
- * second, a deadlock that fails one of them. Each identity signs in through a
- * link of its own whose guard is in a slot of its own, as most links of one
- * connection are. Neither side waits, and every sign-in commits with its own
- * proof and provenance.
- *
- * Skipped on SQLite, whose in-memory database each process would have to
- * itself, and where `pcntl` is not available.
+ * Races fresh sign-ins of different identities, each in its own process, so
+ * none waits on or deadlocks another.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -52,7 +38,7 @@ final class ConcurrentFreshSignInsTest extends TestCase
 {
     use InteractsWithExternalSignIns, InteractsWithSessions;
 
-    /** @var int How long the first side waits, once the second is about to insert its proof, for that insert to reach the server, in microseconds. */
+    /** @var int How long the first side waits for the second's proof insert to reach the server, in microseconds. */
     private const int SETTLE_MICROSECONDS = 200000;
 
     /** @var float The most time, in seconds, the second side may take, to show it never waited on the first. */
@@ -68,8 +54,8 @@ final class ConcurrentFreshSignInsTest extends TestCase
     private string $outcomes;
 
     /**
-     * Skip where processes cannot share the database, freeze the clocks so both
-     * processes see one moment, and create the tables.
+     * Skip where processes cannot share the database, freeze the clocks and
+     * create the tables.
      *
      * @return void
      *
@@ -120,11 +106,7 @@ final class ConcurrentFreshSignInsTest extends TestCase
     }
 
     /**
-     * A sign-in of another identity, while the first side holds its sign-in
-     * open, does not wait on it, and the first side's next sign-in, made once
-     * the second has sent the insert of its proof (where it would be waiting if
-     * it had to), does not wait on the second's: all three commit, each session
-     * with only its own first factor and provenance.
+     * Sign-ins of different identities neither wait nor deadlock.
      *
      * @return void
      *
@@ -218,9 +200,8 @@ final class ConcurrentFreshSignInsTest extends TestCase
     }
 
     /**
-     * Start a new session for the identity through the link, as an external
-     * provider established it, and return its key. An external sign-in takes no
-     * attempt-limit slot, so the sides share no row.
+     * Start a new external session for the identity through the link and return
+     * its key.
      *
      * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
      * @param  string  $linkId
@@ -238,9 +219,8 @@ final class ConcurrentFreshSignInsTest extends TestCase
     }
 
     /**
-     * In the forked process: wait to be started, run the second side on a
-     * connection of its own, report its outcome, and end without running the
-     * parent's shutdown.
+     * Run the second side in the forked process, report its outcome and exit
+     * without the parent's shutdown.
      *
      * @param  \Closure(): mixed  $second
      * @return never
@@ -267,8 +247,7 @@ final class ConcurrentFreshSignInsTest extends TestCase
     }
 
     /**
-     * Wait for the other side to create the signal file, for no longer than the
-     * timeout: whether it did.
+     * Wait, up to the timeout, for the other side to create the signal file.
      *
      * @param  string  $signal
      * @return bool
@@ -285,11 +264,9 @@ final class ConcurrentFreshSignInsTest extends TestCase
     }
 
     /**
-     * Fail the race that was never set up: roll the first side's transaction
-     * back and stop and reap the second side, so neither is left holding locks
-     * on the tables the teardown drops. The pid is the forked child's, never a
-     * failed fork's `-1`, which `posix_kill()` would send to every process the
-     * user may signal.
+     * Fail the unstarted race, rolling back the first side and reaping the
+     * second so neither holds locks. A failed fork's pid of `-1` would make
+     * `posix_kill()` signal every process the user may.
      *
      * @param  positive-int  $pid
      * @param  string  $message

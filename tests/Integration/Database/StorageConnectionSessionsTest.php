@@ -40,19 +40,8 @@ use Tests\Integration\Fixtures\NamedConnectionIdentity;
 use Tests\TestCase;
 
 /**
- * End-to-end tests of the package on a storage connection other than the
- * default, with the counters on a connection of their own and the identities on
- * the default one: a session, its refresh, a passkey, a one-time code and a
- * pending session are read and written where the shipped migrations created
- * their tables; a failure while a pending session activates rolls the whole
- * activation back there; a rollback there leaves the counters counted; a change
- * of the factor package's follows the caller's transaction there; an active
- * session's proofs are read, and its row locked, there; and a session loads an
- * owner that names its connection from that connection.
- *
- * Each connection is a second connection to the test database with a table
- * prefix of its own: a database of its own on SQLite, and prefixed tables
- * beside the default connection's on PostgreSQL and MySQL.
+ * Integration tests of the package on a storage connection other than the
+ * default.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -99,9 +88,8 @@ final class StorageConnectionSessionsTest extends TestCase
     }
 
     /**
-     * A failed sign-in counts on the counters' connection; a successful one
-     * writes its session on the storage connection, and its refresh rotates the
-     * session there.
+     * A sign-in counts on the counters' connection and writes and refreshes its
+     * session on the storage connection.
      *
      * @return void
      *
@@ -132,8 +120,7 @@ final class StorageConnectionSessionsTest extends TestCase
     }
 
     /**
-     * A passkey is registered, and its owner signed in with it, on the storage
-     * connection, each ceremony's challenge written and used up there.
+     * A passkey is registered and used to sign in on the storage connection.
      *
      * @return void
      *
@@ -173,9 +160,7 @@ final class StorageConnectionSessionsTest extends TestCase
     }
 
     /**
-     * A pending session waits on the storage connection; a failure while
-     * `satisfy()` writes there rolls it back, the proof with it, so the session
-     * stays pending and can still be satisfied, once.
+     * A failed write while satisfying a pending session leaves it pending.
      *
      * @return void
      *
@@ -218,9 +203,7 @@ final class StorageConnectionSessionsTest extends TestCase
     }
 
     /**
-     * A sign-in counted inside a transaction on the storage connection that is
-     * rolled back stays counted, since the counters live on a connection of
-     * their own.
+     * A rolled back storage transaction leaves the counters counted.
      *
      * @return void
      *
@@ -244,11 +227,8 @@ final class StorageConnectionSessionsTest extends TestCase
     }
 
     /**
-     * A change of the factor package's made inside its transaction on the
-     * storage connection judges the current session again as a savepoint of
-     * that transaction, so the return to pending rolls back and commits with
-     * it; a transaction open only on the default connection holds none of it,
-     * so the return commits on its own.
+     * A factor change follows the caller's transaction on the storage
+     * connection only.
      *
      * @return void
      *
@@ -283,10 +263,8 @@ final class StorageConnectionSessionsTest extends TestCase
     }
 
     /**
-     * An active session's proofs are read on the storage connection, and its
-     * row is locked there only inside a transaction on the storage connection:
-     * a transaction open only on the default connection locks nothing, and
-     * sends nothing to the default connection either.
+     * An active session's proofs are read, and its row locked, on the storage
+     * connection.
      *
      * @return void
      *
@@ -327,10 +305,8 @@ final class StorageConnectionSessionsTest extends TestCase
     }
 
     /**
-     * A session on the storage connection loads, lazily and eagerly, an owner
-     * whose model names its connection from that connection; an owner whose
-     * model names none is looked for on the session's connection, as Laravel
-     * relations do, where it is not.
+     * A session loads an owner from the connection its model names, or else
+     * from the session's own.
      *
      * @return void
      */
@@ -355,8 +331,8 @@ final class StorageConnectionSessionsTest extends TestCase
     }
 
     /**
-     * Configure the guards and passkeys, and put the package's tables on one
-     * prefixed connection to the test database and the counters on another.
+     * Configure the guards and passkeys, and put the package's tables and the
+     * counters on prefixed connections.
      *
      * @param  mixed  $app
      * @return void

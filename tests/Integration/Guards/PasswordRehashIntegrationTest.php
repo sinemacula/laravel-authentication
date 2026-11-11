@@ -18,11 +18,8 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
 /**
- * Proves that a password sign-in upgrades a stored hash the hasher no longer
- * produces (here a lower bcrypt cost) once the sign-in is admitted, honouring
- * Laravel's `hashing.rehash_on_login`, and that nothing else writes the
- * password: not a failed or refused sign-in, not `validate()`, and not a
- * request authenticated by a bearer token.
+ * An admitted password sign-in rehashes an outdated hash, and nothing else
+ * writes the password.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -134,9 +131,7 @@ final class PasswordRehashIntegrationTest extends TestCase
     }
 
     /**
-     * Only an admitted sign-in rehashes: a wrong password, an identity that is
-     * refused after its password was accepted, and `validate()` leave the hash
-     * as it is.
+     * Only an admitted sign-in rehashes the password.
      *
      * @return void
      *

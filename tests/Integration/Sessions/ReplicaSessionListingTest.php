@@ -16,10 +16,8 @@ use Tests\Concerns\InteractsWithSessions;
 use Tests\TestCase;
 
 /**
- * Proves the session list, and the lookup of one session, are read from the
- * write connection: a session the primary has just revoked is no longer listed
- * or found, and one the primary has just created is, while the replica still
- * holds the old state.
+ * Integration tests that the session list and lookup are read on the primary
+ * while the replica lags.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -64,9 +62,7 @@ final class ReplicaSessionListingTest extends TestCase
     }
 
     /**
-     * The list follows the primary: the revoked session is gone and the new one
-     * is there, though the replica still holds the revoked one live and lacks
-     * the new one.
+     * The list follows the primary, not the lagging replica.
      *
      * @return void
      *
@@ -101,9 +97,7 @@ final class ReplicaSessionListingTest extends TestCase
     }
 
     /**
-     * One session is found as the primary holds it: the revoked session is not
-     * found and the new one is, though the replica still holds the revoked one
-     * live and lacks the new one.
+     * A single session is found as the primary holds it.
      *
      * @return void
      *

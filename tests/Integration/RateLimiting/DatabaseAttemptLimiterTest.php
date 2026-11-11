@@ -25,13 +25,8 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\StubReversingNormalizer;
 
 /**
- * Integration tests for the database attempt limiter against the shipped
- * `rate_limits` table, on whichever engine the suite runs against.
- *
- * The `api` guard allows 3 sign-in attempts per identifier and 5 per IP address
- * in 300-second windows, and 2 refresh failures per session and 4 per IP
- * address in 60-second windows. The clock starts 150 seconds into a sign-in
- * window.
+ * Integration tests of the database attempt limiter against the shipped
+ * `rate_limits` table.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -84,8 +79,7 @@ final class DatabaseAttemptLimiterTest extends TestCase
     }
 
     /**
-     * The limiter is the container's binding for the contract, one instance for
-     * the application.
+     * The limiter is the container's single binding for the contract.
      *
      * @return void
      */
@@ -96,8 +90,8 @@ final class DatabaseAttemptLimiterTest extends TestCase
     }
 
     /**
-     * An identifier gets its limit of attempts in a window, then is refused
-     * until the window ends, and a refusal takes nothing.
+     * An identifier is refused once its window is full, and a refusal takes
+     * nothing.
      *
      * @return void
      */
@@ -116,8 +110,8 @@ final class DatabaseAttemptLimiterTest extends TestCase
     }
 
     /**
-     * The IP address has its own, larger limit across identifiers, and when it
-     * is full the identifier's slot just taken is given back.
+     * A full IP address refuses the attempt and gives the identifier's slot
+     * back.
      *
      * @return void
      */
@@ -135,8 +129,7 @@ final class DatabaseAttemptLimiterTest extends TestCase
     }
 
     /**
-     * A granted reservation records the window of each slot it took, and giving
-     * it back returns both slots.
+     * Releasing a granted reservation gives both its slots back.
      *
      * @return void
      */
@@ -158,8 +151,7 @@ final class DatabaseAttemptLimiterTest extends TestCase
     }
 
     /**
-     * A success gives back only its own slot: the failures before it still
-     * count until their window ends.
+     * A success gives back only its own slot, so earlier failures still count.
      *
      * @return void
      */
@@ -174,8 +166,7 @@ final class DatabaseAttemptLimiterTest extends TestCase
     }
 
     /**
-     * A slot given back after its window ended leaves the next window alone, so
-     * a late success cannot make room in a window it never counted in.
+     * A slot given back after its window ended leaves the next window alone.
      *
      * @return void
      */
@@ -192,8 +183,7 @@ final class DatabaseAttemptLimiterTest extends TestCase
     }
 
     /**
-     * A window that has ended restarts with the next attempt, which is the
-     * first of the new window.
+     * A window that has ended restarts with the next attempt.
      *
      * @return void
      */
@@ -215,8 +205,7 @@ final class DatabaseAttemptLimiterTest extends TestCase
 
     /**
      * After `decay_seconds` grows, a counter keeps the window it was started
-     * in: the next attempt counts in that window and records it, so its slot
-     * goes back to the window it came from.
+     * in.
      *
      * @return void
      */
@@ -239,9 +228,8 @@ final class DatabaseAttemptLimiterTest extends TestCase
     }
 
     /**
-     * After `decay_seconds` shrinks, a counter keeps its longer window too:
-     * attempts count in it, a slot goes back to it, and once it is full the
-     * wait is until it ends rather than until the shorter window would.
+     * After `decay_seconds` shrinks, a counter keeps its longer window until it
+     * ends.
      *
      * @return void
      */
@@ -273,8 +261,8 @@ final class DatabaseAttemptLimiterTest extends TestCase
     }
 
     /**
-     * A stored window filled by other attempts between the read and the
-     * attempt's own increment refuses the attempt with that window's wait.
+     * A stored window filled between the read and the increment refuses the
+     * attempt with its wait.
      *
      * @return void
      */
@@ -297,9 +285,8 @@ final class DatabaseAttemptLimiterTest extends TestCase
     }
 
     /**
-     * A stored window that other attempts fill between the read and the
-     * attempt's own increment refuses the attempt: the increment counts only
-     * while the window has room, so concurrent attempts never exceed `max`.
+     * A stored window filled before the increment refuses the attempt, never
+     * exceeding `max`.
      *
      * @return void
      */
@@ -324,10 +311,7 @@ final class DatabaseAttemptLimiterTest extends TestCase
     }
 
     /**
-     * A stored window replaced by a later one between the read and the
-     * attempt's own increment is left alone: the increment counts only in the
-     * window it read, which is the one a reservation records, so a slot is
-     * never taken from a window it could not be given back to.
+     * A stored window replaced before the increment is left alone.
      *
      * @return void
      */
@@ -353,8 +337,8 @@ final class DatabaseAttemptLimiterTest extends TestCase
     }
 
     /**
-     * Rows of `[change]`: what happens to a full counter between the attempt's
-     * statements and its read.
+     * Rows of `[change]`: what happens to a full counter before the attempt
+     * reads it.
      *
      * @return iterable<string, array{string}>
      */
@@ -365,9 +349,8 @@ final class DatabaseAttemptLimiterTest extends TestCase
     }
 
     /**
-     * A full counter whose window ends, or that is pruned, between the
-     * attempt's statements refuses the attempt for one second, never for a
-     * window that is already over.
+     * A counter that ends or is pruned before the read refuses the attempt for
+     * one second.
      *
      * @param  string  $change
      * @return void
@@ -396,10 +379,7 @@ final class DatabaseAttemptLimiterTest extends TestCase
     }
 
     /**
-     * Identifiers are counted in their canonical form: through the normaliser
-     * of their type, so every casing and padding of an address shares one
-     * counter, and without one (or for a value it rejects) trimmed and
-     * lower-cased with invalid UTF-8 replaced.
+     * Identifiers are counted in their canonical form.
      *
      * @return void
      */
@@ -427,13 +407,7 @@ final class DatabaseAttemptLimiterTest extends TestCase
     }
 
     /**
-     * IP addresses are counted in their canonical form: every address of an
-     * IPv6 /64 network, however it is written, shares one counter, an
-     * IPv4-mapped address and an IPv4 client translated through the NAT64
-     * well-known prefix share their IPv4 address's counter (so IPv4 clients
-     * seen over IPv6 are not all one /64), an address under any other
-     * translation prefix counts by its /64, and anything that is not an address
-     * is counted as given.
+     * IP addresses are counted in their canonical form.
      *
      * @return void
      */
@@ -460,10 +434,7 @@ final class DatabaseAttemptLimiterTest extends TestCase
     }
 
     /**
-     * An account a subject names is counted under its own key, as given, with
-     * the identifier's limit: three password checks use it up whatever
-     * identifier found the account, and it is not counted when the identifier
-     * limit is off.
+     * An account is counted under its own key with the identifier's limit.
      *
      * @return void
      */
@@ -488,11 +459,8 @@ final class DatabaseAttemptLimiterTest extends TestCase
     }
 
     /**
-     * An account has one counter whichever guard checks it, held to each
-     * guard's own identifier limit: three checks through `api` (limit 3) and
-     * two through `admin` (limit 5) use it up for both, so adding a guard adds
-     * no guesses; a guard whose identifier limit is off neither checks nor
-     * counts it.
+     * An account's counter is shared by every guard, each holding it to its own
+     * limit.
      *
      * @return void
      */
@@ -526,7 +494,7 @@ final class DatabaseAttemptLimiterTest extends TestCase
 
     /**
      * A normaliser registered for the identifier's type gives the canonical
-     * form, even where it differs from trimming and lower-casing.
+     * form.
      *
      * @return void
      */
@@ -540,10 +508,7 @@ final class DatabaseAttemptLimiterTest extends TestCase
     }
 
     /**
-     * Counters are stored under digests keyed from the application key, never
-     * the identifier or the IP address, nor a plain digest anyone could
-     * recompute from a guessed one, and are separate per guard, flow and scope
-     * (an account's alone is shared by the guards).
+     * Counters are keyed digests, separate per guard, flow and scope.
      *
      * @return void
      */
@@ -568,9 +533,7 @@ final class DatabaseAttemptLimiterTest extends TestCase
     }
 
     /**
-     * The counters are keyed with the application key, so rotating it starts
-     * every counter afresh: an identifier refused under one key has its whole
-     * limit again under the next.
+     * Rotating the application key starts every counter afresh.
      *
      * @return void
      */
@@ -589,9 +552,8 @@ final class DatabaseAttemptLimiterTest extends TestCase
     }
 
     /**
-     * An attempt without an identifier counts against the IP address only, one
-     * without an IP address against the identifier only, and one with neither,
-     * or on limits that are off, costs no query at all.
+     * Only the known parts of a subject are counted; with neither, no query
+     * runs.
      *
      * @return void
      */
@@ -639,8 +601,8 @@ final class DatabaseAttemptLimiterTest extends TestCase
     }
 
     /**
-     * Refresh counts only failures: `blocked()` stays `null` under the limit,
-     * reports the wait once a counter is full, and one query reads both.
+     * `blocked()` reports the wait once refresh failures fill a window, in one
+     * query.
      *
      * @return void
      */
@@ -667,8 +629,8 @@ final class DatabaseAttemptLimiterTest extends TestCase
     }
 
     /**
-     * A full IP address blocks every session behind it; with both counters
-     * full, the wait is until the later window ends.
+     * A full IP address blocks every session behind it, until the later full
+     * window ends.
      *
      * @return void
      */
@@ -685,8 +647,8 @@ final class DatabaseAttemptLimiterTest extends TestCase
     }
 
     /**
-     * Failures in a window that has ended no longer block, and the next failure
-     * starts a new window.
+     * Failures in an ended window no longer block, and the next starts a new
+     * window.
      *
      * @return void
      */
@@ -707,8 +669,7 @@ final class DatabaseAttemptLimiterTest extends TestCase
     }
 
     /**
-     * A counter created by another request between this one's first update and
-     * its insert is found by the retry, so the attempt still counts once.
+     * A counter created concurrently is found by the retry and counted once.
      *
      * @return void
      */
@@ -722,7 +683,7 @@ final class DatabaseAttemptLimiterTest extends TestCase
 
     /**
      * A failure recorded while another request creates the counter is counted
-     * on the retry too.
+     * on the retry.
      *
      * @return void
      */
@@ -738,8 +699,8 @@ final class DatabaseAttemptLimiterTest extends TestCase
     }
 
     /**
-     * Attempts that fill the window between this one's statements leave it
-     * refused, never over the limit.
+     * Attempts that fill the window concurrently leave this one refused, never
+     * over the limit.
      *
      * @return void
      */
@@ -757,8 +718,7 @@ final class DatabaseAttemptLimiterTest extends TestCase
     }
 
     /**
-     * Counters live on the configured connection, and the limiter never reads
-     * or writes them anywhere else.
+     * Counters are read and written only on the configured connection.
      *
      * @return void
      */
@@ -776,8 +736,7 @@ final class DatabaseAttemptLimiterTest extends TestCase
     }
 
     /**
-     * A database error is never read as room for another attempt: it
-     * propagates.
+     * A database error propagates.
      *
      * @return void
      */
@@ -892,8 +851,8 @@ final class DatabaseAttemptLimiterTest extends TestCase
     }
 
     /**
-     * The hits of the guard's sign-in counter for the IP address in its
-     * documented canonical form, 0 when it has none.
+     * The hits of the guard's sign-in counter for the canonical IP address, 0
+     * when it has none.
      *
      * @param  string  $canonicalIp
      * @return int
@@ -904,8 +863,8 @@ final class DatabaseAttemptLimiterTest extends TestCase
     }
 
     /**
-     * The key of the subject's counter in the scope, computed here from the
-     * documented digest and canonical forms rather than by the limiter.
+     * The key of the subject's counter, computed from the documented digest
+     * rather than by the limiter.
      *
      * @param  \SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject  $subject
      * @param  string  $scope
@@ -927,8 +886,7 @@ final class DatabaseAttemptLimiterTest extends TestCase
     }
 
     /**
-     * Set the length of the guard's sign-in windows per identifier, keeping its
-     * maximum.
+     * Set the length of the guard's sign-in windows per identifier.
      *
      * @param  int  $seconds
      * @return void
@@ -963,9 +921,8 @@ final class DatabaseAttemptLimiterTest extends TestCase
     }
 
     /**
-     * Run a callback once, just before the first statement on the default
-     * connection that contains the given word, as another request would between
-     * this one's statements.
+     * Run a callback once, before the first statement containing the word on
+     * the default connection.
      *
      * @param  string  $word
      * @param  \Closure(): mixed  $callback
@@ -987,10 +944,8 @@ final class DatabaseAttemptLimiterTest extends TestCase
     }
 
     /**
-     * Run a callback once, just before the first conditional increment of a
-     * counter's stored window on the default connection (an update that adds
-     * one without the window-moving `case`), as another request would between
-     * this one's read and its increment.
+     * Run a callback once, before the first conditional increment of a
+     * counter's stored window.
      *
      * @param  \Closure(): mixed  $callback
      * @return void
@@ -1014,9 +969,8 @@ final class DatabaseAttemptLimiterTest extends TestCase
     }
 
     /**
-     * Run a callback once, just before the first insert of a counter on the
-     * default connection, as another request would between this one's
-     * statements.
+     * Run a callback once, before the first insert of a counter on the default
+     * connection.
      *
      * @param  \Closure(): mixed  $callback
      * @return void

@@ -29,12 +29,8 @@ use Tests\Integration\Fixtures\UncastSessionIdentity;
 use Tests\TestCase;
 
 /**
- * A revoked session is rejected on every path even when its model uses the
- * `ActsAsSession` trait without a `datetime` cast on `revoked_at`, so the
- * column reads back as the raw string the database stores.
- *
- * Each test revokes the session the way the refresh exchange does, writing the
- * revocation time through the query builder and clearing the refresh digest.
+ * Tests that a revoked session is rejected on every path when its model has no
+ * `datetime` cast on `revoked_at`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -115,8 +111,8 @@ final class UncastRevokedSessionIntegrationTest extends TestCase
     }
 
     /**
-     * Pinning the session on `attempt()` signs in while it is live, and fails
-     * with `session_mismatch` once it is revoked.
+     * Pinning the session on `attempt()` fails as `session_mismatch` once it is
+     * revoked.
      *
      * @return void
      *
@@ -146,8 +142,7 @@ final class UncastRevokedSessionIntegrationTest extends TestCase
     }
 
     /**
-     * Refreshing with the revoked session's refresh token fails with
-     * `session_revoked`.
+     * Refreshing with the revoked session's token fails as `session_revoked`.
      *
      * @return void
      *
@@ -215,8 +210,8 @@ final class UncastRevokedSessionIntegrationTest extends TestCase
     }
 
     /**
-     * Revoke the session as the refresh exchange does: set the revocation time
-     * and clear the refresh digest through the query builder.
+     * Revoke the session through the query builder, as the refresh exchange
+     * does.
      *
      * @param  \Tests\Integration\Fixtures\UncastSession  $session
      * @return void

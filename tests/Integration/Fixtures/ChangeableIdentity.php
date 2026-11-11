@@ -17,11 +17,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
- * 2D identity fixture whose identifiers can be changed, stored in
- * `changeable_identities`: a designated email address and phone number, each
- * normalised, unique and with a verification time beside it, a password, and
- * sessions, so the session service can sign it in and the identifier change
- * service can change either identifier.
+ * 2D identity with sessions whose normalised, verifiable email address and
+ * phone number can be changed.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

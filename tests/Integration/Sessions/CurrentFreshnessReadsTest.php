@@ -35,28 +35,8 @@ use Tests\Integration\Fixtures\ChangeableIdentity;
 use Tests\TestCase;
 
 /**
- * The freshness judgements the package makes under the identity's and the
- * session's locks, an identifier change request's and a password
- * establishment's, on PostgreSQL and MySQL, on two connections to one database,
- * inside a caller's transaction at READ COMMITTED and at REPEATABLE READ that
- * made a plain read first: meanwhile the other connection commits a change to
- * the session's proofs as the package writes it (a step-up, or a step-up voided
- * as a factor's removal voids it, after the session's issuance guard); then the
- * caller's transaction makes the request or the establishment. Freshness for
- * both takes a step-up here, so the step-up is the proof that decides.
- *
- * At READ COMMITTED, and on MySQL at REPEATABLE READ (whose plain reads return
- * the snapshot of the transaction's first read, so only the judgement's locking
- * reads see the change), the judgement is made on the change committed: a
- * voided step-up never counts, so the request or establishment is refused, and
- * a step-up committed meanwhile counts. On PostgreSQL's REPEATABLE READ the
- * session's lock fails to serialise instead, and once the caller retries the
- * whole transaction the judgement is made on the change. A judgement that read
- * the snapshot would send the request or set the password on a step-up that no
- * longer counts, or refuse the establishment for want of one that does.
- *
- * Skipped on SQLite, whose in-memory database each connection would have to
- * itself.
+ * Races the locked freshness judgements of an identifier change and a password
+ * establishment against a proof change, on two connections.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -78,8 +58,7 @@ final class CurrentFreshnessReadsTest extends TestCase
 
     /**
      * Skip where two connections cannot share the database, add the second
-     * connection, start from a known moment with the fakes bound, and have an
-     * identifier change and a password establishment take a step-up.
+     * connection, freeze the clocks, bind the fakes and require a step-up.
      *
      * @return void
      */
@@ -124,11 +103,7 @@ final class CurrentFreshnessReadsTest extends TestCase
     }
 
     /**
-     * An identifier change request proven by a session never counts the
-     * session's step-up voided after the caller's first read: the check before
-     * the change's transaction may still find it in the snapshot, but the check
-     * under the identity's and the session's locks does not, so the request is
-     * refused (`reauthentication_required`) with nothing written or sent.
+     * An identifier change request never counts a step-up voided meanwhile.
      *
      * @param  string  $level
      * @return void
@@ -158,13 +133,8 @@ final class CurrentFreshnessReadsTest extends TestCase
     }
 
     /**
-     * An identifier change request proven by a session is checked first before
-     * the change's transaction, with a plain read, which at REPEATABLE READ
-     * returns the caller's snapshot (on MySQL and on PostgreSQL alike): a
-     * step-up committed after the caller's first read is missed there and the
-     * request refused (`reauthentication_required`, failing closed), before
-     * anything is locked. At READ COMMITTED the check, and the one under the
-     * locks, count it, and the request is sent.
+     * An identifier change request counts a step-up committed meanwhile only at
+     * READ COMMITTED.
      *
      * @param  string  $level
      * @return void
@@ -194,9 +164,7 @@ final class CurrentFreshnessReadsTest extends TestCase
     }
 
     /**
-     * A password establishment never counts the session's step-up voided after
-     * the caller's first read: it is refused (`reauthentication_required`), and
-     * the identity still has no password and its other sessions are kept.
+     * An establishment never counts a step-up voided meanwhile.
      *
      * @param  string  $level
      * @return void
@@ -222,8 +190,7 @@ final class CurrentFreshnessReadsTest extends TestCase
     }
 
     /**
-     * A password establishment counts a step-up committed after the caller's
-     * first read: the password is set, and the identity's other session ends.
+     * An establishment counts a step-up committed meanwhile.
      *
      * @param  string  $level
      * @return void
@@ -268,12 +235,8 @@ final class CurrentFreshnessReadsTest extends TestCase
     }
 
     /**
-     * Open the caller's transaction at the isolation level and read plainly
-     * (the snapshot), have the other connection commit the change, then run the
-     * call in the caller's transaction and commit it, returning what it
-     * answered. Where the transaction reads a snapshot every read keeps
-     * (PostgreSQL's REPEATABLE READ), the call fails to serialise first, and
-     * the caller retries the whole transaction.
+     * Read in the caller's transaction, commit the change elsewhere, then run
+     * the call, retrying on a failure to serialise.
      *
      * @template TJudged
      *
@@ -306,8 +269,8 @@ final class CurrentFreshnessReadsTest extends TestCase
     }
 
     /**
-     * Run the work on the other connection, as the default one, in a
-     * transaction of its own that commits before this returns.
+     * Run the work on the other connection in a transaction of its own that
+     * commits.
      *
      * @param  \Closure(): void  $work
      * @return void
@@ -344,7 +307,7 @@ final class CurrentFreshnessReadsTest extends TestCase
 
     /**
      * Void the session's proofs made with `factor-1` on the other connection,
-     * after its issuance guard, as a factor's removal voids them.
+     * after its issuance guard.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\Session  $session
      * @return void
@@ -365,8 +328,7 @@ final class CurrentFreshnessReadsTest extends TestCase
     }
 
     /**
-     * A session of the identity on the `web` guard, started just now and
-     * stepped up with `factor-1`.
+     * A session of the identity on the `web` guard, stepped up with `factor-1`.
      *
      * @param  \Tests\Integration\Fixtures\ChangeableIdentity  $identity
      * @return \SineMacula\Laravel\Authentication\Models\Session
@@ -383,8 +345,7 @@ final class CurrentFreshnessReadsTest extends TestCase
     }
 
     /**
-     * An accepted further factor's step-up of the session, made now with
-     * `factor-1`.
+     * An accepted step-up of the session with `factor-1`.
      *
      * @param  \Tests\Integration\Fixtures\ChangeableIdentity  $identity
      * @param  \SineMacula\Laravel\Authentication\Models\Session  $session

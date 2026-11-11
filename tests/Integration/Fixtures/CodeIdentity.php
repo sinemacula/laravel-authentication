@@ -19,10 +19,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
- * 2D identity fixture for one-time codes, stored in `code_identities`: a
- * designated phone number and email address, each normalised and with a
- * verification time beside it, an activity flag, and sessions, so the session
- * service can sign it in with a code.
+ * 2D identity for one-time codes, with a verifiable phone number and email
+ * address and sessions.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

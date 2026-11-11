@@ -28,16 +28,8 @@ use Tests\Integration\Fixtures\CodeIdentity;
 use Tests\TestCase;
 
 /**
- * Races two wrong guesses at a factor code's last attempt through
- * `verifyFactorCode()` on PostgreSQL and MySQL, each in a process with a
- * database connection of its own: the first holds its transaction open while
- * the second, started meanwhile, has been admitted by the counters and waits on
- * the challenge's row. The attempts never pass `max_attempts`, and the counters
- * are told of each counted attempt exactly once, in the transaction that
- * counted it.
- *
- * Skipped on SQLite, where each process would have an in-memory database of its
- * own, and where `pcntl` is not available.
+ * Races two wrong guesses at a factor code's last attempt in two processes;
+ * skipped on SQLite and without `pcntl`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -75,9 +67,8 @@ final class ConcurrentFactorCodesTest extends TestCase
     private CodeIdentity $identity;
 
     /**
-     * Skip where processes cannot share the database; freeze the clock so both
-     * processes see one moment; create the tables and an identity; and bind
-     * counters that admit every check and record each report in a table.
+     * Skip where processes cannot share the database, freeze the clock, create
+     * the tables and bind recording counters.
      *
      * @return void
      *
@@ -151,11 +142,7 @@ final class ConcurrentFactorCodesTest extends TestCase
     }
 
     /**
-     * Two wrong guesses at a challenge one attempt short of `max_attempts`: the
-     * one whose transaction commits first counts the last attempt and is
-     * `invalid`; the one admitted meanwhile waits on the challenge's row, then
-     * finds it exhausted and counts nothing. The attempts stop at the maximum
-     * and the counters were told of the one counted attempt once.
+     * Two wrong guesses at the last attempt count it once and report it once.
      *
      * @return void
      *
@@ -225,10 +212,8 @@ final class ConcurrentFactorCodesTest extends TestCase
     }
 
     /**
-     * Run the first check here inside a transaction, start the second in
-     * another process once the first has taken the challenge's row, hold the
-     * transaction open while the second waits on it, then commit, and return
-     * the first's outcome and the second's, with how long it waited.
+     * Race the first check here against the second in a child process, and
+     * return both outcomes with the second's wait.
      *
      * @param  \Closure(): string  $first
      * @param  \Closure(): string  $second
@@ -267,9 +252,8 @@ final class ConcurrentFactorCodesTest extends TestCase
     }
 
     /**
-     * In the forked process: wait to be started, run the check on a connection
-     * of its own, report its outcome and how long it took, and end without
-     * running the parent's shutdown.
+     * In the forked process, run the check on its own connection, report its
+     * outcome and exit without the parent's shutdown.
      *
      * @param  \Closure(): string  $check
      * @return never

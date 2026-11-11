@@ -28,10 +28,8 @@ use Tests\Integration\Fixtures\CutoffMembership;
 use Tests\TestCase;
 
 /**
- * End-to-end tests for "tokens valid after" against a real database: an access
- * token issued without a session stops at the second the identity's time is
- * moved to, while the tokens of its signed-in sessions, which revocation
- * governs, keep working.
+ * Tests that "tokens valid after" ends session-less access tokens and leaves
+ * session tokens to revocation.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -132,9 +130,7 @@ final class TokensValidAfterIntegrationTest extends TestCase
     }
 
     /**
-     * A signed-in session's access token is not held to the time: revoking the
-     * session ends it, and a sign-out everywhere that keeps the current session
-     * must leave that session's token working.
+     * A signed-in session's access token is not held to the time.
      *
      * @return void
      *
@@ -171,9 +167,8 @@ final class TokensValidAfterIntegrationTest extends TestCase
     }
 
     /**
-     * A principal's time limits the session-less tokens acting as it when its
-     * identity records none: revoking the principal's sessions ends a token
-     * issued before, and one issued in the next second works.
+     * A principal's time limits a session-less token whose identity records
+     * none.
      *
      * @return void
      *

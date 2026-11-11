@@ -17,9 +17,7 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
- * 2D identity fixture with a designated email address and a phone number, each
- * with a verification time beside it, that owns sessions so the session service
- * can sign it in.
+ * 2D identity with a verifiable email address and phone number and sessions.
  *
  * @property int $id
  * @property ?string $email

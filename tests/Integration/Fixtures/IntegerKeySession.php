@@ -7,9 +7,8 @@ namespace Tests\Integration\Fixtures;
 use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
- * The shipped session model keyed by an integer the database issues rather than
- * a UUID it generates, so a key is issued again once the table's counter is
- * reset, as truncating the table resets it.
+ * Shipped session model with a database-issued integer key, issued again once
+ * the table's counter is reset.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

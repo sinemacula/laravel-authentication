@@ -45,13 +45,7 @@ use Tests\Integration\Fixtures\CodeIdentity;
 use Tests\TestCase;
 
 /**
- * Integration tests for a factor package's codes through `Auth::codes($guard)`
- * against the shipped tables: `sendFactorCode()` and `verifyFactorCode()` for
- * the `mfa` challenges of a sign-in or a step-up and the `enrollment`
- * challenges that confirm a factor being enrolled, what each is bound to, the
- * counters asked before every delivery and check and told every counted attempt
- * inside the consuming transaction, the per-IP and per-destination limits kept
- * here, and the delivery cap that a new transaction never resets.
+ * Integration tests for a factor package's codes through `Auth::codes($guard)`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -85,7 +79,7 @@ final class FactorCodesTest extends TestCase
 
     /**
      * Freeze the clock, create the table and an identity, issue known codes,
-     * fake the queue and bind recording counters that admit every code.
+     * fake the queue and bind recording counters.
      *
      * @return void
      */
@@ -128,10 +122,8 @@ final class FactorCodesTest extends TestCase
     }
 
     /**
-     * An admitted send issues an `mfa` challenge under the destination and the
-     * identity, bound to its transaction, queues its delivery to the identity,
-     * and answers the challenge id and when another may be sent; the counters
-     * are asked once and told nothing, since nothing was attempted.
+     * An admitted send issues a challenge bound to its transaction and queues
+     * its delivery.
      *
      * @return void
      *
@@ -162,9 +154,7 @@ final class FactorCodesTest extends TestCase
     }
 
     /**
-     * The job delivers a factor's code to the identity it was issued for, read
-     * again, with the purpose, the channel's kind as the type and the
-     * destination; an enrolment's with the purpose `enrollment`.
+     * The job delivers a factor's code to the identity it was issued for.
      *
      * @return void
      *
@@ -192,8 +182,7 @@ final class FactorCodesTest extends TestCase
     }
 
     /**
-     * A job whose identity was deleted, or became a machine identity, before it
-     * ran delivers nothing; nor does one whose code a resend replaced.
+     * A job for a gone identity or a replaced code delivers nothing.
      *
      * @return void
      *
@@ -227,10 +216,7 @@ final class FactorCodesTest extends TestCase
     }
 
     /**
-     * The package's default counters refuse every factor code: a send writes
-     * nothing and queues nothing, and a check of a live challenge leaves it
-     * untouched; each is answered `refused` (`type_not_enabled`) and reported
-     * as `factor_code_refused` on the `factor_code` flow.
+     * The package's default counters refuse every factor code.
      *
      * @return void
      *
@@ -266,9 +252,7 @@ final class FactorCodesTest extends TestCase
     }
 
     /**
-     * Counters that have the factor locked answer a send `locked`, with until
-     * when, and write nothing; a check is `locked` too, with the challenge
-     * untouched and nothing reported.
+     * Counters that have the factor locked hold back the send and the check.
      *
      * @return void
      *
@@ -299,10 +283,8 @@ final class FactorCodesTest extends TestCase
     }
 
     /**
-     * The right code is verified, at the time it was checked, once the counters
-     * admit it and are told of the attempt, exactly once, as passed, inside the
-     * storage transaction that uses the challenge up; the IP slot it took is
-     * given back. A replay is used and reports nothing.
+     * The right code is verified and reported once, inside the transaction that
+     * uses it up.
      *
      * @return void
      *
@@ -328,8 +310,7 @@ final class FactorCodesTest extends TestCase
     }
 
     /**
-     * A wrong code is invalid and reported once as failed; a lock the counters
-     * answer for it is carried, and its IP slot is kept.
+     * A wrong code is invalid and reported once as failed.
      *
      * @return void
      *
@@ -362,9 +343,7 @@ final class FactorCodesTest extends TestCase
     }
 
     /**
-     * Rows of `[the report's answer, the outcome, the reason]`: a matching code
-     * whose report is not admitted is not verified, though the challenge is
-     * used up and its attempt spent.
+     * Rows of `[the report's answer, the outcome, the reason]`.
      *
      * @formatter:off
      *
@@ -389,8 +368,7 @@ final class FactorCodesTest extends TestCase
     }
 
     /**
-     * The report's answer is authoritative: a matching code is verified only
-     * when it admits the outcome.
+     * A matching code is verified only when the report admits the outcome.
      *
      * @param  \Closure(): \SineMacula\Laravel\Authentication\Codes\FactorCodeAdmission  $report
      * @param  \SineMacula\Laravel\Authentication\Codes\Enums\FactorCodeOutcome  $outcome
@@ -420,10 +398,8 @@ final class FactorCodesTest extends TestCase
     }
 
     /**
-     * Rows of `[the binding checked, the challenge id named]`: a code checked
-     * against another session, another factor, another proof purpose, the other
-     * kind of challenge, another identity, or naming another challenge, is not
-     * found and counts and reports nothing.
+     * Rows of `[the binding checked, the challenge id named]`, each another
+     * transaction.
      *
      * @return iterable<string, array{0: \Closure(self): \SineMacula\Laravel\Authentication\Codes\FactorCodeBinding, 1: ?string}>
      */
@@ -440,8 +416,7 @@ final class FactorCodesTest extends TestCase
     }
 
     /**
-     * An `mfa` code is accepted only for the very transaction it was sent for,
-     * and never as an `enrollment` one; a mismatch spends nothing.
+     * An `mfa` code is accepted only for the transaction it was sent for.
      *
      * @param  \Closure(self): \SineMacula\Laravel\Authentication\Codes\FactorCodeBinding  $other
      * @param  ?string  $challenge
@@ -479,8 +454,7 @@ final class FactorCodesTest extends TestCase
     }
 
     /**
-     * Rows of `[what ended the challenge, the outcome, the reason]`: an expired
-     * or exhausted challenge is answered so, counting and reporting nothing.
+     * Rows of `[what ended the challenge, the outcome, the reason]`.
      *
      * @formatter:off
      *
@@ -525,9 +499,8 @@ final class FactorCodesTest extends TestCase
     }
 
     /**
-     * Rows of `[binding, challenge id]` that name a challenge the binding does
-     * not own once it was used up: another session, factor, purpose, grant or
-     * identity, and an id the binding never had.
+     * Rows of `[binding, challenge id]` naming a used challenge the binding
+     * does not own.
      *
      * @return iterable<string, array{0: \Closure(self): \SineMacula\Laravel\Authentication\Codes\FactorCodeBinding}>
      */
@@ -543,10 +516,7 @@ final class FactorCodesTest extends TestCase
     }
 
     /**
-     * A challenge of another binding is not found even once it was used up,
-     * never used, so the answer says nothing of another binding's challenges;
-     * nothing is counted or reported to the counters, the IP slot is taken and
-     * the refusal is reported as for any other.
+     * A challenge of another binding is not found even once it was used up.
      *
      * @param  \Closure(self): \SineMacula\Laravel\Authentication\Codes\FactorCodeBinding  $other
      * @return void
@@ -575,9 +545,7 @@ final class FactorCodesTest extends TestCase
     }
 
     /**
-     * A well-formed challenge id nobody issued is not found: no attempt is
-     * counted and nothing is reported to the counters, but the IP slot is taken
-     * and the refusal is reported with the id.
+     * A well-formed challenge id nobody issued is not found.
      *
      * @return void
      *
@@ -598,8 +566,7 @@ final class FactorCodesTest extends TestCase
     }
 
     /**
-     * A challenge replaced by a newer one is not found, as the newer one is the
-     * binding's challenge now.
+     * A challenge replaced by a newer one is not found.
      *
      * @return void
      *
@@ -621,8 +588,7 @@ final class FactorCodesTest extends TestCase
     }
 
     /**
-     * Rows of `[what used the challenge up]`: a code that matched, and a
-     * challenge that was ended, each with and without having expired since.
+     * Rows of `[what used the challenge up]`.
      *
      * @return iterable<string, array{0: array<string, mixed>}>
      */
@@ -636,9 +602,8 @@ final class FactorCodesTest extends TestCase
     }
 
     /**
-     * The binding's own used challenge is used, whether or not it has expired
-     * or used up its attempts since; no attempt is counted, nothing is reported
-     * to the counters, and the refusal is reported as for any other.
+     * The binding's own used challenge is used, whether or not it has ended
+     * since.
      *
      * @param  array<string, mixed>  $state
      * @return void
@@ -664,9 +629,8 @@ final class FactorCodesTest extends TestCase
     }
 
     /**
-     * A used challenge is used again and again, however wrong the code, as it
-     * is never compared; a live challenge's wrong code is still invalid and
-     * counted.
+     * A used challenge stays used however wrong the code, while a live one's
+     * wrong code is invalid.
      *
      * @return void
      *
@@ -685,10 +649,8 @@ final class FactorCodesTest extends TestCase
     }
 
     /**
-     * Rows of `[challenge id, code, the outcome, challenge id reported]` a
-     * check refuses once its IP slot is taken: a challenge id not in the form
-     * the engine issues is not found and never reported, a code not in the form
-     * is invalid, and a check malformed in both is not found.
+     * Rows of `[challenge id, code, the outcome, challenge id reported]` for
+     * malformed checks.
      *
      * @return iterable<string, array{0: string, 1: string, 2: \SineMacula\Laravel\Authentication\Codes\Enums\FactorCodeOutcome, 3: ?string}>
      */
@@ -704,9 +666,7 @@ final class FactorCodesTest extends TestCase
     }
 
     /**
-     * A malformed code is invalid and a malformed challenge id not found, with
-     * no attempt counted, the counters not asked and nothing reported to them;
-     * the IP slot is taken and kept.
+     * A malformed check takes and keeps its IP slot but counts no attempt.
      *
      * @param  string  $challenge
      * @param  string  $code
@@ -735,10 +695,8 @@ final class FactorCodesTest extends TestCase
     }
 
     /**
-     * Once the IP address's checks are used up a malformed check is
-     * `rate_limited`, with the wait, not `not_found` or `invalid`: the limit is
-     * taken before the input is judged. The refusal is reported with the
-     * rate-limited reason, and the counters are neither asked nor told.
+     * Once the IP address's checks are used up, a malformed check is
+     * `rate_limited`.
      *
      * @param  string  $challenge
      * @param  string  $code
@@ -773,9 +731,7 @@ final class FactorCodesTest extends TestCase
     }
 
     /**
-     * Checks are limited per IP address (`factor_code`): once its checks are
-     * used up a check is `rate_limited`, with the wait, before the counters are
-     * asked or the challenge is read.
+     * Checks are limited per IP address before the counters are asked.
      *
      * @return void
      *
@@ -803,9 +759,8 @@ final class FactorCodesTest extends TestCase
     }
 
     /**
-     * A send counts under `code_request` on the destination, the identity's
-     * account and the IP address, before its transaction; out of requests, it
-     * is `rate_limited`, before the counters are asked.
+     * A send is limited per destination, owner and IP address before the
+     * counters are asked.
      *
      * @return void
      *
@@ -832,8 +787,8 @@ final class FactorCodesTest extends TestCase
     }
 
     /**
-     * A client the caller hands in, not the request's, is the one a send and a
-     * check count against and report.
+     * A client the caller hands in is the one a send and a check count and
+     * report.
      *
      * @return void
      *
@@ -856,8 +811,7 @@ final class FactorCodesTest extends TestCase
     }
 
     /**
-     * A report that throws rolls the whole check back, its attempt and its use
-     * included, and the exception propagates.
+     * A report that throws rolls the whole check back.
      *
      * @return void
      *
@@ -880,8 +834,8 @@ final class FactorCodesTest extends TestCase
     }
 
     /**
-     * A check asks the counters before it locks the challenge's row, and
-     * reports after it uses the challenge up, all in one transaction.
+     * A check asks the counters before it locks the challenge and reports after
+     * it uses it up.
      *
      * @return void
      *
@@ -917,8 +871,7 @@ final class FactorCodesTest extends TestCase
     }
 
     /**
-     * Inside a caller's transaction that rolls back, a send leaves no challenge
-     * and queues nothing, and a check leaves the challenge unspent.
+     * A caller's rollback undoes the send and the check.
      *
      * @return void
      *
@@ -951,10 +904,8 @@ final class FactorCodesTest extends TestCase
     }
 
     /**
-     * A resend for the same transaction keeps the challenge and its attempts;
-     * one for another session, or an enrolment restarted with a new pending
-     * factor and grant, is a new challenge, still under the destination's
-     * cooldown and delivery cap, which neither resets.
+     * A new transaction starts a new challenge but resets neither the cooldown
+     * nor the cap.
      *
      * @return void
      *
@@ -992,8 +943,7 @@ final class FactorCodesTest extends TestCase
     }
 
     /**
-     * A binding for another application than the guard's is a misconfiguration,
-     * refused before anything is counted.
+     * A binding for another application than the guard's is refused.
      *
      * @return void
      *
@@ -1101,7 +1051,7 @@ final class FactorCodesTest extends TestCase
 
     /**
      * Check the code for the challenge against the binding through the `mobile`
-     * guard from the client.
+     * guard.
      *
      * @param  \SineMacula\Laravel\Authentication\Codes\FactorCodeBinding  $binding
      * @param  string  $challenge

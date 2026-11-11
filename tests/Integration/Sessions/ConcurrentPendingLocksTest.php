@@ -37,17 +37,7 @@ use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 use Tests\TestCase;
 
 /**
- * Races the calls that lock a pending session's row on PostgreSQL and MySQL,
- * each in a process with a database connection of its own: one holds the lock
- * inside a transaction it keeps open, and the other, started meanwhile, waits
- * on that lock and then judges the row the first committed. A satisfaction and
- * a discard never both apply; a policy change and an activation each see the
- * other's result, so the session ends compliant either way. A satisfaction that
- * deadlocks inside a caller's transaction fails as a deadlock the caller can
- * retry whole.
- *
- * Skipped on SQLite, whose in-memory database each process would have to
- * itself, and where `pcntl` is not available.
+ * Races the calls that lock a pending session's row, each in its own process.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -71,7 +61,7 @@ final class ConcurrentPendingLocksTest extends TestCase
     /** @var float The least time, in seconds, the second call must have waited to show it waited on the first. */
     private const float LEAST_WAIT_SECONDS = 0.5;
 
-    /** @var int How long the forked side waits, once the satisfaction waits on the proven session, before it asks for the pending one, in microseconds: under PostgreSQL's one-second deadlock check, so the satisfaction, which has waited longer, is the side that finds the cycle. */
+    /** @var int How long the forked side waits before closing the cycle, in microseconds; under PostgreSQL's one-second deadlock check. */
     private const int CROSS_MICROSECONDS = 300000;
 
     /** @var int How long the second call waits to be started before giving up, in seconds. */
@@ -84,9 +74,8 @@ final class ConcurrentPendingLocksTest extends TestCase
     private ScriptedTenantAuthenticationPolicy $policy;
 
     /**
-     * Skip where processes cannot share the database, freeze the clocks so both
-     * processes see one moment, create the tables, require a further factor of
-     * every sign-in, and bind the scripted tenant policy.
+     * Skip where processes cannot share the database, freeze the clocks, create
+     * the tables, require a further factor and bind the scripted tenant policy.
      *
      * @return void
      *
@@ -161,9 +150,7 @@ final class ConcurrentPendingLocksTest extends TestCase
     }
 
     /**
-     * A satisfaction that waits on a discard holding the session's lock finds
-     * the session ended once the discard commits, and fails as
-     * `pending_invalid`, storing no proof.
+     * A satisfaction waiting on a discard finds the session ended.
      *
      * @return void
      *
@@ -190,8 +177,7 @@ final class ConcurrentPendingLocksTest extends TestCase
     }
 
     /**
-     * A discard that waits on a satisfaction holding the session's lock finds
-     * the session active once the satisfaction commits, and discards nothing.
+     * A discard waiting on a satisfaction finds the session active.
      *
      * @return void
      *
@@ -219,9 +205,7 @@ final class ConcurrentPendingLocksTest extends TestCase
     }
 
     /**
-     * A satisfaction that waits on a policy change holding the tenant's session
-     * locks finds the session revoked once the change commits (its tenant now
-     * requires a connection it can never meet), and fails as `pending_invalid`.
+     * A satisfaction waiting on a policy change finds the session revoked.
      *
      * @return void
      *
@@ -247,10 +231,7 @@ final class ConcurrentPendingLocksTest extends TestCase
     }
 
     /**
-     * A policy change that waits on an activation holding the session's lock
-     * reads the session the activation committed, recorded at the version it
-     * was checked against, and judges it against the policy now published,
-     * revoking it when it falls short.
+     * A policy change waiting on an activation judges the activated session.
      *
      * @return void
      *
@@ -286,14 +267,8 @@ final class ConcurrentPendingLocksTest extends TestCase
     }
 
     /**
-     * A satisfaction inside a caller's transaction that deadlocks on the
-     * session its sign-in proved (another transaction wrote that session, then
-     * asks for the pending one the satisfaction holds) is thrown on as
-     * Laravel's `DeadlockException` with the caller's transaction level
-     * restored: the package rolls nothing back to its savepoint, which on MySQL
-     * the deadlock has already dropped with the whole transaction. The caller
-     * rolls back, nothing the satisfaction wrote is kept, and its retry of the
-     * whole transaction activates the session and supersedes the proven one.
+     * A satisfaction deadlocked inside a caller's transaction is rethrown as a
+     * deadlock.
      *
      * @return void
      *
@@ -386,8 +361,8 @@ final class ConcurrentPendingLocksTest extends TestCase
     }
 
     /**
-     * Sign the seeded member in, which the factor policy holds pending, and
-     * return its credential and an accepted further factor's proof bound to it.
+     * Sign the seeded member in and return its pending credential and a further
+     * factor's proof bound to it.
      *
      * @return array{0: string, 1: \SineMacula\Laravel\Authentication\Proofs\ProofResult}
      *
@@ -404,10 +379,8 @@ final class ConcurrentPendingLocksTest extends TestCase
     }
 
     /**
-     * Run the first call here inside a transaction, start the second in another
-     * process once the first has taken its locks, hold the transaction open
-     * while the second waits on them, then commit, and return the first's
-     * outcome and the second's, with how long it waited.
+     * Run the first call in an open transaction, start the second in another
+     * process and commit once it waits.
      *
      * @param  \Closure(): mixed  $first
      * @param  \Closure(): array<string, mixed>  $second
@@ -445,14 +418,9 @@ final class ConcurrentPendingLocksTest extends TestCase
     }
 
     /**
-     * In the forked process: on a connection of its own, write the proven
-     * session in a transaction, several times so its transaction is the heavier
-     * and MySQL picks the other as the deadlock's victim, signal that it holds
-     * it, wait until the parent's satisfaction, having locked the pending
-     * session, waits on the proven one, then ask for the pending one, closing
-     * the cycle; once the database has failed the parent, roll back, report,
-     * and end without running the parent's shutdown. A satisfaction that never
-     * waits is reported as an error.
+     * Write the proven session in the forked process, then close a deadlock
+     * cycle with the parent's satisfaction. Writing it several times makes this
+     * transaction the heavier, so MySQL picks the parent as the victim.
      *
      * @param  mixed  $proven
      * @param  mixed  $pending
@@ -489,8 +457,7 @@ final class ConcurrentPendingLocksTest extends TestCase
     }
 
     /**
-     * Wait until another connection waits on a lock this connection's
-     * transaction holds, for as long as a call waits to be started.
+     * Wait until another connection waits on a lock this transaction holds.
      *
      * @return void
      *
@@ -510,10 +477,9 @@ final class ConcurrentPendingLocksTest extends TestCase
     }
 
     /**
-     * Whether another connection waits on a lock this connection's transaction
-     * holds, as the engine's lock-wait view reports it. PostgreSQL's is read
-     * from `pg_locks`, because `pg_stat_activity` keeps the backends of its
-     * first read in a transaction, before the waiter has connected.
+     * Whether another connection waits on a lock this transaction holds.
+     * PostgreSQL's comes from `pg_locks`, as `pg_stat_activity` is fixed at the
+     * transaction's first read.
      *
      * @return bool
      */
@@ -531,9 +497,8 @@ final class ConcurrentPendingLocksTest extends TestCase
     }
 
     /**
-     * In the forked process: wait to be started, run the call on a connection
-     * of its own, report its outcome and how long it took, and end without
-     * running the parent's shutdown.
+     * Run the call in the forked process, report its outcome and duration and
+     * exit without the parent's shutdown.
      *
      * @param  \Closure(): array<string, mixed>  $call
      * @return never

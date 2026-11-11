@@ -33,12 +33,8 @@ use Tests\Unit\Stubs\StubPrincipal;
 use Tests\Unit\Stubs\StubTwoDPrincipalResolver;
 
 /**
- * Integration test for the Session model override via package config.
- *
- * Verifies that overriding `config('authentication.session.model')` with a
- * custom `Session` subclass and `session.table` with a custom table name causes
- * the model, the shipped migration body, and the JWT guard's session-hydration
- * path to route through the override.
+ * Tests that an overridden session model and table reach the model, the
+ * migration and the guard.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -56,12 +52,8 @@ final class SessionModelOverrideTest extends TestCase
     private string $customModel;
 
     /**
-     * Configure the custom session model class and table name, then replay the
-     * shipped migration body inline against the in-memory connection so the
-     * custom table exists for the test, and run the shipped rate limits
-     * migration, whose table the refresh exchange counts failures in, and the
-     * proofs and provenance migrations, whose proofs the refreshed tokens'
-     * `auth_time` and `amr` are derived from.
+     * Configure the custom session model and table, and run the shipped
+     * migrations against it.
      *
      * @return void
      */
@@ -93,7 +85,7 @@ final class SessionModelOverrideTest extends TestCase
     }
 
     /**
-     * Drop the custom tables on tear-down so each test starts clean.
+     * Drop the custom tables.
      *
      * @return void
      */
@@ -111,8 +103,7 @@ final class SessionModelOverrideTest extends TestCase
     }
 
     /**
-     * Instantiating the custom subclass yields a model whose table matches the
-     * configured `session.table` value.
+     * The custom model uses the configured table.
      *
      * @return void
      */
@@ -125,8 +116,7 @@ final class SessionModelOverrideTest extends TestCase
     }
 
     /**
-     * The shipped migration body creates the custom table (not the default
-     * `authentication_sessions` table) when `session.table` is overridden.
+     * The shipped migration creates the configured table.
      *
      * @return void
      */
@@ -137,10 +127,7 @@ final class SessionModelOverrideTest extends TestCase
     }
 
     /**
-     * Refreshing through the session service with a refresh token whose `sid`
-     * claim points at a row in the custom table returns a refreshed access
-     * token sourced from the overridden model class, binding an instance of
-     * that class as the active session.
+     * A refresh resolves its session through the custom model class.
      *
      * @return void
      *
@@ -177,9 +164,7 @@ final class SessionModelOverrideTest extends TestCase
     }
 
     /**
-     * Skip the parent's default `authentication_sessions` migration so this
-     * test can verify that the custom-table override is the only
-     * `authentication_sessions`-shaped table on the connection.
+     * Skip the default sessions migration so the custom table is the only one.
      *
      * @return void
      */
@@ -187,8 +172,7 @@ final class SessionModelOverrideTest extends TestCase
     protected function defineDatabaseMigrations(): void {}
 
     /**
-     * Register the manual `custom-jwt` guard config used by the guard-scoped
-     * `Auth::jwt('custom-jwt')` issuance surface in this test.
+     * Register the `custom-jwt` guard.
      *
      * @param  mixed  $app
      * @return void
@@ -211,9 +195,8 @@ final class SessionModelOverrideTest extends TestCase
     }
 
     /**
-     * Build a `JwtGuard` wired against a stub identity provider that echoes a
-     * persisted `StubPrincipal` for any identifier lookup, and a resolver that
-     * treats the identity as its own principal (2D mode).
+     * Build a `JwtGuard` over a stub provider and a resolver that treats the
+     * identity as its own principal.
      *
      * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
      */

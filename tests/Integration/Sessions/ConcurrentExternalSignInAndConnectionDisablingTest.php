@@ -20,21 +20,8 @@ use Tests\Concerns\InteractsWithSessions;
 use Tests\TestCase;
 
 /**
- * Races a sign-in through a connection against the disabling of that connection
- * on PostgreSQL and MySQL, on two connections to one database, with the
- * disabling transaction at READ COMMITTED and at REPEATABLE READ: it reads
- * before the sign-in commits and disables after it, as it does when the
- * adapter's lock on the connection made the sign-in wait for it. On MySQL's
- * REPEATABLE READ that first read fixes the snapshot a plain read would see, so
- * only a locking read finds the session the sign-in committed meanwhile. On
- * PostgreSQL's REPEATABLE READ not even that does, so the sign-in writes its
- * link's guard and the disabling every guard of the connection: the disabling
- * then fails to serialise, and once its caller retries the whole transaction it
- * finds the session; a sign-in whose transaction read before a disabling
- * committed fails the same way.
- *
- * Skipped on SQLite, whose in-memory database each connection would have to
- * itself.
+ * Races an external sign-in against the disabling of its connection, on two
+ * connections to one database.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -89,11 +76,7 @@ final class ConcurrentExternalSignInAndConnectionDisablingTest extends TestCase
     }
 
     /**
-     * A sign-in through the connection that commits after the disabling
-     * transaction first read is revoked by the disabling: found by its locking
-     * read, or, where that reads the transaction's snapshot (PostgreSQL's
-     * REPEATABLE READ), once the disabling has failed to serialise on the
-     * link's guard, revoked nothing, and been retried whole.
+     * A sign-in committed after the disabling's first read is revoked.
      *
      * @param  string  $level
      * @return void
@@ -131,11 +114,8 @@ final class ConcurrentExternalSignInAndConnectionDisablingTest extends TestCase
     }
 
     /**
-     * On PostgreSQL's REPEATABLE READ a sign-in through the connection, in a
-     * transaction that read before a disabling of the connection committed,
-     * fails to serialise on its link's guard, which the disabling wrote with
-     * every other guard of the connection, rather than establish a session the
-     * disabling never saw.
+     * A sign-in whose transaction read before a disabling committed fails to
+     * serialise on PostgreSQL.
      *
      * @return void
      *
@@ -175,7 +155,7 @@ final class ConcurrentExternalSignInAndConnectionDisablingTest extends TestCase
     }
 
     /**
-     * Run the work on the second connection, the sign-in's, as its default.
+     * Run the work on the sign-in's connection as the default.
      *
      * @template TResult
      *

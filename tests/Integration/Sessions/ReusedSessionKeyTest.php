@@ -30,13 +30,8 @@ use Tests\Integration\Fixtures\IntegerKeySession;
 use Tests\TestCase;
 
 /**
- * Integration tests of a session key the database issues again, against each
- * supported database: an integer-keyed session table truncated without its
- * proofs and provenance restarts its counter, and the next sign-in of the same
- * identity on the same guard gets the key an earlier session held. The new
- * session counts only its own sign-in's proofs, so the earlier session's
- * step-up neither appears in its `amr` nor makes it fresh, and the rows the
- * earlier session left are gone once the sign-in is written.
+ * Integration tests of a session key the database issues again after a
+ * truncate.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -56,8 +51,8 @@ final class ReusedSessionKeyTest extends TestCase
     private CarbonImmutable $now;
 
     /**
-     * Freeze the clocks, create the tables and point the session model and its
-     * table at the integer-keyed ones, once the shipped tables are migrated.
+     * Freeze the clocks, migrate, create the tables and point the session model
+     * at the integer-keyed ones.
      *
      * @return void
      */
@@ -78,8 +73,7 @@ final class ReusedSessionKeyTest extends TestCase
     }
 
     /**
-     * Drop the tables, put the session table back for the migrations' rollback
-     * and release the clocks.
+     * Drop the tables, restore the session table and release the clocks.
      *
      * @return void
      */
@@ -101,12 +95,8 @@ final class ReusedSessionKeyTest extends TestCase
     }
 
     /**
-     * A sign-in whose session gets the key an earlier session of the same
-     * identity and guard held, after the sessions were truncated without their
-     * proofs, counts only its own first factor: its token's `amr` is its
-     * password's alone and its `auth_time` its own sign-in's, a requirement
-     * that takes only a step-up finds nothing, and the earlier session's first
-     * factor, step-up and provenance are deleted.
+     * A session given a reused key counts only its own proofs and the earlier
+     * rows are deleted.
      *
      * @return void
      *

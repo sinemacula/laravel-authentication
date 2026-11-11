@@ -19,9 +19,7 @@ use Tests\Integration\Fixtures\MachineClient;
 use Tests\TestCase;
 
 /**
- * `Auth::scopes()` through the facade: a human identity's session carries no
- * scope ceiling, a machine identity bound without a credential is limited to no
- * scope, and a guard that is not the package's has none to report.
+ * Integration tests for `Auth::scopes()` through the facade.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -85,8 +83,8 @@ final class AuthScopesIntegrationTest extends TestCase
     }
 
     /**
-     * A machine identity bound through Laravel's `actingAs()` or the trusted
-     * `login()` is limited to no scope, and its context event says so.
+     * A machine bound without a credential is limited to no scope, and its
+     * context event says so.
      *
      * @return void
      */

@@ -17,9 +17,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
- * A second model class over `VerifiableIdentity`'s table, as an application
- * gives an admin guard a model of its own over its users table: the same rows,
- * read as another class.
+ * Second model class over `VerifiableIdentity`'s table, as an admin guard might
+ * have.
  *
  * @property int $id
  * @property ?string $email

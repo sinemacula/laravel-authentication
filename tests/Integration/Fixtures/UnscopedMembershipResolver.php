@@ -10,9 +10,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 
 /**
- * Principal resolver whose hinted lookup is not scoped to the identity: it
- * finds any membership by its key, the mistake the guard's own ownership check
- * on a pinned principal guards against.
+ * Principal resolver whose hinted lookup finds any membership by key, unscoped
+ * to the identity.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

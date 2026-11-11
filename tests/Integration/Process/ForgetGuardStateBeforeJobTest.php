@@ -16,10 +16,8 @@ use Tests\Integration\Fixtures\ObserveGuardJob;
 use Tests\TestCase;
 
 /**
- * End-to-end tests for jobs run on the `sync` connection inside a request: the
- * job runs in the request that dispatched it, so the package guards keep that
- * request's state, whether the job went to the `sync` connection because it is
- * the default or through `dispatchSync()` with another default.
+ * End-to-end tests of jobs run on the `sync` connection inside a request, which
+ * keep the request's guard state.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -58,9 +56,8 @@ final class ForgetGuardStateBeforeJobTest extends TestCase
     }
 
     /**
-     * A session the request has just started stays bound after a job it runs
-     * through `dispatchSync()`, though the default connection is not `sync`,
-     * and the job sees it.
+     * A session the request started stays bound after a `dispatchSync()` job,
+     * which sees it.
      *
      * @return void
      */
@@ -82,8 +79,7 @@ final class ForgetGuardStateBeforeJobTest extends TestCase
     }
 
     /**
-     * A request that signed its access-only token out stays signed out after a
-     * job it runs through `dispatchSync()`: the bearer token is not read again.
+     * A signed-out request stays signed out after a `dispatchSync()` job.
      *
      * @return void
      *
@@ -104,8 +100,8 @@ final class ForgetGuardStateBeforeJobTest extends TestCase
     }
 
     /**
-     * With `sync` as the default connection, a dispatched job runs in the
-     * request too, and leaves the guards as the request had them.
+     * With `sync` as the default connection, a dispatched job leaves the guards
+     * as the request had them.
      *
      * @return void
      */
@@ -156,8 +152,8 @@ final class ForgetGuardStateBeforeJobTest extends TestCase
     }
 
     /**
-     * The `api` guard, resolved afresh for a request carrying a session-less
-     * access token of a new identity.
+     * The `api` guard, resolved afresh for a request with a session-less access
+     * token of a new identity.
      *
      * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
      *

@@ -18,13 +18,6 @@ use Tests\TestCase;
  * Integration tests for the signing-key env convention in the shipped
  * `config/authentication.php`.
  *
- * Loads the shipped config file against controlled environment variables, so a
- * renamed env var or a changed default kid fails here rather than shipping
- * silently: `AUTHENTICATION_JWT_KEY` backs the `default` kid,
- * `AUTHENTICATION_JWT_ACTIVE_KID` defaults to `default`, and the issuer and
- * audience come from `AUTHENTICATION_JWT_ISSUER` and
- * `AUTHENTICATION_JWT_AUDIENCE` with no default.
- *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
@@ -77,8 +70,7 @@ final class ShippedJwtKeyConfigTest extends TestCase
     private array $ambientEnv = [];
 
     /**
-     * Save and clear every env var the shipped `jwt` block reads, so each test
-     * starts from an unset environment whatever the shell or CI exports.
+     * Save and clear every env var the shipped `jwt` block reads.
      *
      * @return void
      */
@@ -102,8 +94,7 @@ final class ShippedJwtKeyConfigTest extends TestCase
     }
 
     /**
-     * Clear the values set by the test and restore the ambient environment so
-     * nothing leaks into later tests.
+     * Clear the values the test set and restore the ambient environment.
      *
      * @return void
      */
@@ -150,8 +141,8 @@ final class ShippedJwtKeyConfigTest extends TestCase
     }
 
     /**
-     * A JWT guard on the shipped config with `AUTHENTICATION_JWT_KEY` set signs
-     * under the `default` kid and verifies its own tokens.
+     * A guard on the shipped config signs under the `default` kid and verifies
+     * its own tokens.
      *
      * @return void
      *
@@ -177,9 +168,8 @@ final class ShippedJwtKeyConfigTest extends TestCase
     }
 
     /**
-     * The shipped config gives the issuer and the audience no default: with
-     * neither variable set a guard on it fails closed, naming the issuer and
-     * the variable to set, and with only the issuer set, the audience.
+     * A guard on the shipped config fails closed without an issuer or an
+     * audience.
      *
      * @return void
      */
@@ -214,9 +204,8 @@ final class ShippedJwtKeyConfigTest extends TestCase
     }
 
     /**
-     * A JWT guard on the shipped config with `AUTHENTICATION_JWT_KEY` unset
-     * fails closed with a message naming the `default` kid and pointing at the
-     * env var.
+     * A guard on the shipped config fails closed without
+     * `AUTHENTICATION_JWT_KEY`.
      *
      * @return void
      */
@@ -234,10 +223,7 @@ final class ShippedJwtKeyConfigTest extends TestCase
     }
 
     /**
-     * Out of the box a guard issues 5-minute access tokens, keeps a session for
-     * 90 days without a refresh and 180 days at most, gives a replaced refresh
-     * token 30 seconds of grace, and allows 30 seconds of clock skew. The
-     * shipped config is the only place those defaults live.
+     * A guard on the shipped config uses the documented default lifetimes.
      *
      * @return void
      */
@@ -263,8 +249,8 @@ final class ShippedJwtKeyConfigTest extends TestCase
     }
 
     /**
-     * The lifetimes read from the environment arrive as digit strings, which a
-     * guard on the shipped config accepts as integers.
+     * A guard on the shipped config accepts lifetimes read from the environment
+     * as digit strings.
      *
      * @return void
      */
@@ -291,9 +277,7 @@ final class ShippedJwtKeyConfigTest extends TestCase
     }
 
     /**
-     * `AUTHENTICATION_JWT_REFRESH_ABSOLUTE_TTL_MINUTES=null` reads as an
-     * explicit `null`, so a guard on the shipped config sets no absolute limit,
-     * while its idle lifetime stays the default.
+     * An absolute lifetime of `null` in the environment sets no absolute limit.
      *
      * @return void
      */
@@ -316,8 +300,7 @@ final class ShippedJwtKeyConfigTest extends TestCase
     }
 
     /**
-     * A lifetime in the environment that is not a whole number fails closed
-     * when the guard is resolved, rather than being cast to some integer.
+     * A lifetime in the environment that is not a whole number fails closed.
      *
      * @return void
      */
@@ -335,8 +318,7 @@ final class ShippedJwtKeyConfigTest extends TestCase
     }
 
     /**
-     * Put the settings the shipped config needs from the environment for a
-     * guard to resolve: the signing key, the issuer and the audience.
+     * Put the signing key, the issuer and the audience in the environment.
      *
      * @return void
      */
@@ -377,8 +359,7 @@ final class ShippedJwtKeyConfigTest extends TestCase
     }
 
     /**
-     * Unset the named env var in every store Laravel's env repository reads:
-     * `$_SERVER`, `$_ENV`, and the process environment.
+     * Unset the env var in `$_SERVER`, `$_ENV` and the process environment.
      *
      * @param  string  $name
      * @return void

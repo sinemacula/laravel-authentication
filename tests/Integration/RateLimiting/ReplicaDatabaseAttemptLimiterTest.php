@@ -19,9 +19,8 @@ use Tests\Fixtures\Database\ShippedMigrations;
 use Tests\TestCase;
 
 /**
- * Proves the limiter counts and reads on the write connection: with a read
- * replica that has not seen the counters, attempts are still refused and
- * failures still block.
+ * Proves the limiter counts and reads on the write connection while the replica
+ * lags.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -35,8 +34,8 @@ final class ReplicaDatabaseAttemptLimiterTest extends TestCase
     use InteractsWithLaggingReplica;
 
     /**
-     * Create the counters table on the replica too; the shipped migrations
-     * create it on the primary.
+     * Create the counters table on the replica; the shipped migrations create
+     * it on the primary.
      *
      * @return void
      */
@@ -71,8 +70,8 @@ final class ReplicaDatabaseAttemptLimiterTest extends TestCase
     }
 
     /**
-     * Failures recorded on the primary block the next refresh although the
-     * replica has no counter at all.
+     * Failures recorded on the primary block the next refresh while the replica
+     * has no counter.
      *
      * @return void
      */
@@ -88,8 +87,8 @@ final class ReplicaDatabaseAttemptLimiterTest extends TestCase
     }
 
     /**
-     * Sign-in slots taken on the primary fill the window although the replica
-     * has none.
+     * Sign-in slots taken on the primary fill the window while the replica has
+     * none.
      *
      * @return void
      */

@@ -22,12 +22,7 @@ use Tests\Integration\Fixtures\ChangeableIdentity;
 use Tests\TestCase;
 
 /**
- * Integration tests for the queued deliveries of identifier changes: the code
- * goes to the new identifier only while it and its change request are live and
- * of the guard that queued it, never to a machine, and each job survives the
- * queue encrypted, dropped when its identity is gone; the notice reaches the
- * notifier with the identity as it is when the job runs, on the configured
- * delivery queue.
+ * Integration tests for the queued deliveries of identifier changes.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -94,9 +89,8 @@ final class IdentifierChangeDeliveryTest extends TestCase
     }
 
     /**
-     * The code is not sent once its change was confirmed, cancelled, replaced
-     * by a newer request through any guard, or expired, nor once the code was
-     * replaced; a retry checks again.
+     * The code is not sent once it no longer proves its change; a retry checks
+     * again.
      *
      * @return void
      *
@@ -124,9 +118,7 @@ final class IdentifierChangeDeliveryTest extends TestCase
     }
 
     /**
-     * The code is sent while its request is the identity's pending change of
-     * the guard; once another guard's request takes its place under the same
-     * request it is not.
+     * The code is sent only while its request is the guard's pending change.
      *
      * @return void
      *

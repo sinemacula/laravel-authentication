@@ -24,9 +24,7 @@ use Tests\TestCase;
 
 /**
  * Integration tests of setting a password inside a transaction the caller
- * holds, on the engine the suite runs on: the hash, the cutoff and the
- * revocations are part of it, and every report waits for its commit, so a
- * rollback leaves the password, the sessions and the listeners untouched.
+ * holds.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -70,8 +68,8 @@ final class PasswordWriterTest extends TestCase
     }
 
     /**
-     * A reset inside a transaction the caller rolls back leaves the old
-     * password, every session live and the cutoff unset, and reports nothing.
+     * A reset the caller rolls back leaves the password and sessions untouched
+     * and reports nothing.
      *
      * @return void
      *
@@ -102,8 +100,8 @@ final class PasswordWriterTest extends TestCase
     }
 
     /**
-     * Inside a transaction the caller commits, the revocations and then
-     * `PasswordSet` are reported only once it commits.
+     * The revocations and `PasswordSet` are reported only once the caller
+     * commits.
      *
      * @return void
      *
@@ -128,9 +126,7 @@ final class PasswordWriterTest extends TestCase
     }
 
     /**
-     * Every report of a write carries the client it was given, the sessions it
-     * ends and the `SignedOutEverywhere` as well as `PasswordSet`, while the
-     * guard serves a request from another address and user agent.
+     * Every report of a write carries the client it was given.
      *
      * @return void
      *
@@ -159,9 +155,7 @@ final class PasswordWriterTest extends TestCase
     }
 
     /**
-     * `PasswordSet` and the revocations' reports go to the dispatcher the guard
-     * has when the caller commits: one swapped in after the write receives them
-     * all, and the dispatcher of the write none.
+     * The reports go to the dispatcher the guard has when the caller commits.
      *
      * @return void
      *

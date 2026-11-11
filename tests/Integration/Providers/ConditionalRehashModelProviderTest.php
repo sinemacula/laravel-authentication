@@ -18,12 +18,7 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
 
 /**
- * Integration tests for the `model` provider's password rehash: one conditional
- * update that writes the new hash only while the stored hash is still the one
- * the password was checked against.
- *
- * Hashes are made at bcrypt cost 4 and the provider's hasher wants cost 5, so
- * every stored hash is outdated.
+ * Integration tests of the `model` provider's conditional password rehash.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -89,9 +84,8 @@ final class ConditionalRehashModelProviderTest extends TestCase
     }
 
     /**
-     * An outdated hash is replaced with one at the current cost, in the row and
-     * on the model, which is left clean; the write neither touches `updated_at`
-     * nor fires model events.
+     * An outdated hash is replaced in the row and on the model without touching
+     * `updated_at` or firing events.
      *
      * @return void
      */
@@ -123,8 +117,7 @@ final class ConditionalRehashModelProviderTest extends TestCase
     }
 
     /**
-     * A current hash is left alone without a write, unless the caller forces
-     * the rehash.
+     * A current hash is rewritten only when the caller forces the rehash.
      *
      * @return void
      */
@@ -147,9 +140,8 @@ final class ConditionalRehashModelProviderTest extends TestCase
     }
 
     /**
-     * A password changed after the check, while the model still holds the old
-     * hash, is never overwritten with a hash of the old password, and the model
-     * keeps what it had.
+     * A password changed after the check is not overwritten with a hash of the
+     * old one.
      *
      * @return void
      */
@@ -168,8 +160,7 @@ final class ConditionalRehashModelProviderTest extends TestCase
     }
 
     /**
-     * The row is found by its key alone, so a global scope that would hide it
-     * from ordinary queries does not stop the rehash.
+     * A global scope that hides the row does not stop the rehash.
      *
      * @return void
      */
@@ -191,9 +182,7 @@ final class ConditionalRehashModelProviderTest extends TestCase
     }
 
     /**
-     * A hash that does not come from the model's own password attribute (a
-     * `getAuthPassword()` that reads another table) cannot be written by the
-     * provider, so nothing is written, and nothing fails.
+     * A hash kept outside the model's password attribute is left alone.
      *
      * @return void
      */
@@ -216,8 +205,7 @@ final class ConditionalRehashModelProviderTest extends TestCase
     }
 
     /**
-     * Credentials without a usable password (none, an empty one, or one that is
-     * not a string) rehash nothing, even for an outdated hash.
+     * Credentials without a usable password rehash nothing.
      *
      * @return void
      */

@@ -10,9 +10,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 
 /**
- * Principal resolver whose hinted lookup is not scoped to the identity and that
- * sets the inverse `identity` relation on what it finds, so the membership it
- * returns claims the identity as its owner whatever its stored key says.
+ * Principal resolver whose hinted lookup is unscoped and sets the identity as
+ * the found membership's owner.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -22,9 +21,8 @@ use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 final class InverseRelationMembershipResolver implements PrincipalResolver
 {
     /**
-     * Find the hinted membership by key alone and set the identity as its owner
-     * relation, or return the identity's default principal when no hint is
-     * given.
+     * Find the hinted membership by key alone and set the identity as its
+     * owner, or return the default principal.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  mixed  $hint

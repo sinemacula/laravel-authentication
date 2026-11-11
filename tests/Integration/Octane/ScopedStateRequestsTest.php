@@ -23,13 +23,8 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
 /**
- * End-to-end tests for the rehash mark served by one Laravel Octane worker. The
- * mark is bound with `scoped()`, so each request's sandbox resolves its own,
- * and Octane forgets the booted application's scoped instances once a request
- * ends: whatever an attempt one request abandoned left on its mark is gone for
- * the next. Within a request, the attempt that marks a rehash and the observer
- * that reads the mark share it, though the event dispatcher builds the observer
- * with the application the worker booted.
+ * End-to-end tests that each request an Octane worker serves gets its own
+ * scoped rehash mark.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -109,9 +104,7 @@ final class ScopedStateRequestsTest extends TestCase
     }
 
     /**
-     * A mark the booted application resolved before the worker started serves
-     * the first request only: Octane forgets it once that request ends, and
-     * each later request resolves a mark of its own.
+     * Each request resolves a mark of its own.
      *
      * @return void
      */
@@ -131,9 +124,7 @@ final class ScopedStateRequestsTest extends TestCase
     }
 
     /**
-     * An attempt one request abandons leaves its user marked on that request's
-     * mark only: the next request's save of a fresh hash of the same password
-     * is answered as the change it is, and ends the user's sessions.
+     * An attempt abandoned in one request marks nothing in the next.
      *
      * @return void
      */
@@ -149,11 +140,8 @@ final class ScopedStateRequestsTest extends TestCase
     }
 
     /**
-     * Laravel's rehash of an outdated hash on `attempt()`, saved through its
-     * Eloquent user provider, is no change of password: the observer, which the
-     * dispatcher builds with the booted application, reads the request's own
-     * mark, and revokes nothing. A save in a later request, once the attempt
-     * has ended, is a change.
+     * Laravel's rehash on `attempt()` revokes nothing; a later save is a
+     * change.
      *
      * @return void
      */

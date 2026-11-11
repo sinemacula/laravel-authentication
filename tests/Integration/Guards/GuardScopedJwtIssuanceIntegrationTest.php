@@ -24,11 +24,7 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
 
 /**
- * Integration tests for guard-scoped JWT issuance.
- *
- * Verifies that `Auth::jwt('<guard>')` issues tokens that only authenticate
- * against the owning guard, and that refresh continues to issue follow-up
- * tokens under that same guard-local config.
+ * Tokens issued through `Auth::jwt('<guard>')` authenticate only on that guard.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -123,9 +119,7 @@ final class GuardScopedJwtIssuanceIntegrationTest extends TestCase
     }
 
     /**
-     * Refresh continues to issue follow-up credentials under the owning guard's
-     * config, so a refreshed staff token still authenticates on the staff guard
-     * and not on the customer guard.
+     * A refreshed token still authenticates only on its owning guard.
      *
      * @return void
      *
@@ -160,8 +154,7 @@ final class GuardScopedJwtIssuanceIntegrationTest extends TestCase
     }
 
     /**
-     * Configure the two JWT guards with distinct secrets so the test can prove
-     * guard-scoped issuance and verification.
+     * Configure two JWT guards with distinct secrets.
      *
      * @param  mixed  $app
      * @return void

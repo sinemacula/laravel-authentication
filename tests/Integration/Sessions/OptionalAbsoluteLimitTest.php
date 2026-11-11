@@ -36,14 +36,8 @@ use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\TestCase;
 
 /**
- * End-to-end tests through the session service, against a real database on
- * whichever engine the suite runs on, for an application that sets no absolute
- * session limit, and for a sign-in that supplies a deadline of its own: a
- * session with no absolute deadline ends only when it goes idle, is listed and
- * pruned as such, and is never given one by a refresh; a sign-in's deadline
- * caps its session, alone or below the application's limit, is never moved by a
- * refresh, survives a pending sign-in, and refuses the sign-in once it has
- * passed.
+ * End-to-end tests of sessions without an absolute limit and of sign-ins with
+ * their own deadline.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -108,8 +102,7 @@ final class OptionalAbsoluteLimitTest extends TestCase
 
     /**
      * A session of an application with no absolute limit has no absolute
-     * deadline: its tokens last until it goes idle, a refresh moves only the
-     * idle deadline and adds no absolute one, and it is listed with none.
+     * deadline.
      *
      * @return void
      *
@@ -142,8 +135,7 @@ final class OptionalAbsoluteLimitTest extends TestCase
     }
 
     /**
-     * A session with no absolute deadline ends, and is no longer listed or
-     * active, once it goes idle, and is pruned from then on with the retention.
+     * A session with no absolute deadline ends once idle and is then pruned.
      *
      * @return void
      *
@@ -170,9 +162,7 @@ final class OptionalAbsoluteLimitTest extends TestCase
     }
 
     /**
-     * A sign-in's deadline caps its session: alone when the application sets no
-     * absolute limit, and below the application's limit when it comes first; a
-     * refresh never moves it, and the session ends at it.
+     * A sign-in's deadline caps its session and a refresh never moves it.
      *
      * @return void
      *
@@ -212,8 +202,8 @@ final class OptionalAbsoluteLimitTest extends TestCase
     }
 
     /**
-     * A sign-in whose deadline has already passed is refused as
-     * `session_expired`, and reported, with no session written.
+     * A sign-in whose deadline has passed is refused as `session_expired` and
+     * writes nothing.
      *
      * @return void
      *
@@ -235,11 +225,7 @@ final class OptionalAbsoluteLimitTest extends TestCase
     }
 
     /**
-     * A sign-in waiting for a further factor keeps its deadline: the pending
-     * session records it as its absolute deadline and its credential expires
-     * with it; satisfied before it, the session activates capped at it; once it
-     * has passed, the pending session has ended with its credential, which
-     * names no live pending session any more (`pending_invalid`).
+     * A pending session keeps its sign-in's deadline.
      *
      * @return void
      *
@@ -284,8 +270,8 @@ final class OptionalAbsoluteLimitTest extends TestCase
     }
 
     /**
-     * Configure the session guards: the 2D one with no absolute limit, the
-     * other with a limit of ten hours.
+     * Configure the session guards, one with no absolute limit and one with ten
+     * hours.
      *
      * @param  mixed  $app
      * @return void
@@ -306,8 +292,8 @@ final class OptionalAbsoluteLimitTest extends TestCase
     }
 
     /**
-     * Sign the identity in with its password on the guard, with the deadline,
-     * if any.
+     * Sign the identity in with its password on the guard, with the optional
+     * deadline.
      *
      * @param  string  $guard
      * @param  ?\Carbon\CarbonImmutable  $deadline

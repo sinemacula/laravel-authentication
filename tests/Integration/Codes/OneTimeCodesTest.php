@@ -20,12 +20,8 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\PlainIdentityFixture;
 
 /**
- * Integration tests for the one-time code engine against the shipped table:
- * issuing codes and reset link tokens, checking codes and tokens against their
- * challenge, expiry, the attempt limit and single use, each on the write
- * connection, and what a check does when another request changes the code
- * between its read and its writes. How deliveries are written (the cooldown,
- * resends, the delivery window and its cap) is `ChallengeDeliveriesTest`'s.
+ * Integration tests for issuing and checking one-time codes and reset link
+ * tokens.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -73,10 +69,8 @@ final class OneTimeCodesTest extends TestCase
     }
 
     /**
-     * Issuing for a fresh binding stores one row under the binding's keyed
-     * digest: its purpose and guard, a new issuance, the keyed hash of the code
-     * in that issuance, no attempts, and when it was issued and expires. The
-     * row holds neither the code nor the identifier.
+     * Issuing stores only the keyed hash of the code under the binding's keyed
+     * digest.
      *
      * @return void
      *
@@ -105,8 +99,7 @@ final class OneTimeCodesTest extends TestCase
     }
 
     /**
-     * A used code stays used once it has expired, or the check that used it
-     * took its last attempt: it is neither expired nor exhausted.
+     * A used code stays used once it has expired or used its last attempt.
      *
      * @return void
      *
@@ -144,9 +137,8 @@ final class OneTimeCodesTest extends TestCase
     }
 
     /**
-     * A code issued first for a request of its own is written by the insert
-     * alone, with nothing read before it, at the configured length and
-     * lifetime; it is capped by its delivery window as `issue()`'s is.
+     * A first issue is written by the insert alone and capped by its delivery
+     * window.
      *
      * @return void
      *
@@ -177,9 +169,8 @@ final class OneTimeCodesTest extends TestCase
     }
 
     /**
-     * A code never outlives the delivery window it was delivered in, while a
-     * token keeps the lifetime it was issued with, whatever is left of its
-     * window.
+     * Only a code is cut short by its delivery window; a token keeps its
+     * lifetime.
      *
      * @return void
      *
@@ -202,8 +193,7 @@ final class OneTimeCodesTest extends TestCase
     }
 
     /**
-     * A check reads the challenge without a lock unless asked to lock it until
-     * the caller's transaction ends.
+     * A check locks the challenge only when asked.
      *
      * @return void
      *
@@ -234,9 +224,7 @@ final class OneTimeCodesTest extends TestCase
     }
 
     /**
-     * Codes are drawn uniformly over every digit string of their length,
-     * leading zeros included: over 1,000 codes, each digit appears at each
-     * position about a tenth of the time.
+     * Codes are drawn uniformly over every digit string of their length.
      *
      * @return void
      *
@@ -266,8 +254,7 @@ final class OneTimeCodesTest extends TestCase
     }
 
     /**
-     * The right code is accepted once: the check uses it up, and every later
-     * check of it, right or wrong, is used.
+     * The right code is accepted once.
      *
      * @return void
      *
@@ -287,9 +274,8 @@ final class OneTimeCodesTest extends TestCase
     }
 
     /**
-     * Each check counts one attempt before it compares, so wrong codes use the
-     * code's attempts up; once used up, even the right code is refused as
-     * exhausted, without counting further.
+     * Wrong codes use up the attempts, after which even the right code is
+     * exhausted.
      *
      * @return void
      *
@@ -331,9 +317,7 @@ final class OneTimeCodesTest extends TestCase
     }
 
     /**
-     * A code works until the second before it expires, and from the second it
-     * expires is refused as expired, without counting an attempt; an expired
-     * code that also used up its attempts says expired.
+     * A code is refused as expired from the second its lifetime ends.
      *
      * @return void
      *
@@ -369,9 +353,7 @@ final class OneTimeCodesTest extends TestCase
     }
 
     /**
-     * A code works only for the binding it was issued for: checked for any
-     * other guard, type, identifier or purpose it is not found and counts
-     * nothing against the code.
+     * A code works only for the binding it was issued for.
      *
      * @param  \SineMacula\Laravel\Authentication\Codes\CodeBinding  $other
      * @return void
@@ -389,9 +371,7 @@ final class OneTimeCodesTest extends TestCase
     }
 
     /**
-     * A resend that draws the very digits of the code it replaces still
-     * replaces it: the old issuance is no longer current, so its delivery is
-     * skipped, and the code works once, for the new issuance.
+     * A resend that draws the same digits is a new issuance.
      *
      * @return void
      *
@@ -416,9 +396,7 @@ final class OneTimeCodesTest extends TestCase
     }
 
     /**
-     * A check that read an issuance a resend replaced, even with the same
-     * digits, before it could count its attempt never compares: it is invalid,
-     * and the new issuance is untouched and still accepts the code.
+     * A check overtaken by a resend of the same digits is invalid.
      *
      * @return void
      *
@@ -444,10 +422,8 @@ final class OneTimeCodesTest extends TestCase
     }
 
     /**
-     * A check that counted its attempt on an issuance and then finds it
-     * replaced by a resend of the same digits never uses the replacement up: it
-     * is wrong, and the new issuance, which keeps the attempt the check
-     * counted, stays unused and still accepts the code.
+     * A check that counted its attempt never uses up a resend of the same
+     * digits.
      *
      * @return void
      *
@@ -472,10 +448,7 @@ final class OneTimeCodesTest extends TestCase
     }
 
     /**
-     * Rows of `[change another request makes after the check reads, answer]`: a
-     * check whose attempt cannot be counted answers from a fresh read of the
-     * issuance it read: exhausted or expired when it now is, used when it was
-     * used, and invalid when it is gone.
+     * Rows of `[change another request makes after the check reads, answer]`.
      *
      * @return iterable<string, array{0: array<string, mixed>, 1: \SineMacula\Laravel\Authentication\Codes\Enums\CodeCheck}>
      */
@@ -490,8 +463,8 @@ final class OneTimeCodesTest extends TestCase
     }
 
     /**
-     * A check whose attempt increment matches no row never compares or accepts,
-     * even with the right code.
+     * A check whose attempt cannot be counted never accepts, even with the
+     * right code.
      *
      * @param  array<string, mixed>  $change
      * @param  \SineMacula\Laravel\Authentication\Codes\Enums\CodeCheck  $answer
@@ -516,9 +489,8 @@ final class OneTimeCodesTest extends TestCase
     }
 
     /**
-     * Of two checks of the right code, only the one that uses the issuance up
-     * is accepted: one that counted its attempt but finds the code used by the
-     * time it would use it is wrong.
+     * Of two checks of the right code, only the one that uses it up is
+     * accepted.
      *
      * @return void
      *
@@ -549,9 +521,8 @@ final class OneTimeCodesTest extends TestCase
     }
 
     /**
-     * An issuance is current while it is the binding's live code, unused and
-     * unexpired, and stops being current when it is used, replaced or expires,
-     * or was never issued.
+     * An issuance is current while it is the binding's live, unused and
+     * unexpired code.
      *
      * @return void
      *
@@ -624,8 +595,7 @@ final class OneTimeCodesTest extends TestCase
     }
 
     /**
-     * Counts on the code's row are part of whatever transaction the caller
-     * holds open on its connection: rolling it back gives the attempt back.
+     * Rolling back the caller's transaction gives the attempt back.
      *
      * @return void
      *
@@ -647,9 +617,7 @@ final class OneTimeCodesTest extends TestCase
     }
 
     /**
-     * A token is 32 random bytes, base64url without padding, issued for the
-     * lifetime given and stored only as its keyed hash, under the binding's
-     * digest, with the purpose and guard; no two are alike.
+     * A token is stored only as its keyed hash.
      *
      * @return void
      *
@@ -690,8 +658,7 @@ final class OneTimeCodesTest extends TestCase
     }
 
     /**
-     * The right token is accepted once; a wrong one is invalid and counts no
-     * attempt, however many are tried; a used one stays invalid.
+     * The right token is accepted once and a wrong one counts no attempt.
      *
      * @return void
      *
@@ -716,8 +683,7 @@ final class OneTimeCodesTest extends TestCase
     }
 
     /**
-     * A matching token is expired from the second its lifetime ends; a wrong
-     * one is invalid even then, and a binding with no token is invalid.
+     * Only a matching token is reported expired.
      *
      * @return void
      *
@@ -736,8 +702,7 @@ final class OneTimeCodesTest extends TestCase
     }
 
     /**
-     * A token checks only against its own binding: not as a reset code for the
-     * same identifier, nor for another guard or identifier.
+     * A token checks only against its own binding.
      *
      * @return void
      *
@@ -764,8 +729,7 @@ final class OneTimeCodesTest extends TestCase
     }
 
     /**
-     * Of two checks of one token, the one that uses it up first is accepted;
-     * the other, which read it live, is invalid.
+     * Of two checks of one token, only the one that uses it up is accepted.
      *
      * @return void
      *
@@ -820,12 +784,7 @@ final class OneTimeCodesTest extends TestCase
     }
 
     /**
-     * Invalidating ends exactly the listed bindings' unused challenges, in one
-     * statement (none for an empty list, a binding listed twice or one with no
-     * row): each is used up now under a new issuance, so none can be checked
-     * again, while its row keeps its window, deliveries, last delivery and
-     * expiry. A binding not listed is left as it is, and invalidating an ended
-     * challenge again ends nothing.
+     * Invalidating ends exactly the listed bindings' unused challenges.
      *
      * @return void
      *
@@ -888,9 +847,7 @@ final class OneTimeCodesTest extends TestCase
 
     /**
      * Ending a key's challenge resets neither its delivery cap nor its resend
-     * cooldown: a delivery straight after waits out the cooldown since the last
-     * one, the next is refused while the window has had all its deliveries, and
-     * one is made again only once the window ends.
+     * cooldown.
      *
      * @return void
      *
@@ -918,9 +875,7 @@ final class OneTimeCodesTest extends TestCase
     }
 
     /**
-     * A check that names another challenge than the live one, a well-formed id
-     * or a stale one, is not found and spends no attempt, even with the right
-     * code; the live challenge still accepts it.
+     * A check that names another challenge than the live one spends nothing.
      *
      * @return void
      *
@@ -1068,8 +1023,8 @@ final class OneTimeCodesTest extends TestCase
     }
 
     /**
-     * Run the change once, right after the next check reads the code and before
-     * it counts its attempt, as a concurrent request would.
+     * Run the change once, after the next check reads the code and before it
+     * counts its attempt.
      *
      * @param  \Closure(): void  $change
      * @return void
@@ -1080,8 +1035,8 @@ final class OneTimeCodesTest extends TestCase
     }
 
     /**
-     * Run the change once, right after the next check counts its attempt and
-     * before it uses the code up.
+     * Run the change once, after the next check counts its attempt and before
+     * it uses the code up.
      *
      * @param  \Closure(): void  $change
      * @return void

@@ -15,9 +15,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
- * 3D identity fixture over the `activatable_tenant_members` rows whose
- * `principals()` reads all of the member's roles, so it yields the roles that
- * are not principals beside the memberships that are.
+ * 3D identity whose `principals()` reads all of the member's roles, including
+ * those that are not principals.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

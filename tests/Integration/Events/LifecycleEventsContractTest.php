@@ -38,11 +38,8 @@ use Tests\Integration\Fixtures\ChoosingMembership;
 use Tests\TestCase;
 
 /**
- * Integration test of one listener registered for the `AuthenticationEvent`
- * contract over the session lifecycle against a real database: a switch of
- * principal, a sign-out everywhere, a sign-out, a principal choice, a further
- * factor and a verified identifier each reach it, and each event's context
- * names the guard, the identity and the principal it concerns.
+ * Tests that one listener on the `AuthenticationEvent` contract receives every
+ * session lifecycle event.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -110,8 +107,8 @@ final class LifecycleEventsContractTest extends TestCase
     }
 
     /**
-     * Each lifecycle event reaches the one contract listener once, in the order
-     * it happened, and its context names what it concerns.
+     * Each lifecycle event reaches the contract listener once, in order, naming
+     * what it concerns.
      *
      * @return void
      *

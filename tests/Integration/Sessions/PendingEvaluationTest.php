@@ -22,13 +22,8 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
 
 /**
- * Integration tests for asking the additional-factor policy on the write
- * connection, against a read/write split whose replica lags behind its primary:
- * the identity's (`landlord`).
- *
- * The policy asks for a further factor only when its query-builder read on that
- * connection finds a row written through the split connection, which exists on
- * the primary only: a requirement shows the read was served by the writer.
+ * Integration tests that the additional-factor policy is asked on the
+ * identity's write connection.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -45,8 +40,7 @@ final class PendingEvaluationTest extends TestCase
 
     /**
      * Create the factors table on the landlord primary and replica, and bind a
-     * policy that asks for a factor only when the identity's connection finds
-     * one.
+     * policy that reads it.
      *
      * @return void
      */
@@ -89,8 +83,7 @@ final class PendingEvaluationTest extends TestCase
     }
 
     /**
-     * A factor enrolled on the primary only is found, so the policy asks for
-     * it, and the identity's connection reads from its replica again
+     * A factor only the primary holds is found, and the replica is read again
      * afterwards.
      *
      * @return void

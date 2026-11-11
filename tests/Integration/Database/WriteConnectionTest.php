@@ -21,12 +21,8 @@ use Tests\Integration\Fixtures\LandlordTenant;
 use Tests\TestCase;
 
 /**
- * Integration tests for `WriteConnection` against a read/write split connection
- * whose replica lags behind the primary.
- *
- * Each test writes a session through the split connection, so the row exists on
- * the primary only. A read that finds it was served by the write connection; a
- * read that misses it was served by the replica.
+ * Integration tests for `WriteConnection` against a read/write split whose
+ * replica lags behind the primary.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -53,10 +49,8 @@ final class WriteConnectionTest extends TestCase
     }
 
     /**
-     * Without the helper, a lookup on the split connection is served by the
-     * replica and misses a row written moments earlier; through `query()` the
-     * same lookup reads the primary and finds it. The helper returns the
-     * builder it was given so calls can chain.
+     * `query()` routes a lookup to the write connection and returns the
+     * builder.
      *
      * @return void
      */
@@ -73,8 +67,8 @@ final class WriteConnectionTest extends TestCase
     }
 
     /**
-     * Reads made inside the callback go to the write connection, and the
-     * connection reads from the replica again once the callback returns.
+     * Reads inside the callback go to the write connection, and to the replica
+     * again afterwards.
      *
      * @return void
      */
@@ -90,7 +84,7 @@ final class WriteConnectionTest extends TestCase
 
     /**
      * A connection that already reads from the write PDO keeps doing so after
-     * the callback, rather than being reset to the replica.
+     * the callback.
      *
      * @return void
      */
@@ -106,8 +100,7 @@ final class WriteConnectionTest extends TestCase
     }
 
     /**
-     * The previous read mode is restored when a lookup inside the callback
-     * throws, and the exception reaches the caller.
+     * The previous read mode is restored when the callback throws.
      *
      * @return void
      */
@@ -127,10 +120,8 @@ final class WriteConnectionTest extends TestCase
     }
 
     /**
-     * A model on another connection that is read inside the callback (a tenant
-     * in a landlord database, say) is read from that connection's writer too,
-     * and that connection reads from its replica again once the callback
-     * returns.
+     * A model on another connection read inside the callback is read from that
+     * connection's writer.
      *
      * @return void
      */
@@ -145,9 +136,8 @@ final class WriteConnectionTest extends TestCase
     }
 
     /**
-     * The model connection resolver is swapped only for the callback: inside it
-     * Eloquent resolves connections through the pinning resolver, and the
-     * original resolver is back afterwards, also when the callback throws.
+     * The model connection resolver is swapped only for the callback, also when
+     * it throws.
      *
      * @return void
      */
@@ -170,9 +160,7 @@ final class WriteConnectionTest extends TestCase
     }
 
     /**
-     * A nested `during()` leaves the outer pin in place: reads after the inner
-     * callback returns still go to the write connection until the outer one
-     * does.
+     * A nested `during()` leaves the outer pin in place.
      *
      * @return void
      */
@@ -192,9 +180,8 @@ final class WriteConnectionTest extends TestCase
     }
 
     /**
-     * Without a model connection resolver to wrap, the subject's own connection
-     * is still pinned for the callback and restored afterwards, and no resolver
-     * is installed.
+     * Without a model connection resolver, the subject's own connection is
+     * still pinned and no resolver is installed.
      *
      * @return void
      */
@@ -224,10 +211,8 @@ final class WriteConnectionTest extends TestCase
     }
 
     /**
-     * A subject that is not an Eloquent model has no connection of its own, so
-     * a query-builder read made before any model read still goes to the
-     * replica, but model reads inside the callback go to the writer, and the
-     * connection reads from the replica again once the callback returns.
+     * For a subject that is not a model, only model reads inside the callback
+     * go to the writer.
      *
      * @return void
      */
@@ -247,11 +232,8 @@ final class WriteConnectionTest extends TestCase
     }
 
     /**
-     * An Eloquent subject is handed to the callback as a copy without its
-     * loaded relations, so a relation whoever loaded it set cannot stand in
-     * for the stored one, and reads inside the callback go to the write
-     * connection; the subject itself keeps its relation, and the connection
-     * reads from the replica again once the callback returns.
+     * A model subject is handed over as a copy without its loaded relations,
+     * read on the writer.
      *
      * @return void
      */
@@ -273,9 +255,7 @@ final class WriteConnectionTest extends TestCase
     }
 
     /**
-     * The copy may lazy-load even when its model was hydrated with lazy loading
-     * prevented (Eloquent strict mode), since the package re-reads on purpose;
-     * the subject itself stays as strict as it was.
+     * The copy may lazy-load under strict mode, while the subject stays strict.
      *
      * @return void
      */
@@ -291,8 +271,7 @@ final class WriteConnectionTest extends TestCase
     }
 
     /**
-     * A subject that is not an Eloquent model is handed over as it is, with
-     * model reads inside the callback pinned to the writer.
+     * A subject that is not a model is handed over as it is.
      *
      * @return void
      */
@@ -308,10 +287,7 @@ final class WriteConnectionTest extends TestCase
     }
 
     /**
-     * `WriteConnection` is a static utility; instantiation is disallowed via
-     * the private constructor so consumers cannot create a stateful
-     * write-connection helper. Reflection invokes the private constructor so
-     * the line is covered while still documenting the access modifier.
+     * The constructor is private.
      *
      * @return void
      *
@@ -347,8 +323,7 @@ final class WriteConnectionTest extends TestCase
     }
 
     /**
-     * Create the package tables on the primary and the replica instead of
-     * migrating the default connection.
+     * Create the package tables on the primary and the replica.
      *
      * @return void
      */

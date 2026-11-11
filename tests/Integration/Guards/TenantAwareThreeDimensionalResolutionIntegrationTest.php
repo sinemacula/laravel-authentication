@@ -44,7 +44,7 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
     private const string TWO_D_GUARD = 'api_2d';
 
     /**
-     * Provision the tenant-aware 3D and 2D identity tables used by the suite.
+     * Create the tenant-aware 3D and the 2D identity tables.
      *
      * @return void
      */
@@ -103,8 +103,7 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
     }
 
     /**
-     * A hinted JWT principal can be resolved with tenant context pre-attached
-     * while preserving the exact principal and inverse identity mapping.
+     * A bearer token resolves its hinted principal, tenant and identity.
      *
      * @return void
      *
@@ -133,14 +132,13 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
     }
 
     /**
-     * The 3D credential `attempt()` path still authenticates normally while the
-     * identity's default principal lookup can return tenant-aware context.
+     * A 3D credential attempt resolves the tenant-aware default principal.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testCredentialAttemptThreeDimensionalDefaultResolutionKeepsTenantAndTypeStable(): void
+    public function testCredentialAttemptResolvesTheTenantAwarePrincipal(): void
     {
         [$identity, $principal, $tenant] = $this->seedTenantAwareThreeDimensionalFixtures('attempt-3d@example.test');
 
@@ -165,14 +163,13 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
     }
 
     /**
-     * The 2D credential `attempt()` control path still returns the identity
-     * itself as the acting principal.
+     * A 2D credential attempt acts as the identity itself.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testCredentialAttemptTwoDimensionalControlStillReturnsIdentityAsPrincipal(): void
+    public function testTwoDimensionalAttemptActsAsTheIdentity(): void
     {
         $identity = $this->seedTwoDimensionalIdentity();
 
@@ -235,8 +232,7 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
     }
 
     /**
-     * Persist and return one tenant-aware 3D identity plus its active scoped
-     * principal and tenant.
+     * Persist a tenant-aware 3D identity with its active principal and tenant.
      *
      * @formatter:off
      *
@@ -273,8 +269,7 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
     }
 
     /**
-     * Resolve a fresh JWT guard against a request carrying the supplied bearer
-     * token.
+     * Resolve a fresh JWT guard against a request carrying the bearer token.
      *
      * @param  string  $token
      * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
@@ -296,8 +291,7 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
     }
 
     /**
-     * Resolve a fresh JWT guard and authenticate it through a credential
-     * `attempt()`.
+     * Resolve a fresh JWT guard and authenticate it with `attempt()`.
      *
      * @param  string  $guardName
      * @param  string  $email
@@ -325,7 +319,7 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
     }
 
     /**
-     * Persist and return an active 2D identity.
+     * Persist an active 2D identity.
      *
      * @return \Tests\Unit\Stubs\StubPrincipal
      */

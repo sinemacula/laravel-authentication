@@ -19,9 +19,7 @@ use Tests\Concerns\InteractsWithSessions;
 use Tests\TestCase;
 
 /**
- * Proves `RecordSessionUsage` reads a session no guard has bound on the write
- * connection: a session signed in moments ago, which only the primary holds
- * yet, has its use recorded while the replica lags behind.
+ * Proves `RecordSessionUsage` reads an unbound session on the write connection.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

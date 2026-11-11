@@ -21,19 +21,8 @@ use Tests\Concerns\InteractsWithSessions;
 use Tests\TestCase;
 
 /**
- * Races an external reauthentication of a session against the widening of the
- * scope of the link that established it, on PostgreSQL and MySQL, each side in
- * a process with a database connection of its own. Both lock the session's row
- * (the reauthentication last, after the link contract; the widening when it
- * revokes), so they never interleave: whichever holds the row first commits,
- * and the other, which waited on it, then sees what it committed. A
- * reauthentication that commits first records its proof and the widening then
- * revokes the session (its new token dies at its next request, as every token
- * of a revoked session does); a widening that commits first leaves the
- * reauthentication `session_revoked`, with no proof recorded.
- *
- * Skipped on SQLite, whose in-memory database each process would have to
- * itself, and where `pcntl` is not available.
+ * Races an external reauthentication against the widening of its link's scope,
+ * each in its own process.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -59,8 +48,8 @@ final class ConcurrentExternalReauthenticationAndWideningTest extends TestCase
     private string $outcomes;
 
     /**
-     * Skip where processes cannot share the database, freeze the clocks so both
-     * processes see one moment, and create the tables.
+     * Skip where processes cannot share the database, freeze the clocks and
+     * create the tables.
      *
      * @return void
      *
@@ -113,8 +102,8 @@ final class ConcurrentExternalReauthenticationAndWideningTest extends TestCase
     }
 
     /**
-     * A reauthentication holding the session's row makes the widening wait;
-     * once it commits, its proof stands and the widening revokes the session.
+     * A reauthentication that locks first commits its proof and is then
+     * revoked.
      *
      * @return void
      *
@@ -135,9 +124,8 @@ final class ConcurrentExternalReauthenticationAndWideningTest extends TestCase
     }
 
     /**
-     * A widening holding the session's row makes the reauthentication wait;
-     * once it commits, the reauthentication finds the session revoked and
-     * records nothing.
+     * A widening that locks first leaves the reauthentication revoked with no
+     * proof.
      *
      * @return void
      *
@@ -173,9 +161,8 @@ final class ConcurrentExternalReauthenticationAndWideningTest extends TestCase
     }
 
     /**
-     * Run the first side inside a transaction it holds open until the second,
-     * forked, is about to lock a row, then commit it: what each answered, the
-     * first's first. The second must have waited on the first.
+     * Run the first side in an open transaction until the forked second is
+     * about to lock a row, then commit it.
      *
      * @param  \Closure(): mixed  $first
      * @param  \Closure(): mixed  $second
@@ -227,8 +214,7 @@ final class ConcurrentExternalReauthenticationAndWideningTest extends TestCase
     }
 
     /**
-     * Signal that the second side is about to lock a row, when the query it is
-     * about to run is a locking read.
+     * Signal that the second side is about to run a locking read.
      *
      * @param  string  $query
      * @return void
@@ -243,8 +229,8 @@ final class ConcurrentExternalReauthenticationAndWideningTest extends TestCase
     }
 
     /**
-     * Sign the seeded identity in through its link, `link-1` of `connection-7`,
-     * and move the clocks on an hour.
+     * Sign the seeded identity in through its link and move the clocks on an
+     * hour.
      *
      * @return array{0: \Tests\Integration\Fixtures\IntegrationIdentity, 1: \SineMacula\Laravel\Authentication\Models\Session}
      *
@@ -266,8 +252,7 @@ final class ConcurrentExternalReauthenticationAndWideningTest extends TestCase
     }
 
     /**
-     * A result through the seeded identity's link, the provider authenticating
-     * it now.
+     * A result through the seeded identity's link, authenticated now.
      *
      * @return \SineMacula\Laravel\Authentication\External\ExternalResult
      */
@@ -277,9 +262,8 @@ final class ConcurrentExternalReauthenticationAndWideningTest extends TestCase
     }
 
     /**
-     * In the forked process: wait to be started, run the second side on a
-     * connection of its own, report its outcome, and end without running the
-     * parent's shutdown.
+     * Run the second side in the forked process, report its outcome and exit
+     * without the parent's shutdown.
      *
      * @param  \Closure(): mixed  $second
      * @return never
@@ -306,8 +290,7 @@ final class ConcurrentExternalReauthenticationAndWideningTest extends TestCase
     }
 
     /**
-     * Wait for the other side to create the signal file, for no longer than the
-     * timeout: whether it did.
+     * Wait, up to the timeout, for the other side to create the signal file.
      *
      * @param  string  $signal
      * @return bool
@@ -324,9 +307,8 @@ final class ConcurrentExternalReauthenticationAndWideningTest extends TestCase
     }
 
     /**
-     * Fail the race that was never set up: roll the first side's transaction
-     * back and stop and reap the second side, so neither is left holding locks
-     * on the tables the teardown drops.
+     * Fail the unstarted race, rolling back the first side and reaping the
+     * second so neither holds locks.
      *
      * @param  positive-int  $pid
      * @param  string  $message

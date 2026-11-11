@@ -27,14 +27,8 @@ use Tests\Integration\Fixtures\GrantedSessionsIdentity;
 use Tests\TestCase;
 
 /**
- * Proves that an identity's `sessions()` relation is built on the write
- * connection, so a relation that queries while it is built cannot narrow the
- * session lookup from a lagging replica.
- *
- * The default connection is a read/write split whose replica lags behind the
- * primary. The identity's relation permits only the sessions a `session_grants`
- * row names; withdrawing a grant on the primary while the replica still holds
- * it must stop the session authenticating.
+ * Tests that an identity's `sessions()` relation is built on the write
+ * connection, not a lagging replica.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -96,14 +90,14 @@ final class SessionRelationWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * A bearer token naming a session whose grant is withdrawn on the primary,
-     * while the replica still holds the grant, stops authenticating.
+     * A bearer token stops authenticating once its session's grant is withdrawn
+     * on the primary.
      *
      * @return void
      *
      * @throws \Random\RandomException
      */
-    public function testBearerRejectsSessionWhoseGrantIsWithdrawnOnThePrimaryWhileTheReplicaLags(): void
+    public function testBearerRejectsASessionWhoseGrantIsWithdrawnOnThePrimary(): void
     {
         [$identity, $session] = $this->seedGrantedSession();
 
@@ -118,14 +112,14 @@ final class SessionRelationWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * Pinning on `attempt()` a session whose grant is withdrawn on the primary,
-     * while the replica still holds the grant, fails the attempt.
+     * Pinning a session whose grant is withdrawn on the primary fails the
+     * attempt.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAttemptRejectsPinnedSessionWhoseGrantIsWithdrawnOnThePrimaryWhileTheReplicaLags(): void
+    public function testAttemptRejectsAPinnedSessionWhoseGrantIsWithdrawnOnThePrimary(): void
     {
         [, $session] = $this->seedGrantedSession();
 
@@ -140,9 +134,8 @@ final class SessionRelationWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * A relation whose query fails on the writer while it is built propagates
-     * the error, and afterwards reads go back to the replica through the
-     * original connection resolver.
+     * A relation that fails to build propagates the error and restores replica
+     * reads.
      *
      * @return void
      *

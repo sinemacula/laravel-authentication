@@ -38,10 +38,7 @@ use Tests\TestCase;
 
 /**
  * Integration tests for issuing, rotating, revoking and listing API keys
- * through `Auth::apiKeys()`, against a real database on whichever engine the
- * suite runs on: what is stored and shown, the ownership boundary every keyed
- * operation holds to, the bounds a trusted caller is held to, and the events
- * each write reports once committed.
+ * through `Auth::apiKeys()`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -91,10 +88,8 @@ final class ApiKeyServiceTest extends TestCase
     }
 
     /**
-     * An issued key is shown once in its presented form, and only its public
-     * part and the digest of its secret are stored, with the guard, owner,
-     * principal, tenant, name, scopes and expiry; `ApiKeyIssued` reports it
-     * without the key.
+     * An issued key is shown once, and only its public part and secret digest
+     * are stored.
      *
      * @return void
      *
@@ -285,10 +280,7 @@ final class ApiKeyServiceTest extends TestCase
 
     /**
      * The longest list of scopes a key may have is stored whole on every
-     * engine, MySQL's `TEXT` column and its duplicate-ignoring insert included,
-     * and read back by the key's summary; one scope more is refused before
-     * anything is stored. `ApiKeyGuardTest` and
-     * `ClientTokenBearerAuthenticationTest` use a key with that list.
+     * engine.
      *
      * @return void
      */
@@ -334,9 +326,7 @@ final class ApiKeyServiceTest extends TestCase
     }
 
     /**
-     * A name must be 1 to 255 characters of valid UTF-8 without a NUL byte,
-     * which PostgreSQL would otherwise store cut short; 255 multibyte
-     * characters fit, and a refused name leaves no key and no event behind.
+     * A name must be 1 to 255 characters of valid UTF-8 without a NUL byte.
      *
      * @param  string  $name
      * @return void
@@ -463,10 +453,8 @@ final class ApiKeyServiceTest extends TestCase
     }
 
     /**
-     * A rotation whose public parts keep colliding gives up after three draws,
-     * and its transaction takes back the end it set on the replaced key, so
-     * that key is neither cut to the overlap nor pointed at a replacement that
-     * was never stored, and nothing is reported.
+     * A rotation whose public parts keep colliding gives up after three draws
+     * and changes nothing.
      *
      * @return void
      *
@@ -535,10 +523,8 @@ final class ApiKeyServiceTest extends TestCase
     }
 
     /**
-     * Every report goes, once committed, to the dispatcher the guard has when
-     * the commit runs it: the issue, the rotation and the revocation all reach
-     * the one swapped in after the last write, and neither the dispatcher of
-     * the issue nor the one swapped in between the writes receives any.
+     * Every report reaches the dispatcher the guard has when the commit runs
+     * it.
      *
      * @return void
      *
@@ -702,9 +688,8 @@ final class ApiKeyServiceTest extends TestCase
     }
 
     /**
-     * A key of another principal, of a principal of another type that shares
-     * its id, or of another guard, is absent to every keyed operation and is
-     * left as it was.
+     * A key of another principal, principal type or guard is absent to every
+     * keyed operation.
      *
      * @return void
      *
@@ -786,10 +771,8 @@ final class ApiKeyServiceTest extends TestCase
     }
 
     /**
-     * Rotating a key that never expires issues its replacement with the same
-     * guard, owner, principal, tenant, name and scopes, ends the replaced key
-     * at the overlap's end, records the rotation on it, and reports it with the
-     * replaced key's id.
+     * Rotating a key that never expires issues a replacement and ends the
+     * replaced key at the overlap's end.
      *
      * @return void
      *
@@ -859,9 +842,8 @@ final class ApiKeyServiceTest extends TestCase
     }
 
     /**
-     * A key that expires before the overlap ends keeps its own expiry; one that
-     * expires after it is cut to the overlap's end. The replacement does not
-     * inherit the replaced key's expiry: given none, it never expires.
+     * A rotation never extends a key's expiry, and the replacement does not
+     * inherit it.
      *
      * @return void
      *
@@ -996,9 +978,7 @@ final class ApiKeyServiceTest extends TestCase
     }
 
     /**
-     * An already rotated key, still inside its overlap, does not rotate again,
-     * and its scopes are not held to the registry again for it: the answer is
-     * `null`, not a refused scope.
+     * A rotated key inside its overlap does not rotate again.
      *
      * @return void
      *
@@ -1033,9 +1013,7 @@ final class ApiKeyServiceTest extends TestCase
     }
 
     /**
-     * A key revoked after the rotation read it, but before the rotation's
-     * conditional update, is not rotated: the update matches nothing, nothing
-     * is inserted and nothing is reported.
+     * A key revoked between the rotation's read and its update is not rotated.
      *
      * @return void
      *
@@ -1086,10 +1064,7 @@ final class ApiKeyServiceTest extends TestCase
     }
 
     /**
-     * A key is not issued for a membership whose tenant cannot be loaded, so a
-     * key never records a tenant other than the one its principal acts
-     * within; once the tenant is gone, revoking an existing key reports no
-     * tenant.
+     * A key is not issued for a membership whose tenant cannot be loaded.
      *
      * @return void
      */
@@ -1159,11 +1134,8 @@ final class ApiKeyServiceTest extends TestCase
     }
 
     /**
-     * With the principal columns under a collation that counts distinct
-     * identifiers as equal, a principal whose identifier differs from the key's
-     * only in case or accent finds, lists, revokes and rotates none of its
-     * keys, which are left as they were with nothing reported, while the exact
-     * principal still finds and lists the key, and rotates it.
+     * A principal whose identifier the collation counts as equal to the key's
+     * has none of its keys.
      *
      * @param  string  $folded
      * @return void
@@ -1187,10 +1159,8 @@ final class ApiKeyServiceTest extends TestCase
     }
 
     /**
-     * With the principal columns under a collation that counts distinct types
-     * as equal, a principal whose type differs from the key's only in case
-     * finds, lists, revokes and rotates none of its keys, which are left as
-     * they were with nothing reported.
+     * A principal whose type the collation counts as equal to the key's has
+     * none of its keys.
      *
      * @return void
      */
@@ -1206,9 +1176,7 @@ final class ApiKeyServiceTest extends TestCase
     }
 
     /**
-     * With the principal columns under a collation that counts distinct
-     * identifiers as equal, the exact principal revokes its key once one whose
-     * identifier differs only in case or accent could not.
+     * The exact principal revokes its key once a collation-equal one could not.
      *
      * @param  string  $folded
      * @return void
@@ -1227,11 +1195,7 @@ final class ApiKeyServiceTest extends TestCase
     }
 
     /**
-     * With the guard column under a collation that counts distinct guards as
-     * equal, a guard whose name differs from the key's only in case finds,
-     * lists, revokes and rotates none of its keys, which are left as they were
-     * with nothing reported, while the key's own guard still finds, lists and
-     * revokes it.
+     * A guard the collation counts as equal to the key's has none of its keys.
      *
      * @return void
      */
@@ -1287,9 +1251,8 @@ final class ApiKeyServiceTest extends TestCase
     }
 
     /**
-     * Issue a key to a machine and record it as held for the principal with the
-     * type and identifier, as an application whose principals are keyed by name
-     * would hold it, and return its id.
+     * Issue a key to a machine, record it as held for the given principal, and
+     * return its id.
      *
      * @param  string  $type
      * @param  string  $id
@@ -1306,9 +1269,8 @@ final class ApiKeyServiceTest extends TestCase
     }
 
     /**
-     * Assert the principal finds, lists, revokes and rotates none of the keys
-     * through the guard, that the key is left as it was, and that nothing is
-     * reported.
+     * Assert the principal finds, lists, revokes and rotates none of the keys,
+     * and nothing is reported.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  string  $id

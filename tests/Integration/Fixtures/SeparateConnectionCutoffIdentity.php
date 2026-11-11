@@ -15,9 +15,8 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 
 /**
- * 2D identity on the default connection that records a "tokens valid after"
- * cutoff, in the `cutoff_identities` table the test creates, and whose sessions
- * are `SeparateConnectionSession` rows on their own connection.
+ * 2D identity with a cutoff whose sessions are `SeparateConnectionSession` rows
+ * on their own connection.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

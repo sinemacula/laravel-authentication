@@ -37,15 +37,7 @@ use Tests\TestCase;
 
 /**
  * End-to-end tests for a browser application that keeps its refresh token in
- * the HttpOnly cookie: the API sets it on sign-in and on each refresh, the
- * browser sends it back on its own, a route outside the cookie's path clears
- * it, and nothing is stored on the server. The application never sees the plain
- * refresh token: its results carry the cookie. Run with the cookie left out of
- * Laravel's cookie encryption and with the routes encrypting it, both of which
- * round-trip, and with two browser applications on one host, whose cookies,
- * named after each application, never overwrite each other. A controller that
- * keeps HTTP out of its service layer extracts the cookie and hands it on, with
- * the request's client, as plain values, and is held to the same rules.
+ * the HttpOnly cookie.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -66,9 +58,8 @@ final class RefreshTokenCookieIntegrationTest extends TestCase
     private const array SAME_ORIGIN = ['Origin' => 'http://localhost', 'X-Requested-With' => 'XMLHttpRequest'];
 
     /**
-     * Freeze the clocks, create the tables, and add the browser routes of the
-     * `api` guard, its cookie scoped to `/auth`, and of the `admin` guard, its
-     * cookie scoped to `/admin/auth`, each with a logout route outside it.
+     * Freeze the clocks, create the tables and add the browser routes of both
+     * guards.
      *
      * @return void
      */
@@ -131,10 +122,8 @@ final class RefreshTokenCookieIntegrationTest extends TestCase
     }
 
     /**
-     * Sign-in sets the cookie, each refresh reads it and sets the rotated one,
-     * and the cookie the API set is all the browser needs to keep refreshing;
-     * logging out from a route outside the cookie's path clears it, for a
-     * request from the API's own site only.
+     * A browser keeps refreshing with the cookie the API sets, until it logs
+     * out.
      *
      * @param  string  $guard
      * @param  bool  $excluded
@@ -216,10 +205,7 @@ final class RefreshTokenCookieIntegrationTest extends TestCase
     }
 
     /**
-     * Two browser applications on one host, both on the root path, keep
-     * separate cookies: each derives a `__Host-` name of its own, so a browser
-     * that holds and sends both refreshes each application from its own, each
-     * response sets only its own, and neither is read as the other's.
+     * Two browser applications on one host keep separate cookies.
      *
      * @return void
      */
@@ -246,13 +232,8 @@ final class RefreshTokenCookieIntegrationTest extends TestCase
     }
 
     /**
-     * A controller that extracts the cookie and hands the token and the
-     * request's client to its service as plain values refreshes, the response
-     * setting the rotated cookie, and signs out, the response clearing it,
-     * whether or not the routes encrypt it; the same refresh or sign-out from
-     * another site's form is refused as `cross_site_request`, setting or
-     * clearing no cookie and writing nothing, and a refresh that carries the
-     * cookie twice is refused as `refresh_token_conflict`.
+     * A controller that hands the cookie to its service as plain values is held
+     * to the same rules.
      *
      * @param  string  $guard
      * @param  bool  $excluded
@@ -333,9 +314,8 @@ final class RefreshTokenCookieIntegrationTest extends TestCase
     }
 
     /**
-     * Sign the seeded identity in on the guard and answer with the access token
-     * in the body and the cookie its pair carries (and, for the test's own
-     * checks, the cookie's value in the body).
+     * Sign the seeded identity in and answer with the access token and the
+     * cookie.
      *
      * @param  string  $guard
      * @return \Illuminate\Http\JsonResponse
@@ -357,9 +337,8 @@ final class RefreshTokenCookieIntegrationTest extends TestCase
     }
 
     /**
-     * Clear the guard's cookie from a route outside its path, for a request
-     * from the API's own site only: a cross-site form must not sign the browser
-     * out.
+     * Clear the guard's cookie from a route outside its path, for a same-site
+     * request only.
      *
      * @param  string  $guard
      * @param  \Illuminate\Http\Request  $request
@@ -409,10 +388,8 @@ final class RefreshTokenCookieIntegrationTest extends TestCase
     }
 
     /**
-     * A controller that keeps HTTP out of its service layer: it extracts the
-     * refresh token from the request, without judging it, and hands it to the
-     * service with the request's client, answering a refresh with the rotated
-     * cookie or the refusal's reason (`403` for `cross_site_request`).
+     * A refresh controller that hands the extracted token to its service as
+     * plain values.
      *
      * @param  string  $guard
      * @param  \Illuminate\Http\Request  $request
@@ -451,9 +428,8 @@ final class RefreshTokenCookieIntegrationTest extends TestCase
     }
 
     /**
-     * The controller's sign-out: it extracts the token and hands it to the
-     * service with the request's client, answering with the cookie the result
-     * clears, if any.
+     * A sign-out controller that hands the extracted token to its service as
+     * plain values.
      *
      * @param  string  $guard
      * @param  \Illuminate\Http\Request  $request

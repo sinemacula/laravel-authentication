@@ -10,8 +10,7 @@ use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
  * Session model whose global scope selects every column but
- * `sign_in_identifier_type`, so every lookup through the model loads it without
- * the type of identifier its sign-in used.
+ * `sign_in_identifier_type`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

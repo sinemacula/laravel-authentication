@@ -12,10 +12,8 @@ use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 
 /**
- * Membership fixture of a `DeactivatableMember`, over the
- * `deactivatable_memberships` rows, that records its deactivation as an
- * `immutable_datetime` in `deactivated_at` and acts within a
- * `DeactivatableTenant`.
+ * Membership of a `DeactivatableMember` that records its deactivation as an
+ * `immutable_datetime` and acts within a `DeactivatableTenant`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

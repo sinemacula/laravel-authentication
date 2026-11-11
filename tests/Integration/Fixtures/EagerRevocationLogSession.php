@@ -9,9 +9,8 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
- * Session model that derives its revocation from a `SessionRevocation` relation
- * it always eager-loads (`$with`), so the revocation arrives with the lookup
- * that finds the session rather than from a read of its own.
+ * Session model whose revocation comes from a `SessionRevocation` relation it
+ * always eager-loads.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

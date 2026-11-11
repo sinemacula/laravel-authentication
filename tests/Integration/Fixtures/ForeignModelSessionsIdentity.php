@@ -15,8 +15,7 @@ use Tests\Unit\Stubs\StubModel;
 
 /**
  * Misconfigured identity whose `sessions()` relation queries a model that is
- * not a session, so nothing about its rows (their revocation or deadlines) is
- * known.
+ * not a session.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

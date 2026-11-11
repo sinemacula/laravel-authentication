@@ -25,11 +25,8 @@ use Tests\Integration\Fixtures\SeparateConnectionSession;
 use Tests\TestCase;
 
 /**
- * Integration tests of setting a password for an identity on the default
- * connection whose sessions live on a connection of their own: the identity's
- * transaction holds the hash and the cutoff, the sessions' commits inside it,
- * and a failure after that leaves the sessions revoked and the password as it
- * was, so more is ended, never less.
+ * Integration tests of setting a password for an identity whose sessions live
+ * on a connection of their own.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -49,10 +46,8 @@ final class SeparateConnectionPasswordWriterTest extends TestCase
     private const string OLD_PASSWORD = 'the old passphrase';
 
     /**
-     * Freeze the clock and create the identity table on the default connection
-     * and the session and codes tables on the session connection, which is made
-     * the storage connection once the shipped migrations have run on the
-     * default one.
+     * Freeze the clock, create the identity table on the default connection and
+     * the package tables on the session connection.
      *
      * @return void
      */
@@ -93,7 +88,7 @@ final class SeparateConnectionPasswordWriterTest extends TestCase
     }
 
     /**
-     * A reset stores the hash and the cutoff on the identity's connection and
+     * A reset stores the hash and cutoff on the identity's connection and
      * revokes the sessions on theirs.
      *
      * @return void
@@ -118,9 +113,8 @@ final class SeparateConnectionPasswordWriterTest extends TestCase
     }
 
     /**
-     * A failure once the sessions' revocation has committed rolls the
-     * identity's transaction back, password and cutoff with it, and leaves the
-     * sessions revoked; nothing reports a password set.
+     * A failure after the sessions' revocation commits rolls back the password
+     * and leaves the sessions revoked.
      *
      * @return void
      *
@@ -158,10 +152,8 @@ final class SeparateConnectionPasswordWriterTest extends TestCase
     }
 
     /**
-     * A change or an establishment of the password of an identity that does not
-     * live on the storage connection is refused before anything is counted or
-     * written: its password, its sessions' revocations and its cutoff could not
-     * commit as one.
+     * A change or establishment for an identity off the storage connection is
+     * refused before anything is written.
      *
      * @return void
      *

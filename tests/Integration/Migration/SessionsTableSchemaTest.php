@@ -14,15 +14,7 @@ use Tests\Concerns\RunsMigrationSteps;
 use Tests\TestCase;
 
 /**
- * Integration tests for the shape of the table the shipped sessions migration
- * creates, on whichever engine the suite runs against.
- *
- * The migration runs for a configured table name other than the default and
- * with the schema builder's default time precision raised, so the index names
- * and the whole-second precision are what the migration itself declares.
- *
- * Marked `#[CoversNothing]` because a migration is an anonymous class PHPUnit
- * cannot attribute coverage to.
+ * Integration tests for the shape of the table the sessions migration creates.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -133,10 +125,7 @@ final class SessionsTableSchemaTest extends TestCase
     }
 
     /**
-     * The table has exactly these columns, each with its nullability: the
-     * generation, the owner, the status and the idle deadline are required, the
-     * absolute deadline is optional (a session may have none), and everything a
-     * later feature, a pending session or the client supplies is optional.
+     * The table has exactly these columns, each with its nullability.
      *
      * @return void
      */
@@ -158,9 +147,8 @@ final class SessionsTableSchemaTest extends TestCase
     }
 
     /**
-     * Every timestamp is stored to the whole second, whatever the application's
-     * default time precision, so the deadlines the refresh rotation compares by
-     * equality come back exactly as written.
+     * Every timestamp is stored to the whole second, so the rotation's equality
+     * checks hold.
      *
      * @return void
      */
@@ -179,10 +167,8 @@ final class SessionsTableSchemaTest extends TestCase
     }
 
     /**
-     * The string columns that hold client data are as long as the longest value
-     * the package stores in them: 45 characters for an IP address, 512 for a
-     * user agent, 16 for the status, 64 for a SHA-256 hex digest, a revocation
-     * reason, the requirements and a policy version, and 255 for a tenant id.
+     * The string columns are as long as the longest value the package stores in
+     * them.
      *
      * @return void
      */
@@ -216,10 +202,7 @@ final class SessionsTableSchemaTest extends TestCase
     }
 
     /**
-     * The table is indexed for the lookups that need it, the owner, the
-     * principal, the guard, the active tenant, and each pruning condition
-     * separately, and nothing else: no index on a digest, which is never
-     * searched.
+     * Only the owner, principal, guard, tenant and pruning columns are indexed.
      *
      * @return void
      */
@@ -244,9 +227,7 @@ final class SessionsTableSchemaTest extends TestCase
     }
 
     /**
-     * Each index is named after the configured table and what it indexes,
-     * briefly, so the migration can run for a renamed table next to another
-     * table with the same columns.
+     * Each index is named after the configured table.
      *
      * @return void
      */
@@ -256,10 +237,8 @@ final class SessionsTableSchemaTest extends TestCase
     }
 
     /**
-     * A configured table name of 47 characters migrates on every engine with
-     * every index under its own full name: the longest stays within
-     * PostgreSQL's 63 characters, which would otherwise cut it short without an
-     * error, and so within MySQL's 64.
+     * A 47-character table name migrates with every index name within
+     * PostgreSQL's 63-character limit, which truncates silently.
      *
      * @return void
      */
@@ -280,8 +259,7 @@ final class SessionsTableSchemaTest extends TestCase
 
     /**
      * Every time column holds dates past January 2038, the end of MySQL's
-     * `timestamp` type, so the longest accepted session lifetime and anything
-     * recorded during it can be stored on every engine.
+     * `timestamp` type.
      *
      * @return void
      */
@@ -328,10 +306,8 @@ final class SessionsTableSchemaTest extends TestCase
     }
 
     /**
-     * The issuance guard is a required big integer, unsigned where the engine
-     * has unsigned integers, that a row written without it starts at zero and
-     * an increment moves by one, and it is not indexed (the index contract
-     * above lists every index).
+     * The issuance guard is an unindexed, required big integer starting at
+     * zero.
      *
      * @return void
      */

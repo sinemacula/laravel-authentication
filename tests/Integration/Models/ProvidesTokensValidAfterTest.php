@@ -15,8 +15,7 @@ use Tests\TestCase;
 
 /**
  * Integration tests for the "tokens valid after" cutoff an identity or
- * principal records: how it is read, and the forward-only conditional write,
- * against a real table on each supported database.
+ * principal records.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -60,9 +59,8 @@ final class ProvidesTokensValidAfterTest extends TestCase
     }
 
     /**
-     * An identity without a cutoff reads `null`; once moved, the cutoff is
-     * stored to the second, mirrored on the model without a save, and read back
-     * from a fresh load.
+     * Moving an unset cutoff stores it to the second and mirrors it on the
+     * model.
      *
      * @return void
      */

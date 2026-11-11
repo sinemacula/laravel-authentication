@@ -15,10 +15,8 @@ use SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 
 /**
- * A `RecheckedMember`'s membership of an `ActivatableTenant`, which can be
- * deactivated (`is_active`), soft-deleted and restored, and records a "tokens
- * valid after" cutoff: every way a session's principal can stop standing after
- * a sign-in admitted it.
+ * A `RecheckedMember`'s membership that can be deactivated, soft-deleted or
+ * given a cutoff after sign-in.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

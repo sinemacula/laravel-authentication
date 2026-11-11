@@ -17,11 +17,8 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
 /**
- * Proves ceremony options too long for a 64 KiB text column are stored whole
- * and answered, on whichever engine the suite runs against: an identity with
- * enough passkeys of the longest credential id WebAuthn allows has registration
- * and factor options over 65,535 bytes, and both are issued, stored in full and
- * used up by a registration and a factor that verify.
+ * Proves ceremony options longer than a 64 KiB text column are stored whole and
+ * answered.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -70,8 +67,8 @@ final class LargePasskeyOptionsTest extends TestCase
     }
 
     /**
-     * Registration options excluding every passkey the identity has are stored
-     * whole however long, and a registration answering them stores one more.
+     * Registration options of any length are stored whole and a registration
+     * answering them succeeds.
      *
      * @return void
      *
@@ -94,8 +91,8 @@ final class LargePasskeyOptionsTest extends TestCase
     }
 
     /**
-     * Factor options allowing every passkey the identity has are stored whole
-     * however long, and the factor answering them verifies.
+     * Factor options of any length are stored whole and the factor answering
+     * them verifies.
      *
      * @return void
      *
@@ -130,8 +127,8 @@ final class LargePasskeyOptionsTest extends TestCase
     }
 
     /**
-     * Seed an identity and register the number of passkeys given for it through
-     * the guard, each with a credential id of the longest length.
+     * Seed an identity with the given number of passkeys of the longest
+     * credential id.
      *
      * @param  int  $count
      * @return \Tests\Integration\Fixtures\IntegrationIdentity

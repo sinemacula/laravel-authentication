@@ -9,9 +9,8 @@ use SineMacula\Laravel\Authentication\Contracts\ValidatesSessionKey;
 use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
- * The shipped session model keyed by strings the application generates with a
- * `.` in them (`session.<uuid>`), so its key format describes itself through
- * `ValidatesSessionKey`.
+ * Shipped session model keyed by `session.<uuid>` strings, a format it
+ * describes through `ValidatesSessionKey`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

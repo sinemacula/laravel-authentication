@@ -8,9 +8,8 @@ use Illuminate\Contracts\Auth\Authenticatable;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 
 /**
- * A model provider that looks an `email` credential up in the model's
- * `email_address` column, as an application whose column is named otherwise
- * would.
+ * Model provider that looks an `email` credential up in the model's
+ * `email_address` column.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

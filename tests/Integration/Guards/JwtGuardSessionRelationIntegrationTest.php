@@ -24,10 +24,6 @@ use Tests\TestCase;
 /**
  * Bearer `sid` resolution through a real `morphMany` sessions relation.
  *
- * The guard routes the relation to the write connection, checks the `sid`
- * against the relation's session model, and loads the session through it, so
- * this covers the relation (rather than plain builder) form of each step.
- *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
@@ -137,9 +133,8 @@ final class JwtGuardSessionRelationIntegrationTest extends TestCase
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
         ]);
 
-        // The proofs table keeps any key as a string, so the token can say how
-        // the session authenticated; the session has no row, so the token is
-        // minted without the issuance guard the public issue writes to it.
+        // The proofs table stores any key as a string; the session has no row,
+        // so the token skips the issuance guard that writes to it.
         self::recordProof($malformed, ProofKind::FIRST_FACTOR, Carbon::now(), ['pwd']);
 
         $token = $this->authManager()->jwt('api')->issueGuardedAccessToken($identity, $identity, null, $malformed, Carbon::now())->token->reveal();

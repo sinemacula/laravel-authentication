@@ -11,10 +11,8 @@ use SineMacula\Laravel\Authentication\Contracts\HasVerifiableIdentifiers;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 
 /**
- * Identity fixture over the `verifiable_identities` table that reads its
- * identifier of a type, and whether it is verified, with queries of its own
- * instead of the attributes it was loaded with, as an identity keeping them in
- * other tables would.
+ * Identity that reads its identifiers and their verification with queries of
+ * its own.
  *
  * @property int $id
  *

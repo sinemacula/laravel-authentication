@@ -22,17 +22,8 @@ use SineMacula\Laravel\Authentication\Models\SessionProvenance;
 use Tests\TestCase;
 
 /**
- * Integration tests for where the shipped migrations, run by Laravel's own
- * `migrate` and `migrate:rollback` commands, create the package's tables while
- * `authentication.storage.connection` names a connection other than the
- * default: every table on that connection, where its model reads and writes it,
- * none on the default, and the counters on a connection of their own when
- * `authentication.rate_limits.connection` names one.
- *
- * The storage connection is a second connection to the test database with a
- * table prefix of its own: a database of its own on SQLite, where each
- * in-memory connection has one, and prefixed tables beside the default
- * connection's on PostgreSQL and MySQL.
+ * Integration tests for where the migrations create the package's tables when a
+ * storage connection is configured.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -55,9 +46,8 @@ final class StorageConnectionMigrationTest extends TestCase
     private const string MIGRATIONS = __DIR__ . '/../../../database/migrations';
 
     /**
-     * Every shipped model reads and writes its table on the storage connection,
-     * where the migrations created it, and the default connection has none of
-     * them.
+     * Every model reads its table on the storage connection, and the default
+     * has none.
      *
      * @return void
      */
@@ -120,9 +110,7 @@ final class StorageConnectionMigrationTest extends TestCase
     }
 
     /**
-     * With no storage connection named, the tables follow the connection the
-     * migrator is run on, as `--database` chooses it, and so do the models that
-     * use it as the default.
+     * Without a storage connection the tables follow the migrator's connection.
      *
      * @return void
      */
@@ -150,9 +138,8 @@ final class StorageConnectionMigrationTest extends TestCase
     }
 
     /**
-     * Put the package's tables on a second connection to the test database,
-     * with a prefix of its own, and register the counters' and the chosen
-     * connections the same way.
+     * Put the package's tables and the counters on prefixed connections to the
+     * test database.
      *
      * @param  mixed  $app
      * @return void

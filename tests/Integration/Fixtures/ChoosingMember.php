@@ -14,9 +14,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
- * 3D identity fixture with no default principal, over the
- * `activatable_tenant_members` rows: a sign-in that names no membership waits
- * for the member to choose one.
+ * 3D identity with no default principal, so a sign-in that names no membership
+ * waits for the member to choose one.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

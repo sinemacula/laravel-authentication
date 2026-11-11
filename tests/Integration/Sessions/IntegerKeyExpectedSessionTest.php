@@ -28,11 +28,7 @@ use Tests\Integration\Fixtures\IntegerKeySession;
 use Tests\TestCase;
 
 /**
- * Integration tests of the expected session a refresh, a switch and a sign-out
- * by refresh credential take, against each supported database, for a session
- * the database keys by an integer: the integer and its string form are the
- * session, a number written otherwise is not, and a token proving another
- * session is refused as `session_mismatch`.
+ * Integration tests of the expected session check for an integer-keyed session.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -50,8 +46,8 @@ final class IntegerKeyExpectedSessionTest extends TestCase
     private const string TABLE = 'integer_key_sessions';
 
     /**
-     * Freeze the clocks, create the tables and point the session model and its
-     * table at the integer-keyed ones.
+     * Freeze the clocks, create the tables and point the session model at the
+     * integer-keyed ones.
      *
      * @return void
      */
@@ -76,8 +72,7 @@ final class IntegerKeyExpectedSessionTest extends TestCase
     }
 
     /**
-     * Drop the tables, put the session table back for the migrations' rollback
-     * and release the clocks.
+     * Drop the tables, restore the session table and release the clocks.
      *
      * @return void
      */
@@ -99,9 +94,8 @@ final class IntegerKeyExpectedSessionTest extends TestCase
     }
 
     /**
-     * A refresh expecting the integer key of its session, or the string form of
-     * it, rotates the session; a number written with a leading zero, or the key
-     * of another session, is refused as `session_mismatch`.
+     * A refresh matches the integer key or its string form and refuses anything
+     * else.
      *
      * @return void
      *
@@ -134,9 +128,8 @@ final class IntegerKeyExpectedSessionTest extends TestCase
     }
 
     /**
-     * A sign-out expecting the integer key of its session, or the string form
-     * of it, signs it out; one expecting another is refused and revokes
-     * nothing.
+     * A sign-out matches the integer key or its string form and refuses
+     * anything else.
      *
      * @return void
      *
@@ -163,8 +156,8 @@ final class IntegerKeyExpectedSessionTest extends TestCase
     }
 
     /**
-     * A switch expecting the integer key of its session, or the string form of
-     * it, is made; one expecting another is refused as `session_mismatch`.
+     * A switch matches the integer key or its string form and refuses anything
+     * else.
      *
      * @return void
      *

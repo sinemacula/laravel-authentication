@@ -10,10 +10,8 @@ use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 
 /**
- * Membership fixture of a `KeyedTenantMember`, over the `keyed_memberships`
- * rows, whose uncast string `tenant_id` names a `TypedTenant`: a key such as
- * `'05'` the database matches against the tenant's integer key while PHP does
- * not.
+ * Membership whose uncast string `tenant_id`, such as `'05'`, matches a
+ * `TypedTenant` key in the database but not in PHP.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

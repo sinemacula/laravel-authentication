@@ -16,13 +16,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
- * Minimal Eloquent fixture used by the integration tests.
- *
- * Implements `Identity` and `Principal` so the package guards can operate in 2D
- * mode, and `HasSessions` so the JwtGuard's session-hint resolution path has a
- * real relation to query against the shipped Session model. Tests create rows
- * in the backing `integration_identities` table (seeded in
- * `Tests\TestCase::defineDatabaseMigrations()`).
+ * 2D identity with sessions of the shipped model, used across the integration
+ * tests.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -46,10 +41,6 @@ final class IntegrationIdentity extends Model implements CanBeActive, HasSession
 
     /**
      * Eloquent relation builder for the identity's sessions.
-     *
-     * Filters the shipped Session model by the polymorphic authenticatable
-     * columns so the guard's `resolveSessionFromHint()` can resolve a session
-     * by its id through a real query.
      *
      * @return \Illuminate\Contracts\Database\Eloquent\Builder
      */

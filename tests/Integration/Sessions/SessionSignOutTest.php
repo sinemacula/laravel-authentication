@@ -25,12 +25,7 @@ use Tests\Concerns\InteractsWithSessions;
 use Tests\TestCase;
 
 /**
- * Integration tests of signing out by refresh token against the database: the
- * revocation and its reason are written to the row, a token a concurrent
- * refresh replaced moments before, or one that rotates the session between the
- * proof and the revocation, still signs the session out, and the revocation's
- * conditional write makes two sign-outs, or a sign-out and another revocation,
- * revoke and report once.
+ * Integration tests of signing out by refresh token against the database.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -80,8 +75,8 @@ final class SessionSignOutTest extends TestCase
     }
 
     /**
-     * A sign-out writes the revocation's time and reason to the session's row,
-     * clears its refresh digests, and leaves the rest of the row as it was.
+     * A sign-out writes the revocation and its reason and clears the refresh
+     * digests.
      *
      * @return void
      *
@@ -111,9 +106,8 @@ final class SessionSignOutTest extends TestCase
     }
 
     /**
-     * A token that a refresh from another tab replaced moments before is the
-     * previous rotation, inside the grace window, and still signs the session
-     * out; the token the refresh issued is refused as revoked from then on.
+     * A token a refresh just replaced still signs the session out within the
+     * grace window.
      *
      * @return void
      *
@@ -136,9 +130,8 @@ final class SessionSignOutTest extends TestCase
     }
 
     /**
-     * A refresh that rotates the session between the proof's read and the
-     * sign-out's write does not stop the sign-out: the session is revoked and
-     * reported once, and the token the refresh issued is refused as revoked.
+     * A rotation between the proof and the revocation still signs the session
+     * out.
      *
      * @return void
      *
@@ -174,9 +167,7 @@ final class SessionSignOutTest extends TestCase
     }
 
     /**
-     * Two sign-outs with the same token revoke the session once: the second is
-     * refused as `session_revoked`, and `SessionRevoked` and `Logout` are
-     * dispatched once.
+     * Two sign-outs with the same token revoke and report once.
      *
      * @return void
      *
@@ -200,9 +191,7 @@ final class SessionSignOutTest extends TestCase
     }
 
     /**
-     * A session another writer revokes between the proof's read and the
-     * sign-out's write keeps that writer's revocation: the sign-out revokes
-     * nothing, says so, and dispatches neither `SessionRevoked` nor `Logout`.
+     * A session revoked after the proof keeps the other writer's revocation.
      *
      * @return void
      *
@@ -239,8 +228,7 @@ final class SessionSignOutTest extends TestCase
     }
 
     /**
-     * A sign-out inside the caller's transaction reports the revocation once
-     * the transaction commits.
+     * A sign-out inside the caller's transaction is reported once it commits.
      *
      * @return void
      *
@@ -264,10 +252,7 @@ final class SessionSignOutTest extends TestCase
     }
 
     /**
-     * A cookie application's sign-out from plain values writes the revocation
-     * and its reason and clears the refresh digests, reported once committed
-     * with the client given; a second one with the same token revokes nothing
-     * more and is refused as revoked.
+     * A cookie application's plain sign-out writes the revocation once.
      *
      * @return void
      *
@@ -327,8 +312,8 @@ final class SessionSignOutTest extends TestCase
     }
 
     /**
-     * The cookie application's session service, for a cross-site request that
-     * carries no refresh token.
+     * The cookie application's session service for a cross-site request without
+     * a refresh token.
      *
      * @return \SineMacula\Laravel\Authentication\Sessions\SessionService
      */
@@ -338,8 +323,7 @@ final class SessionSignOutTest extends TestCase
     }
 
     /**
-     * Sign the seeded identity in on the `api` guard and return the refresh
-     * token of the session.
+     * Sign the seeded identity in on `api` and return its refresh token.
      *
      * @return string
      *

@@ -22,11 +22,8 @@ use Tests\Concerns\InteractsWithLaggingReplica;
 use Tests\TestCase;
 
 /**
- * Proves the caller of a request is read, and its principals admitted, on the
- * write connection: a membership the primary holds and the replica lacks is the
- * caller's, one the primary has soft-deleted is not though the replica still
- * holds it live, and a refresh credential whose session the primary has revoked
- * has no caller.
+ * Tests that a request's caller is read, and its principals admitted, on the
+ * write connection.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -67,9 +64,8 @@ final class ReplicaCallerTest extends TestCase
     }
 
     /**
-     * Another membership of the caller's member is the caller's as the primary
-     * holds it: one the replica lacks is admitted, and one the primary has
-     * soft-deleted is not, though the replica still holds it live.
+     * Another membership is the caller's as the primary holds it, whatever the
+     * replica holds.
      *
      * @return void
      *
@@ -98,9 +94,8 @@ final class ReplicaCallerTest extends TestCase
     }
 
     /**
-     * A refresh credential whose session the primary has revoked has no caller,
-     * though the replica still holds the session live: it is reported once as
-     * `session_revoked`.
+     * A refresh credential whose session the primary has revoked has no caller
+     * and is reported as `session_revoked`.
      *
      * @return void
      *

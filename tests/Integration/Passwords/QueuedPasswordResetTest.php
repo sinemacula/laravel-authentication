@@ -21,10 +21,7 @@ use Tests\Concerns\InteractsWithPasswordResets;
 use Tests\TestCase;
 
 /**
- * Integration tests of a password reset's delivery on a worker-backed queue:
- * the job carries a live token or code and the identifier it goes to, so it is
- * stored encrypted with the application key, and a worker then delivers what
- * resets the password.
+ * Integration tests of a password reset's delivery on a worker-backed queue.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -50,9 +47,8 @@ final class QueuedPasswordResetTest extends TestCase
     }
 
     /**
-     * The queued job's stored payload holds neither the token or code nor the
-     * identifier, nor any part of the issued secret; a worker then delivers it,
-     * and what it delivered resets the password.
+     * The queued payload holds no secret or identifier, and what a worker
+     * delivers resets the password.
      *
      * @param  string  $channel
      * @return void
@@ -99,10 +95,8 @@ final class QueuedPasswordResetTest extends TestCase
     }
 
     /**
-     * A reset requested through a guard of another driver that builds the
-     * package's jwt guard is bound to the jwt guard it was built for, which
-     * only a guard with the `jwt` driver can be, and a worker delivers it
-     * through that guard.
+     * A reset requested through another driver's jwt guard is delivered through
+     * the jwt guard.
      *
      * @return void
      *
@@ -133,9 +127,7 @@ final class QueuedPasswordResetTest extends TestCase
     }
 
     /**
-     * Create Laravel's database queue table, dropped with the application, and
-     * make it the default queue, which the delivery queue uses when it names
-     * none.
+     * Create Laravel's database queue table and make it the default queue.
      *
      * @return void
      */

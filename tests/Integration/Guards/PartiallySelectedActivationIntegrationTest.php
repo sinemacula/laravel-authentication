@@ -26,10 +26,8 @@ use Tests\Integration\Fixtures\PartiallySelectedIdentity;
 use Tests\TestCase;
 
 /**
- * An identity that opts into activation but is loaded without its activation
- * column fails every authentication path loudly instead of reading the missing
- * flag as active or inactive, so a partial select surfaces as a
- * misconfiguration rather than silently changing who can sign in.
+ * An activatable identity loaded without its activation column fails every
+ * authentication path loudly.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

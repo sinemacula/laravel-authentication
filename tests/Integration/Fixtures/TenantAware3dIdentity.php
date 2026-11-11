@@ -14,10 +14,7 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\ResolvesHintedPrincipal;
 
 /**
- * Identity fixture for tenant-aware 3D resolution tests.
- *
- * Resolves principals through a single joined principal+tenant query so
- * `tenant()` and `type()` do not trigger an extra SQL read after auth.
+ * Identity that resolves its principal with its tenant in one joined query.
  *
  * @property int $id
  * @property string $email

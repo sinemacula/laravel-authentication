@@ -15,10 +15,8 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
 
 /**
- * Integration tests for the shipped session's `principal()` relation against
- * real rows: the principal columns hold any key type as a string, so a session
- * resolves an integer-keyed and a UUID-keyed principal alike, lazily and
- * eagerly, on whichever engine the suite runs against.
+ * Integration tests for the session's `principal()` relation with integer and
+ * UUID keys.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

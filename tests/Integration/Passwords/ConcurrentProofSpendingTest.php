@@ -49,21 +49,8 @@ use Tests\Integration\Fixtures\ChangeableIdentity;
 use Tests\TestCase;
 
 /**
- * Races, on PostgreSQL and MySQL, a password write against the flows that spend
- * or take a proof bound to the same identity (an identifier change request and
- * confirmation, a password reset), a bulk revocation against a confirmation and
- * a request, a cancellation and a replacing request against a confirmation, two
- * establishments of a first password, an establishment against a reset, and a
- * password change against a revocation of its session, each in a process with a
- * database connection of its own. The first is held open right after the
- * statement that would make the two lock their rows in opposite orders, or let
- * one act on what the other is about to undo; the second, started meanwhile,
- * waits for it on the identity's row (see `IdentityLock`) or the session's, so
- * both answer a result, neither throws, and the second sees what the first
- * left.
- *
- * Skipped on SQLite, where each process would have an in-memory database of its
- * own, and where `pcntl` is not available.
+ * Races password writes against the flows that spend or take a proof bound to
+ * the same identity, in separate processes on PostgreSQL and MySQL.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -91,7 +78,7 @@ final class ConcurrentProofSpendingTest extends TestCase
     /** @var int How long the second operation waits to be started before giving up, in seconds. */
     private const int START_TIMEOUT_SECONDS = 10;
 
-    /** @var int How long the forked side waits, once the establishment waits on the neighbour's row, before it records the neighbour's proof, in microseconds. */
+    /** @var int How long the forked side waits on the blocked establishment before recording its proof, in microseconds. */
     private const int CROSS_MICROSECONDS = 300000;
 
     /** @var string The new password the racing writes set. */
@@ -102,7 +89,7 @@ final class ConcurrentProofSpendingTest extends TestCase
 
     /**
      * Skip where processes cannot share the database, and start from a known
-     * moment with the fakes bound and the route links point at.
+     * moment with the fakes bound.
      *
      * @return void
      *
@@ -148,8 +135,7 @@ final class ConcurrentProofSpendingTest extends TestCase
     }
 
     /**
-     * A password change racing a confirmation held after it deleted the pending
-     * change waits for it: the change is made, then the password set.
+     * A password change waits for a confirmation, then sets the password.
      *
      * @return void
      *
@@ -178,8 +164,7 @@ final class ConcurrentProofSpendingTest extends TestCase
     }
 
     /**
-     * A password change racing a confirmation held after it invalidated the old
-     * address's live reset link waits for it as well.
+     * A password change waits for a confirmation that outdated a reset link.
      *
      * @return void
      *
@@ -209,8 +194,7 @@ final class ConcurrentProofSpendingTest extends TestCase
     }
 
     /**
-     * A reset with the old address's link racing a confirmation waits for it,
-     * then finds the link outdated by the change: `invalid`.
+     * A reset waits for a confirmation, then finds its link outdated.
      *
      * @return void
      *
@@ -237,8 +221,7 @@ final class ConcurrentProofSpendingTest extends TestCase
     }
 
     /**
-     * A password change racing a reset held after it spent its token waits for
-     * it: the reset sets its password, then the change sets its own.
+     * A password change waits for a reset, then sets its own password.
      *
      * @return void
      *
@@ -270,8 +253,8 @@ final class ConcurrentProofSpendingTest extends TestCase
     }
 
     /**
-     * A confirmation racing a revocation of every session held after it
-     * cancelled the pending change waits for it, then finds the change gone.
+     * A confirmation waits for a bulk revocation, then finds the change
+     * cancelled.
      *
      * @return void
      *
@@ -295,9 +278,8 @@ final class ConcurrentProofSpendingTest extends TestCase
     }
 
     /**
-     * A password change racing a request proven by the password, held once it
-     * locked the identity's row, waits for it, then cancels the change it
-     * wrote: its link confirms nothing.
+     * A password change waits for a request proven by the password, then
+     * cancels it.
      *
      * @return void
      *
@@ -335,9 +317,8 @@ final class ConcurrentProofSpendingTest extends TestCase
     }
 
     /**
-     * A request proven by the old password racing a password change held after
-     * it wrote the new one waits for it, then checks the password against the
-     * new one: reauthentication is required, and nothing is written.
+     * A request proven by the old password waits for a password change and is
+     * refused.
      *
      * @return void
      *
@@ -366,9 +347,8 @@ final class ConcurrentProofSpendingTest extends TestCase
     }
 
     /**
-     * A revocation of every session racing a request proven by one of them,
-     * held once it locked that session's row, waits for it, then cancels the
-     * change it wrote.
+     * A bulk revocation waits for a request proven by one of its sessions, then
+     * cancels it.
      *
      * @return void
      *
@@ -400,10 +380,8 @@ final class ConcurrentProofSpendingTest extends TestCase
     }
 
     /**
-     * A password change made while a request proven by the old password is held
-     * after the password was checked, before its transaction, is found under
-     * the lock: reauthentication is required, nothing is written, and the
-     * `identifier_change` slots are given back.
+     * A password change after a request's check is found under its lock and the
+     * slots are given back.
      *
      * @return void
      *
@@ -439,13 +417,8 @@ final class ConcurrentProofSpendingTest extends TestCase
     }
 
     /**
-     * A revocation of every session made while a request proven by one of them
-     * is held once its check found the session fresh and it counted its first
-     * `identifier_change` slot, before its transaction, is found under the
-     * lock: reauthentication is required, nothing is written, and the slots are
-     * given back. Held at the session's first read instead, the check's
-     * freshness read would already find the session revoked, and nothing would
-     * be counted or locked.
+     * A bulk revocation after a request's check is found under its lock and the
+     * slots are given back.
      *
      * @return void
      *
@@ -476,13 +449,9 @@ final class ConcurrentProofSpendingTest extends TestCase
     }
 
     /**
-     * Requests for two identities, none of whose counters, codes or pending
-     * changes exist yet, the first held right after its first limiter
-     * statement, both go through, the second while the first is still held: the
-     * limits are counted before the transaction, so neither holds a lock on the
-     * counters' index that the other's insert would wait for (MySQL deadlocks
-     * two transactions that each update a missing key, then insert into the
-     * gap).
+     * Requests for two identities creating their counters do not deadlock.
+     *
+     * MySQL deadlocks two updates of a missing key followed by inserts.
      *
      * @return void
      *
@@ -510,13 +479,8 @@ final class ConcurrentProofSpendingTest extends TestCase
     }
 
     /**
-     * Requests for two identities made inside transactions of their callers,
-     * none of whose counters exist yet, the first held right after its first
-     * limiter statement, both go through once the counters live on a connection
-     * of their own, as the passwords guide tells callers on MySQL to do: on the
-     * callers' connection, the counters' missing keys would keep their gaps
-     * locked until each caller commits. The second finishes while the first is
-     * still held.
+     * Requests in callers' transactions do not deadlock once the counters have
+     * a connection of their own.
      *
      * @return void
      *
@@ -550,11 +514,8 @@ final class ConcurrentProofSpendingTest extends TestCase
     }
 
     /**
-     * A request held inside its transaction once it wrote its code and its
-     * pending change does not hold up a request for another identity: the
-     * second creates its own counters, code and pending change and finishes
-     * while the first is still held, as neither holds a lock the other's
-     * request waits on.
+     * A request held after its writes does not hold up another identity's
+     * request.
      *
      * @return void
      *
@@ -581,9 +542,8 @@ final class ConcurrentProofSpendingTest extends TestCase
     }
 
     /**
-     * A cancellation racing a confirmation by code, held once it counted the
-     * code's attempt, waits for it on the identity's row instead of deadlocking
-     * over the pending change and the code, then finds nothing to cancel.
+     * A cancellation waits for a confirmation by code, then finds nothing to
+     * cancel.
      *
      * @return void
      *
@@ -608,10 +568,7 @@ final class ConcurrentProofSpendingTest extends TestCase
     }
 
     /**
-     * A request replacing the change a confirmation by code is making, held
-     * once it counted the code's attempt, waits for it on the identity's row
-     * instead of deadlocking over the pending change and the code: the change
-     * is made, then the new request is pending.
+     * A replacing request waits for a confirmation by code, then is pending.
      *
      * @return void
      *
@@ -646,10 +603,8 @@ final class ConcurrentProofSpendingTest extends TestCase
     }
 
     /**
-     * The documented password change, made over HTTP with the old password
-     * while a reset is held after it wrote the owner's new one, waits for the
-     * reset on the identity's row before it checks the current password, which
-     * is then wrong: the reset's password stays.
+     * The documented password change waits for a reset and finds the old
+     * password wrong.
      *
      * @return void
      *
@@ -677,9 +632,8 @@ final class ConcurrentProofSpendingTest extends TestCase
     }
 
     /**
-     * A reset racing the documented password change, held once it locked the
-     * identity's row, waits until the change has set its password, then finds
-     * its token outdated by it.
+     * A reset waits for the documented password change, then finds its token
+     * outdated.
      *
      * @return void
      *
@@ -708,10 +662,7 @@ final class ConcurrentProofSpendingTest extends TestCase
     }
 
     /**
-     * Of two establishments of a first password from one session, the second,
-     * started while the first is held after it wrote its password, waits for it
-     * on the identity's row, then finds a password set: only the first's
-     * stands.
+     * An establishment waits for another, then finds a password set.
      *
      * @return void
      *
@@ -735,9 +686,7 @@ final class ConcurrentProofSpendingTest extends TestCase
     }
 
     /**
-     * A reset racing an establishment held after it wrote the first password
-     * waits for it on the identity's row, then finds its token outdated by it:
-     * the established password stays.
+     * A reset waits for an establishment, then finds its token outdated.
      *
      * @return void
      *
@@ -765,20 +714,8 @@ final class ConcurrentProofSpendingTest extends TestCase
     }
 
     /**
-     * An establishment from one session, inside a caller's transaction, whose
-     * judgement read the session's proofs current, while another transaction
-     * holds a neighbouring session of the same identity (its proofs border the
-     * judged session's in the proofs' session index) and then records a proof
-     * for it: on MySQL at REPEATABLE READ the judgement's shared lock holds the
-     * gap that proof falls in, and the establishment's revocation waits on the
-     * neighbour's row, a deadlock the database breaks by failing the
-     * establishment. It is thrown on as `DeadlockException` with the caller's
-     * transaction level restored; once the caller rolls back nothing it wrote
-     * is kept, and its retry of the whole transaction establishes the password
-     * and ends the neighbour. At READ COMMITTED, and on PostgreSQL, the
-     * judgement holds no gap: the establishment waits for the neighbour's row
-     * and completes (PostgreSQL's REPEATABLE READ fails it to serialise first,
-     * and the caller retries).
+     * An establishment crossing a neighbour's proof fails as a deadlock, or
+     * waits, by isolation level.
      *
      * @param  string  $level
      * @return void
@@ -858,9 +795,7 @@ final class ConcurrentProofSpendingTest extends TestCase
     }
 
     /**
-     * A password change from a session whose revocation is held after it wrote
-     * it waits for the revocation on the session's row, then finds the session
-     * revoked and changes nothing.
+     * A password change waits for a revocation of its session and is refused.
      *
      * @return void
      *
@@ -920,8 +855,8 @@ final class ConcurrentProofSpendingTest extends TestCase
     }
 
     /**
-     * Sign in through the `web` guard with the password, define the documented
-     * password change route, and return the access token.
+     * Sign in through the `web` guard, define the documented password change
+     * route, and return the access token.
      *
      * @return string
      *
@@ -941,8 +876,8 @@ final class ConcurrentProofSpendingTest extends TestCase
     }
 
     /**
-     * Change the password through the documented route, with the access token
-     * and the current password, and return the response's status.
+     * Change the password through the documented route and return the
+     * response's status.
      *
      * @param  string  $access
      * @return string
@@ -953,8 +888,7 @@ final class ConcurrentProofSpendingTest extends TestCase
     }
 
     /**
-     * Issue a live reset link's token for the identity's current address
-     * through the `web` guard, and return it.
+     * Issue a live reset token for the identity's current address.
      *
      * @return string
      *
@@ -984,8 +918,7 @@ final class ConcurrentProofSpendingTest extends TestCase
     }
 
     /**
-     * A session of the identity on the `web` guard, started just now, so its
-     * first factor is fresh enough to establish a password.
+     * A session of the identity on the `web` guard with a fresh first factor.
      *
      * @param  \Tests\Integration\Fixtures\ChangeableIdentity  $identity
      * @return \SineMacula\Laravel\Authentication\Models\Session
@@ -1002,8 +935,8 @@ final class ConcurrentProofSpendingTest extends TestCase
     }
 
     /**
-     * Wait until the forked side holds the neighbour's row, killing it and
-     * failing when it never does.
+     * Wait until the forked side holds the neighbour's row, failing when it
+     * never does.
      *
      * @param  int  $pid
      * @return void
@@ -1027,15 +960,10 @@ final class ConcurrentProofSpendingTest extends TestCase
     }
 
     /**
-     * In the forked process: on a connection of its own, write the neighbour's
-     * row in a transaction, many times so its transaction is the heavier and
-     * MySQL picks the other as the deadlock's victim, signal that it holds it,
-     * wait until the parent's establishment waits on that row, then record a
-     * step-up for the neighbour as `ProofWriter` records one (its kind sorts
-     * before the neighbour's first factor, so in the proofs' session index it
-     * falls in the gap after the judged session's proofs), and commit; report,
-     * and end without running the parent's shutdown. An establishment that
-     * never waits is reported as an error.
+     * In the forked process, hold the neighbour's row until the establishment
+     * waits on it, then record a proof for it.
+     *
+     * Written many times so MySQL makes the other side the deadlock victim.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\Session  $neighbour
      * @return never
@@ -1087,7 +1015,7 @@ final class ConcurrentProofSpendingTest extends TestCase
 
     /**
      * Wait until another connection waits on a lock this connection's
-     * transaction holds, for as long as an operation waits to be started.
+     * transaction holds.
      *
      * @return void
      *
@@ -1107,10 +1035,9 @@ final class ConcurrentProofSpendingTest extends TestCase
     }
 
     /**
-     * Whether another connection waits on a lock this connection's transaction
-     * holds, as the engine's lock-wait view reports it. PostgreSQL's is read
-     * from `pg_locks`, because `pg_stat_activity` keeps the backends of its
-     * first read in a transaction, before the waiter has connected.
+     * Whether another connection waits on a lock this transaction holds.
+     *
+     * PostgreSQL reads `pg_locks`; `pg_stat_activity` keeps a stale snapshot.
      *
      * @return bool
      */
@@ -1139,8 +1066,7 @@ final class ConcurrentProofSpendingTest extends TestCase
     }
 
     /**
-     * Assert that the counters the request wrote hold no attempt: each slot it
-     * took was given back.
+     * Assert that every slot the request took was given back.
      *
      * @return void
      */
@@ -1162,13 +1088,8 @@ final class ConcurrentProofSpendingTest extends TestCase
     }
 
     /**
-     * Run the first operation here, hold it open right after its first
-     * statement of the verb on the table (that also holds the marker, given
-     * one), start the second in another process meanwhile, then let the first
-     * finish, and return both outcomes. The first is held for a fixed time, or,
-     * when the second must not wait for it, until the second has finished (at
-     * most as long as the second may take to start); the outcome then says
-     * whether it finished while the first was held.
+     * Run the first operation, hold it after its first matching statement while
+     * the second runs in another process, and return both outcomes.
      *
      * @param  string  $verb
      * @param  string  $table
@@ -1220,9 +1141,8 @@ final class ConcurrentProofSpendingTest extends TestCase
     }
 
     /**
-     * Start the second operation and hold the first, for a fixed time or until
-     * the second has finished (at most as long as it may take to start), and
-     * say whether the second had finished by the time the first is released.
+     * Start the second operation, hold the first, and say whether the second
+     * finished meanwhile.
      *
      * @param  string  $outcomes
      * @param  bool  $untilSecondEnds
@@ -1246,11 +1166,8 @@ final class ConcurrentProofSpendingTest extends TestCase
     }
 
     /**
-     * In the forked process: wait to be started, run the operation on a
-     * connection of its own, report the outcome or the exception (one that was
-     * never started reports that, and runs nothing), and end without running
-     * the parent's shutdown. The outcome is renamed into place whole, so the
-     * parent never reads it half written.
+     * Run the operation in the forked process, report its outcome and exit
+     * without the parent's shutdown.
      *
      * @param  \Closure(): string  $operation
      * @return never

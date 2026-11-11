@@ -25,10 +25,7 @@ use Tests\Unit\Stubs\StubPrincipal;
 
 /**
  * A refresh that fails while issuing either token of the new pair leaves the
- * presented refresh token valid, on the suite's configured database.
- *
- * Both tokens are issued before the rotation commits, so a failure while
- * issuing cannot consume the stored digest and sign the session out.
+ * presented refresh token valid.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -76,11 +73,7 @@ final class JwtGuardRefreshIssuingFailureIntegrationTest extends TestCase
     }
 
     /**
-     * The resolver hands back a principal whose identifier can be read once,
-     * which the check that the session records it uses up, so the token service
-     * fails while issuing the access token: the refresh throws, the stored
-     * digest is unchanged in the database, and the same refresh token rotates
-     * once the resolver returns a principal that can be read again.
+     * A failure while issuing the access token leaves the refresh token valid.
      *
      * @return void
      *
@@ -92,11 +85,7 @@ final class JwtGuardRefreshIssuingFailureIntegrationTest extends TestCase
     }
 
     /**
-     * The resolver hands back a principal whose identifier can be read twice,
-     * so the access token is issued and the refresh token is not: the refresh
-     * throws after the first token exists, the stored digest is unchanged in
-     * the database, and the same refresh token rotates once the resolver
-     * returns a principal that can be read again.
+     * A failure while issuing the refresh token leaves the presented one valid.
      *
      * @return void
      *
@@ -157,8 +146,7 @@ final class JwtGuardRefreshIssuingFailureIntegrationTest extends TestCase
 
     /**
      * Refresh with a principal whose identifier fails after the given number of
-     * reads, and assert the failure propagated after one more read and left the
-     * presented refresh token valid.
+     * reads, and assert the presented refresh token stays valid.
      *
      * @param  int  $readsAllowed
      * @return void

@@ -29,12 +29,8 @@ use Tests\Integration\Fixtures\MachineClient;
 use Tests\TestCase;
 
 /**
- * End-to-end tests for machine credentials served by one Laravel Octane worker:
- * the `api_key` guard, and the access tokens a client credentials exchange
- * grants on a `jwt` guard. Nothing one request binds (a machine identity, its
- * principal, the scopes its credential grants, a refused credential) is seen by
- * the next, and `Auth::apiKeys()` and `Auth::clientCredentials()` act through
- * the request's sandbox: its request, and the dispatcher bound in it.
+ * End-to-end tests for machine credentials served by one Octane worker, where
+ * nothing one request binds is seen by the next.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -114,9 +110,7 @@ final class MachineCredentialRequestsTest extends TestCase
     }
 
     /**
-     * One machine's API key, then none, then another machine's: the guest
-     * request binds nothing, and the third sees only the second machine and
-     * only the scopes its own key grants.
+     * One machine's API key, then none, then another's: each sees only its own.
      *
      * @return void
      */
@@ -152,9 +146,7 @@ final class MachineCredentialRequestsTest extends TestCase
     }
 
     /**
-     * A client credentials token, which binds a machine with the token's
-     * scopes, then no token, then a human's session token, then the machine's
-     * token again: the human sees no scopes, and the machine its own again.
+     * A machine's token, then none, then a human's, then the machine's again.
      *
      * @return void
      */
@@ -188,10 +180,8 @@ final class MachineCredentialRequestsTest extends TestCase
     }
 
     /**
-     * `Auth::apiKeys()` and `Auth::clientCredentials()` dispatch through the
-     * dispatcher bound in the request they serve, with that request's client,
-     * though the guard behind them was resolved before it was bound: each
-     * request's events reach its own listeners and no other request's.
+     * `Auth::apiKeys()` and `Auth::clientCredentials()` report through each
+     * request's own dispatcher.
      *
      * @return void
      */
@@ -299,9 +289,7 @@ final class MachineCredentialRequestsTest extends TestCase
     }
 
     /**
-     * The HTTP Basic credentials of the key (`<prefix>_<public>_<secret>`), as
-     * an OAuth client presents them: the public part as the client id, the
-     * secret as the client secret.
+     * The key's HTTP Basic credentials as an OAuth client presents them.
      *
      * @param  string  $key
      * @return array{HTTP_AUTHORIZATION: string}

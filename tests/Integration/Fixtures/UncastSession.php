@@ -11,9 +11,8 @@ use SineMacula\Laravel\Authentication\Concerns\ActsAsSession;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 
 /**
- * Custom session model over the shipped `authentication_sessions` table that
- * uses the `ActsAsSession` trait but declares no casts, so `revoked_at` reads
- * back as the raw value the database returns rather than a Carbon instance.
+ * Session model using `ActsAsSession` without casts, so `revoked_at` reads back
+ * as the raw database value.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

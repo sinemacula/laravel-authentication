@@ -17,9 +17,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
- * 2D identity that opts into activation from its `is_active` column but whose
- * global scope selects only the sign-in columns, as an application narrowing
- * its user queries might, so every lookup loads it without the flag.
+ * Activatable 2D identity whose global scope selects only the sign-in columns,
+ * so every lookup loads it without `is_active`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

@@ -42,14 +42,8 @@ use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\TestCase;
 
 /**
- * Integration tests of the factor package's mandatory triggers, of a removed
- * first-factor credential, and of the judgement of the current session again
- * after an addition, a change of the factor package's that removes no factor,
- * inside the factor package's own transaction on the storage connection:
- * everything they write (the revocations, the voided proofs, the current
- * session's return to pending) commits or rolls back with the factor package's
- * change, nothing is reported until it commits, and the guard forgets the
- * current session only then.
+ * Integration tests of the factor package's revocation triggers inside its own
+ * transaction.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -104,9 +98,8 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * Rows of `[the trigger, the sessions it revokes, whether the current
-     * session returns to pending, the events it reports, whether the guard
-     * bound to the current session forgets it]`.
+     * Rows of `[trigger, sessions revoked, current session pending, events,
+     * guard forgets]`.
      *
      * @formatter:off
      *
@@ -146,9 +139,8 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * Inside the factor package's transaction that rolls back, the trigger
-     * leaves every session as it was, voids nothing, reports nothing, and the
-     * guard stays bound to the current session.
+     * A trigger rolled back with the factor package's transaction changes and
+     * reports nothing.
      *
      * @formatter:off
      *
@@ -194,11 +186,8 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * Inside the factor package's transaction that commits, the trigger's
-     * writes commit with the factor package's own, each event is reported once
-     * after the commit and none before, and a current session taken back to
-     * pending has its proofs with the factor voided and the guard bound to it
-     * forgotten, as is the guard bound to an identity whose factors were reset.
+     * A trigger committed with the factor package's transaction writes, reports
+     * once and unbinds the guard.
      *
      * @formatter:off
      *
@@ -245,10 +234,8 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * Inside the factor package's transaction that rolls back, a change that
-     * returned the current session to pending leaves it active with its tokens,
-     * reports nothing, keeps the guard bound to it, and leaves the pending
-     * credential it answered matching nothing.
+     * A change that returned the current session to pending rolls back with the
+     * transaction.
      *
      * @return void
      *
@@ -282,11 +269,8 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * Inside the factor package's transaction that commits, a change that
-     * returned the current session to pending commits with the factor package's
-     * own writes and leaves the identity's other session alone; the guard
-     * forgets the current session after the commit and before the return is
-     * reported, once, and the pending credential takes a further factor.
+     * A change that returned the current session to pending commits with the
+     * transaction and unbinds the guard.
      *
      * @return void
      *
@@ -334,16 +318,14 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * Inside the factor package's transaction that rolls back, a change that
-     * revoked the current session (its identity deactivated in the same
-     * transaction) leaves it unrevoked with its tokens, reports nothing and
-     * keeps the guard bound to it.
+     * A change that revoked the current session rolls back with the
+     * transaction.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAChangeThatRevokedTheCurrentSessionRollsBackWithTheFactorPackagesTransaction(): void
+    public function testARevokingChangeRollsBackWithTheFactorPackagesTransaction(): void
     {
         $this->seedIdentity();
 
@@ -367,18 +349,14 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * Inside the factor package's transaction that commits, a change that
-     * revoked the current session (its identity deactivated in the same
-     * transaction) commits the revocation as `factor_changed` with the factor
-     * package's own writes and leaves the identity's other session alone; the
-     * guard forgets the current session after the commit and before the
-     * revocation is reported, once.
+     * A change that revoked the current session commits as `factor_changed` and
+     * unbinds the guard.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAChangeThatRevokedTheCurrentSessionCommitsWithTheFactorPackagesTransaction(): void
+    public function testARevokingChangeCommitsWithTheFactorPackagesTransaction(): void
     {
         $this->seedIdentity();
 
@@ -430,8 +408,7 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * A session of the seeded identity that signed in pending a further factor
-     * and was activated with the factor given.
+     * A session of the seeded identity, activated with the factor given.
      *
      * @param  string  $factor
      * @return \SineMacula\Laravel\Authentication\Sessions\SignedInSession
@@ -465,8 +442,8 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * A session of the seeded identity, signed in with its password alone and
-     * active, as it is before the factor package asks it for a further factor.
+     * An active session of the seeded identity, signed in with its password
+     * alone.
      *
      * @return \SineMacula\Laravel\Authentication\Sessions\SignedInSession
      *
@@ -484,8 +461,8 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * A further factor verified with the factor given, for the session's sign
-     * in.
+     * A further factor verified with the factor given, for the session's
+     * sign-in.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $signedIn
      * @param  string  $factor
@@ -523,7 +500,7 @@ final class FactorRevocationsTest extends TestCase
 
     /**
      * Record the class of every revocation, logout everywhere and return to
-     * pending reported from now on, in order.
+     * pending reported.
      *
      * @return \ArrayObject<int, class-string>
      */

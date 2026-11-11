@@ -21,13 +21,8 @@ use Tests\Integration\Fixtures\SeparatePasswordIdentity;
 use Tests\TestCase;
 
 /**
- * Proves that the password hash a sign-in is checked against is read from the
- * write connection, so a hash a lagging replica still holds cannot admit a
- * password the primary has already replaced.
- *
- * The identity keeps its hash in `identity_passwords`, read by its own password
- * getter. The default connection is a read/write split whose replica lags
- * behind the primary.
+ * The password hash a sign-in is checked against is read from the write
+ * connection.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -94,9 +89,7 @@ final class PasswordWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * Signing in over HTTP with the password the primary has replaced is
-     * refused, although the replica still holds its hash, and the new password
-     * signs in.
+     * Signing in over HTTP accepts only the password the primary holds.
      *
      * @return void
      */
@@ -119,9 +112,8 @@ final class PasswordWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * A password getter whose query fails on the writer propagates the error,
-     * and afterwards reads go back to the replica through the original
-     * connection resolver.
+     * A failing password query propagates and restores the original connection
+     * resolver.
      *
      * @return void
      */

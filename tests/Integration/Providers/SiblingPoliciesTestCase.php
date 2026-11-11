@@ -24,11 +24,8 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\StubReplacementPrincipalResolver;
 
 /**
- * The policies another package binds hold whichever order its provider and the
- * package's register in: its additional-factor policy asks a further factor of
- * a real sign-in, its scope registry refuses a scope an API key is issued with,
- * and its principal resolver is the guards', against a real database. Each
- * subclass registers the providers in one order.
+ * The policies another package binds hold whichever order the providers
+ * register in.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -73,10 +70,8 @@ abstract class SiblingPoliciesTestCase extends TestCase
     }
 
     /**
-     * The sibling's additional-factor policy is the one a sign-in asks: the
-     * sign-in waits for a further factor, with its session pending and no token
-     * issued, rather than starting a session as the package's default policy
-     * would.
+     * The sibling's additional-factor policy makes a sign-in wait for a further
+     * factor.
      *
      * @return void
      *
@@ -105,9 +100,7 @@ abstract class SiblingPoliciesTestCase extends TestCase
     }
 
     /**
-     * The sibling's scope registry is the one an API key is issued against: the
-     * scope it refuses is refused, and no key is stored, rather than accepted
-     * as the package's default registry would.
+     * The sibling's scope registry refuses a scope an API key is issued with.
      *
      * @return void
      *
@@ -129,8 +122,8 @@ abstract class SiblingPoliciesTestCase extends TestCase
     }
 
     /**
-     * A guard resolves principals through the sibling's resolver, and still
-     * follows a later rebinding of the global resolver.
+     * A guard resolves principals through the sibling's resolver and follows a
+     * later rebind.
      *
      * @return void
      *

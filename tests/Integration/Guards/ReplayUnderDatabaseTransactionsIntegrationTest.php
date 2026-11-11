@@ -30,15 +30,8 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
 
 /**
- * End-to-end tests for replay revocation in an application's own test suite,
- * which wraps every test in a transaction with Laravel's `DatabaseTransactions`
- * trait: that wrapping transaction never commits, so `SessionRevoked` must not
- * wait for it, yet a transaction the application opens inside it still defers
- * the event until it commits.
- *
- * The tables are created before the wrapping transaction begins and dropped
- * after it is rolled back, so the schema neither commits it early on MySQL nor
- * survives the test on PostgreSQL, where it would be rolled back with it.
+ * Tests replay revocation under the never-committed transaction Laravel's
+ * `DatabaseTransactions` wraps each test in.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -108,9 +101,7 @@ final class ReplayUnderDatabaseTransactionsIntegrationTest extends TestCase
     }
 
     /**
-     * A replay outside any transaction of the application's own is reported at
-     * once, although the test's wrapping transaction is still open and will
-     * never commit.
+     * A replay outside the application's own transactions is reported at once.
      *
      * @return void
      *
@@ -132,9 +123,8 @@ final class ReplayUnderDatabaseTransactionsIntegrationTest extends TestCase
     }
 
     /**
-     * A replay inside a transaction the application opens within the test's
-     * wrapping one is reported when that transaction commits, and never when it
-     * is rolled back, which also leaves the session live.
+     * A replay inside the application's own transaction is reported only when
+     * it commits.
      *
      * @return void
      *
@@ -167,15 +157,8 @@ final class ReplayUnderDatabaseTransactionsIntegrationTest extends TestCase
     }
 
     /**
-     * Create the shipped sessions, rate limits and proofs tables and the
-     * identity table before the wrapping transaction begins. Teardown callbacks
-     * run in reverse order, so on a persistent database the tables are dropped
-     * after the wrapping transaction is rolled back; an in-memory one goes with
-     * its connection.
-     *
-     * The proofs table is needed although nothing here reads a proof: the
-     * session saved is given its first factor, and on PostgreSQL a failed
-     * insert would abort the wrapping transaction.
+     * Create the tables before the wrapping transaction begins, so the schema
+     * neither commits it on MySQL nor rolls back with it on PostgreSQL.
      *
      * @return void
      */
@@ -255,8 +238,7 @@ final class ReplayUnderDatabaseTransactionsIntegrationTest extends TestCase
     }
 
     /**
-     * A validly signed refresh token for the session carrying the replaced
-     * `ROTATION_ID`.
+     * Issue the session a refresh token carrying the replaced `ROTATION_ID`.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\Session  $session
      * @return string

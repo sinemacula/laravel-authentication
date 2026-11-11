@@ -24,10 +24,8 @@ use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\TestCase;
 
 /**
- * On a route without authentication middleware, the first call to `Auth::id()`
- * or to any contextual accessor resolves the bearer token, as Laravel's own
- * guards do, instead of returning `null` until something calls `user()`. A
- * principal or session pinned before that first access stays pinned.
+ * Without `auth` middleware, the first contextual accessor call resolves the
+ * bearer token, as Laravel's own guards do.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -89,7 +87,7 @@ final class LazyContextResolutionIntegrationTest extends TestCase
     }
 
     /**
-     * Data provider of each accessor called first on the request.
+     * Accessors called first on the request.
      *
      * @return iterable<string, array{0: string}>
      */
@@ -153,9 +151,8 @@ final class LazyContextResolutionIntegrationTest extends TestCase
     }
 
     /**
-     * A principal and session pinned on a route without `auth` middleware,
-     * before anything resolved the request, stay pinned: the bearer token is
-     * resolved first and the pins replace its principal and session.
+     * A principal and session pinned before the bearer token resolves stay
+     * pinned.
      *
      * @return void
      *
@@ -202,10 +199,8 @@ final class LazyContextResolutionIntegrationTest extends TestCase
     }
 
     /**
-     * A `Login` listener that reads the guard while `attempt()` signs another
-     * member in, on a route without `auth` middleware whose request carries a
-     * bearer token, does not resolve that token: the member signing in is bound
-     * with no session rather than with the bearer's.
+     * A `Login` listener reading the guard during `attempt()` does not resolve
+     * the request's bearer token.
      *
      * @return void
      *

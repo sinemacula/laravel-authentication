@@ -34,12 +34,8 @@ use Tests\Integration\Fixtures\ChoosingMembership;
 use Tests\TestCase;
 
 /**
- * Proves a pending session is read from the write connection while the replica
- * lags behind every write: a sign-in written pending, its first proof, the
- * further factor that satisfies it, the principals a choice lists and the one
- * it records are all found on the primary, so the session is looked up,
- * satisfied and chosen for as soon as it is written, and the replica never
- * holds any of it.
+ * Integration tests that a pending session is read on the primary while the
+ * replica lags.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -60,8 +56,8 @@ final class ReplicaPendingSessionsTest extends TestCase
     private bool $factorRequired = true;
 
     /**
-     * Freeze the clocks, create the identity and tenant tables on the primary
-     * and the replica, and bind a factor policy the test switches.
+     * Freeze the clocks, create the identity and tenant tables on both
+     * connections, and bind a switchable factor policy.
      *
      * @return void
      */
@@ -163,9 +159,7 @@ final class ReplicaPendingSessionsTest extends TestCase
     }
 
     /**
-     * A sign-in written pending is found, allowed its factor's actions and
-     * satisfied at once, though the replica holds neither the session nor its
-     * proofs: the session activates on the primary with both proofs.
+     * A pending session only the primary holds is found and satisfied there.
      *
      * @return void
      *
@@ -198,8 +192,7 @@ final class ReplicaPendingSessionsTest extends TestCase
     }
 
     /**
-     * A sign-in waiting on a choice lists the principals only the primary
-     * holds, and the choice records the principal and its tenant there and
+     * A choice lists and records principals only the primary holds, and
      * activates the session.
      *
      * @return void
@@ -239,7 +232,7 @@ final class ReplicaPendingSessionsTest extends TestCase
     }
 
     /**
-     * Configure the session guards, the choosers' guard, and the lagging
+     * Configure the session guards, the choosers' guard and the lagging
      * read/write split.
      *
      * @param  mixed  $app
@@ -273,8 +266,8 @@ final class ReplicaPendingSessionsTest extends TestCase
     }
 
     /**
-     * Sign the identity with the email in on the guard, expecting a pending
-     * session with a credential.
+     * Sign the identity in on the guard, expecting a pending session with a
+     * credential.
      *
      * @param  string  $guard
      * @param  string  $email

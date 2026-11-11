@@ -32,10 +32,7 @@ use Tests\Fixtures\External\ScriptedEvidencePolicy;
 use Tests\TestCase;
 
 /**
- * Integration tests for external sign-in against a real database, on whichever
- * engine the suite runs on: inside the adapter's own transaction the session,
- * its first proof and its provenance commit or roll back with it, the link
- * contract asked first, and the link's id is kept byte for byte.
+ * Integration tests for external sign-in against a real database.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -88,10 +85,8 @@ final class ExternalSignInTest extends TestCase
     }
 
     /**
-     * Inside the adapter's transaction the session, its proof and its
-     * provenance are written there, and the reports and the guard's bind wait
-     * for the commit; a rollback leaves none of them, reports nothing and binds
-     * nothing.
+     * The sign-in commits or rolls back with the adapter's transaction, and
+     * reports and binds only on commit.
      *
      * @return void
      *
@@ -129,9 +124,8 @@ final class ExternalSignInTest extends TestCase
     }
 
     /**
-     * An exception from the link contract inside the adapter's transaction
-     * reaches it with nothing of the sign-in written, so the adapter rolls back
-     * or retries the whole transaction.
+     * An exception from the link contract inside a transaction leaves nothing
+     * of the sign-in written.
      *
      * @return void
      *
@@ -156,8 +150,8 @@ final class ExternalSignInTest extends TestCase
     }
 
     /**
-     * The link's id is recorded and read back byte for byte on every engine:
-     * ids that differ only in case or by a trailing space are kept apart.
+     * The link id is stored byte for byte, keeping case and trailing-space
+     * variants apart.
      *
      * @return void
      *
@@ -185,9 +179,8 @@ final class ExternalSignInTest extends TestCase
     }
 
     /**
-     * The largest evidence the evidence takes, all of it outside ASCII and
-     * outside the basic plane, is written with the first proof and the
-     * provenance on every engine, and reads back unchanged from both.
+     * The largest evidence is stored whole with the first proof and the
+     * provenance.
      *
      * @return void
      *
@@ -210,10 +203,8 @@ final class ExternalSignInTest extends TestCase
     }
 
     /**
-     * A provider context of every kind of value JSON keeps (nested lists and
-     * maps, text outside ASCII and the basic plane, the largest integers,
-     * floats whole and not) round-trips through the provenance on every engine,
-     * and so does one that takes the most bytes it may, stored whole.
+     * A provider context of every JSON value type round-trips, and the largest
+     * is stored whole.
      *
      * @return void
      *

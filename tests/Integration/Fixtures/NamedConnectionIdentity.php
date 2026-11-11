@@ -7,9 +7,8 @@ namespace Tests\Integration\Fixtures;
 use Illuminate\Database\Eloquent\Model;
 
 /**
- * An identity row in `integration_identities` whose model names its connection,
- * `testing`, rather than leaving it to whoever relates to it, so a session on
- * another connection still loads it from there.
+ * Identity whose model names its `testing` connection, so a session on another
+ * connection still loads it from there.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

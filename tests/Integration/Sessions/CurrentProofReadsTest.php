@@ -92,40 +92,8 @@ use Tests\Integration\Fixtures\ChoosingMembership;
 use Tests\TestCase;
 
 /**
- * Every requirement judgement the package makes under a session's row lock, and
- * the external standing it answers under it, on PostgreSQL and MySQL, on two
- * connections to one database, inside a caller's transaction at READ COMMITTED
- * and at REPEATABLE READ that made a plain read first: meanwhile the other
- * connection commits a change to the session's proofs as the package writes it
- * (a step-up, a proof voided, a reauthentication bringing accepted evidence, or
- * the session's key reused by another sign-in), each of which writes the
- * session's row; then the caller's transaction runs the judgement.
- *
- * At READ COMMITTED, and on MySQL at REPEATABLE READ (whose plain reads return
- * the snapshot of the transaction's first read, so only the shared lock the
- * judgement's reads take there see the change), the judgement is made on the
- * change committed: a step-up counts, a voided proof never does, and a reused
- * key's session is judged on its own proofs and provenance. On PostgreSQL's
- * REPEATABLE READ no read can see past the snapshot, so the session's lock or
- * issuance guard fails to serialise instead, and once the caller retries the
- * whole transaction the judgement is made on the change. A judgement that read
- * the snapshot would return a session to pending for want of the step-up, keep
- * it active on the voided proof, list less than a session returned to pending
- * waits on, or keep a session the reused key no longer establishes through the
- * tenant's connection.
- *
- * The public reads of an active session's proofs and first factor (the session
- * service's and a contribution subject's) are made the same way: asked inside
- * the caller's transaction, they return a step-up committed meanwhile, never a
- * proof voided meanwhile, nothing for a session revoked meanwhile, and a reused
- * key's own first factor, or nothing for the earlier session's instance; a read
- * of the snapshot would return the opposite of each. A step-up and a factor
- * change of the session after such a read, in the same transaction, commit with
- * it. Asked outside a transaction they answer what is committed and lock
- * nothing.
- *
- * Skipped on SQLite, whose in-memory database each connection would have to
- * itself.
+ * Races the judgements and reads made under a session's lock against a proof
+ * change, on two connections to one database.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -163,8 +131,8 @@ final class CurrentProofReadsTest extends TestCase
 
     /**
      * Skip where two connections cannot share the database, add the second
-     * connection, freeze the clocks, create the tables, and bind the scripted
-     * tenant policy and the check that judges further factors.
+     * connection, freeze the clocks, create the tables and bind the policy and
+     * check.
      *
      * @return void
      */
@@ -220,9 +188,7 @@ final class CurrentProofReadsTest extends TestCase
     }
 
     /**
-     * A factor change counts a step-up committed after the caller's first read:
-     * a session whose identity now asks for a further factor, which the step-up
-     * meets, stays active.
+     * A factor change counts a step-up committed meanwhile.
      *
      * @param  string  $level
      * @return void
@@ -248,9 +214,7 @@ final class CurrentProofReadsTest extends TestCase
     }
 
     /**
-     * A factor's removal never counts a proof another factor's removal voided
-     * after the caller's first read: with both factors' proofs voided, the
-     * session owes its further factor again and returns to pending.
+     * A factor removal never counts a proof voided meanwhile.
      *
      * @param  string  $level
      * @return void
@@ -279,10 +243,8 @@ final class CurrentProofReadsTest extends TestCase
     }
 
     /**
-     * A factor's removal under a tenant's further factor never counts a proof
-     * another factor's removal voided after the caller's first read: with both
-     * factors' proofs voided, the session falls short of its tenant's further
-     * factor, which the identity does not ask for, and returns to pending.
+     * A factor removal under a tenant's factor never counts a proof voided
+     * meanwhile.
      *
      * @param  string  $level
      * @return void
@@ -314,8 +276,7 @@ final class CurrentProofReadsTest extends TestCase
     }
 
     /**
-     * Rows of `[isolation level, freshness policy bound]`: the package's, and a
-     * decorator of it that passes the read mode on.
+     * Rows of `[isolation level, freshness policy bound]`.
      *
      * @return iterable<string, array{0: string, 1: string}>
      */
@@ -329,10 +290,7 @@ final class CurrentProofReadsTest extends TestCase
     }
 
     /**
-     * The factor-change gate never counts a step-up voided after the caller's
-     * first read (another connection's factor removal voided it), the bound
-     * policy asked current: the change is refused (`step_up_required`). A gate
-     * that judged the snapshot would allow it on a proof that no longer counts.
+     * The factor-change gate never counts a step-up voided meanwhile.
      *
      * @param  string  $level
      * @param  string  $policy
@@ -361,10 +319,7 @@ final class CurrentProofReadsTest extends TestCase
     }
 
     /**
-     * The factor-change gate counts a step-up committed after the caller's
-     * first read, the bound policy asked current: the change is allowed on it.
-     * A gate that judged the snapshot would miss it at MySQL's REPEATABLE READ
-     * and refuse.
+     * The factor-change gate counts a step-up committed meanwhile.
      *
      * @param  string  $level
      * @param  string  $policy
@@ -393,10 +348,8 @@ final class CurrentProofReadsTest extends TestCase
     }
 
     /**
-     * A caller's own freshness read asked current, for a proof and until when,
-     * never counts a step-up voided after the caller's first read (another
-     * connection's factor removal voided it): both answer that the session is
-     * not fresh for a factor change.
+     * A caller's current freshness read never counts a step-up voided
+     * meanwhile.
      *
      * @param  string  $level
      * @return void
@@ -426,9 +379,7 @@ final class CurrentProofReadsTest extends TestCase
     }
 
     /**
-     * A refresh counts a step-up committed after the caller's first read: a
-     * session whose tenant now asks for a further factor, which the step-up
-     * meets, is handed a pair.
+     * A refresh counts a step-up committed meanwhile.
      *
      * @param  string  $level
      * @return void
@@ -458,10 +409,7 @@ final class CurrentProofReadsTest extends TestCase
     }
 
     /**
-     * A refresh its tenant's further factor returns to pending never counts a
-     * proof voided after the caller's first read towards the identity's own:
-     * the pending session lists the identity's further factor beside the
-     * tenant's, never the tenant's alone.
+     * A refresh returned to pending never counts a proof voided meanwhile.
      *
      * @param  string  $level
      * @return void
@@ -496,9 +444,7 @@ final class CurrentProofReadsTest extends TestCase
     }
 
     /**
-     * A switch counts a step-up committed after the caller's first read: a
-     * switch to a principal whose tenant asks for a further factor, which the
-     * step-up meets, switches.
+     * A switch counts a step-up committed meanwhile.
      *
      * @param  string  $level
      * @return void
@@ -539,11 +485,7 @@ final class CurrentProofReadsTest extends TestCase
     }
 
     /**
-     * A switch's grace retry counts a step-up committed after the caller's
-     * first read: the switch presented again with the token it rotated, once
-     * the destination's tenant asks for a further factor the step-up meets, is
-     * answered as switched with the session's current credential, never
-     * returned to pending.
+     * A switch's grace retry counts a step-up committed meanwhile.
      *
      * @param  string  $level
      * @return void
@@ -585,10 +527,7 @@ final class CurrentProofReadsTest extends TestCase
     }
 
     /**
-     * A switch its destination's further factor returns to pending never counts
-     * a proof voided after the caller's first read towards the identity's own:
-     * the pending session lists the identity's further factor beside the
-     * destination tenant's, never the tenant's alone.
+     * A switch returned to pending never counts a proof voided meanwhile.
      *
      * @param  string  $level
      * @return void
@@ -635,9 +574,7 @@ final class CurrentProofReadsTest extends TestCase
     }
 
     /**
-     * A choice never counts a further factor's proof voided after the caller's
-     * first read: the pending session that had satisfied its further factor
-     * waits on it again, the choice recorded, instead of activating.
+     * A choice never counts a proof voided meanwhile.
      *
      * @param  string  $level
      * @return void
@@ -676,11 +613,7 @@ final class CurrentProofReadsTest extends TestCase
     }
 
     /**
-     * A choice under a tenant's further factor never counts its proof voided
-     * after the caller's first read: once the identity no longer asks for a
-     * further factor of its own, the pending session that had satisfied one
-     * waits on it again for the chosen principal's tenant, the choice recorded,
-     * instead of activating.
+     * A choice under a tenant's factor never counts a proof voided meanwhile.
      *
      * @param  string  $level
      * @return void
@@ -723,9 +656,7 @@ final class CurrentProofReadsTest extends TestCase
     }
 
     /**
-     * A further factor satisfied never counts with a proof voided after the
-     * caller's first read: a session whose requirement takes two further
-     * factors, one voided meanwhile, keeps waiting with the other alone.
+     * A satisfaction never counts a proof voided meanwhile.
      *
      * @param  string  $level
      * @return void
@@ -761,10 +692,7 @@ final class CurrentProofReadsTest extends TestCase
     }
 
     /**
-     * A refresh of a session an external provider established counts evidence a
-     * reauthentication committed after the caller's first read: evidence the
-     * evidence policy says meets the tenant's multifactor requirement hands the
-     * session a pair.
+     * A refresh counts external evidence accepted meanwhile.
      *
      * @param  string  $level
      * @return void
@@ -802,9 +730,7 @@ final class CurrentProofReadsTest extends TestCase
     }
 
     /**
-     * A reauthentication through an external provider counts a step-up
-     * committed after the caller's first read: a session whose tenant now asks
-     * for a further factor, which the step-up meets, is issued its token.
+     * An external reauthentication counts a step-up committed meanwhile.
      *
      * @param  string  $level
      * @return void
@@ -832,9 +758,7 @@ final class CurrentProofReadsTest extends TestCase
     }
 
     /**
-     * A tenant's policy change counts a step-up committed after the caller's
-     * first read: a session the new policy asks a further factor of, which the
-     * step-up meets, records the version instead of being revoked.
+     * A policy change counts a step-up committed meanwhile.
      *
      * @param  string  $level
      * @return void
@@ -861,11 +785,7 @@ final class CurrentProofReadsTest extends TestCase
     }
 
     /**
-     * A tenant's policy change judges a session whose key another sign-in
-     * reused after the caller's first read on the new session's own proofs and
-     * provenance: a session established through the tenant's connection whose
-     * key now holds a password sign-in is revoked as the policy's connection
-     * requires, never kept on the earlier session's provenance.
+     * A policy change judges a reused key on its own provenance.
      *
      * @param  string  $level
      * @return void
@@ -896,11 +816,7 @@ final class CurrentProofReadsTest extends TestCase
     }
 
     /**
-     * A session's standing, asked under its lock, answers a session whose key
-     * another sign-in of the same identity reused after the caller's first read
-     * on the new session's own provenance: the password sign-in holding the key
-     * now has no standing through the connection and link that established the
-     * earlier session (`link_mismatch`), never the earlier session's.
+     * A standing answers a reused key on its own provenance.
      *
      * @param  string  $level
      * @return void
@@ -925,8 +841,7 @@ final class CurrentProofReadsTest extends TestCase
     }
 
     /**
-     * A read of a session's proofs inside the caller's transaction returns a
-     * step-up committed after the caller's first read.
+     * A proof read returns a step-up committed meanwhile.
      *
      * @param  string  $level
      * @return void
@@ -950,8 +865,7 @@ final class CurrentProofReadsTest extends TestCase
     }
 
     /**
-     * A read of a session's proofs inside the caller's transaction never
-     * returns a proof a factor's removal voided after the caller's first read.
+     * A proof read never returns a proof voided meanwhile.
      *
      * @param  string  $level
      * @return void
@@ -977,9 +891,7 @@ final class CurrentProofReadsTest extends TestCase
     }
 
     /**
-     * A read of a session's proofs and first factor inside the caller's
-     * transaction answers nothing for a session revoked after the caller's
-     * first read.
+     * A proof read answers nothing for a session revoked meanwhile.
      *
      * @param  string  $level
      * @return void
@@ -1004,9 +916,7 @@ final class CurrentProofReadsTest extends TestCase
     }
 
     /**
-     * A read of a session's first factor by its key, inside the caller's
-     * transaction, answers a key another sign-in of the same owner reused after
-     * the caller's first read with the new session's own first factor.
+     * A first factor read answers a reused key with its own first factor.
      *
      * @param  string  $level
      * @return void
@@ -1031,9 +941,7 @@ final class CurrentProofReadsTest extends TestCase
     }
 
     /**
-     * A contribution subject's read, inside the caller's transaction, answers
-     * nothing for the session it was given once another sign-in of the same
-     * owner reused its key after the caller's first read.
+     * A subject's read answers nothing for a reused key.
      *
      * @param  string  $level
      * @return void
@@ -1077,11 +985,8 @@ final class CurrentProofReadsTest extends TestCase
     }
 
     /**
-     * A read of a session's proofs inside the caller's transaction, then a
-     * step-up and a factor change of the same session in it, lock only the row
-     * the read holds: they commit together with no lock wait and no failure to
-     * serialise, nothing else having changed since the caller's first read, and
-     * a second read in the transaction returns the step-up.
+     * A proof read, step-up and factor change of one session commit in one
+     * transaction.
      *
      * @param  string  $level
      * @return void
@@ -1113,9 +1018,8 @@ final class CurrentProofReadsTest extends TestCase
     }
 
     /**
-     * Outside a transaction a read of a session's proofs and first factor
-     * answers what another connection has committed, and sends no locking
-     * statement.
+     * A proof read outside a transaction answers what is committed and locks
+     * nothing.
      *
      * @return void
      *
@@ -1166,7 +1070,7 @@ final class CurrentProofReadsTest extends TestCase
     }
 
     /**
-     * Bind the freshness policy named: the package's, or a decorator of it.
+     * Bind the named freshness policy.
      *
      * @param  string  $policy
      * @return void
@@ -1190,12 +1094,8 @@ final class CurrentProofReadsTest extends TestCase
     }
 
     /**
-     * Open the caller's transaction at the isolation level and read plainly
-     * (the snapshot), have the other connection commit the change, then run the
-     * judgement in the caller's transaction and commit it, returning what it
-     * answered. Where the transaction reads a snapshot every read keeps
-     * (PostgreSQL's REPEATABLE READ), the judgement fails to serialise first,
-     * and the caller retries the whole transaction.
+     * Read in the caller's transaction, commit the change elsewhere, then run
+     * the judgement, retrying on a failure to serialise.
      *
      * @template TJudged
      *
@@ -1228,11 +1128,9 @@ final class CurrentProofReadsTest extends TestCase
     }
 
     /**
-     * Run the work in the caller's open transaction, expecting it to fail to
-     * serialise, roll the whole transaction back, and return the SQLSTATE it
-     * failed with, or `null`: a standing, which runs no transaction of its own,
-     * throws the database's error as it is; every other call throws the
-     * `DeadlockException` Laravel raises inside a caller's transaction.
+     * Run the work expecting a failure to serialise, roll back and return the
+     * SQLSTATE. Laravel throws `DeadlockException` inside a caller's
+     * transaction; a standing, which opens none, throws the database's error.
      *
      * @param  \Closure(): mixed  $work
      * @return ?string
@@ -1255,8 +1153,8 @@ final class CurrentProofReadsTest extends TestCase
     }
 
     /**
-     * Run the work on the other connection, as the default one, in a
-     * transaction of its own that commits before this returns.
+     * Run the work on the other connection in a transaction of its own that
+     * commits.
      *
      * @param  \Closure(): void  $work
      * @return void
@@ -1279,9 +1177,7 @@ final class CurrentProofReadsTest extends TestCase
 
     /**
      * Reuse the session's key for a password sign-in of the same owner on the
-     * other connection, sending what a key reuse sends: the row rewritten as a
-     * new generation, the earlier session's proofs and provenance deleted, and
-     * the new first factor recorded.
+     * other connection.
      *
      * @param  mixed  $key
      * @return void
@@ -1303,7 +1199,7 @@ final class CurrentProofReadsTest extends TestCase
     }
 
     /**
-     * Step the session up with the factor given, on the other connection.
+     * Step the session up with the factor on the other connection.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
@@ -1325,7 +1221,7 @@ final class CurrentProofReadsTest extends TestCase
 
     /**
      * Void the session's proofs made with the factor on the other connection,
-     * after its issuance guard, as a factor's removal voids them.
+     * after its issuance guard.
      *
      * @param  string  $guard
      * @param  mixed  $key
@@ -1368,8 +1264,8 @@ final class CurrentProofReadsTest extends TestCase
     }
 
     /**
-     * A session the identity signed in to pending a further factor and
-     * activated with the factor given.
+     * A session signed in pending a further factor and activated with the
+     * factor.
      *
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -1397,8 +1293,7 @@ final class CurrentProofReadsTest extends TestCase
     }
 
     /**
-     * An accepted further factor's proof, made now with the factor given, for
-     * the session and purpose given.
+     * An accepted further factor's proof for the session and purpose.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $guard
@@ -1423,8 +1318,8 @@ final class CurrentProofReadsTest extends TestCase
     }
 
     /**
-     * A result through the seeded member's link, the provider authenticating it
-     * now, with the evidence given.
+     * A result through the seeded member's link, authenticated now with the
+     * evidence.
      *
      * @param  ?\SineMacula\Laravel\Authentication\External\ExternalEvidence  $evidence
      * @return \SineMacula\Laravel\Authentication\External\ExternalResult
@@ -1435,8 +1330,7 @@ final class CurrentProofReadsTest extends TestCase
     }
 
     /**
-     * Persist a chooser with two memberships, each in an active tenant of its
-     * own, so a sign-in that names no principal waits for a choice.
+     * Persist a chooser with two memberships, each in its own active tenant.
      *
      * @return array{0: \Tests\Integration\Fixtures\ChoosingMember, 1: \Tests\Integration\Fixtures\ChoosingMembership}
      */
@@ -1455,8 +1349,7 @@ final class CurrentProofReadsTest extends TestCase
     }
 
     /**
-     * A requirement check that is met only by accepted further factors of two
-     * different factors among the subject's proofs.
+     * A requirement check met only by accepted proofs of two different factors.
      *
      * @return \SineMacula\Laravel\Authentication\Contracts\RequirementCheck
      */

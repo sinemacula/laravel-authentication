@@ -21,14 +21,8 @@ use Tests\Integration\Fixtures\EagerTenantUser;
 use Tests\TestCase;
 
 /**
- * Proves that relations an authentication lookup eager-loads are read from the
- * write connection along with the row itself.
- *
- * Eloquent runs each eager load as a separate query that the write-PDO flag on
- * the lookup's own query does not reach. The fixtures eager-load the tenant on
- * every query, and the default connection is a read/write split whose replica
- * lags behind the primary, so a tenant deactivated on the primary would still
- * read as active if the eager load were served by the replica.
+ * Relations an authentication lookup eager-loads are read from the write
+ * connection along with the row itself.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -46,8 +40,7 @@ final class JwtGuardEagerLoadWriteConnectionIntegrationTest extends TestCase
     private const string PASSWORD = 'correct horse battery staple';
 
     /**
-     * Create the tenant, member, membership, and user tables on the primary and
-     * the replica.
+     * Create the fixture tables on the primary and the replica.
      *
      * @return void
      */
@@ -101,10 +94,8 @@ final class JwtGuardEagerLoadWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * A membership found through the hinted `principals()->find()` lookup
-     * eager-loads its tenant from the writer: once the tenant is deactivated on
-     * the primary, the member's bearer token is rejected although the replica
-     * still shows the tenant active.
+     * The hinted `principals()->find()` lookup eager-loads the tenant from the
+     * writer.
      *
      * @return void
      *
@@ -134,10 +125,7 @@ final class JwtGuardEagerLoadWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * A 2D identity found by the model provider's `retrieveById()` eager-loads
-     * its tenant from the writer: once the tenant is deactivated on the
-     * primary, the user's bearer token is rejected although the replica still
-     * shows the tenant active.
+     * The provider's `retrieveById()` eager-loads the tenant from the writer.
      *
      * @return void
      *
@@ -158,10 +146,8 @@ final class JwtGuardEagerLoadWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * A 2D identity found by the model provider's `retrieveByCredentials()`
-     * eager-loads its tenant from the writer: once the tenant is deactivated on
-     * the primary, signing in fails although the replica still shows the tenant
-     * active.
+     * The provider's `retrieveByCredentials()` eager-loads the tenant from the
+     * writer.
      *
      * @return void
      *
@@ -238,8 +224,7 @@ final class JwtGuardEagerLoadWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * Write an active tenant and copy it to the replica, so the replica keeps
-     * showing it active after the test deactivates it on the primary.
+     * Write an active tenant and copy it to the replica.
      *
      * @return \Tests\Integration\Fixtures\ActivatableTenant
      */

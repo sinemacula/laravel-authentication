@@ -38,17 +38,7 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
 
 /**
- * End-to-end tests for idle and absolute session lifetimes on the shipped
- * sessions table: a refresh moves the idle deadline forward but never past the
- * absolute deadline, which never moves; tokens mirror the deadlines; and a
- * session past either deadline is over on every path, the bearer path, sign-in
- * pins, and refresh, whatever its tokens say; and a session that records no
- * first factor is never issued for.
- *
- * The `api` guard uses 5-minute access tokens, a 1-hour idle lifetime, a
- * 10-hour absolute lifetime, and 30 seconds of leeway. The `brief` guard keeps
- * the access lifetime and the leeway but has a 2-minute idle lifetime, shorter
- * than its access tokens'.
+ * Tests idle and absolute session lifetimes on the shipped sessions table.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -120,10 +110,8 @@ final class SessionLifetimeIntegrationTest extends TestCase
     }
 
     /**
-     * A session created with deadlines stamped from the guard's lifetimes can
-     * be issued for straight away, without a reload: `forceFill()` keeps the
-     * deadlines in the model's attributes. The refresh token expires at the
-     * idle deadline and the access token after the access lifetime.
+     * A session stamped from the guard's lifetimes can be issued for without a
+     * reload.
      *
      * @return void
      *
@@ -143,9 +131,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
 
     /**
      * Rows of `[seconds to the idle deadline, seconds to the absolute deadline
-     * or null for none, seconds the access token lasts]`: the access lifetime
-     * within a session that outlasts it, and either deadline when it comes
-     * first, down to its last second.
+     * or null for none, seconds the access token lasts]`.
      *
      * @return iterable<string, array{0: int, 1: ?int, 2: int}>
      */
@@ -163,9 +149,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
     }
 
     /**
-     * An access token for a session expires after the access lifetime, but
-     * never after the session's idle or absolute deadline, whichever comes
-     * first, or the idle one alone when it has no absolute one.
+     * An access token never expires after its session's first deadline.
      *
      * @param  int  $idleIn
      * @param  ?int  $absoluteIn
@@ -187,7 +171,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
     }
 
     /**
-     * Rows of `[token type]`: each kind of token the guard's service issues.
+     * Rows of `[token type]`.
      *
      * @return iterable<string, array{0: \SineMacula\Laravel\Authentication\Jwt\Enums\TokenType}>
      */
@@ -200,9 +184,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
     }
 
     /**
-     * A session stamped from the guard's lifetimes is issued for up to the last
-     * second before its idle deadline, with the token expiring at that
-     * deadline; from the deadline on, issuing through `Auth::jwt()` refuses.
+     * No token is issued from the second the idle deadline is reached.
      *
      * @param  \SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $type
      * @return void
@@ -229,9 +211,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
     }
 
     /**
-     * A session loaded without its deadline columns cannot be issued for: the
-     * missing deadline is reported rather than read as "no session" or as a
-     * live one.
+     * Issuing for a session loaded without its deadline columns throws.
      *
      * @param  \SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $type
      * @return void
@@ -252,9 +232,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
     }
 
     /**
-     * A refresh moves the idle deadline to the idle lifetime from now, keeps
-     * the absolute deadline exactly where the sign-in put it, and issues a
-     * refresh token that expires at the new idle deadline.
+     * A refresh moves the idle deadline and keeps the absolute deadline.
      *
      * @return void
      *
@@ -283,12 +261,8 @@ final class SessionLifetimeIntegrationTest extends TestCase
     }
 
     /**
-     * A session row that records no first factor (one an application wrote
-     * itself, not through the session service) is never issued for: a refresh
-     * fails with a `LogicException` rather than mint an access token that
-     * cannot say when or how it authenticated, and nothing of its rotation is
-     * written, since the token is issued before the rotation is stored, so its
-     * refresh token still names the session as it was.
+     * A session that records no first factor is never refreshed, and nothing of
+     * its rotation is written.
      *
      * @return void
      *
@@ -318,11 +292,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
     }
 
     /**
-     * With an idle lifetime shorter than the access lifetime, an access token
-     * expires at the session's idle deadline rather than after the access
-     * lifetime, since the bearer path rejects it from that second: no token
-     * outlives the session. A client that refreshes before the deadline keeps
-     * the session alive, and each new access token stops at the new deadline.
+     * Access tokens never outlive an idle lifetime shorter than their own.
      *
      * @return void
      *
@@ -360,10 +330,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
     }
 
     /**
-     * A session kept alive by refreshing every 50 minutes still ends at its
-     * absolute deadline: near it, a refresh sets the idle deadline to the
-     * absolute one, both new tokens expire no later than it, and from that
-     * second on the session cannot be refreshed.
+     * A session kept alive by refreshing still ends at its absolute deadline.
      *
      * @return void
      *
@@ -423,10 +390,8 @@ final class SessionLifetimeIntegrationTest extends TestCase
     }
 
     /**
-     * A refresh at or after either deadline fails with `session_expired`,
-     * writes nothing but the session's issuance guard, and does not revoke the
-     * session: expiry is not revocation. One second earlier, the same refresh
-     * succeeds.
+     * A refresh fails without revoking from the second either deadline is
+     * reached.
      *
      * @param  int  $idleIn
      * @param  int  $absoluteIn
@@ -462,9 +427,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
     }
 
     /**
-     * An access token naming a session that has ended is rejected through the
-     * middleware at once, even while the token itself has not expired:
-     * shortening a deadline cuts access immediately.
+     * An unexpired access token for a session that has ended is rejected.
      *
      * @return void
      *
@@ -484,8 +447,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
     }
 
     /**
-     * JWT leeway never stretches a session: an access token past its expiry but
-     * inside the leeway still parses, yet is rejected once its session's
+     * An access token inside the JWT leeway is rejected once its session's
      * absolute deadline has passed.
      *
      * @return void
@@ -532,12 +494,8 @@ final class SessionLifetimeIntegrationTest extends TestCase
     }
 
     /**
-     * The rotation compares both deadlines with what it read: a deadline moved
-     * by another writer between the read and the rotation, even to a time still
-     * in the future, makes the rotation miss. The token is still the current
-     * one, so that proves nothing: the refresh fails as `rotation_conflict`
-     * without writing or revoking, and a retry succeeds under the moved
-     * deadline.
+     * A deadline moved before the rotation commits fails the refresh as
+     * `rotation_conflict` without revoking.
      *
      * @return void
      *
@@ -604,9 +562,8 @@ final class SessionLifetimeIntegrationTest extends TestCase
     }
 
     /**
-     * Persist an identity and sign it in on a new session, stamped with the
-     * guard's lifetimes as an application does before the session is created by
-     * the package.
+     * Persist an identity and sign it in on a new session stamped with the
+     * guard's lifetimes.
      *
      * @param  string  $guard
      * @return array{0: \Tests\Unit\Stubs\StubPrincipal, 1: \SineMacula\Laravel\Authentication\Models\Session}
@@ -715,8 +672,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
     }
 
     /**
-     * Issue a token of the given type for the session through the `api` guard's
-     * token service.
+     * Issue a token of the given type for the session.
      *
      * @param  \SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $type
      * @param  \Tests\Unit\Stubs\StubPrincipal  $identity

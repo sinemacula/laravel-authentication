@@ -12,19 +12,8 @@ use PHPUnit\Framework\Attributes\CoversNothing;
 use Tests\TestCase;
 
 /**
- * Integration tests for the shape of the tables the shipped passkeys and
- * passkey challenges migrations create, on whichever engine the suite runs
- * against: the columns and their nullability, the index a credential is found
- * by, the owner and expiry indexes, whole-second times, a credential id of the
- * longest length WebAuthn allows, and a public key and ceremony options longer
- * than a 64 KiB text column holds.
- *
- * The migrations run for configured table names other than the defaults and
- * with the schema builder's default time precision raised, so the index names
- * and the whole-second precision are what the migrations themselves declare.
- *
- * Marked `#[CoversNothing]` because a migration is an anonymous class PHPUnit
- * cannot attribute coverage to.
+ * Integration tests for the shape of the tables the passkeys and passkey
+ * challenges migrations create.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -87,11 +76,8 @@ final class PasskeyTablesSchemaTest extends TestCase
     }
 
     /**
-     * The passkeys table holds the id, the credential id and its digest, the
-     * owner, the relying party, the user handle, the public key, the count, the
-     * transports, the AAGUID, the backup and verification flags, the name, and
-     * the last use and timestamps; only the AAGUID, the name and the times may
-     * be missing.
+     * The passkeys table holds its columns, only the AAGUID, name and times
+     * nullable.
      *
      * @return void
      */
@@ -124,9 +110,7 @@ final class PasskeyTablesSchemaTest extends TestCase
     }
 
     /**
-     * A passkey is found by the unique digest of its credential id, and an
-     * owner's passkeys of a relying party by the owner index, named after the
-     * configured table.
+     * A passkey is found by its credential id's unique digest and by its owner.
      *
      * @return void
      */
@@ -148,12 +132,8 @@ final class PasskeyTablesSchemaTest extends TestCase
     }
 
     /**
-     * The challenges table holds the id, the purpose, the guard, the relying
-     * party, the owner a registration or a factor is bound to, the session and
-     * purpose a factor ceremony is bound to, the options, the expiry, when it
-     * was consumed and the creation time; only the owner, the binding, the
-     * consumption and the creation time may be missing. It is indexed on the
-     * expiry, for pruning.
+     * The challenges table holds its columns and is indexed on the expiry for
+     * pruning.
      *
      * @return void
      */
@@ -202,10 +182,8 @@ final class PasskeyTablesSchemaTest extends TestCase
     }
 
     /**
-     * A credential id of the longest length WebAuthn allows (1023 bytes, 1364
-     * characters in base64url) is stored in full and found by its digest, and a
-     * second row with the same digest is refused by the unique index, so an
-     * insert that ignores conflicts inserts nothing.
+     * A credential id of the longest length WebAuthn allows is stored and
+     * unique.
      *
      * @return void
      */
@@ -233,9 +211,8 @@ final class PasskeyTablesSchemaTest extends TestCase
     }
 
     /**
-     * A public key longer than a 64 KiB text column holds is stored and read
-     * back in full by the insert that ignores conflicts, which on MySQL would
-     * otherwise cut it without an error.
+     * A public key longer than a 64 KiB text column is stored in full, which
+     * MySQL would otherwise truncate silently.
      *
      * @return void
      */

@@ -11,9 +11,8 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Support\Facades\Auth;
 
 /**
- * A queued job that signs an identity's other sessions out through Laravel's
- * `console` session guard, whose `logoutOtherDevices()` saves a fresh hash of
- * the same password.
+ * Queued job that signs an identity's other sessions out through the `console`
+ * guard's `logoutOtherDevices()`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

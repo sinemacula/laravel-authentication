@@ -17,13 +17,9 @@ use Tests\Concerns\ServesRequestsThroughOctane;
 use Tests\TestCase;
 
 /**
- * End-to-end tests for `WriteConnection::during()` served by one Laravel Octane
- * worker. Eloquent's connection resolver is process-wide, so it outlives the
- * request's sandbox, and so does the database connection whose read mode a pin
- * changes. Against a split connection whose replica lags, a session written
- * through it is on the primary only: a pinned read finds it, and an ordinary
- * read misses it. Whether the pin's callback returns or throws, the next
- * request reads through the database manager again, from the replica.
+ * End-to-end tests that a `WriteConnection::during()` pin is released for the
+ * next request an Octane worker serves. The connection resolver is
+ * process-wide, so it outlives the request's sandbox.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -84,9 +80,7 @@ final class WriteConnectionRequestsTest extends TestCase
     }
 
     /**
-     * A pinned read in one request finds the session on the primary; the next
-     * request reads through the database manager, from the replica, and misses
-     * it.
+     * A pin that returns is released for the next request.
      *
      * @return void
      */
@@ -99,9 +93,7 @@ final class WriteConnectionRequestsTest extends TestCase
     }
 
     /**
-     * A pin whose callback throws, out of the request and into the exception
-     * handler, is released all the same: the read inside it found the session,
-     * and the next request reads from the replica through the database manager.
+     * A pin whose callback throws is released for the next request.
      *
      * @return void
      */

@@ -16,9 +16,7 @@ use Tests\Fixtures\Database\LockMarkingSQLiteGrammar;
 use Tests\TestCase;
 
 /**
- * Integration tests for the code table as the engine reads it: a key's row read
- * from the write PDO, with a lock when asked, whether it can still be checked,
- * and whether a stored transaction is the one given.
+ * Integration tests for the code table as the engine reads it.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -61,8 +59,7 @@ final class CodeRowsTest extends TestCase
     }
 
     /**
-     * Rows of `[the row's columns, max attempts, answer]`: a row can be checked
-     * while it is unused, unexpired and under its attempts.
+     * Rows of `[the row's columns, max attempts, answer]`.
      *
      * @return iterable<string, array{0: ?array<string, mixed>, 1: int, 2: ?\SineMacula\Laravel\Authentication\Codes\Enums\CodeCheck}>
      */

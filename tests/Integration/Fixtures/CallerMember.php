@@ -16,10 +16,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
- * 3D identity fixture for the caller of a request: UUID-keyed, so its sessions'
- * owner column compares as text on every database, with its memberships and
- * sessions as Eloquent relations, and no default membership, so a member of two
- * chooses one.
+ * UUID-keyed 3D identity for a request's caller with no default membership, so
+ * a member of two chooses one.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

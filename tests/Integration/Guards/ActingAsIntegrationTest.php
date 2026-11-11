@@ -16,9 +16,8 @@ use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\TestCase;
 
 /**
- * Laravel's `actingAs()` binds through `setUser()`, so it yields the acting
- * identity's default principal, and switching to another identity replaces the
- * principal instead of keeping the previous identity's.
+ * Laravel's `actingAs()` binds the acting identity's default principal and
+ * replaces it when switching identities.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

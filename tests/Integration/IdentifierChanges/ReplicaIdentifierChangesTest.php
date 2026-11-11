@@ -19,11 +19,8 @@ use Tests\Concerns\InteractsWithLaggingReplica;
 use Tests\TestCase;
 
 /**
- * Proves every read that decides a change of identifier outside a transaction
- * is from the write connection: an identity, a session and a pending change
- * written moments ago, which only the primary holds yet, are found while the
- * replica lags behind, by `pending()`, by the queued job that delivers the
- * change's code, and by a session's reauthentication.
+ * Proves every read that decides an identifier change outside a transaction
+ * uses the write connection.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -88,9 +85,7 @@ final class ReplicaIdentifierChangesTest extends TestCase
     }
 
     /**
-     * The job that delivers a change's code finds the identity and the change,
-     * which only the primary holds, and sends the code to the new identifier,
-     * which then confirms the change.
+     * The job that delivers a change's code reads from the primary.
      *
      * @return void
      *

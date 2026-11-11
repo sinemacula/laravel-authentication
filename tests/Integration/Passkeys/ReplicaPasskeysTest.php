@@ -20,10 +20,7 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
 /**
- * Proves passkeys and their challenges are read from the write connection: a
- * passkey registered and challenges issued moments ago, which only the primary
- * holds yet, are found while the replica lags behind, by every ceremony and by
- * the listing.
+ * Proves passkeys and their challenges are read from the write connection.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -72,9 +69,8 @@ final class ReplicaPasskeysTest extends TestCase
     }
 
     /**
-     * A passkey only the primary holds, registered through a challenge only the
-     * primary held, is listed, offered to a factor ceremony, verified as a
-     * factor, and signs its owner in, each straight after the write before it.
+     * Passkeys and challenges only the primary holds are found by every
+     * ceremony and the listing.
      *
      * @return void
      *
@@ -98,8 +94,8 @@ final class ReplicaPasskeysTest extends TestCase
     }
 
     /**
-     * A later registration reuses the handle and excludes the passkey that only
-     * the primary holds.
+     * A later registration reuses the handle and excludes the passkey only the
+     * primary holds.
      *
      * @return void
      *
@@ -115,8 +111,8 @@ final class ReplicaPasskeysTest extends TestCase
     }
 
     /**
-     * A passkey without a counter that the primary removed while its sign-in
-     * was in flight signs nobody in, though the replica still holds it.
+     * A passkey the primary removed mid sign-in signs nobody in, though the
+     * replica still holds it.
      *
      * @return void
      *
@@ -158,8 +154,7 @@ final class ReplicaPasskeysTest extends TestCase
     }
 
     /**
-     * Create the package tables, the passkey tables included, on the primary
-     * and the replica.
+     * Create the package tables on the primary and the replica.
      *
      * @return void
      */
@@ -183,8 +178,7 @@ final class ReplicaPasskeysTest extends TestCase
     }
 
     /**
-     * Register a passkey for the seeded identity through the split, so only the
-     * primary holds it, and return the identity.
+     * Register a passkey for the seeded identity so only the primary holds it.
      *
      * @return \Tests\Integration\Fixtures\IntegrationIdentity
      *

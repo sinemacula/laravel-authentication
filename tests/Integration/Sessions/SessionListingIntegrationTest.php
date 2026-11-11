@@ -21,8 +21,8 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
 /**
- * Integration tests for which sessions are active and how an identity's session
- * list is ordered and paged, against real rows on each supported database.
+ * Integration tests of which sessions are active and how the session list is
+ * ordered and paged.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -71,10 +71,8 @@ final class SessionListingIntegrationTest extends TestCase
     }
 
     /**
-     * A session is active while it is not pending, unrevoked and before both
-     * deadlines: a deadline that names the current second has passed. The scope
-     * and the listing agree, and the listing holds only the identity's
-     * sessions, of every guard.
+     * A session is active while not pending, unrevoked and before both
+     * deadlines.
      *
      * @return void
      */
@@ -104,8 +102,7 @@ final class SessionListingIntegrationTest extends TestCase
     }
 
     /**
-     * The list is ordered by last use, most recent first and never used last,
-     * then by key, newest first, so pages are stable on every database.
+     * The list is ordered by last use, never used last, then by key.
      *
      * @return void
      */
@@ -192,8 +189,8 @@ final class SessionListingIntegrationTest extends TestCase
     }
 
     /**
-     * The key of the numbered test session: UUIDs that sort in their number's
-     * order on every database.
+     * The key of the numbered session, as a UUID that sorts in number order on
+     * every database.
      *
      * @param  string  $number
      * @return string
@@ -204,8 +201,7 @@ final class SessionListingIntegrationTest extends TestCase
     }
 
     /**
-     * Insert a session of the identity, active and live for a month unless told
-     * otherwise.
+     * Insert a session of the identity, active and live for a month by default.
      *
      * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
      * @param  string  $number

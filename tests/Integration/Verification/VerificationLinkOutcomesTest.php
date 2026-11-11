@@ -23,11 +23,8 @@ use Tests\Integration\Fixtures\VerifiableIdentity;
 use Tests\TestCase;
 
 /**
- * Proves each outcome of consuming a verification link is what it wrote and
- * reported, on whichever engine the suite runs against: the identifier recorded
- * verified only for `verified`, whose `IdentifierVerified` waits for the
- * commit, a failure reported for `invalid` and `expired` alone, and no sign-in
- * event, Laravel's or the package's, for any of them.
+ * Proves each outcome of consuming a verification link writes and reports what
+ * it says, on whichever engine the suite runs against.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -77,9 +74,8 @@ final class VerificationLinkOutcomesTest extends TestCase
     }
 
     /**
-     * Rows of `[whether the address starts verified, what happens before the
-     * link is followed, outcome, address verified at, every authentication
-     * event dispatched]`.
+     * Rows of `[starts verified, setup before following, outcome, verified at,
+     * events dispatched]`.
      *
      * @return iterable<string, array{0: bool, 1: string, 2: \SineMacula\Laravel\Authentication\Verification\Enums\VerificationLinkOutcome, 3: ?string, 4: list<string>}>
      */
@@ -130,9 +126,8 @@ final class VerificationLinkOutcomesTest extends TestCase
     }
 
     /**
-     * Inside a transaction on the identity's connection, `IdentifierVerified`
-     * waits for the commit, and a rolled-back verification is neither recorded
-     * nor reported, so the link verifies once followed again.
+     * `IdentifierVerified` waits for the commit, and a rolled-back verification
+     * leaves the link to verify again.
      *
      * @return void
      *

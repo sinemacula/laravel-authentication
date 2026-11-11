@@ -9,9 +9,8 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 
 /**
- * A queued job that records, under the `observed.report` container binding,
- * what the package says about who is authenticated when it runs (see
- * `AuthenticationReport`).
+ * A queued job that records the `AuthenticationReport` under `observed.report`
+ * when it runs.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

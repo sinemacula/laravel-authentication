@@ -19,10 +19,7 @@ use Tests\Concerns\InteractsWithSessions;
 use Tests\TestCase;
 
 /**
- * Integration tests for external reauthentication against a real database, on
- * whichever engine the suite runs on: the link a session records is matched
- * byte for byte, whatever the engine's collations, and inside the adapter's
- * transaction the proof and its report commit or roll back with it.
+ * Integration tests of external reauthentication against a real database.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -76,9 +73,7 @@ final class ExternalReauthenticationTest extends TestCase
     }
 
     /**
-     * Links whose ids differ from the session's only in case or by a trailing
-     * space, and connections that differ so, are other links: each is
-     * `link_mismatch`, and only the session's own reauthenticates it.
+     * The session's link is matched byte for byte.
      *
      * @return void
      *
@@ -111,8 +106,7 @@ final class ExternalReauthenticationTest extends TestCase
     }
 
     /**
-     * Inside the adapter's transaction the proof and `Reauthenticated` wait for
-     * the commit; a rollback leaves no proof and reports nothing.
+     * The reauthentication follows the adapter's transaction.
      *
      * @return void
      *
@@ -149,7 +143,7 @@ final class ExternalReauthenticationTest extends TestCase
     }
 
     /**
-     * Define the guards the tests sign in through.
+     * Register the guards.
      *
      * @param  mixed  $app
      * @return void

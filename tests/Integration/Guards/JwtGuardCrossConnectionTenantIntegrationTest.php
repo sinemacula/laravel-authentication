@@ -22,14 +22,8 @@ use Tests\Integration\Fixtures\LandlordTenantMembership;
 use Tests\TestCase;
 
 /**
- * Proves that a tenant kept on another connection than its members (a separate
- * landlord database) is read from that connection's writer too.
- *
- * Members and memberships live on the default split connection; tenants live on
- * the `landlord` split connection, whose replica lags behind its own primary. A
- * tenant deactivated on the landlord primary would still read as active if the
- * tenant were served by the landlord replica, whether the membership lazily
- * loads it during the activity check or the lookup eager-loads it.
+ * A tenant on a separate landlord connection is read from that connection's
+ * writer.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -93,10 +87,7 @@ final class JwtGuardCrossConnectionTenantIntegrationTest extends TestCase
     }
 
     /**
-     * A membership that lazily loads its landlord tenant during the activity
-     * check reads it from the landlord writer: once the tenant is deactivated
-     * on the landlord primary, the member's bearer token is rejected although
-     * the landlord replica still shows the tenant active.
+     * A lazily loaded landlord tenant is read from the landlord writer.
      *
      * @return void
      *
@@ -116,10 +107,7 @@ final class JwtGuardCrossConnectionTenantIntegrationTest extends TestCase
     }
 
     /**
-     * A membership whose hinted lookup eager-loads its landlord tenant reads it
-     * from the landlord writer: once the tenant is deactivated on the landlord
-     * primary, the member's bearer token is rejected although the landlord
-     * replica still shows the tenant active.
+     * An eager-loaded landlord tenant is read from the landlord writer.
      *
      * @return void
      *
@@ -139,10 +127,8 @@ final class JwtGuardCrossConnectionTenantIntegrationTest extends TestCase
     }
 
     /**
-     * Signing in resolves the default membership, whose landlord tenant is read
-     * from the landlord writer: once the tenant is deactivated on the landlord
-     * primary, the attempt fails although the landlord replica still shows the
-     * tenant active.
+     * Sign-in reads the default membership's landlord tenant from the landlord
+     * writer.
      *
      * @return void
      *
@@ -205,9 +191,8 @@ final class JwtGuardCrossConnectionTenantIntegrationTest extends TestCase
     }
 
     /**
-     * Write an active landlord tenant, the member and its membership, and copy
-     * each row to its replica, so the replicas keep showing the tenant active
-     * after the test deactivates it on the landlord primary.
+     * Write an active landlord tenant, the member and its membership, copying
+     * each row to its replica.
      *
      * @formatter:off
      *

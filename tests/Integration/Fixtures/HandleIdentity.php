@@ -14,10 +14,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
- * 2D identity fixture, stored in `handle_identities`, whose auth identifier is
- * its `handle` column rather than its key, so a lookup by its auth identifier
- * and one by its key find different rows when a handle is another row's key.
- * Its sessions record its key, as every session records its owner's.
+ * 2D identity whose auth identifier is its `handle` column, so lookups by auth
+ * identifier and by key can find different rows.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

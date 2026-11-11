@@ -50,14 +50,10 @@ use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\TestCase;
 
 /**
- * Integration tests of a switch whose session is written between its re-read
- * and its compare-and-swap, against a real database: the switch's
- * compare-and-swap misses whenever the row changed after it was read, its
- * principal, active tenant and policy version among what it compares, and the
- * row is then judged once more, under a lock, without a second swap. The switch
- * holds the row from its issuance guard, so no other request can write it
- * there; each write here runs inside the switch's own transaction, as a
- * contract it asks could make, to exercise that safeguard.
+ * Integration tests of a switch whose session row changes between its re-read
+ * and its compare-and-swap.
+ *
+ * Writes run inside the switch's own transaction, as its row lock bars others.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -112,9 +108,7 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A switch that misses its swap after a refresh of the same token is
-     * written to the row is a conflict: the refresh stands, nothing is switched
-     * and nothing revoked.
+     * A switch racing a refresh is a conflict and the refresh stands.
      *
      * @return void
      *
@@ -153,9 +147,7 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A switch that misses its swap after a revocation of the session is
-     * written to the row fails as `session_revoked` and leaves the revocation
-     * in place.
+     * A switch racing a revocation fails as `session_revoked`.
      *
      * @return void
      *
@@ -179,10 +171,7 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * Two identical switches of the same token, the second written to the row
-     * before the first's swap, both end with the target's credential: the one
-     * whose swap misses finds the switch it would have made and answers with
-     * it, and the switch is reported once.
+     * Two identical racing switches both succeed and report once.
      *
      * @return void
      *
@@ -215,8 +204,8 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * Two switches of the same token to different principals: the first stands,
-     * and the second is a conflict.
+     * Of two racing switches to different principals, the first stands and the
+     * second is a conflict.
      *
      * @return void
      *
@@ -242,9 +231,8 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A switch whose swap misses while its token is still the current one (the
-     * deadlines moved under it) is a conflict, and one whose session was
-     * deleted under it fails as `session_unknown`.
+     * A missed swap without a rotation is a conflict, or `session_unknown` if
+     * the session was deleted.
      *
      * @return void
      *
@@ -270,10 +258,7 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A switch whose swap misses because the session's active tenant or the
-     * tenant policy version it recorded changed after it was read, while its
-     * token is still the current one, is a conflict: nothing is switched, and
-     * the change made under it stands.
+     * A swap that misses a changed tenant or policy version is a conflict.
      *
      * @return void
      *
@@ -306,9 +291,7 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A switch to the principal the session already acts as, whose swap misses
-     * while its token is still the current one, is a conflict too: it is not
-     * answered as a retry.
+     * A missed swap to the current principal is a conflict, not a retry.
      *
      * @return void
      *
@@ -328,8 +311,7 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A switch that misses its swap, because the same switch and then a move of
-     * the session to another identity were written to the row, is refused as
+     * A lost swap to a move of the session to another identity is refused as
      * `identity_unknown`.
      *
      * @return void
@@ -356,8 +338,7 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A lost switch response retried after the target's tenant was deactivated
-     * is refused: every live check runs on the retry too.
+     * A retried switch runs every live check on the target again.
      *
      * @return void
      *
@@ -380,11 +361,8 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A switch that misses its swap after a refresh of the same token is
-     * written to the row, with the grace window off, finds its token replayed
-     * when it judges the row again: the session is revoked as `rotation_reuse`,
-     * as a refresh revokes it, and `SessionRevoked` is reported once the
-     * caller's transaction commits.
+     * A lost swap to a refresh with no grace window revokes the session as
+     * `rotation_reuse`.
      *
      * @return void
      *
@@ -413,9 +391,7 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A switch that misses its swap after two refreshes in a row are written to
-     * the row finds its token two rotations old, which no grace window honours:
-     * the session is revoked as `rotation_reuse`.
+     * A lost swap to two rotations revokes the session as `rotation_reuse`.
      *
      * @return void
      *
@@ -450,11 +426,7 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A switch whose destination asks for a further factor, and whose return to
-     * pending misses after a refresh of the same token is written to the row,
-     * is judged again as after a lost switch: the refresh stands, the session
-     * never returns to pending nor records the destination, and the switch is a
-     * conflict.
+     * A return to pending that loses to a refresh is a conflict.
      *
      * @return void
      *
@@ -503,11 +475,8 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A grace retry of a switch to the session's own context, whose tenant now
-     * asks for a further factor, and whose return to pending misses after a
-     * revocation is written to the row, is a conflict and is never judged
-     * again: the revocation stands, the session never returns to pending, and
-     * nothing is reported.
+     * A grace retry's return to pending that loses to a revocation is a
+     * conflict.
      *
      * @return void
      *
@@ -555,13 +524,8 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A switch judges the session against the destination's policy under the
-     * row's lock, so every read of the session's proofs it makes takes a shared
-     * lock where the engine takes one: the first factor and proofs the
-     * judgement reads and the proofs the token is issued from, when it switches
-     * and when a grace retry of it is answered; the judgement's and the proofs
-     * the identity's own requirement is judged on, when the session falls short
-     * and returns to pending.
+     * A switch reads the session's proofs under a shared lock where the engine
+     * takes one.
      *
      * @return void
      *
@@ -610,9 +574,8 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A session that records no first factor cannot be returned to pending: the
-     * judgement finds none, the switch reads it once more for the return, each
-     * read current, and fails loudly, switching nothing.
+     * A switch of a session without a first factor fails loudly and switches
+     * nothing.
      *
      * @return void
      *
@@ -666,7 +629,7 @@ final class SessionSwitchTest extends TestCase
 
     /**
      * Persist a member with its default membership and a second one, each in
-     * its own active tenant.
+     * its own tenant.
      *
      * @formatter:off
      *
@@ -689,9 +652,8 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * Sign the member in as its default membership, named at sign-in: a member
-     * with more than one membership would otherwise be held pending for the
-     * choice.
+     * Sign the member in as its default membership, named so the sign-in is not
+     * held for a choice.
      *
      * @return \SineMacula\Laravel\Authentication\Sessions\SignedInSession
      *
@@ -727,10 +689,8 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * Run the switch inside a transaction and assert that, losing its swap to
-     * the given refreshes, it revoked the session as a replay: `SessionRevoked`
-     * only once committed, both digests cleared, nothing switched, and every
-     * token of the session refused at the `auth` middleware and by a refresh.
+     * Run the switch in a transaction and assert it revoked the session as a
+     * replay.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
      * @param  \Tests\Integration\Fixtures\ActivatableTenantMembership  $target
@@ -795,8 +755,7 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * Run the callback once, just before the next switch's compare-and-swap
-     * executes.
+     * Run the callback once, just before the next switch's compare-and-swap.
      *
      * @param  \Closure(): void  $callback
      * @return void
@@ -821,7 +780,7 @@ final class SessionSwitchTest extends TestCase
 
     /**
      * Run the callback once, just before the next return of a session to
-     * pending executes.
+     * pending.
      *
      * @param  \Closure(): void  $callback
      * @return void
