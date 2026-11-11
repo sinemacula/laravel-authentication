@@ -259,17 +259,14 @@ final class JwtGuardRequestsTest extends TestCase
     }
 
     /**
-     * Without Octane's `FlushAuthenticationState`, the worker's shared auth
-     * manager keeps the guard one request resolved, and the next request, with
-     * no token, sees the identity the first bound: the isolation the other
-     * tests prove is Octane's flush handing the manager each sandbox, which is
-     * why it must stay among Octane's listeners.
+     * Without Octane's `FlushAuthenticationState`, the worker's own reset still
+     * forgets the guards, so a request with no token sees no identity.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function testWithoutOctanesAuthenticationFlushTheNextRequestSeesTheLastIdentity(): void
+    public function testWithoutOctanesAuthenticationFlushTheNextRequestIsAGuest(): void
     {
         [$ada, $access] = $this->signedIn('ada@example.test');
 
@@ -286,7 +283,7 @@ final class JwtGuardRequestsTest extends TestCase
         }
 
         $this->me($access)->assertJson(['identity' => $ada]);
-        $this->me(null)->assertJson(['identity' => $ada]);
+        $this->me(null)->assertExactJson(self::guest());
     }
 
     /**
