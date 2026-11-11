@@ -8,9 +8,8 @@ use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsExchange;
 
 /**
- * An access token the bearer path accepted: whom it admitted, and, for a token
- * a client credentials exchange issued, the API key it was exchanged for and
- * the scopes it grants.
+ * An access token the bearer path accepted, with the API key and scopes of a
+ * client credentials token.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

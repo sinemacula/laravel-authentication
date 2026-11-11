@@ -12,11 +12,8 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 
 /**
- * An identity's sessions as the package reads them, for the session service and
- * for the session a token or an `attempt()` pin names: through the identity's
- * `sessions()` relation, built inside `WriteConnection::during()` for the
- * identity and routed to the write connection, over a model that must be an
- * Eloquent `EloquentSession` so its columns are known.
+ * An identity's sessions as the package reads them, through its `sessions()`
+ * relation on the write connection.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -52,10 +49,8 @@ final class IdentitySessions
     }
 
     /**
-     * The identity's session with the identifier, read on the write connection,
-     * or `null` when the identifier is `null` or the identity holds no sessions
-     * (the relation is not built), the identifier cannot be a key of the
-     * session model (no query is made), or the identity has no such session.
+     * The identity's session with the identifier, or `null` when it has no such
+     * session.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  mixed  $id

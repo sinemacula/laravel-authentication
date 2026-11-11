@@ -40,38 +40,6 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  * Decides whom a request's access token authenticates, and why not when it does
  * not.
  *
- * Checked in order, each failure with its own reason: the token itself
- * (`token_invalid`, which includes a subject type that does not match the
- * token's kind: `machine` exactly when it names an API key in `cid`); for a
- * client credentials token, its API key: this guard's, live and not revoked
- * (`credential_invalid`, `credential_expired`, `credential_revoked`); the
- * identity its `sub` names, reloaded through the guard's provider
- * (`identity_unknown`), of the kind its subject type says (`machine_identity`
- * for a `person` token whose subject is a non-human identity,
- * `credential_invalid` for a `machine` token whose subject is not one) and
- * active (`identity_inactive`); the principal its `principal` names, which must
- * resolve to exactly that principal (`principal_mismatch`) and be active in an
- * active tenant (`principal_inactive`, `tenant_inactive`); for a token that
- * names no session, an issue time after the identity's and the principal's
- * "tokens valid after" time (`issued_before_cutoff`); and, for a token that
- * names a session (`sid`), that session among the identity's own
- * (`session_unknown`), of this guard (`session_guard_mismatch`), not revoked
- * (`session_revoked`), not ended (`session_expired`), in the tenant the token
- * names, or none for none (`session_tenant_mismatch`), acting as the token's
- * principal (`session_principal_mismatch`), not changed (its principal or
- * active tenant switched) since the token was issued (`session_switched`), and
- * acting in an active tenant (`tenant_inactive`). The session's active tenant
- * is the one the guard binds; a token without a session acts in the principal's
- * own. Fail closed: a token that names a principal or session that does not
- * resolve exactly is rejected rather than downgraded. No access contract and no
- * tenant policy is asked per request: access tokens are short-lived, a policy
- * change revokes through `tenantPolicyChanged()`, and every refresh asks the
- * policy again. The token's `auth_time` and `amr` are not read here: they were
- * derived when it was issued, and live no longer than it does.
- *
- * Built for one request with the guard's current collaborators, so it keeps
- * nothing between requests.
- *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
@@ -103,12 +71,8 @@ final readonly class BearerAuthentication
     ) {}
 
     /**
-     * Authenticate the access token for a request from the client: the admitted
-     * identity, principal, active tenant (the one the session records, or the
-     * principal's own for a token without a session), and the session, with,
-     * for a client credentials token, its API key and scopes; or the failure
-     * that reports why not, with as much of the context as was established (the
-     * session id the token named included).
+     * Authenticate the access token for a request from the client, or report
+     * why it was refused.
      *
      * @param  string  $token
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
@@ -137,13 +101,7 @@ final readonly class BearerAuthentication
     }
 
     /**
-     * Admit a client credentials token: its API key, read by its id on the
-     * write connection, must be this guard's (`credential_invalid`), not
-     * revoked (`credential_revoked`) and not expired (`credential_expired`);
-     * the identity and principal are then admitted as for any access token, the
-     * subject must be a non-human identity, and the key's binding to its owner,
-     * principal and tenant must still hold. Revoking a key, or the end of a
-     * rotation's overlap, so ends its tokens at the next request.
+     * Admit a client credentials token on its live API key of this guard.
      *
      * @param  array<string, mixed>  $claims
      * @param  string  $credentialId
@@ -184,12 +142,8 @@ final readonly class BearerAuthentication
     }
 
     /**
-     * Admit the identity the claims name as the principal they name: the
-     * identity must be found, of the kind the token's subject type says (a
-     * non-human identity's tokens come only from a client credentials exchange,
-     * so a `person` token naming one is refused as `machine_identity`, and a
-     * `machine` token naming a human one as `credential_invalid`) and active,
-     * and the principal must resolve exactly and be active in an active tenant.
+     * Admit the identity the claims name, of the kind the token's subject type
+     * says, as the principal they name.
      *
      * @param  array<string, mixed>  $claims
      * @param  bool  $machine
@@ -216,9 +170,8 @@ final readonly class BearerAuthentication
     }
 
     /**
-     * Admit the active identity as the principal the `principal` claim names,
-     * which the resolver must return exactly, and which must be active in an
-     * active tenant.
+     * Admit the active identity as exactly the principal the `principal` claim
+     * names, active in an active tenant.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  mixed  $hint
@@ -246,17 +199,8 @@ final readonly class BearerAuthentication
     }
 
     /**
-     * Hold the admitted token to the session it names, when it names one: the
-     * session must be one of the identity's own, of this guard, not revoked,
-     * and not ended; it must act in the tenant the token names
-     * (`session_tenant_mismatch`) as the token's principal
-     * (`session_principal_mismatch`), and not have changed since the token was
-     * issued (`session_switched`), so a switch ends the tokens of the principal
-     * or tenant it switched from at once; and its active tenant must still be
-     * active (`tenant_inactive`), which is then the tenant admitted. A token
-     * that names no session has no session to revoke, so it must instead have
-     * been issued after the "tokens valid after" time of its identity and of
-     * its principal, when they record one (`issued_before_cutoff`).
+     * Hold the admitted token to the session it names, or to the subject's
+     * "tokens valid after" cutoff when it names none.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  mixed  $sessionId
@@ -287,9 +231,7 @@ final readonly class BearerAuthentication
 
     /**
      * Why the session may not serve a token of the principal with the claims,
-     * or `null` when it may: the session must act in the tenant the token
-     * names, or in none for a token that names none, as the principal, and must
-     * not have changed after the token was issued.
+     * or `null` when it may.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -310,10 +252,7 @@ final readonly class BearerAuthentication
 
     /**
      * The admitted token on its session, in the session's active tenant, or
-     * `tenant_inactive` when that tenant no longer resolves or is inactive. The
-     * principal's own tenant, which the admission already found active, is not
-     * read again; any other is resolved, without asking `TenantAccess`, since
-     * no access contract is asked per request.
+     * `tenant_inactive` when that tenant no longer resolves or is inactive.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
@@ -335,12 +274,8 @@ final readonly class BearerAuthentication
     }
 
     /**
-     * Whether a token issued without a session was issued after the "tokens
-     * valid after" time of the identity and of the principal, each read on the
-     * write connection from the model already loaded. Whole seconds: a token
-     * issued at or before the time is rejected, since its `iat` cannot tell the
-     * same second before the cutoff from after it. A subject that does not
-     * record a time, or records none yet, does not limit the token.
+     * Whether a token issued without a session was issued after the identity's
+     * and the principal's "tokens valid after" time.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  mixed  $issuedAt
@@ -367,10 +302,8 @@ final readonly class BearerAuthentication
     }
 
     /**
-     * The failure event of a refused token, with the guard, the client, the
-     * context the refusal established, the method the session records when a
-     * session was found (`client_credentials` for a client credentials token,
-     * with its key and scopes), and the session id the token named.
+     * The failure event of a refused token, with as much of the context as the
+     * refusal established.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Refused  $refused
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client

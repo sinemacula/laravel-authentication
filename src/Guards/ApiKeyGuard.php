@@ -28,25 +28,6 @@ use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
  * API key guard, the `api_key` driver: authenticates a request by the API key
  * in its `Authorization: Bearer <key>` header, for non-human identities.
  *
- * Resolution, once per request: one indexed lookup of the key's public part on
- * the write connection, the secret's SHA-256 digest compared in constant time,
- * the key held to this guard and to its revocation and expiry, the application
- * required to allow `api_key`, then the key's owner and principal admitted (see
- * `ApiKeyAuthentication`). The request binds the owner and the principal with
- * the key's scopes, as an authentication rather than a sign-in (no `Validated`
- * or `Login`), and records the key's last use, at most once per
- * `last_used_throttle_seconds`. A rejected key dispatches one
- * `AuthenticationFailed` (flow `api_key`) and nothing else. Keys carry no
- * session and no refresh.
- *
- * Nothing is counted against a limit: a key's secret cannot be guessed, and a
- * write per rejected request, or a read per request, would cost the hot path
- * more than it protects. Throttle the routes for that.
- *
- * Non-human identities have no interactive sign-in, so `attempt()` always
- * fails. `validate(['api_key' => $key])` checks a key without binding it or
- * dispatching anything.
- *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
@@ -56,9 +37,7 @@ final class ApiKeyGuard extends AbstractGuard
     public const string METHOD = 'api_key';
 
     /**
-     * Refuse the sign-in: a non-human identity has no password and no
-     * interactive sign-in. Dispatches `AuthenticationFailed` (flow `sign_in`,
-     * `method_not_allowed`) and checks nothing.
+     * Refuse the sign-in: a non-human identity has no interactive sign-in.
      *
      * @param  array<string, mixed>  $credentials
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -97,11 +76,7 @@ final class ApiKeyGuard extends AbstractGuard
     }
 
     /**
-     * Resolve the identity from the request's API key. `user()` calls this at
-     * most once per request, so a rejected key is reported once. A request
-     * without a bearer credential attempts nothing and dispatches nothing, nor
-     * does one whose credential is in JWT form on a route that also lists a
-     * `jwt` guard: that guard reads it (see `BearerForms`).
+     * Resolve the identity from the request's API key.
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
      *

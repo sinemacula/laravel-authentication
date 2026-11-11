@@ -11,17 +11,10 @@ use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Support\Facades\Config;
 
 /**
- * The standard Laravel `Attempting` / `Validated` / `Failed` event-firing
- * helpers. The credentials those events carry have their password-like keys
- * removed.
+ * The standard Laravel `Attempting`, `Validated` and `Failed` event helpers,
+ * with password-like credential keys removed.
  *
- * Credentials themselves are checked by the password sign-in method. Timing
- * safety is the caller's responsibility: the enclosing guard flow wraps the
- * retrieve -> validate -> dispatch pipeline in a single top-level timebox. Do
- * not nest another timebox here.
- *
- * Expects the using class to hold the guard's `GuardContext` in
- * `$this->context`, whose name and dispatcher it reads.
+ * The caller's flow holds the single timebox; do not nest another here.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -70,13 +63,7 @@ trait ValidatesGuardCredentials
 
     /**
      * Return the credentials without their password-like keys, for the events
-     * any listener, queued job, or log can capture.
-     *
-     * A key is removed when its name contains, case-insensitively, `password`
-     * (so `password`, `current_password` and `password_confirmation` all go) or
-     * any fragment listed in `authentication.events.redacted_credential_keys`.
-     * Every other key, the identifier included, is kept for throttling and
-     * audit listeners.
+     * any listener, queued job or log can capture.
      *
      * @param  array<string, mixed>  $credentials
      * @return array<string, mixed>

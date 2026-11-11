@@ -7,16 +7,10 @@ namespace SineMacula\Laravel\Authentication\Http;
 use Illuminate\Http\Request;
 
 /**
- * The body a credential is read from: a refresh token's `body_field`, the
- * pending credential's `session.pending_credential_field`, and the input a
- * controller hands on to a service that takes plain values, as a password
- * reset's, alike.
+ * The body a credential is read from, never the query string.
  *
- * The fields are the JSON body, or the form body of a request that may have
- * one, never the query string, so a credential never travels in a URL that
- * logs, histories and `Referer` headers keep. A field name is one PHP files as
- * it is in a form body: a `.` or a space would be filed as `_` and a bracket
- * would nest it, so a field named so would never be found.
+ * PHP files a `.` or space in a form field name as `_` and nests brackets, so
+ * such a name is never found.
  *
  * @api
  *
@@ -34,8 +28,7 @@ final class RequestBody
     private function __construct() {}
 
     /**
-     * The request's body fields: the JSON body, or the form body of a request
-     * that may have one; never the query string.
+     * The request's JSON body, or the form body of a request that may have one.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return array<array-key, mixed>

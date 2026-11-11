@@ -29,10 +29,8 @@ final class SessionLookup
     private function __construct() {}
 
     /**
-     * Return a new instance of the configured session model, which must satisfy
-     * the Eloquent-backed `EloquentSession` boundary and live on the storage
-     * connection, where the sessions it holds are written with the package's
-     * other rows in one transaction.
+     * A new instance of the configured session model, which must live on the
+     * storage connection.
      *
      * @return \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession
      *
@@ -53,9 +51,7 @@ final class SessionLookup
     }
 
     /**
-     * Refuse a session model that does not live on the storage connection,
-     * where the package writes its sessions with its other rows in one
-     * transaction, naming both connections.
+     * Refuse a session model that does not live on the storage connection.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $model
      * @return void
@@ -70,14 +66,7 @@ final class SessionLookup
     }
 
     /**
-     * Look a session up by its identifier, reading from the write connection so
-     * a lagging replica cannot serve a stale digest or revocation state. The
-     * lookup runs inside `WriteConnection::during()` for the session model, so
-     * relations the session model eager-loads come from the writer too.
-     *
-     * An identifier that cannot be a key of the session model names no session
-     * and is rejected without a query; database errors on a well-formed
-     * identifier propagate.
+     * Look a session up by its identifier on the write connection.
      *
      * @param  mixed  $id
      * @return (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)|null
@@ -91,8 +80,7 @@ final class SessionLookup
 
     /**
      * Look a session up as `find()` does, and lock its row until the
-     * transaction around the call ends, so a revocation of it waits for that
-     * transaction, and one committed before is seen.
+     * transaction around the call ends.
      *
      * @param  mixed  $id
      * @return (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)|null
@@ -106,8 +94,7 @@ final class SessionLookup
 
     /**
      * Read the session on the write connection through the query the callback
-     * makes of the session model's, once the identifier has the shape of its
-     * key.
+     * scopes.
      *
      * @formatter:off
      *

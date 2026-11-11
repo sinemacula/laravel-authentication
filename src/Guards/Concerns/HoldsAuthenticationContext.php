@@ -10,14 +10,8 @@ use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
- * Holds the authentication context of the state a guard bound: built from it on
- * the first ask after it last changed, held while it is unchanged, and
- * forgotten by every bind and sign-out (`BindsContextualState` clears it with
- * the bound state) and by a flow that changed the bound session's proofs.
- *
- * Expects the using class to use `BindsContextualState`, whose bound state it
- * reads, and to hold the guard's `GuardContext` in `$this->context`, whose name
- * and request it reads.
+ * Holds the authentication context of the state a guard bound, built on first
+ * ask and forgotten when that state changes.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -37,13 +31,7 @@ trait HoldsAuthenticationContext
 
     /**
      * Return the authentication context of what the guard bound, resolving the
-     * request on first access: built from the bound state on the first ask
-     * after it last changed, and held while it is unchanged, so a request reads
-     * the session's proofs at most once however often it asks. `null` for a
-     * guest and for an identity bound without a principal. A tenant a trusted
-     * bind cannot load throws `TenantUnavailableException`, as `tenant()` does;
-     * a contributor asking for the context while it is being built gets a
-     * `LogicException`.
+     * request on first access.
      *
      * @return ?\SineMacula\Laravel\Authentication\Context\AuthenticationContext
      *
@@ -79,11 +67,8 @@ trait HoldsAuthenticationContext
     }
 
     /**
-     * Forget the authentication context the guard holds, so the next ask builds
-     * it again, when the bound session is the one given: a flow that changed
-     * the session's proofs calls it once the change commits or rolls back. A
-     * binding to any other session, and a request not yet resolved, are left
-     * alone.
+     * Forget the authentication context the guard holds when the bound session
+     * is the one given.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @return void

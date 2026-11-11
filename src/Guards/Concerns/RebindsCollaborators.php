@@ -9,12 +9,7 @@ use Illuminate\Http\Request;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 
 /**
- * Rebinds the collaborators a guard holds when the container swaps them: the
- * request being served, the event dispatcher and the principal resolver. Each
- * is rebound on the guard's context, the one copy every flow of the guard
- * reads. The service provider wires these to the container's rebinding
- * callbacks, so a guard resolved once follows every later request and every
- * swap.
+ * Rebinds the collaborators a guard holds when the container swaps them.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -25,8 +20,7 @@ trait RebindsCollaborators
 {
     /**
      * Rebind the current HTTP request onto the guard and forget everything
-     * resolved for the previous one. Called by the service provider on each
-     * container-resolve cycle.
+     * resolved for the previous one.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return static
@@ -43,8 +37,7 @@ trait RebindsCollaborators
     }
 
     /**
-     * Rebind the event dispatcher onto the guard, so test suites that swap it
-     * after the guard is resolved (e.g. `Event::fake()`) get a fresh reference.
+     * Rebind the event dispatcher onto the guard.
      *
      * @param  \Illuminate\Contracts\Events\Dispatcher  $events
      * @return static
@@ -57,9 +50,7 @@ trait RebindsCollaborators
     }
 
     /**
-     * Rebind the principal resolver, so consumers that swap it after guard
-     * construction (test fakes, runtime tenancy switches) propagate the new
-     * resolver into the guard.
+     * Rebind the principal resolver onto the guard.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\PrincipalResolver  $resolver
      * @return static

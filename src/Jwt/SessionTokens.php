@@ -26,14 +26,8 @@ final class SessionTokens
     private function __construct() {}
 
     /**
-     * Issue the session's pair at `$now` inside the issuer's transaction, as
-     * `issueGuardedAccessToken()` requires: the access token for the admitted
-     * identity, principal and tenant (one a transaction inserted the session
-     * in, `$inserted`, reads its proofs as that transaction sees them), and the
-     * refresh token carrying the rotation id. The pair says when the access
-     * token expires and its lifetime in seconds, as its `exp` and `iat` do. A
-     * body application's pair: the transport moves the refresh token into its
-     * cookie.
+     * Issue the session's body-transport pair at `$now` inside the issuer's
+     * transaction.
      *
      * @param  \SineMacula\Laravel\Authentication\Jwt\JwtTokenService  $tokens
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted

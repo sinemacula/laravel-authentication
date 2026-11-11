@@ -8,37 +8,8 @@ use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Exception\RequestExceptionInterface;
 
 /**
- * The client a request came from, as the package stores it on a session (its IP
- * address and its user agent), and the facts a cookie application's same-site
- * check judges it by: the `Origin` it presented, its own scheme and host, and
- * the names of the headers it carried with a value.
- *
- * The IP address and user agent come from the client and are made safe to store
- * rather than trusted: an IP address is kept only when it is a valid IPv4 or
- * IPv6 address, and a user agent has invalid UTF-8 replaced, control and
- * bidirectional formatting characters removed, and is cut to the column's 512
- * characters. PostgreSQL, and MySQL in strict mode, reject invalid UTF-8 and an
- * over-long value, and a crafted header must not turn a request into a server
- * error; PostgreSQL cannot store a NUL byte in text, and the other controls and
- * the bidirectional characters would carry escape sequences into a log or make
- * a session list read falsely. A value that is missing, invalid, or empty after
- * cleaning is `null`.
- *
- * The origin and the scheme and host are kept only when each is 1 to 512
- * printable ASCII characters, and never cut, since a cut value could equal an
- * allowed origin; the scheme and host is `null` when the request has no host or
- * Symfony refuses its host or forwarded headers, so reading a context never
- * throws for it and never takes that refusal from the application. The headers
- * are kept by name only (lower case, `_` read as `-`, as Symfony's header bag
- * files them), never by value: a header can carry a secret, and a context
- * travels on every event. `RefreshTokenTransport` applies the guard's
- * configured header name when it judges them. A context built from plain values
- * is the application's trusted description of the request; one built without
- * these facts fails a cookie application's same-site check.
- *
- * The package records last use with it; code that creates a session should
- * record `created_ip` and `created_user_agent` through it too, from
- * `fromRequest()` or the constructor.
+ * The client a request came from, and the facts a cookie application's
+ * same-site check judges it by.
  *
  * @api
  *
@@ -101,11 +72,7 @@ final readonly class ClientContext
     }
 
     /**
-     * Read a request's same-site facts alone, with no IP address or user agent,
-     * for the same-site check. Its IP address is left unread: Symfony refuses a
-     * trusted proxy's conflicting forwarded client addresses only on a
-     * request's first read, so reading it here would fail the check and take
-     * that refusal from the application.
+     * Read a request's same-site facts alone, with no IP address or user agent.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return self
@@ -119,8 +86,7 @@ final readonly class ClientContext
 
     /**
      * Whether the request carried the named header with a non-empty first
-     * value, the name read as the header bag reads it (in any case, `_` as
-     * `-`).
+     * value.
      *
      * @param  string  $name
      * @return bool
@@ -142,8 +108,7 @@ final readonly class ClientContext
     }
 
     /**
-     * Keep an origin only when it is 1 to 512 printable ASCII characters,
-     * whole.
+     * Keep an origin only when it is 1 to 512 printable ASCII characters.
      *
      * @param  ?string  $origin
      * @return ?string
@@ -166,8 +131,8 @@ final readonly class ClientContext
     }
 
     /**
-     * The header names, as the header bag files them, once each, leaving out
-     * any that is not an HTTP token.
+     * The header names as the header bag files them, once each, dropping any
+     * that is not an HTTP token.
      *
      * @param  array<array-key, string>  $names
      * @return list<string>
@@ -182,11 +147,6 @@ final readonly class ClientContext
     /**
      * The request's scheme and host, or `null` when it has no host or Symfony
      * refuses its host or its forwarded headers.
-     *
-     * Read from a copy: Symfony throws a refused host or conflicting forwarded
-     * headers only on the first read of a request and answers an empty host
-     * after, so reading the request itself would take the refusal from the
-     * application and leave every later read with an empty host.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return ?string

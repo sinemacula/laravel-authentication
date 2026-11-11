@@ -39,14 +39,8 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyCheck;
 /**
  * The sign-in policy checks behind `attempt()`.
  *
- * The steps the session service's `signIn()` takes the same way (the method
- * check, the slots and their give-back, the refusal by an account's own limit)
- * are `CredentialAttempt`'s; the order, the timebox and what runs inside it,
- * the pins and the refusal of a required factor are `attempt()`'s own.
- *
- * The policies are resolved from the container each time they are needed, so
- * the binding in effect then (the application's, or an MFA package's) is the
- * one used, however long the guard has been alive.
+ * Policies are resolved from the container each time, so a binding made later,
+ * such as an MFA package's, is the one used.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -56,12 +50,8 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyCheck;
 trait SignsInWithCredentials
 {
     /**
-     * Run an `attempt()` sign-in up to the bind: the application policy's
-     * method check and the attempt limits, then, inside the credential timebox,
-     * the password check (refused before any lookup when the identifier key
-     * holds anything a lookup could not count, and counted against the account
-     * the credentials find) and everything after it. The slots the attempt
-     * took, the account's included, are given back only when it succeeds.
+     * Run an `attempt()` sign-in up to the bind, giving the attempt's slots
+     * back only when it succeeds.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn  $password
      * @param  array<string, mixed>  $credentials
@@ -137,11 +127,7 @@ trait SignsInWithCredentials
 
     /**
      * Return the identity the credentials of an `attempt()` find and whose
-     * password they match, or `null`. Credentials whose identifier key holds
-     * anything a lookup could not count are never looked up, and an integer
-     * there is looked up as the string it is counted as; otherwise the account
-     * found is remembered for Laravel's `Failed` event, and its password check
-     * is counted against it in the attempt's account slots.
+     * password they match, or `null`.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn  $password
      * @param  array<string, mixed>  $credentials
@@ -166,11 +152,8 @@ trait SignsInWithCredentials
     }
 
     /**
-     * Admit an identity whose password was accepted: activity, the principal
-     * (the pinned one, or the resolver's default), the application policy and
-     * the access contracts, and the pinned session, whose active tenant is then
-     * the one admitted: the principal must still be let act in it
-     * (`tenant_ineligible`), and it must be active (`tenant_inactive`).
+     * Admit an identity whose password was accepted, with its principal,
+     * policies and pinned session.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\SignInAdmission  $admission
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -229,15 +212,8 @@ trait SignsInWithCredentials
     }
 
     /**
-     * Refuse the admitted sign-in when the additional-factor policy asks of it
-     * a requirement the password it proved does not meet alone, as the bound
-     * `RequirementCheck` judges it: `attempt()` cannot hand out a pending
-     * session to meet it with (`additional_factor_required`). A pinned session
-     * proves nothing about who holds the client, so the policy is never told of
-     * one. The authentication policy of the active tenant (the principal's own,
-     * or the one a pinned session records) is then judged against the same
-     * password: one that requires a connection refuses it as `sso_required`,
-     * and one that requires a further factor as `additional_factor_required`.
+     * Refuse the admitted sign-in when the additional-factor or tenant
+     * authentication policy asks for more than the password.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client

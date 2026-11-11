@@ -25,17 +25,8 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
- * Decides whom a session's refresh token signs in again: the session's owner,
- * reloaded through the guard's identity provider so the provider's scopes
- * apply, as the principal the token names (or the resolver's default), with the
- * identity, principal and its own tenant active, the application policy still
- * allowing the session's method, `ApplicationAccess` still letting the
- * principal use the application, and the session's active tenant still one the
- * principal may act in (`TenantAccess`) and active. None of its refusals
+ * Decides whom a session's refresh token signs in again; none of its refusals
  * revokes the session.
- *
- * Built for one exchange with the guard's current provider and resolver, so it
- * keeps nothing between exchanges.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -64,15 +55,8 @@ final readonly class RefreshAdmission
     ) {}
 
     /**
-     * Admit the session: its owner, active, as the principal the token's hint
-     * names (or the resolver's default), in the session's active tenant.
-     * Returns the admitted session with that tenant, or the refusal with as
-     * much of it as was resolved (`tenant_inactive` when the active tenant no
-     * longer resolves or is inactive, `tenant_ineligible` when `TenantAccess`
-     * no longer lets the principal act in it). A principal the session does not
-     * record is admitted in its own tenant, for the caller to refuse as
-     * `session_principal_mismatch` before anything is asked of a tenant the
-     * session acts in for another principal.
+     * Admit the session's owner as the hinted principal in the session's active
+     * tenant.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  mixed  $principalHint
@@ -93,11 +77,8 @@ final readonly class RefreshAdmission
     }
 
     /**
-     * Admit the session's owner, active, as the principal the hint names (or
-     * the resolver's default), held to the application policy and
-     * `ApplicationAccess`, in the principal's own tenant, whatever tenant the
-     * session acts in: for a switch, which admits its destination tenant
-     * itself.
+     * Admit the session's owner as the hinted principal in the principal's own
+     * tenant, for a switch, which admits its destination tenant itself.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  mixed  $principalHint
@@ -126,10 +107,8 @@ final readonly class RefreshAdmission
     }
 
     /**
-     * Admit the session's active owner as the principal the token names (or the
-     * resolver's default): the principal and its tenant must be active, the
-     * application policy must still allow the session's method, and
-     * `ApplicationAccess` the principal.
+     * Admit the session's active owner as the principal the token names, or the
+     * resolver's default.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -159,15 +138,8 @@ final readonly class RefreshAdmission
     }
 
     /**
-     * Hold an admitted refresh to the application: the policy must still allow
-     * the method that started the session (a session that records none fails
-     * closed, as `method_not_allowed`), and `ApplicationAccess` must still let
-     * the principal use the application (`principal_ineligible`). A refresh
-     * names no identifier, so the verified-identifier requirement does not
-     * apply to it. The method is read, and the access contract asked, on the
-     * write connection, so a lagging replica can neither allow a method the
-     * primary no longer records for the session nor answer from rows the
-     * primary has since changed.
+     * Hold an admitted refresh to the application policy and
+     * `ApplicationAccess`.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
@@ -194,9 +166,7 @@ final readonly class RefreshAdmission
 
     /**
      * Hold the admitted principal to the session's active tenant, read on the
-     * write connection: the principal's own when the identifiers match, any
-     * other through the `TenantResolver`, still one `TenantAccess` lets the
-     * principal act in, and active.
+     * write connection.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
@@ -216,16 +186,8 @@ final readonly class RefreshAdmission
     }
 
     /**
-     * Reload the session's owner through the guard's identity provider, so the
-     * provider's own scoping applies, and confirm it is that exact owner. A
-     * session row with no owner key, or a provider answer that is not the owner
-     * (no row through this provider, or another model sharing the key), yields
-     * `null`, which fails as `identity_unknown`.
-     *
-     * The provider is asked for the owner key the session row stores, which is
-     * the identity's primary key; providers find identities by their auth
-     * identifier, which is the primary key unless the identity model overrides
-     * `getAuthIdentifierName()`.
+     * Reload the session's owner through the guard's identity provider and
+     * confirm it is that exact owner.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
@@ -239,10 +201,8 @@ final readonly class RefreshAdmission
     }
 
     /**
-     * Resolve a principal for the refresh-flow identity through the bound
-     * resolver, with the token's hint when it carries one. An
-     * `UnresolvableIdentityException` is a misconfiguration and propagates as a
-     * server error rather than being reported as a refresh failure.
+     * Resolve a principal for the identity, with the token's hint when it
+     * carries one.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  mixed  $hint

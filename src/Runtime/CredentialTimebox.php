@@ -8,15 +8,11 @@ use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Timebox;
 
 /**
- * The credential timebox of one guard: every check of a secret its flows make
- * (`attempt()`, `validate()`, a sign-in, a password reset, a reauthentication)
- * runs in it, so the check takes as long whatever it found.
+ * The credential timebox of one guard, in which every check of a secret its
+ * flows make runs.
  *
- * One guard serves a whole request, console command or queue worker, and
- * Laravel's `Timebox` keeps an early return for every later call, so the box is
- * told before each call that it may not return early: a check that fails after
- * one that succeeded on the same guard is padded as well. The budget is read
- * from `authentication.timebox.credentials_microseconds` on each call.
+ * Laravel's `Timebox` keeps an early return for every later call, so each call
+ * resets it.
  *
  * @api
  *
@@ -40,8 +36,7 @@ final readonly class CredentialTimebox
     ) {}
 
     /**
-     * Run the callback in the credential budget, which it waits out unless the
-     * callback ends it early through the `Timebox` it is given.
+     * Run the callback in the credential budget.
      *
      * @template TResult
      *
@@ -58,9 +53,7 @@ final readonly class CredentialTimebox
     }
 
     /**
-     * The budget a call waits out now, in microseconds. Falls back to the
-     * default when the config key is missing, non-positive, or the Config
-     * facade is not bootstrapped.
+     * The budget a call waits out now, in microseconds.
      *
      * @return int
      */

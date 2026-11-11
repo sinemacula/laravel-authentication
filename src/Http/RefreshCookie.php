@@ -11,18 +11,7 @@ use Symfony\Component\HttpFoundation\Cookie;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * The cookie that carries a cookie application's refresh token to the browser,
- * in place of the token itself: a sign-in, refresh, switch or activation of a
- * cookie application hands its result this, and never the plain token.
- *
- * It holds the token as a `Secret`, with the cookie's name, path and expiry,
- * and makes the Symfony `Cookie` only when asked (`cookie()`, the explicit
- * reveal), since a `Cookie` shows its value to every dump and serialises it.
- * The cookie is `HttpOnly`, so no script reads it, `Secure`, `SameSite=Strict`,
- * host-only (no `Domain`), on the application's path, and expires when the
- * session ends.
- *
- * The refresh token transport builds it; an application only attaches it.
+ * The cookie that carries a cookie application's refresh token to the browser.
  *
  * @api
  *
@@ -47,7 +36,7 @@ final readonly class RefreshCookie
         /** The application's cookie name. */
         public string $name,
 
-        /** The path the cookie is scoped to, which every route that reads it lives under: sign-in, refresh, switch, sign-out and `authentication.refresh` routes. */
+        /** The path the cookie is scoped to, which every route that reads it lives under. */
         public string $path,
 
         /** When the cookie expires: when the session ends. */

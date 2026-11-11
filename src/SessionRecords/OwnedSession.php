@@ -16,14 +16,8 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
- * Says whether a guard may authenticate on a session someone named (a `sid`
- * claim, a session pinned on `attempt()`), once `IdentitySessions::find()` has
- * found it among the identity's own sessions.
- *
- * The guard, revocation and deadline reads run inside
- * `WriteConnection::during()`, which pins every connection a model resolves
- * meanwhile, so a session that derives its state from a relation or another
- * table reads the writer as well.
+ * Says whether a guard may authenticate on a session someone named, once found
+ * among the identity's own sessions.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -39,14 +33,7 @@ final class OwnedSession
 
     /**
      * Why the guard may not authenticate on the session at the given time, or
-     * `null` when it may: a session of another guard (or of none), a revoked
-     * one, a pending one (it waits on requirements, so no token of it is
-     * accepted until it activates), and one that has ended (past its idle or
-     * absolute deadline, or without deadlines), in that order. The revocation,
-     * the status and the deadlines are read whatever the guard, so a session
-     * loaded without one of them is reported as the misconfiguration it is. The
-     * deadlines are checked with no leeway, so a token cannot outlive its
-     * session.
+     * `null` when it may.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  string  $guard
@@ -74,10 +61,7 @@ final class OwnedSession
     }
 
     /**
-     * Whether the session acts as the principal: the session records that
-     * principal's morph type and identifier, read from the row already loaded,
-     * with no query. A session that records no principal, or that is not an
-     * Eloquent session able to record one, acts as none.
+     * Whether the session records the principal, read from the loaded row.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -89,9 +73,7 @@ final class OwnedSession
     }
 
     /**
-     * Whether the session acts in the tenant a token names (its `tenant_id`):
-     * the session records that tenant's identifier, or records none for a token
-     * that names none.
+     * Whether the session acts in the tenant a token names (its `tenant_id`).
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  mixed  $tenantId
@@ -108,10 +90,7 @@ final class OwnedSession
 
     /**
      * Whether a token issued at the given time (its `iat`) was issued at or
-     * after the floor the session's last change of context set (see
-     * `SwitchFloor`), so a token from before a switch, or before a return to
-     * pending, cannot come back to life when the session comes back to that
-     * context. A session whose context never changed accepts any time.
+     * after the session's last change of context.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  mixed  $issuedAt
