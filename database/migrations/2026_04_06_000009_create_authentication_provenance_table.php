@@ -12,10 +12,7 @@ use SineMacula\Laravel\Authentication\Database\MigrationCollisionGuard;
 use SineMacula\Laravel\Authentication\Database\StorageConnection;
 
 /**
- * Create the provenance table: how each session established through an external
- * identity provider began, written once with the session; and the guards a
- * sign-in through a connection and a revocation of its sessions both write, so
- * neither misses the other whatever the transaction's isolation level.
+ * Create the provenance and connection guards tables.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -36,61 +33,40 @@ return new class extends Migration {
 
         $schema = Schema::connection($this->getConnection());
 
-        // Both names are checked before either table is created, so a collision
-        // on the guards leaves no provenance table behind.
+        // Check both before creating either, so a collision leaves no table.
         (new MigrationCollisionGuard($schema))->ensureNotExists($table, 'proofs.provenance_table');
         (new MigrationCollisionGuard($schema))->ensureNotExists($guards, 'proofs.guards_table');
 
         $schema->create($table, static function (Blueprint $blueprint) use ($schema, $table): void {
 
-            // The session's key as a string, whatever the session model's key
-            // type: one provenance per session.
             self::exact($schema, $blueprint, 'session_id')->primary();
 
-            // The connection that established the session, compared exactly, so
-            // revoking one connection's sessions never ends those of another
-            // whose id differs from it only in case, accents or a trailing
-            // space.
             self::exact($schema, $blueprint, 'connection_id');
 
             $blueprint->string('tenant_id')->nullable();
             $blueprint->dateTime('provider_authenticated_at', 0)->nullable();
 
-            // The evidence the provider asserted, once the evidence contract
-            // accepted it, as JSON; `null` when it asserted none or none was
-            // accepted.
             $blueprint->text('accepted_evidence')->nullable();
 
             $blueprint->dateTime('provider_session_expires_at', 0)->nullable();
             $blueprint->string('policy_version', 64)->nullable();
 
-            // The link the result was mapped to its identity through, opaque
-            // and compared exactly, so a reauthentication or a revocation
-            // through one link never matches another whose id differs from it
-            // only in case, accents or a trailing space. Not indexed: a link's
-            // sessions are found by their identity's session keys first.
+            // Not indexed: a link's sessions are found by their identity's
+            // session keys first.
             self::exact($schema, $blueprint, 'link_id')->nullable();
 
-            // The provider context the adapter gave with the result, encoded by
-            // the package as JSON: opaque, written once with the provenance and
-            // never rewritten; `null` for none.
             $blueprint->text('provider_context')->nullable();
 
             $blueprint->dateTime('created_at', 0)->nullable();
 
-            // Indexes for finding the sessions of a connection, which revoking
-            // them by connection reads, or of a tenant's connections. Named
-            // short (the connection's after the provider it configures), so a
-            // configured table name of up to 47 characters still fits
-            // PostgreSQL's 63.
+            // Named short, so a 47-character table name fits PostgreSQL's 63.
             $blueprint->index('connection_id', $table . '_provider_index');
             $blueprint->index(['tenant_id', 'connection_id'], $table . '_tenant_index');
         });
 
         $schema->create($guards, static function (Blueprint $blueprint) use ($schema, $guards): void {
 
-            // One guard per connection and slot (the slot a link's id hashes
-            // to), the connection held as the provenance holds it.
+            // One guard per connection and the slot a link's id hashes to.
             self::exact($schema, $blueprint, 'connection_id');
             $blueprint->unsignedSmallInteger('slot');
 
@@ -112,8 +88,7 @@ return new class extends Migration {
     }
 
     /**
-     * The connection the package's tables live on (see `StorageConnection`),
-     * the one the sessions, and so their provenance, are written on.
+     * The connection the package's tables live on.
      *
      * @return ?string
      *
@@ -126,16 +101,10 @@ return new class extends Migration {
     }
 
     /**
-     * A string column that compares byte for byte: binary on MySQL and MariaDB,
-     * whose default collations ignore case and accents and whose `utf8mb4_bin`
-     * pads (`'abc'` equals `'abc '`), while the binary collation that does not
-     * pad has a different name on each. Two session keys that differ only in
-     * those would otherwise match, so one session would clear or prune
-     * another's provenance, or could not record its own, and one connection's
-     * or link's revocation would end another's sessions. PostgreSQL and SQLite
-     * already compare bytes. A binary column's length is in bytes, so it is
-     * given the four a `utf8mb4` character may take for each of the 255
-     * characters the column holds elsewhere.
+     * A string column that compares byte for byte.
+     *
+     * MySQL and MariaDB collations ignore case and accents or pad, so there it
+     * is binary, four bytes per character.
      *
      * @param  \Illuminate\Database\Schema\Builder  $schema
      * @param  \Illuminate\Database\Schema\Blueprint  $blueprint

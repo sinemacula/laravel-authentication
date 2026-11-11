@@ -31,14 +31,11 @@ return new class extends Migration {
         (new MigrationCollisionGuard($schema))->ensureNotExists($this->table(), 'rate_limits.table');
 
         $schema->create($this->table(), static function (Blueprint $blueprint): void {
-            // HMAC-SHA256 hex digest, keyed from the application key, of what
-            // the counter counts (see CounterKeys), so the table alone gives
-            // none of it back.
+            // HMAC digest of what the counter counts, so the table reveals none
+            // of it.
             $blueprint->char('key', 64)->primary();
             $blueprint->unsignedInteger('hits');
 
-            // Whole seconds, compared with the window boundaries the limiter
-            // computes, and indexed for pruning ended windows.
             $blueprint->dateTime('window_ends_at', 0)->index();
         });
     }
@@ -54,9 +51,7 @@ return new class extends Migration {
     }
 
     /**
-     * The connection the counters live on, the one the model reads and writes
-     * them on: the configured one, or the storage connection (see
-     * `StorageConnection::forRateLimits()`).
+     * The connection the counters live on.
      *
      * @return ?string
      *

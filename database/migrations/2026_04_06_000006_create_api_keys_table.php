@@ -10,8 +10,7 @@ use SineMacula\Laravel\Authentication\Database\MigrationCollisionGuard;
 use SineMacula\Laravel\Authentication\Database\StorageConnection;
 
 /**
- * Create the API keys table: the keys non-human identities authenticate with,
- * each bound to one guard, one principal and its tenant.
+ * Create the API keys table.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -36,19 +35,15 @@ return new class extends Migration {
         $schema->create($table, static function (Blueprint $blueprint) use ($table): void {
             $blueprint->uuid('id')->primary();
 
-            // The key's public part, `<prefix>_<public>`: displayed, and the
-            // one indexed lookup a presented key costs.
+            // `<prefix>_<public>`: the one indexed lookup a presented key
+            // costs.
             $blueprint->string('public_id', 64)->unique();
 
-            // SHA-256 hex digest of the secret, compared in constant time; the
-            // secret itself is never stored.
             $blueprint->char('secret_hash', 64);
 
             $blueprint->string('guard');
             $blueprint->string('name')->nullable();
 
-            // Plain string polymorphic columns, as on the sessions table, so
-            // any key type fits.
             $blueprint->string('authenticatable_type');
             $blueprint->string('authenticatable_id');
             $blueprint->string('principal_type');
@@ -56,7 +51,7 @@ return new class extends Migration {
             $blueprint->string('tenant_type')->nullable();
             $blueprint->string('tenant_id')->nullable();
 
-            // The granted scopes, as a JSON list.
+            // JSON list.
             $blueprint->text('scopes');
 
             $blueprint->dateTime('expires_at', 0)->nullable();
@@ -66,8 +61,7 @@ return new class extends Migration {
             $blueprint->dateTime('revoked_at', 0)->nullable();
             $blueprint->datetimes(0);
 
-            // Named short, so a long configured table name still fits MySQL's
-            // 64-character identifiers.
+            // Named short, so a long table name fits MySQL's 64 characters.
             $blueprint->index(['authenticatable_type', 'authenticatable_id'], $table . '_owner_index');
             $blueprint->index(['principal_type', 'principal_id'], $table . '_principal_index');
         });
@@ -84,8 +78,7 @@ return new class extends Migration {
     }
 
     /**
-     * The connection the package's tables live on (see `StorageConnection`),
-     * the one the model reads and writes the table on.
+     * The connection the package's tables live on.
      *
      * @return ?string
      *

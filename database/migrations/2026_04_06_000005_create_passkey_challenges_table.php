@@ -10,8 +10,7 @@ use SineMacula\Laravel\Authentication\Database\MigrationCollisionGuard;
 use SineMacula\Laravel\Authentication\Database\StorageConnection;
 
 /**
- * Create the passkey challenges table: the single-use, short-lived challenges
- * of passkey registration, sign-in and factor ceremonies.
+ * Create the passkey challenges table.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -38,27 +37,21 @@ return new class extends Migration {
             $blueprint->string('guard');
             $blueprint->string('rp_id');
 
-            // The identity a registration or factor ceremony is for; a sign-in
-            // ceremony is usernameless and records none.
+            // None for a usernameless sign-in ceremony.
             $blueprint->string('authenticatable_type')->nullable();
             $blueprint->string('authenticatable_id')->nullable();
 
-            // The session and purpose a factor ceremony, or a registration a
-            // factor package asked for, is bound to; none for any other.
             $blueprint->string('session_id')->nullable();
             $blueprint->string('binding_purpose', 32)->nullable();
 
-            // The ceremony options as sent, challenge included, which the
-            // response is verified against. Long text: a registration or a
-            // factor lists every passkey the identity has, which can outgrow
+            // Long text: listing every passkey the identity has can outgrow
             // MySQL's 64 KiB text.
             $blueprint->longText('options');
 
             $blueprint->dateTime('expires_at', 0);
 
-            // When the first response was submitted to the challenge, which
-            // uses it up; the row is kept, so a later response is told the
-            // challenge was used rather than that it never existed.
+            // The row is kept, so a later response is told the challenge was
+            // used.
             $blueprint->dateTime('consumed_at', 0)->nullable();
             $blueprint->dateTime('created_at', 0)->nullable();
 
@@ -77,8 +70,7 @@ return new class extends Migration {
     }
 
     /**
-     * The connection the package's tables live on (see `StorageConnection`),
-     * the one the model reads and writes the table on.
+     * The connection the package's tables live on.
      *
      * @return ?string
      *

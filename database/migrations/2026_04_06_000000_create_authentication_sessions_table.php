@@ -35,56 +35,37 @@ return new class extends Migration {
         $schema->create($table, static function (Blueprint $blueprint) use ($table): void {
             $blueprint->uuid('id')->primary();
 
-            // A random UUID written when the row is inserted and never changed:
-            // a session a model that reissues keys puts under the same key, of
-            // the same owner and even in the same second, has another, so it is
+            // Random and immutable, so a row reissued under the same key is
             // never taken for the session a caller holds.
             $blueprint->uuid('generation');
 
-            // Plain string polymorphic columns so the table works against
-            // integer, UUID, or ULID keys. `morphs()` would pin the id to
-            // unsignedBigInteger and break non-integer keys.
+            // Strings rather than `morphs()`, so UUID and ULID keys work too.
             $blueprint->string('authenticatable_type');
             $blueprint->string('authenticatable_id');
             $blueprint->string('principal_type')->nullable();
             $blueprint->string('principal_id')->nullable();
 
-            // `active`, or `pending` while the session waits on the
-            // requirements `requires` lists in order (a JSON list, such as
-            // `["mfa","principal"]`, `null` once active). A pending session
-            // holds only the digest of its pending credential's secret, never a
-            // refresh credential of its own until it first activates. Every row
-            // the package writes names its status; the default only keeps a row
-            // written outside the package from reading as a pending session's.
+            // `requires` is a JSON list such as `["mfa","principal"]`, `null`
+            // once active.
             $blueprint->string('status', 16)->default('active');
             $blueprint->string('requires', 64)->nullable();
             $blueprint->string('pending_key', 64)->nullable();
 
-            // The session a sign-in's client proved it holds, and the refresh
-            // digest it proved, so its first activation supersedes that session
-            // only while it is unchanged; and the attempt-limit slots the
-            // sign-in holds until then (JSON).
+            // The session a first activation supersedes while it is unchanged,
+            // and the attempt-limit slots held until then (JSON).
             $blueprint->string('supersedes_session_id')->nullable();
             $blueprint->string('supersedes_refresh_key', 64)->nullable();
             $blueprint->text('attempt_windows')->nullable();
 
-            // The active tenant's opaque id (`null` for none), and the version
-            // of its authentication policy the session was last checked
-            // against.
             $blueprint->string('tenant_id')->nullable();
             $blueprint->string('tenant_policy_version', 64)->nullable();
 
             // The floor for the `iat` of the session's access tokens, moved by
-            // every change of its context (its principal or active tenant, a
-            // return to pending, an activation after one), so a token from
-            // before the change is refused even when the context comes back.
+            // every change of its context.
             $blueprint->dateTime('switched_at', 0)->nullable();
 
-            // Written by every access-token issuance that does not write the
-            // row itself, before it reads the session's proofs, and by every
-            // change of those proofs, before the change, in the same
-            // transaction, so two of them never pass each other unseen (the
-            // issuance guard); never read for anything.
+            // Written, never read, so an issuance and a proof change in
+            // concurrent transactions cannot pass each other unseen.
             $blueprint->unsignedBigInteger('issuance_sequence')->default(0);
 
             $blueprint->string('guard')->nullable();
@@ -99,23 +80,17 @@ return new class extends Migration {
             $blueprint->string('last_used_ip', 45)->nullable();
             $blueprint->string('last_used_user_agent', 512)->nullable();
 
-            // SHA-256 hex digests of the current and the immediately previous
-            // refresh rotation ids. Not indexed: a session is always found by
-            // its primary key and its digest compared in constant time.
+            // Not indexed: a session is found by its key and its digest
+            // compared in constant time.
             $blueprint->string('refresh_key', 64)->nullable();
             $blueprint->string('previous_refresh_key', 64)->nullable();
 
-            // Every time is a whole-second `dateTime`. Whole seconds because
-            // the refresh rotation compares the stored deadlines by equality,
-            // which a fractional part the application never wrote would
-            // break; `dateTime` because MySQL's `timestamp` ends in January
-            // 2038, before the longest session lifetime the package accepts.
+            // Whole seconds because rotation compares deadlines by equality;
+            // `dateTime` because MySQL's `timestamp` ends in 2038.
             $blueprint->dateTime('refresh_rotated_at', 0)->nullable();
             $blueprint->dateTime('signed_in_at', 0);
             $blueprint->dateTime('idle_expires_at', 0);
 
-            // No absolute deadline when the application sets no absolute limit
-            // and the sign-in supplied no deadline of its own.
             $blueprint->dateTime('absolute_expires_at', 0)->nullable();
 
             $blueprint->dateTime('revoked_at', 0)->nullable();
@@ -123,18 +98,14 @@ return new class extends Migration {
 
             $blueprint->datetimes(0);
 
-            // Named short, so a configured table name of up to 47 characters
-            // gives index names within PostgreSQL's 63 characters (it cuts a
-            // longer one short without an error) and MySQL's 64; Laravel's
-            // default name for the owner index would not fit the default table.
+            // Short names keep a 47-character table name within PostgreSQL's
+            // 63-character limit, which truncates silently.
             $blueprint->index(['authenticatable_type', 'authenticatable_id'], $table . '_owner_index');
             $blueprint->index(['principal_type', 'principal_id'], $table . '_principal_index');
             $blueprint->index('guard', $table . '_guard_index');
             $blueprint->index('tenant_id', $table . '_tenant_index');
 
-            // Separate single-column indexes so each condition of a pruning
-            // query that matches either deadline or the revocation time can use
-            // its own index.
+            // One index per pruning condition.
             $blueprint->index('idle_expires_at', $table . '_idle_index');
             $blueprint->index('absolute_expires_at', $table . '_absolute_index');
             $blueprint->index('revoked_at', $table . '_revoked_index');
@@ -154,8 +125,7 @@ return new class extends Migration {
     }
 
     /**
-     * The connection the package's tables live on (see `StorageConnection`),
-     * the one the session model must live on.
+     * The connection the package's tables live on.
      *
      * @return ?string
      *
