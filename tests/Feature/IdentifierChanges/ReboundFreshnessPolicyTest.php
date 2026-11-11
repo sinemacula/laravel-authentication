@@ -27,11 +27,7 @@ use Tests\TestCase;
 
 /**
  * Feature tests for an identifier change under a freshness policy the
- * application bound in place of the package's: the request and its confirmation
- * ask the bound policy, whose requirement decides whether a password is taken
- * and whose answer decides whether a session is fresh, while the package still
- * judges the session itself, before the transaction and on its locked row
- * inside it, where the policy is asked current.
+ * application bound.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -46,7 +42,7 @@ final class ReboundFreshnessPolicyTest extends TestCase
     use ChangesIdentifiers, InteractsWithRateLimits;
 
     /**
-     * Start every test from a known moment, with the fakes bound.
+     * Freeze the clock and bind the fakes.
      *
      * @return void
      */
@@ -74,11 +70,8 @@ final class ReboundFreshnessPolicyTest extends TestCase
     }
 
     /**
-     * The bound policy decides whether a session is fresh: a session that
-     * signed in days ago, stale under the configured freshness, is fresh when
-     * the policy finds a proof, and one that signed in just now is not when it
-     * finds none. It is asked for the requirement up front, then for a proof
-     * before the transaction and again, current, inside it.
+     * The bound policy decides whether a session is fresh, asked before and
+     * inside the transaction.
      *
      * @return void
      *
@@ -110,10 +103,8 @@ final class ReboundFreshnessPolicyTest extends TestCase
     }
 
     /**
-     * Whatever the bound policy answers, the package judges the session as
-     * stored before asking it: a revoked session, one of another guard and one
-     * past its deadline prove nothing, and the policy is never asked for their
-     * proofs.
+     * A session that is not live proves nothing, and the policy is never asked
+     * for its proofs.
      *
      * @return void
      *
@@ -141,10 +132,7 @@ final class ReboundFreshnessPolicyTest extends TestCase
     }
 
     /**
-     * A revocation that commits after the check before the transaction, and
-     * before the session is locked inside it, refuses the request: the locked
-     * row is judged, not only the bound policy's answer, so nothing is written
-     * or sent.
+     * A revocation committed before the session is locked refuses the request.
      *
      * @return void
      *
@@ -166,10 +154,8 @@ final class ReboundFreshnessPolicyTest extends TestCase
     }
 
     /**
-     * The bound policy is asked plainly for the check before the transaction
-     * and current for the check under the lock, and the current answer decides:
-     * a session it finds fresh plainly but not as committed (a proof voided
-     * after the first check) refuses the request, with nothing written or sent.
+     * The policy's current answer under the lock decides, refusing a proof
+     * voided after the first check.
      *
      * @return void
      *
@@ -187,10 +173,7 @@ final class ReboundFreshnessPolicyTest extends TestCase
     }
 
     /**
-     * The bound policy's requirement decides whether a password is taken: one
-     * that takes a first-factor reauthentication takes the right password even
-     * where the configuration removed the operation, and one that does not
-     * refuses it, with nothing counted.
+     * The bound policy's requirement decides whether a password is taken.
      *
      * @return void
      *
@@ -217,8 +200,7 @@ final class ReboundFreshnessPolicyTest extends TestCase
     }
 
     /**
-     * A confirmation asks the bound policy for the operation's requirement
-     * before it makes the change.
+     * A confirmation asks the bound policy for the operation's requirement.
      *
      * @return void
      *

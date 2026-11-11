@@ -71,16 +71,7 @@ use Tests\Unit\Stubs\StubPrincipal;
 use Tests\Unit\Stubs\StubSession;
 
 /**
- * Feature tests for the `RefreshTokenExchange` service that fill in the few
- * branches not covered by the JwtGuardRefreshTest's end-to-end coverage:
- *
- * - invalid `session.model` config -> refresh fails fast with an explicit
- *   configuration exception rather than falling through to `session_unknown`.
- * - resolver throws `UnresolvableIdentityException` -> the misconfiguration
- *   propagates out of the exchange instead of becoming a refresh failure.
- * - session model outside the explicit `EloquentSession` boundary is rejected.
- * - a `sid` that cannot be a key of the session model is `session_unknown`
- *   without a query, and a database error on a well-formed `sid` propagates.
+ * Feature tests for the `RefreshTokenExchange` service.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -213,8 +204,7 @@ final class RefreshTokenExchangeTest extends TestCase
         self::createSessionRecordTable('stub_sessions');
         self::migrateProofTables();
 
-        // A session row a test saves records the first factor its sign-in would
-        // have, so the tokens issued for it carry `auth_time` and `amr`.
+        // Saved sessions record a first factor, for `auth_time` and `amr`.
         FirstFactorRecorder::listen(app(Dispatcher::class), static fn (): bool => true);
     }
 
@@ -236,9 +226,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * After the guard's context is rebound to another dispatcher, the
-     * revocation of a replayed session goes to the new dispatcher and no longer
-     * reaches the one the exchange was built with.
+     * Once the guard's context is rebound to another dispatcher, a replay's
+     * revocation goes to the new one.
      *
      * @return void
      *
@@ -292,9 +281,7 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * An empty `authentication.session.model` config is now an explicit
-     * configuration error rather than a silent `session_unknown` refresh
-     * failure.
+     * An empty `authentication.session.model` config is a configuration error.
      *
      * @return void
      *
@@ -318,10 +305,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * An `UnresolvableIdentityException` thrown by the resolver is a
-     * misconfiguration: it propagates out of the exchange as a server error
-     * instead of being reported as a refresh failure, and the stored rotation
-     * is left untouched.
+     * An `UnresolvableIdentityException` from the resolver propagates and
+     * leaves the stored rotation untouched.
      *
      * @return void
      *
@@ -373,9 +358,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * A principal acting within a `CanBeActive` tenant that reports inactive is
-     * rejected with `tenant_inactive`, attributed to the session, and no
-     * rotation happens.
+     * A principal in an inactive tenant fails as `tenant_inactive`, attributed
+     * to the session, without rotating.
      *
      * @return void
      *
@@ -447,11 +431,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * The session owner is reloaded through the provider and must be that exact
-     * owner: no identity, or an identity of another model that shares the owner
-     * key, fails as `identity_unknown` before any principal is resolved. The
-     * failure is about the session row, so it names the owner and the principal
-     * the row records.
+     * A provider answer that is not the session's exact owner fails as
+     * `identity_unknown`, naming the owner and principal the row records.
      *
      * @param  \Closure(): mixed  $answer
      * @return void
@@ -496,9 +477,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * Rows of `[failingRead]`: which read of the principal identifier fails,
-     * the one the access token embeds or, after the access token is issued, the
-     * one the refresh token embeds.
+     * Rows of `[failingRead]`: the principal identifier read that fails, for
+     * the access or the refresh token.
      *
      * @return iterable<string, array{0: int}>
      */
@@ -511,11 +491,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * Both tokens are issued before the rotation commits, so a failure while
-     * issuing either of them rolls the exchange's transaction back, the
-     * issuance guard with it, leaves the stored digest untouched, and the
-     * presented refresh token still rotates on the next attempt. The failure is
-     * injected through the principal identifier each token embeds.
+     * A failure issuing either token rolls the exchange back, so the presented
+     * refresh token still rotates later.
      *
      * @param  int  $failingRead
      * @return void
@@ -600,11 +577,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * Once the session is found, the exchange runs in one transaction whose
-     * first statement is the session's issuance guard: the owner's reads, the
-     * read of the session's proofs for the access token and the rotation all
-     * follow it in that transaction, which has ended once the pair is handed
-     * back.
+     * Once the session is found, the exchange runs in one transaction opened by
+     * the session's issuance guard.
      *
      * @return void
      *
@@ -636,9 +610,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * The exchange's one time is taken once the issuance guard is written, not
-     * when the token was parsed: an issuance the guard waited for is never
-     * later than the rotation it allows, nor than its tokens' `iat`.
+     * The exchange's time is taken once the issuance guard is written, not when
+     * the token was parsed.
      *
      * @return void
      *
@@ -673,10 +646,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * A parallel refresh that rotates between this exchange's lookup and its
-     * issuance guard is seen by the locking read that follows the guard: the
-     * row read there makes this exchange a grace retry, which gets the
-     * successor's credential without a second rotation.
+     * A rotation committed before the issuance guard is seen after it, making
+     * this exchange a grace retry.
      *
      * @return void
      *
@@ -700,9 +671,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * A session deleted between the exchange's lookup and its issuance guard
-     * fails as `session_unknown`, as one the lookup never found does, before
-     * its owner is loaded.
+     * A session deleted before the issuance guard fails as `session_unknown`
+     * before its owner is loaded.
      *
      * @return void
      *
@@ -738,12 +708,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * A grace retry whose session is revoked, or returned to pending, between
-     * the exchange's lookup and its issuance guard (as by a transaction the
-     * guard waited for) is judged on the row read after the guard: it fails as
-     * `session_revoked` or `session_pending` before its owner is loaded, and
-     * hands out no pair, although the row it found was active and the retry
-     * writes no compare-and-swap that would have missed.
+     * A grace retry whose session is revoked or returned to pending before the
+     * issuance guard fails for that reason.
      *
      * @param  array<string, mixed>  $change
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
@@ -769,13 +735,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * A grace retry whose session a switch rotated again, to another principal,
-     * between the exchange's lookup and its issuance guard (as by a transaction
-     * the guard waited for) is judged on the row read after the guard: its
-     * token is two rotations old there, so it is a replay that revokes the
-     * session as `rotation_reuse`, reported for the principal the switch
-     * recorded, and it hands out no pair, although the row it found held its
-     * token as the previous one.
+     * A grace retry whose session a switch rotated again before the issuance
+     * guard is a replay that revokes it.
      *
      * @return void
      *
@@ -805,9 +766,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * A refresh payload whose `jti` is not a string is rejected as
-     * `token_invalid` and preserves the parseable session id on the emitted
-     * failure event.
+     * A refresh token whose `jti` is not a string fails as `token_invalid`,
+     * keeping its session id on the failure.
      *
      * @return void
      *
@@ -832,9 +792,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * When the refresh token carries a `principal` hint, the exchange must pass
-     * that hint into the resolver and reissue follow-up tokens that preserve
-     * it.
+     * A refresh token's `principal` hint is passed to the resolver and kept in
+     * the reissued tokens.
      *
      * @return void
      *
@@ -898,9 +857,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * Fail-closed: a hinted principal whose identifier stringifies to `null` is
-     * treated as unresolved and attributed to the session id carried by the
-     * refresh token.
+     * A hinted principal whose identifier is `null` is unresolved, attributed
+     * to the token's session.
      *
      * @return void
      *
@@ -952,11 +910,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * Fail-closed: when the resolver resolves nothing for a hinted `principal`,
-     * the exchange reports `principal_mismatch` rather than falling through to
-     * the unresolved-principal branch, and no rotation happens. Once the owner
-     * is read the failure names it, and no principal: the one the session
-     * records does not stand in for the one that did not resolve.
+     * A hinted principal the resolver cannot resolve fails as
+     * `principal_mismatch`, naming the owner and no principal.
      *
      * @return void
      *
@@ -1007,9 +962,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * A refresh token without a `principal` whose identity has no default
-     * principal fails as `principal_unresolved`, attributed to the session, and
-     * no rotation happens.
+     * A token without a `principal` whose identity has no default principal
+     * fails as `principal_unresolved`.
      *
      * @return void
      *
@@ -1073,9 +1027,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * A session that has ended, or that has no idle deadline, fails as
-     * `session_expired` before its owner is loaded or its digest compared, and
-     * nothing but the issuance guard is written: the session is not revoked.
+     * An ended session, or one with no idle deadline, fails as
+     * `session_expired` without being revoked.
      *
      * @param  ?int  $idleIn
      * @param  ?int  $absoluteIn
@@ -1121,12 +1074,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * A current rotation id is rotated to its successor: the row records the
-     * presented id as the previous one and the exchange's time as the rotation
-     * time, moves the idle deadline to the idle lifetime from that time, and
-     * leaves the absolute deadline alone. The new refresh token carries the
-     * successor, and the returned session mirrors the row with nothing left to
-     * save.
+     * A current rotation id is rotated to its successor, moving the idle
+     * deadline and keeping the absolute one.
      *
      * @return void
      *
@@ -1168,9 +1117,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * An exchange that expects the session the token names rotates it, as does
-     * one that expects none; an id that is not the session's, whatever its
-     * type, refuses it.
+     * An exchange expecting the token's session, or none, rotates it; any other
+     * expected id refuses it.
      *
      * @return void
      *
@@ -1206,9 +1154,7 @@ final class RefreshTokenExchangeTest extends TestCase
 
     /**
      * A token naming a session other than the one expected is refused as
-     * `session_mismatch` before the owner is read: the failure describes the
-     * token's own session, is counted by the limiter once, is returned and not
-     * dispatched, and the row is written nothing but the issuance guard.
+     * `session_mismatch` before the owner is read.
      *
      * @return void
      *
@@ -1233,11 +1179,7 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * The token is classified before the session is compared: the old rotation
-     * id inside the grace window gets the current credential for its own
-     * session and is refused for another, a replay revokes the session as
-     * `rotation_reuse` whichever session is expected, and a session that has
-     * ended reports its own reason.
+     * The token is classified before the expected session is compared.
      *
      * @return void
      *
@@ -1271,9 +1213,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * Refreshing a session with no absolute deadline rotates it with the same
-     * compare-and-swap, matching the absent deadline as such, moves its idle
-     * deadline the full idle lifetime, and adds no absolute deadline.
+     * A session with no absolute deadline is rotated, moving its idle deadline
+     * and adding no absolute one.
      *
      * @return void
      *
@@ -1306,11 +1247,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * The rotation id the current one replaced, presented inside the grace
-     * window, gets the session's current credential: a pair whose refresh token
-     * carries the current rotation id and expires at the stored idle deadline.
-     * No rotation state is written (only the issuance guard), so the window
-     * stays anchored at the rotation that opened it.
+     * A grace retry gets the session's current credential, writing nothing but
+     * the issuance guard.
      *
      * @return void
      *
@@ -1337,12 +1275,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * The grace window and its leeway are always the guard's token service's,
-     * whatever lifetimes the application policy returns: under a policy that
-     * disables grace, the previous rotation id inside the service's window
-     * still gets the current credential, and under one that widens it to the
-     * most allowed, the previous id past the service's window still proves a
-     * replay.
+     * The grace window and its leeway are the token service's, whatever
+     * lifetimes the policy returns.
      *
      * @return void
      *
@@ -1375,9 +1309,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * Rows of `[how the presented rotation id relates to the session, seconds
-     * since the rotation, grace window in seconds]` for tokens that prove a
-     * replay.
+     * Rows of `[presented rotation id, seconds since the rotation, grace
+     * seconds]` that prove a replay.
      *
      * @return iterable<string, array{0: string, 1: int, 2: int}>
      */
@@ -1396,11 +1329,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * A validly signed token for a live session whose rotation id is neither
-     * the current one nor the previous one inside the grace window proves the
-     * token was replayed: the session is revoked with reason `rotation_reuse`
-     * (its time and reason recorded, both digests cleared), `SessionRevoked`
-     * and `AuthenticationFailed` are dispatched, and nothing is issued.
+     * A rotation id that is neither current nor previous inside the grace
+     * window revokes the session as `rotation_reuse`.
      *
      * @param  string  $presented
      * @param  int  $rotatedSecondsAgo
@@ -1439,9 +1369,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * The grace guarantee covers only the immediately previous rotation id:
-     * after two quick rotations, a delayed retry of the first id is a replay
-     * even though both rotations fall inside the window.
+     * Only the immediately previous rotation id gets grace, even when two
+     * rotations fall inside the window.
      *
      * @return void
      *
@@ -1469,9 +1398,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * A session that holds no refresh credential cannot tell a replay from
-     * anything else, so its tokens are rejected as `refresh_key_missing`
-     * without revoking it or writing anything but the issuance guard.
+     * A session holding no refresh credential fails as `refresh_key_missing`
+     * without being revoked.
      *
      * @return void
      *
@@ -1492,9 +1420,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * A refresh for a principal the session no longer records (the session was
-     * switched to another one) fails as `session_principal_mismatch`, without
-     * revoking the session or writing to it beyond the issuance guard.
+     * A refresh for a principal the session no longer records fails as
+     * `session_principal_mismatch` without revoking it.
      *
      * @return void
      *
@@ -1515,9 +1442,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * A session that holds no refresh credential and has ended fails as
-     * `session_expired`, not `refresh_key_missing`: the session is judged
-     * before the credential, and nothing but the issuance guard is written.
+     * An ended session with no refresh credential fails as `session_expired`,
+     * not `refresh_key_missing`.
      *
      * @return void
      *
@@ -1538,9 +1464,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * A session loaded without its previous digest cannot be judged for a token
-     * that is not current: the missing column is reported instead of the token
-     * being read as a replay that revokes the session.
+     * A session loaded without its previous digest reports the missing column
+     * instead of revoking for a replay.
      *
      * @return void
      *
@@ -1566,10 +1491,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * Revoking a session records the time and reason, clears both digests,
-     * mirrors the revocation on the in-memory session, and dispatches
-     * `SessionRevoked` once. Revoking it again changes nothing: the first
-     * revocation's time and reason are kept and no event is dispatched.
+     * Revoking a session records it and dispatches `SessionRevoked` once;
+     * revoking it again changes nothing.
      *
      * @return void
      *
@@ -1602,12 +1525,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * A rotation to this exchange's successor written to the row between its
-     * re-read and its swap, inside the exchange's own transaction (holding the
-     * row from its issuance guard, no other request can write it there), makes
-     * this exchange a grace retry: the swap misses, the row is judged again,
-     * and this exchange gets the current credential that rotation recorded,
-     * without writing.
+     * A rotation to this exchange's successor written just before its swap
+     * makes the exchange a grace retry.
      *
      * @return void
      *
@@ -1632,10 +1551,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * The row is judged again at the exchange's own time, not the clock's: a
-     * competing rotation that leaves the window open at the exchange's time is
-     * a grace retry, even when the clock has moved past the window by the time
-     * the row is read again.
+     * A lost rotation is judged again at the exchange's own time, not the
+     * clock's.
      *
      * @return void
      *
@@ -1659,10 +1576,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * With grace disabled, a rotation written to the row between the exchange's
-     * re-read and its swap, inside its own transaction, leaves the exchange
-     * holding a replaced token: the row judged again proves a replay, and the
-     * session is revoked.
+     * With grace disabled, a rotation written just before the swap proves a
+     * replay and revokes the session.
      *
      * @return void
      *
@@ -1704,13 +1619,7 @@ final class RefreshTokenExchangeTest extends TestCase
 
     /**
      * When the swap misses for any other reason, the row judged again decides
-     * the failure: a session revoked, deleted, ended, or stripped of its
-     * credential in between fails for that reason; a token that is still
-     * current, because only a deadline moved, fails as `rotation_conflict`; and
-     * a grace retry whose row now has another owner fails as
-     * `identity_unknown`, or, when the row now records another principal,
-     * `session_principal_mismatch`. None of them revokes the session, and the
-     * swap is never tried twice.
+     * the failure without revoking.
      *
      * @param  string  $change
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
@@ -1816,9 +1725,7 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * The exchange rejects configured session models that implement the generic
-     * `Session` contract but do not satisfy the explicit `EloquentSession`
-     * persistence boundary.
+     * A session model that is not an `EloquentSession` is rejected.
      *
      * @return void
      *
@@ -1843,10 +1750,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * Once failed refreshes fill a limit, the exchange stops before looking the
-     * session up: it reports and returns `rate_limited` with the wait, and
-     * counts nothing more. The limits are asked about the token's session and
-     * the client's IP address.
+     * Once failed refreshes fill a limit, the exchange returns `rate_limited`
+     * before looking the session up.
      *
      * @return void
      *
@@ -1882,9 +1787,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * Every failure is counted against the token's session and the client's IP
-     * address before it is reported; a token that does not parse names no
-     * session, so it counts against the IP address only.
+     * Every failure counts against the token's session and the IP address, or
+     * the IP address alone without a session.
      *
      * @return void
      *
@@ -1951,9 +1855,7 @@ final class RefreshTokenExchangeTest extends TestCase
 
     /**
      * A session of another guard, or of none, fails as `session_guard_mismatch`
-     * before its rotation id is judged, so even a replayed token of it revokes
-     * nothing, nothing is written to it, not even its issuance guard, and its
-     * owner is never loaded.
+     * before anything is judged or written.
      *
      * @param  ?string  $guard
      * @return void
@@ -1980,9 +1882,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * The method that started the session must still be one the guard lets
-     * start its sessions; a session that records no method fails closed without
-     * asking. Neither writes anything but the issuance guard.
+     * The method that started the session must still be allowed, and a session
+     * that records none fails closed.
      *
      * @return void
      *
@@ -2007,9 +1908,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * `ApplicationAccess` must still let the principal use the application;
-     * when it does not, the exchange fails as `principal_ineligible` writing
-     * nothing but the issuance guard.
+     * A principal `ApplicationAccess` no longer lets use the application fails
+     * as `principal_ineligible`.
      *
      * @return void
      *
@@ -2155,12 +2055,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * Swap the configured session model so the exchange resolves the supplied
-     * in-memory session through `find()` instead of issuing a real polymorphic
-     * query, and through the locking read after the issuance guard too when the
-     * session is itself of the swapped model. The session is reloaded first,
-     * unless told otherwise, so it carries every column, as the exchange's own
-     * lookup would.
+     * Make the configured session model resolve the given in-memory session,
+     * reloaded unless told otherwise.
      *
      * @param  \Tests\Unit\Stubs\StubSession  $session
      * @param  bool  $reload
@@ -2190,9 +2086,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * Expect the exchange's identity provider to reload the session's owner
-     * once, by the owner key stored on the session row, and answer with the
-     * supplied identity.
+     * Expect the identity provider to reload the session's owner once by its
+     * stored key, answering with the identity.
      *
      * @param  \Tests\Unit\Stubs\StubSession  $session
      * @param  mixed  $identity
@@ -2258,9 +2153,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * Rotate the session's row from the given rotation id to its successor, as
-     * a refresh would, optionally moving it to another owner, or to another
-     * principal as a switch would.
+     * Rotate the session's row to the successor of the rotation id, optionally
+     * to another owner or principal.
      *
      * @param  \Tests\Unit\Stubs\StubSession  $session
      * @param  string  $rotationId
@@ -2325,10 +2219,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * Run a write once, just before the exchange's compare-and-swap executes,
-     * inside the exchange's own transaction, as a contract it asks could make:
-     * holding the row from its issuance guard, no other request can write it
-     * there.
+     * Run a write once, just before the exchange's compare-and-swap, inside the
+     * exchange's own transaction.
      *
      * @param  \Closure(): mixed  $competitor
      * @return void
@@ -2349,9 +2241,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * Expect the session's owner to be reloaded and a principal resolved for
-     * it, with or without the token's principal hint, the given number of
-     * times.
+     * Expect the session's owner to be reloaded and a principal resolved for it
+     * the given number of times.
      *
      * @param  int  $ownerId
      * @param  int  $times
@@ -2445,9 +2336,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * The row as an exchange leaves it when it writes nothing to it but the
-     * issuance guard, which every exchange that finds the session writes first,
-     * whatever it then decides.
+     * The row as an exchange leaves it when it writes nothing but the issuance
+     * guard.
      *
      * @param  array<string, mixed>  $row
      * @return array<string, mixed>

@@ -46,13 +46,7 @@ use Tests\Unit\Stubs\StubBareSession;
 use Tests\Unit\Stubs\StubNonModelSession;
 
 /**
- * Feature tests of what a contributor to the authentication context is given:
- * the bound instances as they are, the session's external provenance, read on
- * the write connection the first time it is asked for and never again, and the
- * counting proofs and first factor of the session it was given (never the
- * request's), read each time they are asked for, only while that session is
- * still the application's live, active session of a person, and locked and read
- * current inside a transaction as the session service's reads are.
+ * Feature tests of what a contributor to the authentication context is given.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -109,10 +103,7 @@ final class ContributionSubjectTest extends TestCase
     }
 
     /**
-     * A session an external provider established has its provenance read once,
-     * on the first ask, as the session records it, the adapter's provider
-     * context with it in the same read; asked again it is the same provenance,
-     * read from nothing.
+     * An external session's provenance is read once, on the first ask.
      *
      * @return void
      *
@@ -145,9 +136,7 @@ final class ContributionSubjectTest extends TestCase
     }
 
     /**
-     * A session no external provider established has none, read once; without a
-     * session, or with one that is not an Eloquent session (a plain session, or
-     * an Eloquent model that is not one), there is none and nothing is read.
+     * A session no external provider established has no provenance.
      *
      * @return void
      *
@@ -175,9 +164,7 @@ final class ContributionSubjectTest extends TestCase
     }
 
     /**
-     * A subject built inside a request authenticated with one session reads the
-     * session it was given, its own step-up and first factor, and never the
-     * request's.
+     * The subject reads the session it was given, never the request's.
      *
      * @return void
      *
@@ -214,10 +201,7 @@ final class ContributionSubjectTest extends TestCase
     }
 
     /**
-     * Without a session, or with one that is not an Eloquent session (one that
-     * declares the contract without being a model among them), there are no
-     * proofs and no first factor, and nothing is read, the session model not
-     * even resolved; the limit is checked first, whatever the session.
+     * Without an Eloquent session there are no proofs and nothing is read.
      *
      * @return void
      *
@@ -257,12 +241,7 @@ final class ContributionSubjectTest extends TestCase
     }
 
     /**
-     * A subject whose session is revoked, pending, past its idle deadline,
-     * another application's or a machine's, each given as stored now (still
-     * that session, so only its state refuses it), or whose key another sign-in
-     * of the same owner reused, answers no proofs and no first factor, each ask
-     * reading the session's row and none of its proofs, while the session's key
-     * holds its proofs still.
+     * A session no longer the application's live session answers no proofs.
      *
      * @return void
      *
@@ -319,9 +298,7 @@ final class ContributionSubjectTest extends TestCase
     }
 
     /**
-     * Each ask reads again, the session and then its proofs: a proof recorded
-     * between two asks is in the second answer, and a first factor voided
-     * between two asks is gone from it.
+     * Each ask reads the session and its proofs again.
      *
      * @return void
      *
@@ -370,10 +347,7 @@ final class ContributionSubjectTest extends TestCase
     }
 
     /**
-     * The time a subject's proofs are read from is the same instant in
-     * whichever time zone it is given, mutable or not: a step-up made at it is
-     * read and one made before it is not, as when it is given in the
-     * application's zone.
+     * The time given is the same instant in any time zone.
      *
      * @param  string  $zone
      * @return void
@@ -403,10 +377,7 @@ final class ContributionSubjectTest extends TestCase
     }
 
     /**
-     * A registered contributor's keys come from its subject's proofs and first
-     * factor as of its own call: a step-up recorded after the package's own
-     * keys were worked out, before the contributor asks, is among them, while
-     * the package's `mfa` key, worked out before, does not show it.
+     * A contributor reads the proofs as of its own call.
      *
      * @return void
      *
@@ -445,9 +416,8 @@ final class ContributionSubjectTest extends TestCase
     }
 
     /**
-     * Inside a transaction on the session model's connection the subject locks
-     * its session's row before reading its proofs current, as the session
-     * service's reads do; outside one it reads both plainly.
+     * Inside a transaction the subject locks its session's row as the session
+     * service does.
      *
      * @return void
      *

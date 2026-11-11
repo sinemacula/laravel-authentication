@@ -32,11 +32,7 @@ use Tests\Concerns\InteractsWithSessions;
 use Tests\TestCase;
 
 /**
- * Feature tests of the proof writer against a real database: a proof recorded
- * under the id it was judged by in memory or under a new time-ordered one,
- * bound to the session it is recorded on; provenance; a save a model event
- * cancels; a factor's proofs on one session voided; and what an earlier session
- * left under a reused key cleared.
+ * Feature tests of the proof writer against a real database.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -48,7 +44,7 @@ final class ProofWriterTest extends TestCase
 {
     use InteractsWithSessions;
 
-    /** @var string The id a proof judged in memory was given: a UUID, as the proofs table's key is on PostgreSQL. */
+    /** @var string The id a proof judged in memory was given; a UUID, as the key is on PostgreSQL. */
     private const string JUDGED_PROOF_ID = '0190f1d2-7c4e-7a3b-9f10-2b3c4d5e6f71';
 
     /**
@@ -85,8 +81,7 @@ final class ProofWriterTest extends TestCase
 
     /**
      * A proof judged in memory is recorded under the id it was judged by, bound
-     * to the session's key, owner and the guard given, with its parts and its
-     * time to the second.
+     * to the session's key, owner and guard.
      *
      * @return void
      *
@@ -117,9 +112,7 @@ final class ProofWriterTest extends TestCase
 
     /**
      * An external proof whose evidence was accepted is recorded with that
-     * evidence, as JSON in its stored form, hidden from serialisation, and with
-     * what it was accepted for: here neither multifactor authentication nor an
-     * additional verification.
+     * evidence, hidden from serialisation.
      *
      * @return void
      *
@@ -159,9 +152,7 @@ final class ProofWriterTest extends TestCase
 
     /**
      * Rows of `[the proof's kind, its evaluation, the additional verification
-     * recorded]`: a further factor always is one and a recovery code never is,
-     * whatever the adapter reported; an external proof is what its evaluation
-     * says; a proof without an evaluation records nothing.
+     * recorded]`.
      *
      * @formatter:off
      *
@@ -183,9 +174,8 @@ final class ProofWriterTest extends TestCase
     }
 
     /**
-     * Whether a proof is recorded as an additional verification follows from
-     * its kind for a further factor or a recovery code, so a proof read back
-     * says what the authentication context reads.
+     * Whether a further factor or a recovery code is recorded as an additional
+     * verification follows from its kind.
      *
      * @param  \SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind  $kind
      * @param  ?\SineMacula\Laravel\Authentication\Proofs\Evaluation  $evaluation
@@ -208,8 +198,7 @@ final class ProofWriterTest extends TestCase
     }
 
     /**
-     * Without an id, each proof gets a new time-ordered one, so the session's
-     * proofs read back in the order they were recorded.
+     * Without an id, each proof gets a new time-ordered one.
      *
      * @return void
      *
@@ -237,9 +226,8 @@ final class ProofWriterTest extends TestCase
     }
 
     /**
-     * Provenance is recorded under the session's key, with no evidence unless
-     * it carries accepted evidence, which is recorded in its stored form and
-     * hidden from serialisation.
+     * Provenance is recorded under the session's key, with any accepted
+     * evidence hidden from serialisation.
      *
      * @return void
      *
@@ -273,9 +261,8 @@ final class ProofWriterTest extends TestCase
     }
 
     /**
-     * A provenance's provider context is recorded in the form the package
-     * encodes it in, whatever JSON encoder the application gives Eloquent's
-     * casts, and is hidden from serialisation.
+     * A provenance's provider context is recorded as the package encodes it,
+     * whatever JSON encoder Eloquent's casts are given.
      *
      * @return void
      *
@@ -305,8 +292,7 @@ final class ProofWriterTest extends TestCase
     }
 
     /**
-     * A proof a model event cancels is refused loudly, so the session written
-     * with it rolls back rather than standing without it.
+     * A proof a model event cancels is refused.
      *
      * @return void
      *
@@ -358,10 +344,8 @@ final class ProofWriterTest extends TestCase
     }
 
     /**
-     * Voiding a factor marks, in one statement, only the proofs bound to the
-     * session (its key, the guard given and its owner) made with that very
-     * factor, compared byte for byte, at the time given; a proof already voided
-     * keeps its time, so voiding again voids nothing.
+     * Voiding a factor marks only the session's proofs made with that exact
+     * factor, and a proof already voided keeps its time.
      *
      * @return void
      *
@@ -429,8 +413,7 @@ final class ProofWriterTest extends TestCase
     }
 
     /**
-     * Record a further factor made now with the factor given on the session,
-     * for the guard given, and return its id.
+     * Record a further factor made now on the session and return its id.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\Session  $session
      * @param  string  $guard
@@ -449,8 +432,7 @@ final class ProofWriterTest extends TestCase
     }
 
     /**
-     * An accepted further factor for sign-in, made at the time given with the
-     * factor given.
+     * An accepted further factor for sign-in.
      *
      * @param  \Carbon\CarbonImmutable  $at
      * @param  string  $factor

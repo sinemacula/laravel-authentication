@@ -34,10 +34,7 @@ use Tests\Unit\Stubs\StubIdentity;
 use Tests\Unit\Stubs\StubSession;
 
 /**
- * Feature tests for whom a session's refresh token signs in again: the
- * session's owner, as the principal the token names, active, in an active
- * tenant, and still allowed by the application policy and `ApplicationAccess`.
- * Each refusal carries as much of the session as was resolved before it.
+ * Feature tests for whom a session's refresh token signs in again.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -104,9 +101,8 @@ final class RefreshAdmissionTest extends TestCase
     }
 
     /**
-     * The owner, active, as the principal the hint names, in an active tenant
-     * and allowed by the policy, is admitted with the tenant its check loaded
-     * and the session.
+     * The active owner, as the principal the hint names, is admitted with its
+     * tenant and the session.
      *
      * @return void
      */
@@ -148,9 +144,8 @@ final class RefreshAdmissionTest extends TestCase
     }
 
     /**
-     * An owner the guard's provider does not return, or returns as another
-     * model, is refused as `identity_unknown` with no identity, before any
-     * principal is resolved.
+     * An owner the provider does not return, or returns as another model, is
+     * refused as `identity_unknown`.
      *
      * @return void
      */
@@ -169,9 +164,8 @@ final class RefreshAdmissionTest extends TestCase
     }
 
     /**
-     * An owner that is a non-human identity is refused as `machine_identity`,
-     * carrying the owner, even when it is inactive too: a machine has no
-     * session refresh and no switch of principal, and that reason comes first.
+     * A machine owner is refused as `machine_identity` with the owner, even
+     * when it is also inactive.
      *
      * @return void
      */
@@ -237,9 +231,8 @@ final class RefreshAdmissionTest extends TestCase
     }
 
     /**
-     * A hint that resolves to another principal, or to none, is refused as
-     * `principal_mismatch`, and a token without a hint whose identity has no
-     * default principal as `principal_unresolved`; none carries a principal.
+     * A hint resolving to another principal or none is refused as
+     * `principal_mismatch`, and no default principal as `principal_unresolved`.
      *
      * @return void
      */
@@ -273,8 +266,7 @@ final class RefreshAdmissionTest extends TestCase
 
     /**
      * An inactive principal is refused as `principal_inactive`, and one in an
-     * inactive tenant as `tenant_inactive`; both carry the principal and no
-     * tenant.
+     * inactive tenant as `tenant_inactive`.
      *
      * @return void
      */
@@ -306,10 +298,8 @@ final class RefreshAdmissionTest extends TestCase
     }
 
     /**
-     * A method the guard no longer allows, or a session that records none, is
-     * refused as `method_not_allowed`, and a principal `ApplicationAccess` no
-     * longer lets use the application as `principal_ineligible`; each carries
-     * the admitted session, tenant included.
+     * A method no longer allowed is refused as `method_not_allowed`, and an
+     * ineligible principal as `principal_ineligible`, each with the session.
      *
      * @return void
      */
@@ -347,8 +337,7 @@ final class RefreshAdmissionTest extends TestCase
 
     /**
      * A session that records its principal is admitted in the tenant it acts
-     * in: its principal's own, never asked of the resolver, or another the
-     * resolver finds, each still one `TenantAccess` lets the principal act in.
+     * in, while `TenantAccess` allows it.
      *
      * @return void
      */
@@ -383,10 +372,8 @@ final class RefreshAdmissionTest extends TestCase
     }
 
     /**
-     * An active tenant `TenantAccess` no longer lets the principal act in is
-     * refused as `tenant_ineligible`, and one the resolver no longer finds as
-     * `tenant_inactive`, each carrying the session and the principal's own
-     * tenant.
+     * A tenant `TenantAccess` no longer allows is refused as
+     * `tenant_ineligible`, and one no longer found as `tenant_inactive`.
      *
      * @return void
      */
@@ -420,10 +407,8 @@ final class RefreshAdmissionTest extends TestCase
     }
 
     /**
-     * A principal the session does not record, and any principal admitted for a
-     * switch through `admitPrincipal()`, is admitted in its own tenant,
-     * whatever tenant the session acts in, without the resolver or the tenant
-     * access being asked.
+     * A principal the session does not record, or one admitted for a switch, is
+     * admitted in its own tenant.
      *
      * @return void
      */

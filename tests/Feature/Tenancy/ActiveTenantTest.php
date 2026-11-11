@@ -40,11 +40,7 @@ use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\TestCase;
 
 /**
- * Feature tests for the active tenant through Laravel: a member signs in to a
- * tenant below its own when the application lets it, the session records it,
- * every token of the session names it and is held to it on each request,
- * `Auth::tenant()` is it, a refresh keeps it while the application still lets
- * the member act there, and deactivating it ends the session.
+ * Feature tests for the active tenant a member signs in to, through Laravel.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -108,9 +104,7 @@ final class ActiveTenantTest extends TestCase
     }
 
     /**
-     * A sign-in that names a tenant below the member's own starts a session
-     * acting in it: the row records its identifier, the token names it, the
-     * request acts in it, and the guard bound by the sign-in reports it.
+     * A sign-in that names a tenant below the member's own acts in it.
      *
      * @return void
      *
@@ -128,10 +122,8 @@ final class ActiveTenantTest extends TestCase
     }
 
     /**
-     * Without a resolver of the application's own, another tenant cannot be
-     * found, and without its tenant access the member may not act in one: the
-     * sign-in is refused as `tenant_ineligible` either way and nothing is
-     * written.
+     * A tenant the application does not allow is refused at sign-in as
+     * `tenant_ineligible`.
      *
      * @return void
      *
@@ -154,9 +146,8 @@ final class ActiveTenantTest extends TestCase
     }
 
     /**
-     * Each request checks only that the session's active tenant is still
-     * active: the access contract is never asked, and the tenant is resolved
-     * once per request.
+     * A request checks the active tenant is still active without asking the
+     * access contract.
      *
      * @return void
      *
@@ -177,11 +168,7 @@ final class ActiveTenantTest extends TestCase
     }
 
     /**
-     * The token is held to the session's active tenant on every request: one
-     * whose session now acts in another tenant is refused as
-     * `session_tenant_mismatch`, and one whose active tenant was deactivated,
-     * or no longer resolves, as `tenant_inactive`; the member's own tenant must
-     * stay active too.
+     * The token is held to the session's active tenant on every request.
      *
      * @return void
      *
@@ -224,10 +211,8 @@ final class ActiveTenantTest extends TestCase
     }
 
     /**
-     * A refresh keeps the session in its active tenant, issuing tokens that
-     * name it, and asks the tenant access again: once the application no longer
-     * lets the member act there, the refresh is refused as `tenant_ineligible`,
-     * and the session is not revoked.
+     * A refresh keeps the active tenant while the tenant access still allows
+     * it.
      *
      * @return void
      *
@@ -254,10 +239,8 @@ final class ActiveTenantTest extends TestCase
     }
 
     /**
-     * Deactivating the session's active tenant ends the session, though the
-     * member belongs to another tenant and is not listed, as
-     * `tenant_deactivated`, reported with the tenant; a member's own session in
-     * its own tenant is left alone.
+     * Deactivating the session's active tenant ends the session as
+     * `tenant_deactivated`.
      *
      * @return void
      *

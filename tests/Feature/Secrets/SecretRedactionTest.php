@@ -56,21 +56,8 @@ use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\TestCase;
 
 /**
- * Feature tests that no secret the package hands out, nor the password a
- * sign-in is given, reaches a trace, a dump of a frame's objects or an event:
- * an exception thrown from a sign-in method, from a listener while a sign-in, a
- * refresh, a switch, an activation, a sign-out or a guard's credential check
- * runs, or from a write while a password is rehashed or a pending session is
- * written or acted on, records every frame's arguments (with
- * `zend.exception_ignore_args` off) and the captures of its closures, and
- * VarDumper shows the whole object graph of each argument as a reporter would;
- * none of them carries a token, a pending credential or the password in clear.
- * Every event those flows dispatch is serialised and dumped as a queued
- * listener would receive it, and carries none either.
- *
- * Each call is made directly rather than through a request, so the trace holds
- * only what the package built: a request's own input is the application's to
- * keep out of its reports.
+ * Feature tests that no secret the package hands out, nor a sign-in's password,
+ * reaches an exception trace, a dump of its frames or an event.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -131,8 +118,8 @@ final class SecretRedactionTest extends TestCase
     }
 
     /**
-     * A sign-in method that throws while verifying holds the input only behind
-     * the request, so the password is in no frame, capture or dumped object.
+     * A sign-in method that throws while verifying leaves no password in the
+     * trace.
      *
      * @return void
      *
@@ -151,9 +138,8 @@ final class SecretRedactionTest extends TestCase
     }
 
     /**
-     * A listener on `Login` that throws while a sign-in binds the guard finds
-     * the pair already issued, held as secrets: no token and no password is in
-     * the trace.
+     * A listener on `Login` that throws during a sign-in leaves no token or
+     * password in the trace.
      *
      * @return void
      *
@@ -327,9 +313,8 @@ final class SecretRedactionTest extends TestCase
     }
 
     /**
-     * A listener on `Validated` that throws while a guard checks credentials,
-     * by `validate()` and by `attempt()`, runs inside the credential timebox's
-     * closure: the password is in no frame, capture or dumped object.
+     * A listener on `Validated` that throws during `validate()` or `attempt()`
+     * leaves no password in the trace.
      *
      * @return void
      *
@@ -359,9 +344,8 @@ final class SecretRedactionTest extends TestCase
     }
 
     /**
-     * A provider that fails while it rehashes an outdated password, after the
-     * sign-in is admitted, fails inside the rehash's closure: the password is
-     * in no frame, capture or dumped object.
+     * A provider that fails while rehashing an outdated password leaves no
+     * password in the trace.
      *
      * @return void
      *
@@ -387,9 +371,8 @@ final class SecretRedactionTest extends TestCase
     }
 
     /**
-     * A write that fails inside the transaction that acts on a pending session,
-     * satisfying its factor, making its choice or discarding it, leaves the
-     * pending credential out of the trace.
+     * A write that fails while acting on a pending session leaves the pending
+     * credential out of the trace.
      *
      * @return void
      *
@@ -444,10 +427,8 @@ final class SecretRedactionTest extends TestCase
     }
 
     /**
-     * A pending session whose insert fails, inside the transaction that writes
-     * it, leaves the secret of its pending credential out of the trace: no
-     * value in a frame, a capture or a dumped object is the secret its stored
-     * digest was made from.
+     * A pending session whose insert fails leaves its credential's secret out
+     * of the trace.
      *
      * @return void
      *
@@ -481,9 +462,8 @@ final class SecretRedactionTest extends TestCase
     }
 
     /**
-     * Every event a sign-in, an activation, two refreshes and a sign-out
-     * dispatch, serialised as a queued listener receives it and dumped as a
-     * reporter shows it, carries no token, pending credential or password.
+     * No event the session flows dispatch carries a token, pending credential
+     * or password.
      *
      * @return void
      *
@@ -544,8 +524,7 @@ final class SecretRedactionTest extends TestCase
     }
 
     /**
-     * Record every authentication event dispatched from now on, the package's
-     * and Laravel's.
+     * Record every authentication event dispatched from now on.
      *
      * @return \ArrayObject<int, object>
      */
@@ -571,8 +550,8 @@ final class SecretRedactionTest extends TestCase
     }
 
     /**
-     * Assert the event, serialised as a queued listener receives it and dumped
-     * as a reporter shows it, shows no token and none of the secrets.
+     * Assert the event, serialised and dumped, shows no token and none of the
+     * secrets.
      *
      * @param  object  $event
      * @param  list<string>  $secrets
@@ -594,8 +573,8 @@ final class SecretRedactionTest extends TestCase
     }
 
     /**
-     * Whether a frame of the class's method was running a closure it was
-     * handed, so the exception was thrown while that closure ran.
+     * Whether the exception was thrown inside a closure the class's method was
+     * running.
      *
      * @param  \Throwable  $exception
      * @param  class-string  $class

@@ -24,13 +24,8 @@ use Tests\Concerns\BindsSignInPolicyDoubles;
 use Tests\Unit\Stubs\StubSession;
 
 /**
- * Shared base case for the AbstractGuard split tests.
- *
- * Owns the collaborator mocks (provider, resolver, dispatcher, request,
- * timebox), the Testbench environment definition, and the `makeGuard()` factory
- * used by every concrete `AbstractGuardTest` variant. Subclasses focus on a
- * single behavioural slice of AbstractGuard so each class stays focused on a
- * single concern.
+ * Shared base case for the `AbstractGuard` tests, holding the collaborator
+ * mocks and the `makeGuard()` factory.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -91,19 +86,16 @@ abstract class AbstractGuardTestCase extends TestCase
             ->byDefault()
             ->andReturnNull();
 
-        // Default: Timebox::call() invokes the callback directly and returns
-        // its result so tests exercise the real credential validation path.
-        // Tests that need to assert the timebox budget override this
-        // expectation.
+        // Run the callback directly so tests exercise the real credential
+        // check.
         $this->timebox->shouldReceive('call')
             ->byDefault()
             ->andReturnUsing(static fn (callable $callback): mixed => $callback(new Timebox));
     }
 
     /**
-     * Instantiate a concrete AbstractGuard subclass with the current set of
-     * collaborator mocks. The anonymous subclass adds no behaviour beyond
-     * forwarding its constructor arguments to the parent.
+     * Instantiate a bare `AbstractGuard` subclass with the current collaborator
+     * mocks.
      *
      * @return \SineMacula\Laravel\Authentication\Guards\AbstractGuard
      */
@@ -113,9 +105,8 @@ abstract class AbstractGuardTestCase extends TestCase
     }
 
     /**
-     * Build a Mockery mock of the Identity contract, with any further
-     * capabilities, whose auth identifier (by which a checked password is
-     * counted against the account) is 1 unless a test says otherwise.
+     * Build an Identity mock, with any further capabilities, whose auth
+     * identifier is 1 by default.
      *
      * @param  class-string  ...$capabilities
      * @return \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Identity
@@ -131,10 +122,8 @@ abstract class AbstractGuardTestCase extends TestCase
     }
 
     /**
-     * Build a Mockery mock of the Principal contract, with any further
-     * capabilities, whose identifier (which the events snapshot) is
-     * `principal-1` and which acts within no tenant, unless a test says
-     * otherwise.
+     * Build a Principal mock, with any further capabilities, identified as
+     * `principal-1` and acting within no tenant by default.
      *
      * @param  class-string  ...$capabilities
      * @return \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Principal
@@ -153,9 +142,8 @@ abstract class AbstractGuardTestCase extends TestCase
     }
 
     /**
-     * Build a Mockery mock of the Session contract whose identifier is
-     * `session-1` and that records no sign-in method and no active tenant,
-     * unless a test says otherwise.
+     * Build a Session mock identified as `session-1` that records no sign-in
+     * method or tenant by default.
      *
      * @return \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Session
      */
@@ -200,11 +188,8 @@ abstract class AbstractGuardTestCase extends TestCase
     }
 
     /**
-     * Build a Mockery mock of a `CanBeActive` principal whose `isActive()`
-     * returns `true`, that acts within no tenant, and whose identifier (which
-     * the events snapshot) is `principal-1` unless a test says otherwise - used
-     * by any attempt-path test where the guard checks activation after the
-     * resolver returns.
+     * Build an active `CanBeActive` principal mock identified as `principal-1`
+     * and acting within no tenant by default.
      *
      * @return \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Principal
      */

@@ -36,11 +36,7 @@ use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\TestCase;
 
 /**
- * Feature tests of sign-out and revocation routes an application registers
- * behind `auth:api`, driven over HTTP: `Auth::logout()` revokes the request's
- * session, so its access and refresh tokens stop at once; signing out
- * everywhere ends every other session, optionally keeping the current one; and
- * a session list revokes only the signed-in identity's own sessions.
+ * Feature tests of the sign-out and revocation routes, driven over HTTP.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -108,9 +104,7 @@ final class ManagesSessionsTest extends TestCase
     }
 
     /**
-     * Logging out revokes the request's session as `signed_out` and leaves the
-     * guard signed out; the same access token is refused on the next request
-     * and the session's refresh token fails as `session_revoked`.
+     * Logging out revokes the session so its tokens stop at once.
      *
      * @return void
      *
@@ -148,9 +142,8 @@ final class ManagesSessionsTest extends TestCase
     }
 
     /**
-     * Signing out a request whose guard holds only a session (bound with
-     * `setSession()`, no identity) revokes it without `Logout`, and the
-     * revocation names the owner and the principal the session row records.
+     * Signing out a session bound without an identity names what its row
+     * records.
      *
      * @return void
      *
@@ -177,11 +170,8 @@ final class ManagesSessionsTest extends TestCase
     }
 
     /**
-     * Signing out everywhere while keeping the current session ends every other
-     * session of the identity, of every guard, and keeps the request's own
-     * session working; without keeping it, every session ends. Each revoked
-     * session names the principal its row records, while the identity's
-     * sign-out everywhere names none, although it carries the kept session.
+     * Signing out everywhere ends the other sessions, optionally keeping the
+     * current one.
      *
      * @return void
      */
@@ -231,10 +221,7 @@ final class ManagesSessionsTest extends TestCase
     }
 
     /**
-     * Revoking every session of an identity whose identifiers can be changed
-     * cancels its pending changes of every type with a normaliser, a change
-     * link needing no session; another identity's, whose identifiers cannot be
-     * changed, keeps the row its key would name.
+     * Revoking every session cancels the identity's pending identifier changes.
      *
      * @return void
      */
@@ -260,10 +247,7 @@ final class ManagesSessionsTest extends TestCase
     }
 
     /**
-     * A session list revokes only the signed-in identity's own sessions:
-     * another identity's session, an unknown one and a malformed id are all
-     * simply not found, and revoking a session twice reports it once, naming
-     * the owner and the principal the session row records.
+     * A session list revokes only the identity's own sessions.
      *
      * @return void
      */
@@ -302,8 +286,7 @@ final class ManagesSessionsTest extends TestCase
     }
 
     /**
-     * The session list holds fifteen sessions to a page unless asked otherwise,
-     * the request's own session marked.
+     * The session list holds fifteen sessions to a page by default.
      *
      * @return void
      *

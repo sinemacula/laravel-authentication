@@ -95,13 +95,8 @@ use Tests\Integration\Fixtures\UnscopedMembershipResolver;
 use Tests\TestCase;
 
 /**
- * Feature tests of switching a session to another principal of its identity,
- * another active tenant, or both, proven by the session's refresh token, over
- * HTTP and through the session service: every access token issued before a
- * change stops at once, a lost switch response is answered again inside the
- * grace window, a replay revokes the session, and every check a refresh and a
- * sign-in make runs on every path, with the access contracts asked about the
- * destination.
+ * Feature tests of switching a session to another principal, another tenant, or
+ * both, proven by its refresh token.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -190,9 +185,7 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * Over HTTP, a switch binds the request as the target and hands out its
-     * pair; the new access token acts as the target, and the old principal's
-     * access token is refused at once, though it has not expired.
+     * A switch over HTTP refuses the old principal's access token at once.
      *
      * @return void
      *
@@ -247,10 +240,8 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A request that carries no refresh token switches nothing and reports
-     * nothing; one the transport refuses (a token in two sources) is reported
-     * as a `switch` failure with the transport's reason, without the session
-     * being touched.
+     * A switch read from the request is refused by the transport before the
+     * session is touched.
      *
      * @return void
      *
@@ -289,13 +280,8 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A switch dispatches the bind events for the target, then
-     * `PrincipalSwitched` with the previous principal and tenant (their ids
-     * kept apart, so neither is taken for the other) and both changes, but no
-     * `Login`; it records the target, the target's own tenant as the active
-     * one, the switch time and the rotation on the session, keeps the session's
-     * absolute deadline and restarts its idle one, and the guard acts in the
-     * target's tenant.
+     * A switch records the target on the session and reports
+     * `PrincipalSwitched`.
      *
      * @return void
      *
@@ -414,9 +400,8 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * The old principal's refresh token, presented to `refresh()` inside the
-     * grace window, fails as `session_principal_mismatch` without revoking; the
-     * session goes on.
+     * The old refresh token inside the grace window fails as
+     * `session_principal_mismatch` without revoking.
      *
      * @return void
      *
@@ -449,8 +434,8 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * The old principal's refresh token after the grace window is a replay: the
-     * session is revoked as `rotation_reuse`, by a switch as by a refresh.
+     * The old refresh token after the grace window revokes the session as
+     * `rotation_reuse`.
      *
      * @return void
      *
@@ -490,10 +475,7 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A switch whose response was lost is answered again inside the grace
-     * window: the old token switched to the same target hands back the current
-     * credential, writes nothing and reports no second switch; the same old
-     * token to any other principal is a conflict, without revoking.
+     * A lost switch response is answered again inside the grace window.
      *
      * @return void
      *
@@ -591,9 +573,8 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A switch away from a principal the session recorded under another type
-     * (the morph map changed since) reports the recorded type and identifier,
-     * as recorded.
+     * A switch from a principal recorded under another type reports the
+     * recorded snapshot.
      *
      * @return void
      *
@@ -624,9 +605,8 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A member the application lets act in no tenant switches to none: the
-     * session records none, the switch reports the tenant it left, and a lost
-     * response to it is answered again inside the grace window, in none.
+     * A switch to no tenant records none and is answered again inside the grace
+     * window.
      *
      * @return void
      *
@@ -667,9 +647,7 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A token of the guard whose rotation id is not a string, though every
-     * other check of the token passes, is refused as `token_invalid`, before
-     * any session is looked up.
+     * A token whose rotation id is not a string is refused as `token_invalid`.
      *
      * @return void
      *
@@ -689,9 +667,8 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A refresh token one refresh old, presented inside the grace window for
-     * the principal it already acts as, is answered like a lost refresh
-     * response; for another principal it is a conflict.
+     * A refresh token one refresh old is answered again only for its own
+     * principal.
      *
      * @return void
      *
@@ -729,8 +706,7 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A switch to the principal the session already acts as rotates the
-     * credential like a refresh: no switch is recorded or reported.
+     * A switch to the current principal rotates the credential like a refresh.
      *
      * @return void
      *
@@ -762,11 +738,8 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A target that is not the identity's, one of another type that shares a
-     * key with one of the identity's own, and one whose tenant was deactivated
-     * are refused, and the session is left as it was. Each refusal names the
-     * session's owner and the target resolved for it, if any, never the
-     * principal the session acts as.
+     * A target the identity may not act as is refused, naming the session's
+     * owner and the target.
      *
      * @return void
      *
@@ -800,9 +773,8 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A switch asks `ApplicationAccess` about its target: a principal it keeps
-     * out of the application is refused as `principal_ineligible`, the refusal
-     * naming the target, and the session is left as it was.
+     * A target `ApplicationAccess` keeps out is refused as
+     * `principal_ineligible`.
      *
      * @return void
      *
@@ -823,10 +795,8 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * Once the guard's application no longer lists the method the session
-     * signed in with, or lists nothing, a switch is refused as
-     * `method_not_allowed` and the session is left as it was, neither revoked
-     * nor rotated; listed again, the same refresh token switches.
+     * A switch is refused as `method_not_allowed` once the session's method is
+     * no longer listed.
      *
      * @return void
      *
@@ -853,10 +823,8 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A session loaded without the type of identifier its sign-in used is
-     * reported rather than switched as if the sign-in used none, which would
-     * skip the policy's refusal of the identity with that identifier, and the
-     * session stays as it was.
+     * A session loaded without its identifier type is reported rather than
+     * switched.
      *
      * @return void
      *
@@ -887,9 +855,7 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A switch screen that lists the identity's principals, with the identifier
-     * type the session records or without one, offers only the targets a switch
-     * admits: those `ApplicationAccess` lets use the application.
+     * A switch screen lists only the targets the switch admits.
      *
      * @return void
      *
@@ -916,11 +882,8 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A switch asks the application policy about the identity with the
-     * session's identifier type before the target, as its sign-in was asked, so
-     * a policy that now refuses that identifier for the identity as a whole
-     * refuses the switch for its reason without being asked about the target,
-     * and leaves the session as it was.
+     * A switch is refused when the application policy now refuses the session's
+     * identifier for the identity.
      *
      * @return void
      *
@@ -950,9 +913,7 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * Another identity's principal is refused even when the guard's resolver is
-     * not scoped to the identity and hands it back: its owner is read from its
-     * own stored key.
+     * A target an unscoped resolver hands back must still be the identity's.
      *
      * @return void
      *
@@ -970,10 +931,8 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A token that is no refresh token of the guard, one naming an unknown
-     * session, and one whose session belongs to another guard are refused
-     * before anything is switched; nothing is written to the other guard's
-     * session, not even its issuance guard.
+     * A token that proves no session of the guard is refused before anything is
+     * written.
      *
      * @return void
      *
@@ -1010,13 +969,8 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A switch whose destination tenant is deactivated after the switch
-     * admitted it, before the switch commits, ends the session once checked,
-     * whether the switch rotated it or returned it to pending: it is revoked as
-     * `tenant_deactivated` and reported as revoked (its client holds it), the
-     * switch is refused as `tenant_inactive` (flow `switch`) with the session
-     * and the method it records, and nothing reports a switch or a return to
-     * pending.
+     * A switch whose destination is deactivated before it commits ends the
+     * session.
      *
      * @param  bool  $pending
      * @return void
@@ -1057,10 +1011,8 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * Two switches of one session inside one transaction, to the second
-     * membership and back to the first, are checked at its commit for what the
-     * session acts as then: the tenant of the membership it left, deactivated
-     * after the second switch, does not end it.
+     * A session switched and switched back inside a transaction is not ended by
+     * the tenant it left.
      *
      * @return void
      *
@@ -1091,10 +1043,8 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A sign-in and then a switch of its session inside one transaction are
-     * checked at its commit for what the session acts as then: the tenant of
-     * the membership it signed in as, deactivated after the switch, does not
-     * end it, while the tenant it switched to, deactivated, does.
+     * A session signed in and switched inside a transaction is judged on where
+     * it acts at the commit.
      *
      * @return void
      *
@@ -1136,13 +1086,7 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A switch runs in one transaction whose first statement is the session's
-     * issuance guard, written after the session is looked up: the owner's and
-     * the target's reads, the read of the session's proofs for the access token
-     * and the compare-and-swap all follow it there, and the time the switch is
-     * judged and recorded at is taken once the guard is written. Only the reads
-     * of the destination principal and its tenant, checked again once the
-     * switch commits, come after it, outside the transaction.
+     * A switch runs in one transaction opened by the session's issuance guard.
      *
      * @return void
      *
@@ -1225,12 +1169,7 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A lost switch response retried inside the grace window, whose session is
-     * revoked or returned to pending between the switch's lookup and its
-     * issuance guard (as by a transaction the guard waited for), is judged on
-     * the row read after the guard: it fails for that reason and hands out no
-     * pair, although the row it found was active and the retry writes no
-     * compare-and-swap that would have missed.
+     * A grace retry is judged on the row read after the issuance guard.
      *
      * @param  array<string, mixed>  $change
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
@@ -1267,13 +1206,7 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A lost switch response retried inside the grace window, whose session a
-     * second switch rotated again between the retry's lookup and its issuance
-     * guard (as a transaction the guard waited for would), is judged on the row
-     * read after the guard: the retried token is two rotations old there, so
-     * the retry is a replay that revokes the session as `rotation_reuse`, and
-     * it hands out no pair, although the row it found held that token as the
-     * previous one.
+     * A grace retry after a switch the issuance guard waited for is a replay.
      *
      * @return void
      *
@@ -1328,9 +1261,7 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A switch on a revoked session or an ended session fails for that reason
-     * and revokes nothing further. The failure is about the session row, read
-     * before its owner, so it names the owner and the principal the row
+     * A switch on a revoked or ended session is refused, naming what the row
      * records.
      *
      * @return void
@@ -1378,10 +1309,8 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * The switched session's absolute deadline is held to the guard's absolute
-     * lifetime counted from the sign-in, so one the guard shortened after the
-     * session started applies and a switch never extends the session, and a
-     * session already past it fails as `session_expired`.
+     * The guard's absolute lifetime, counted from the sign-in, bounds the
+     * switched session.
      *
      * @return void
      *
@@ -1431,9 +1360,7 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A switch of a session with no absolute deadline, under a guard that sets
-     * no absolute limit, adds none: the session still ends only when it goes
-     * idle, its idle deadline restarted from the switch.
+     * A switch adds no absolute deadline when the guard sets no absolute limit.
      *
      * @return void
      *
@@ -1459,9 +1386,7 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A session with no recorded start, which a custom schema may allow, and no
-     * absolute deadline is switched with none: with no start to count a limit
-     * from, the deadline it stores stands.
+     * A switch of a session with no recorded start keeps its stored deadline.
      *
      * @return void
      *
@@ -1491,9 +1416,8 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A session that started with no absolute deadline is held, at its next
-     * switch, to an absolute limit the guard set since, counted from the
-     * sign-in: a switch only ever lowers the absolute deadline.
+     * An absolute limit set since the sign-in lowers the switched session's
+     * deadline.
      *
      * @return void
      *
@@ -1518,10 +1442,7 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A session the guard's shortened absolute lifetime has ended fails as
-     * `session_expired` from the second of that deadline, although the deadline
-     * it stored when it started under the longer lifetime is still ahead, and
-     * the session is left as it was.
+     * A session past the guard's shortened lifetime fails as `session_expired`.
      *
      * @return void
      *
@@ -1553,10 +1474,7 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A switch whose session or client has no attempts left fails as
-     * `rate_limited` with the wait, without looking the session up; a failed
-     * switch counts against the refresh limits of the token's session and the
-     * client.
+     * Switches are bounded by the refresh limits.
      *
      * @return void
      *
@@ -1609,9 +1527,7 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A switch takes no further factor from the identity-level factor policy:
-     * the destination tenant's policy is the one asked, so a policy that would
-     * ask every sign-in for one does not refuse the switch.
+     * A switch does not ask the identity-level factor policy.
      *
      * @return void
      *
@@ -1634,12 +1550,8 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A switch that names only a tenant keeps the principal the session acts as
-     * and moves the session to that tenant: the row records it and the time of
-     * the switch, `PrincipalSwitched` reports the tenant change alone with the
-     * tenant left, the guard acts in the new tenant, the access token issued
-     * before is refused at once as `session_tenant_mismatch`, and the new one
-     * acts in the new tenant.
+     * A tenant-only switch moves the session to another tenant as the same
+     * principal.
      *
      * @return void
      *
@@ -1691,9 +1603,7 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A switch that names a principal and a tenant moves the session to both at
-     * once, and `PrincipalSwitched` reports both changes; without a tenant, the
-     * principal's own is its default.
+     * A switch moves the principal and the tenant together.
      *
      * @return void
      *
@@ -1735,11 +1645,7 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * Switching back to the tenant a session acted in before does not revive
-     * the tokens issued there: the first token, though it names that tenant and
-     * principal again, was issued before the last switch and is refused as
-     * `session_switched`; the one issued in the other tenant is refused as
-     * `session_tenant_mismatch`; only the latest is accepted.
+     * Switching back to a tenant does not restore its old tokens.
      *
      * @return void
      *
@@ -1770,11 +1676,7 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * Two switches in one second, there and back, still refuse every token
-     * issued before the second: it records the switch one second after the
-     * first, so the tokens it issues itself are refused as `session_switched`
-     * until the client refreshes in the next second, and the refreshed token is
-     * accepted.
+     * Two switches in one second refuse every earlier token.
      *
      * @return void
      *
@@ -1811,10 +1713,8 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A switch to the tenant the session already acts in, for the principal it
-     * already acts as, rotates the credential like a refresh: nothing records a
-     * switch, nothing reports one, and the access token issued before still
-     * works.
+     * A switch to the current tenant and principal rotates the credential like
+     * a refresh.
      *
      * @return void
      *
@@ -1845,12 +1745,8 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A destination tenant the access contracts do not let the principal act in
-     * is refused, the session left as it was: one the default resolver cannot
-     * find, no tenant at all for a principal that belongs to one
-     * (`tenant_ineligible`), and one the application's tree lets it act in but
-     * that is deactivated (`tenant_inactive`). The refusal names the principal
-     * the switch admitted.
+     * A destination tenant the access contracts refuse is refused, the session
+     * left as it was.
      *
      * @return void
      *
@@ -1880,10 +1776,7 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A tenant-only switch is held to the principal the session records, as a
-     * refresh holds it: once the principal's own tenant is deactivated the
-     * switch is refused as `tenant_inactive` before the destination tenant is
-     * asked about, though the application's tree would let it act there.
+     * A tenant-only switch is held to the principal the session records.
      *
      * @return void
      *
@@ -1908,9 +1801,7 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A switch keeps the session's key, so the proofs of its sign-in carry over
-     * unchanged: the same rows, and the new access token carries the same
-     * `auth_time` and `amr` as the one before.
+     * A switch keeps the session's proofs.
      *
      * @return void
      *
@@ -1938,10 +1829,8 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A switch whose destination tenant requires connections the session was
-     * not established through is refused as `sso_required`, reported for the
-     * `switch` flow, and leaves the session as it was, acting in its current
-     * tenant with its tokens still good.
+     * A destination requiring its own connections refuses the switch as
+     * `sso_required`.
      *
      * @return void
      *
@@ -1970,14 +1859,8 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A switch whose destination tenant asks for a further factor the session
-     * lacks returns the session to pending with the destination recorded,
-     * instead of re-issuing its pair: the result is pending with a credential,
-     * `SessionReturnedToPending` reports the `switch` flow, nothing reports a
-     * switch, the access token issued before is refused at once, and the
-     * refresh token is refused as `session_pending`, not as a replay. Once a
-     * further factor is satisfied, the session activates in the destination,
-     * acting as the target in its tenant, and reports `SessionActivated`.
+     * A destination asking for a further factor returns the session to pending
+     * until it is met.
      *
      * @return void
      *
@@ -2055,11 +1938,8 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A switch that returns the session to pending names the strictest of what
-     * the destination tenant asks and what the identity's own factor policy,
-     * tightened since the session activated, still asks of it, as a look-up of
-     * the pending session does; so does a grace retry the tenant's policy now
-     * holds pending.
+     * A return to pending names the strictest of the destination's and the
+     * identity's requirements.
      *
      * @return void
      *
@@ -2117,9 +1997,7 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A switch that returns the session to pending forgets a binding of the
-     * guard to that session in the same request, with no event, so nothing
-     * later in the request acts as the principal or in the tenant it left.
+     * A return to pending forgets the guard's binding to that session.
      *
      * @return void
      *
@@ -2151,10 +2029,7 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A switch made inside the caller's transaction before the sign-in that
-     * started the session commits keeps the guard on its destination at the
-     * commit: the sign-in's deferred bind finds the session acting as another
-     * principal in another tenant and leaves the guard as the switch bound it.
+     * A switch before the sign-in commits keeps the guard on its destination.
      *
      * @return void
      *
@@ -2187,9 +2062,8 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A switch of tenant alone made inside the caller's transaction before the
-     * sign-in commits keeps the guard in the destination tenant at the commit,
-     * as the same principal.
+     * A tenant switch before the sign-in commits keeps the guard in its
+     * destination.
      *
      * @return void
      *
@@ -2227,9 +2101,8 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A switch whose destination's further factor the session already meets
-     * switches as one with no requirement, and records the version the policy
-     * answered; the requirement check is asked once.
+     * A destination whose factor the session meets switches and records the
+     * policy version.
      *
      * @return void
      *
@@ -2255,9 +2128,7 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A tenant-only switch is held to the destination tenant's policy too: a
-     * tenant below the principal's own that requires connections refuses it,
-     * and the session stays in its own tenant.
+     * A tenant-only switch is held to the destination tenant's policy.
      *
      * @return void
      *
@@ -2281,10 +2152,7 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A lost response to a switch made in a second the session's floor already
-     * reached is still answered inside the grace window: that switch moved the
-     * floor one second past its rotation, and the retry, presenting a token of
-     * the principal switched from, is still known for a switch.
+     * A lost response to a switch that moved the floor is answered again.
      *
      * @return void
      *
@@ -2321,13 +2189,7 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A grace retry of a switch to the context the session already acts in is
-     * held to the tenant's authentication policy as a refresh with the same
-     * token is: once the tenant requires a connection the session was not
-     * established through it is refused as `sso_required`, leaving the session
-     * as it was, and once it asks for a further factor the session lacks the
-     * session returns to pending, so the retry is never a refresh that skips
-     * the policy.
+     * A grace retry is held to the tenant's authentication policy again.
      *
      * @return void
      *
@@ -2374,11 +2236,7 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A bind listener that throws fails a switch after it was written, but
-     * `PrincipalSwitched` was scheduled before the bind, so the switch is
-     * reported. Inside a caller's transaction both wait for the commit, so the
-     * switch itself returns, and a rollback withdraws them and leaves the
-     * session as it was and the guard unbound.
+     * A switch whose bind listener throws is still reported.
      *
      * @return void
      *
@@ -2422,9 +2280,7 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * Inside a caller's transaction a switch's report and its bind follow the
-     * commit, in that order, once: a bind listener that throws then throws from
-     * the commit, after `PrincipalSwitched`, and the session stays switched.
+     * A switch whose bind listener throws is reported on the caller's commit.
      *
      * @return void
      *
@@ -2465,12 +2321,8 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A cookie application switches from plain values: the token presented from
-     * its cookie and a same-site client, on a guard whose own request is
-     * cross-site, from another address and carries no cookie. The result
-     * carries the cookie that sets the new refresh token, never the token, and
-     * that cookie switches again; the switch, the guard's bind and so the
-     * session's last use describe the client given, not the guard's request.
+     * A cookie application switches from plain values, described by the client
+     * given.
      *
      * @return void
      *
@@ -2520,9 +2372,8 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * Rows of `[what is presented, built from the session's cookie token; the
-     * client; the reason; the source]` a cookie application's switch refuses
-     * before any session is read.
+     * Rows of `[presented, client, reason, source]` a cookie application's
+     * plain switch refuses.
      *
      * @formatter:off
      *
@@ -2560,13 +2411,8 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A cookie application's switch from plain values refuses, before any
-     * session is read, a cookie from a client the same-site check refuses (the
-     * guard's own request being same-site and carrying the cookie), a token in
-     * more than one carrier, one from another carrier, and a reason the
-     * extraction answered: `AuthenticationFailed` (flow `switch`) reports it
-     * with the client given, and neither `Attempting` nor `Failed`, as no
-     * switch ever has; the session is left as it was.
+     * A cookie application's plain switch is refused before any session is
+     * read.
      *
      * @param  \Closure(string): (\SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Http\PresentedRefreshToken)  $presented
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
@@ -2608,10 +2454,8 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * Nothing presented switches nothing and reports nothing, on either
-     * application; a reason the extraction never answers, handed in, is the
-     * caller's error, `cross_site_request` included, and throws before anything
-     * is dispatched.
+     * A plain switch of nothing does nothing, and a foreign reason handed in
+     * throws.
      *
      * @return void
      *
@@ -2642,9 +2486,7 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A replayed cookie token after the grace window revokes the session as
-     * `rotation_reuse`, and the revocation and the refusal are reported with
-     * the client given, not the guard's cross-site request.
+     * A plain switch replay is reported with the client given.
      *
      * @return void
      *
@@ -2678,9 +2520,7 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A plain switch to a destination asking for a further factor returns the
-     * session to pending, and `SessionReturnedToPending` describes the client
-     * given; nothing is bound.
+     * A plain switch returned to pending is reported with the client given.
      *
      * @return void
      *
@@ -2754,9 +2594,7 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * Inside a caller's transaction a plain switch reports and binds only once
-     * it commits, with the client given; one that rolls back reports and binds
-     * nothing, and leaves the session as it was.
+     * A plain switch waits for the caller's commit.
      *
      * @return void
      *
@@ -2798,10 +2636,7 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A switch that expects the session its token proves is made, whatever the
-     * session was read as, and so is one that expects none; the expected id is
-     * compared as the string it is, so an integer that is not the session's id
-     * does not match.
+     * A switch expecting its own session, or none, is made.
      *
      * @return void
      *
@@ -2837,10 +2672,8 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A token proving another session than the one expected is refused as
-     * `session_mismatch`, reported as a `switch` failure that describes the
-     * token's own session, and counted by the refresh limits against it; the
-     * session is left as it was and nothing is switched, revoked or bound.
+     * A switch proving another session than expected is refused as
+     * `session_mismatch`.
      *
      * @return void
      *
@@ -2891,8 +2724,7 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * An integer that is not the session's id is not the session: only `null`
-     * accepts any session, and an id is compared as a string.
+     * A switch expecting an integer that is not the session's id is refused.
      *
      * @return void
      *
@@ -2918,9 +2750,7 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * The old token of the session, retried inside the grace window, still
-     * matches its own session and is answered with the current credential, and
-     * is refused as a mismatch for any other.
+     * A grace retry is held to the expected session.
      *
      * @return void
      *
@@ -2954,8 +2784,7 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * The token is judged before the session is compared: a replay on a wrong
-     * expected session still revokes the session as `rotation_reuse`.
+     * A replay expecting another session still revokes as `rotation_reuse`.
      *
      * @return void
      *
@@ -3061,10 +2890,8 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * Switch to the membership named with the refresh token the request
-     * carries, as a controller does: the token the transport extracts and the
-     * request's client, handed on as plain values; and answer with the outcome,
-     * its reason and source, and the new refresh token.
+     * Switch to the membership named with the request's refresh token, as a
+     * controller does.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return array<string, ?string>
@@ -3109,9 +2936,8 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * Sign the member in as its default membership, named at sign-in: a member
-     * with more than one membership would otherwise be held pending for the
-     * choice.
+     * Sign the member in as its default membership, so it is not held pending
+     * for a choice.
      *
      * @return \SineMacula\Laravel\Authentication\Sessions\SignedInSession
      *
@@ -3499,9 +3325,8 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * Bind a tenant authentication policy that answers each tenant with the
-     * requirement given for its identifier, and nothing for any other, and
-     * return it.
+     * Bind and return a tenant authentication policy that answers each tenant
+     * with its requirement.
      *
      * @param  array<array-key, \SineMacula\Laravel\Authentication\Tenancy\TenantRequirement>  $requirements
      * @return \Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy

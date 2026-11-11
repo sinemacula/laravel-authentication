@@ -29,10 +29,8 @@ use Tests\Fixtures\Passkeys\VirtualAuthenticator;
 use Tests\TestCase;
 
 /**
- * Feature tests for the verification a passkey sign-in and a passkey factor
- * share: the order its checks run in, what each refusal is, the owner callback
- * that admits the passkey's owner, and the `PasskeyUsed` a verified use reports
- * once committed.
+ * Feature tests for the passkey verification a passkey sign-in and a passkey
+ * factor share.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -82,9 +80,8 @@ final class PasskeyAssertionsTest extends TestCase
     }
 
     /**
-     * A verified answer returns the owner the callback admitted, with the
-     * passkey, its count moved; the callback is handed the passkey the answer
-     * names.
+     * A verified answer returns the admitted owner and the passkey with its
+     * count moved.
      *
      * @return void
      *
@@ -109,8 +106,8 @@ final class PasskeyAssertionsTest extends TestCase
     }
 
     /**
-     * The owner callback's refusal is the answer's, and the assertion is not
-     * checked: the passkey keeps its count.
+     * The owner callback's refusal is the answer, and the assertion is not
+     * checked.
      *
      * @return void
      *
@@ -151,9 +148,8 @@ final class PasskeyAssertionsTest extends TestCase
     }
 
     /**
-     * An answer that is neither an array nor a string, or that names no passkey
-     * of the relying party, uses the challenge up and is refused as
-     * `invalid_credentials`, without asking the owner callback.
+     * An answer that names no passkey uses the challenge up and is refused as
+     * `invalid_credentials`.
      *
      * @return void
      *
@@ -180,9 +176,8 @@ final class PasskeyAssertionsTest extends TestCase
     }
 
     /**
-     * For a ceremony bound to an identity, the passkey's own user handle is the
-     * one checked, so an answer that carries none verifies; usernameless, the
-     * answer must carry it.
+     * A bound ceremony checks the passkey's own user handle; a usernameless one
+     * needs the answer's.
      *
      * @return void
      *
@@ -215,10 +210,7 @@ final class PasskeyAssertionsTest extends TestCase
     }
 
     /**
-     * A ceremony that names the passkeys it allows accepts only those: an
-     * answer with another of the owner's passkeys is refused as
-     * `invalid_credentials` without asking the owner callback, and one with an
-     * allowed passkey verifies.
+     * A ceremony that names the passkeys it allows verifies only those.
      *
      * @return void
      *
@@ -252,8 +244,8 @@ final class PasskeyAssertionsTest extends TestCase
     }
 
     /**
-     * A count that the rule refuses is a regression, and so is one whose
-     * compare-and-set another use won.
+     * A count the rule refuses, or whose compare-and-set another use won, is a
+     * regression.
      *
      * @return void
      *
@@ -287,9 +279,8 @@ final class PasskeyAssertionsTest extends TestCase
     }
 
     /**
-     * A use is reported with the guard, the client, the owner, the method
-     * `passkey` and the passkey's id, once its connection commits, and not when
-     * it rolls back.
+     * A use is reported once its connection commits, and not when it rolls
+     * back.
      *
      * @return void
      *
@@ -327,8 +318,7 @@ final class PasskeyAssertionsTest extends TestCase
     }
 
     /**
-     * Without a transactions manager in the container, a use is reported at
-     * once.
+     * Without a transactions manager, a use is reported at once.
      *
      * @return void
      *
@@ -376,7 +366,7 @@ final class PasskeyAssertionsTest extends TestCase
     }
 
     /**
-     * Verify the answer to the sign-in options, usernameless, with the owner
+     * Verify the answer to usernameless sign-in options with the owner
      * callback.
      *
      * @formatter:off

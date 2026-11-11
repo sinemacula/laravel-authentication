@@ -29,12 +29,7 @@ final class AttemptLimitsTest extends TestCase
     private const string GUARD = 'api';
 
     /**
-     * The shipped defaults: sign-in 5 per identifier and 50 per IP address in
-     * five minutes; refresh failures 10 per session and 100 per IP address in a
-     * minute; code requests 5 per identifier and 50 per IP address in an hour;
-     * passkey sign-in options 100 per IP address in five minutes, with no
-     * identifier to count; client credentials failures 100 per IP address in a
-     * minute, and none per client id, which is not a secret.
+     * The shipped default limits for each flow.
      *
      * @return void
      */
@@ -120,8 +115,7 @@ final class AttemptLimitsTest extends TestCase
     }
 
     /**
-     * A malformed limit fails closed at either level, naming the guard and the
-     * key, rather than being read as off.
+     * A malformed limit fails closed at either level.
      *
      * @param  mixed  $limit
      * @return void
@@ -142,8 +136,7 @@ final class AttemptLimitsTest extends TestCase
     }
 
     /**
-     * A scope missing from the package flow, with no guard value, fails closed:
-     * there is no literal default.
+     * A scope missing at both levels fails closed.
      *
      * @return void
      */
@@ -169,9 +162,8 @@ final class AttemptLimitsTest extends TestCase
     }
 
     /**
-     * A `per_identifier` limit on passkey sign-in options, which name no
-     * identifier and so could never be counted against one, fails closed from
-     * the guard or the package; `null` is accepted.
+     * A `per_identifier` limit on passkey sign-in options fails closed at
+     * either level.
      *
      * @return void
      */
@@ -196,9 +188,7 @@ final class AttemptLimitsTest extends TestCase
     }
 
     /**
-     * The factor package counts factor code checks per factor and per identity,
-     * so a `factor_code.per_identifier` limit could never apply here: one set
-     * at either level fails closed.
+     * A `factor_code.per_identifier` limit fails closed at either level.
      *
      * @return void
      */
@@ -223,8 +213,7 @@ final class AttemptLimitsTest extends TestCase
     }
 
     /**
-     * Blocks that are not arrays, or hold keys the limits do not know, fail
-     * closed instead of being ignored.
+     * Blocks that are not arrays, or hold unknown keys, fail closed.
      *
      * @return void
      */
@@ -255,8 +244,7 @@ final class AttemptLimitsTest extends TestCase
     }
 
     /**
-     * A guard that is not configured is reported rather than given the package
-     * defaults.
+     * A guard that is not configured is refused.
      *
      * @return void
      */
@@ -329,8 +317,7 @@ final class AttemptLimitsTest extends TestCase
     }
 
     /**
-     * Assert resolving the guard's limits on the flow throws exactly the
-     * message.
+     * Assert resolving the guard's limits on the flow throws the message.
      *
      * @param  string  $message
      * @param  \SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow  $flow

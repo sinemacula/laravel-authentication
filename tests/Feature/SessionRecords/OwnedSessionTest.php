@@ -34,8 +34,7 @@ final class OwnedSessionTest extends TestCase
 
     /**
      * Rows of `[guard, revoked seconds ago or null, idle deadline in seconds,
-     * status, the refusal]`, in the order the reasons are judged; the absolute
-     * deadline is always two hours away.
+     * status, the refusal]`.
      *
      * @return iterable<string, array{0: ?string, 1: ?int, 2: int, 3: string, 4: ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason}>
      */
@@ -51,9 +50,8 @@ final class OwnedSessionTest extends TestCase
     }
 
     /**
-     * The guard may authenticate only on a live, active session of its own;
-     * otherwise the first reason that applies, guard before revocation before a
-     * pending status before the deadlines.
+     * The guard may authenticate only on a live, active session of its own,
+     * otherwise the first refusal that applies.
      *
      * @param  ?string  $guard
      * @param  ?int  $revokedAgo
@@ -95,8 +93,8 @@ final class OwnedSessionTest extends TestCase
     }
 
     /**
-     * A session loaded without its status is reported as the misconfiguration
-     * it is, whatever its guard, rather than taken for an active one.
+     * A session loaded without its status is reported as a misconfiguration,
+     * whatever its guard.
      *
      * @return void
      */
@@ -144,8 +142,7 @@ final class OwnedSessionTest extends TestCase
     }
 
     /**
-     * A session that is not an Eloquent model implementing the Eloquent session
-     * contract cannot record a principal, so it acts as none.
+     * A session that cannot record a principal acts as none.
      *
      * @return void
      */
@@ -189,8 +186,7 @@ final class OwnedSessionTest extends TestCase
     }
 
     /**
-     * A session loaded without its active tenant fails closed rather than
-     * reading as acting in none.
+     * A session loaded without its active tenant fails closed.
      *
      * @return void
      */
@@ -218,9 +214,8 @@ final class OwnedSessionTest extends TestCase
     }
 
     /**
-     * A token is held to the session's last context change: one issued before
-     * the change's second is not, and one whose issue time is not whole cannot
-     * be placed after it.
+     * A token issued before the session's last context change, or with a
+     * fractional issue time, is not accepted.
      *
      * @param  ?int  $offset
      * @param  bool  $whole
@@ -238,8 +233,7 @@ final class OwnedSessionTest extends TestCase
     }
 
     /**
-     * A session loaded without its switch time fails closed rather than reading
-     * as never switched.
+     * A session loaded without its switch time fails closed.
      *
      * @return void
      */
@@ -251,9 +245,7 @@ final class OwnedSessionTest extends TestCase
     }
 
     /**
-     * `OwnedSession` is a static utility; reflection invokes the private
-     * constructor so the line is covered while still documenting the access
-     * modifier.
+     * `OwnedSession` cannot be instantiated from outside.
      *
      * @return void
      *

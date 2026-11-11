@@ -31,11 +31,7 @@ use Tests\TestCase;
 
 /**
  * Feature tests of how a request's caller is read from the credential its route
- * declares: the guard's own bearer or API key, the refresh credential or the
- * pending credential, each with what the caller needs to admit a principal by
- * its id; at most once per request for a guard and a credential, afresh for a
- * guard changed later; a refused credential reported once; and a guard that is
- * not the package's refused.
+ * declares.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -90,10 +86,8 @@ final class CallerCredentialsTest extends TestCase
     }
 
     /**
-     * The bearer's caller is the guard's identity, principal, tenant and
-     * session, read once for the request: asked again, it is the same caller,
-     * read without a query. It admits another principal of its identity by its
-     * id, as the guard's session service does.
+     * The bearer's caller is read once per request and admits another principal
+     * of its identity.
      *
      * @return void
      *
@@ -183,9 +177,8 @@ final class CallerCredentialsTest extends TestCase
     }
 
     /**
-     * The refresh credential's caller is who the refresh would sign in again:
-     * the session it proves, its owner and the principal it records; it admits
-     * another principal of its owner by its id.
+     * The refresh credential's caller is the session it proves, its owner and
+     * its principal.
      *
      * @return void
      *
@@ -215,10 +208,7 @@ final class CallerCredentialsTest extends TestCase
     }
 
     /**
-     * A refused refresh credential is reported once for the request, however
-     * often the caller is asked, with the guard and the client but not the
-     * token, and again for another request; one the request does not carry is
-     * not reported.
+     * A refused refresh credential is reported once per request.
      *
      * @return void
      *
@@ -259,10 +249,8 @@ final class CallerCredentialsTest extends TestCase
     }
 
     /**
-     * On a cookie application the refresh cookie of a request from a page of
-     * the API's own site is its session's caller; the same cookie sent by a
-     * cross-site form is no caller, reported once as `cross_site_request` with
-     * that request's client, however often the caller is asked.
+     * On a cookie application only a same-site request's refresh cookie is a
+     * caller.
      *
      * @return void
      *
@@ -312,10 +300,7 @@ final class CallerCredentialsTest extends TestCase
 
     /**
      * A request that carries no refresh or pending credential reads no IP
-     * address: from a trusted proxy whose forwarded client addresses conflict,
-     * which a read of the address refuses, its caller is `null` and nothing is
-     * reported; the same request carrying a refused refresh credential is
-     * reported with its client, the address read.
+     * address.
      *
      * @return void
      *
@@ -353,10 +338,7 @@ final class CallerCredentialsTest extends TestCase
     }
 
     /**
-     * The pending credential's caller is the pending session it names, read
-     * from the JSON body or the form body, while the session allows the action:
-     * its member, no principal while the choice is outstanding, and the pending
-     * session itself.
+     * The pending credential's caller is the pending session it names.
      *
      * @return void
      *
@@ -393,11 +375,8 @@ final class CallerCredentialsTest extends TestCase
     }
 
     /**
-     * The pending credential is refused for an action its session does not
-     * allow now, reported with the session's member and session; an unknown or
-     * empty one, or one that is not a string, as `pending_invalid`; one that is
-     * only in the query string, or absent, is not read and not reported; and
-     * the field read is the configured one.
+     * A pending credential is refused, or not read, as its session and
+     * placement require.
      *
      * @return void
      *
@@ -483,9 +462,8 @@ final class CallerCredentialsTest extends TestCase
     }
 
     /**
-     * An API key's caller is the machine the key authenticates, its own
-     * principal, with no session; its guard keeps no sessions, so it admits no
-     * other principal by its id.
+     * An API key's caller is its machine, with no session, and admits no other
+     * principal.
      *
      * @return void
      *
@@ -667,9 +645,8 @@ final class CallerCredentialsTest extends TestCase
     }
 
     /**
-     * Bind a request to the cookie application with the cookies and server
-     * variables, its route declaring the refresh credential, as the request
-     * being served, on guards resolved afresh.
+     * Bind a cookie application request whose route declares the refresh
+     * credential.
      *
      * @param  array<string, string>  $cookies
      * @param  array<string, string>  $server

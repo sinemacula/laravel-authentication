@@ -32,11 +32,7 @@ use Tests\TestCase;
 
 /**
  * Feature tests for what ending an identity's sessions does to its pending
- * identifier changes: every bulk revocation of the identity, whichever method
- * or listener runs it, cancels them, since a change link needs no session and
- * would otherwise let whoever requested it from an ended session move the
- * account to an identifier of theirs. Revoking one session, or a principal's
- * sessions, keeps them.
+ * identifier changes.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -55,8 +51,7 @@ final class EndedSessionsCancelChangesTest extends TestCase
     use ChangesIdentifiers;
 
     /**
-     * Start every test from a known moment, with the fakes bound and the route
-     * change links point at.
+     * Freeze the clock and bind the fakes and the route change links point at.
      *
      * @return void
      */
@@ -121,11 +116,8 @@ final class EndedSessionsCancelChangesTest extends TestCase
     }
 
     /**
-     * Ending the identity's sessions in bulk cancels each of its pending
-     * changes, of every type and through every guard, with the sessions: the
-     * link requested from a session that ended, and the code, confirm nothing,
-     * and the identifiers are kept. Another identity's pending change stays and
-     * confirms.
+     * Every bulk revocation of the identity cancels its pending changes and
+     * leaves other identities' alone.
      *
      * @param  \Closure(\SineMacula\Laravel\Authentication\Sessions\SessionService, \Tests\Integration\Fixtures\ChangeableIdentity): mixed  $revoke
      * @return void
@@ -171,7 +163,7 @@ final class EndedSessionsCancelChangesTest extends TestCase
 
     /**
      * Ending a deleted identity's sessions cancels its pending changes once its
-     * row is gone: the model as it was deleted keeps its key, which finds them.
+     * row is gone.
      *
      * @return void
      *
@@ -209,9 +201,8 @@ final class EndedSessionsCancelChangesTest extends TestCase
     }
 
     /**
-     * Revoking one session, or the sessions acting as one of the identity's
-     * principals, leaves its other sessions, and with them its pending change,
-     * which its link still makes.
+     * Revoking one session, or one principal's sessions, keeps the pending
+     * change.
      *
      * @param  string  $revocation
      * @return void

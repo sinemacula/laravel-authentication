@@ -62,16 +62,8 @@ use Tests\Integration\Fixtures\MachineClient;
 use Tests\TestCase;
 
 /**
- * Pins, for every authentication flow, the events it dispatches in order (with
- * the guard, the failure's flow and reason, and the identity, principal and
- * session of each) and what it answers: `attempt()`, `validate()`, `login()`,
- * `authenticateAs()`, a bearer token and an API key, the session service's
- * sign-ins and their continuations, refreshes, a switch of principal, signing
- * out, revocation on a security change, setting and resetting a password,
- * confirming a change of identifier, and the client credentials exchange.
- *
- * Each assertion records what the code does today: the behaviour the refactors
- * of the guard, its services and the session service must keep.
+ * Pins the events every authentication flow dispatches, in order, and what it
+ * answers.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -438,9 +430,8 @@ final class EventSequenceTest extends TestCase
     }
 
     /**
-     * A sign-in whose client proves the session it holds replaces it: the
-     * proven session's revocation (`superseded`) is reported first, then the
-     * new session and the sign-in, before the bind to the new session.
+     * A sign-in that proves its session replaces it, reporting the revocation
+     * first.
      *
      * @return void
      *
@@ -721,9 +712,7 @@ final class EventSequenceTest extends TestCase
     }
 
     /**
-     * A refresh with the token the request carries reports as a refresh does,
-     * one its transport refuses as a failed refresh, and a request without one
-     * dispatches nothing.
+     * A refresh from the request reports as a refresh does.
      *
      * @return void
      *
@@ -1081,10 +1070,7 @@ final class EventSequenceTest extends TestCase
     }
 
     /**
-     * Register the guards: the session tests', the password tests', one over
-     * members who must choose a principal, one over identities whose
-     * identifiers change, an API key guard and a client credentials guard over
-     * machine clients.
+     * Register the guards the flows run through.
      *
      * @param  mixed  $app
      * @return void
@@ -1162,9 +1148,8 @@ final class EventSequenceTest extends TestCase
     }
 
     /**
-     * Sign in through the guard's password method, as a fresh request, as the
-     * principal named, if one is, and return the session: an identity with more
-     * than one principal must name one, or it is held pending for the choice.
+     * Sign in through the guard's password method as a fresh request and return
+     * the session.
      *
      * @param  string  $guard
      * @param  string  $email

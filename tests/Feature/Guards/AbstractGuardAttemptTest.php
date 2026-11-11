@@ -21,13 +21,8 @@ use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
 use Tests\Fixtures\Events\EventContextAssertions;
 
 /**
- * Feature tests for the credential `attempt()` event dispatch flow on
- * `AbstractGuard`.
- *
- * Covers the Attempting/Validated/Login/Failed/Authenticated event sequence for
- * success and failure paths, including inactive identity/principal rejection
- * and unresolvable identity handling. Timebox and lifecycle tests live in
- * `AbstractGuardAttemptLifecycleTest`.
+ * Feature tests for the events `AbstractGuard::attempt()` dispatches on success
+ * and failure.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -232,11 +227,8 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
     }
 
     /**
-     * `attempt()` MUST route the entire `retrieveByCredentials` → credential
-     * check → `fireFailedEvent` pipeline through `Timebox::call()` so the
-     * elapsed time is uniform regardless of whether the supplied identifier
-     * resolved to a persisted user; otherwise the null-user path would leak
-     * whether the identifier exists through timing.
+     * `attempt()` runs the null-user path through `Timebox::call()` too, so
+     * timing does not reveal whether the identifier exists.
      *
      * @return void
      *
@@ -313,9 +305,8 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
     }
 
     /**
-     * A `CanBeActive` identity reporting `false` is rejected after the hasher
-     * check passes - the resolver MUST NOT be invoked and the `Failed` event
-     * fires.
+     * An inactive `CanBeActive` identity is rejected after the password check,
+     * without invoking the resolver, and `Failed` fires.
      *
      * @return void
      *
@@ -357,9 +348,8 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
     }
 
     /**
-     * A resolved principal whose `isActive()` returns `false` is rejected after
-     * the resolver returns; the `Login` event MUST NOT fire and `Failed` is
-     * dispatched.
+     * An inactive resolved principal is rejected: `Login` does not fire and
+     * `Failed` is dispatched.
      *
      * @return void
      *
@@ -501,10 +491,8 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
     }
 
     /**
-     * When the principal resolver throws `UnresolvableIdentityException` (i.e.
-     * the identity model implements neither `Principal` nor `HasPrincipals`),
-     * the misconfiguration propagates as a server error: no `Failed` event is
-     * dispatched and nothing is bound.
+     * An `UnresolvableIdentityException` from the resolver propagates: no
+     * `Failed` event is dispatched and nothing is bound.
      *
      * @return void
      *
@@ -549,9 +537,7 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
     }
 
     /**
-     * The `Attempting` event fires with `remember = false` so stateless guards
-     * never advertise remember-me capability. Mutation guard: pins the literal
-     * `false` in `fireAttemptingEvent()`.
+     * The `Attempting` event carries `remember = false`.
      *
      * @return void
      *

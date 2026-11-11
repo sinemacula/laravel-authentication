@@ -20,10 +20,8 @@ use Tests\Fixtures\Sessions\RecordingAttemptLimiter;
 use Tests\TestCase;
 
 /**
- * Feature tests of the steps a credential sign-in takes the same way through
- * `attempt()` and the session service: the method check and the slot on the
- * identifier and IP limits, the refusal by an account's own limit, the windows
- * a pending sign-in keeps, and the give-back of every slot.
+ * Feature tests of the steps a credential sign-in shares between `attempt()`
+ * and the session service.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -65,8 +63,8 @@ final class CredentialAttemptTest extends TestCase
     }
 
     /**
-     * A method the application policy does not allow is refused before the
-     * limiter is so much as resolved, so nothing is counted.
+     * A method the application does not allow is refused before the limiter is
+     * resolved.
      *
      * @return void
      *
@@ -92,8 +90,8 @@ final class CredentialAttemptTest extends TestCase
     }
 
     /**
-     * A method the application policy allows answers with the policy the
-     * container holds then, the one the sign-in goes on to admit with.
+     * A method the application allows answers with the container's current
+     * policy.
      *
      * @return void
      *
@@ -105,8 +103,8 @@ final class CredentialAttemptTest extends TestCase
     }
 
     /**
-     * An identifier or IP address with no attempts left is refused as
-     * `rate_limited` with the limiter's wait, and nothing is given back.
+     * A subject with no attempts left is refused as `rate_limited` with the
+     * wait.
      *
      * @return void
      *
@@ -126,9 +124,8 @@ final class CredentialAttemptTest extends TestCase
     }
 
     /**
-     * A sign-in the limits grant holds the policy it was begun with, and
-     * account attempts that count against the guard on the same limiter; no
-     * account has refused it yet.
+     * A granted attempt holds its policy and counts accounts on the same
+     * limiter.
      *
      * @return void
      *
@@ -156,9 +153,7 @@ final class CredentialAttemptTest extends TestCase
     }
 
     /**
-     * Once an account whose secret the sign-in checked has no attempts left,
-     * the attempt refuses it as `account_rate_limited`, with that account's
-     * wait.
+     * An account with no attempts left refuses the sign-in with its wait.
      *
      * @return void
      *
@@ -179,9 +174,8 @@ final class CredentialAttemptTest extends TestCase
     }
 
     /**
-     * The windows a pending sign-in keeps are the sign-in's own slot first and
-     * then one entry for each account slot it holds, and the give-back returns
-     * exactly those reservations, its own first.
+     * The windows and the give-back cover every slot held, the sign-in's own
+     * first.
      *
      * @return void
      *
@@ -213,8 +207,8 @@ final class CredentialAttemptTest extends TestCase
     }
 
     /**
-     * Register the session tests' guards, and one over their identities that
-     * does not allow the password method.
+     * Register the session guards, and one that does not allow the password
+     * method.
      *
      * @param  mixed  $app
      * @return void
@@ -236,8 +230,7 @@ final class CredentialAttemptTest extends TestCase
     }
 
     /**
-     * A password sign-in's subject on the `api` guard, naming the identifier
-     * from the session tests' client.
+     * A password sign-in's subject on the `api` guard.
      *
      * @return \SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject
      */

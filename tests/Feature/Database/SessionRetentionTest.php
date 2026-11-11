@@ -9,9 +9,8 @@ use SineMacula\Laravel\Authentication\Database\SessionRetention;
 use Tests\TestCase;
 
 /**
- * Feature tests for the session retention pruning and `authentication:check`
- * both read: 30 days unless configured, the boundaries accepted, and anything
- * else refused with the same message.
+ * Feature tests for the session retention read by pruning and
+ * `authentication:check`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -34,8 +33,8 @@ final class SessionRetentionTest extends TestCase
     }
 
     /**
-     * The boundaries are accepted, as integers and as the digit strings `env()`
-     * returns, and read when asked.
+     * The boundaries are accepted as integers and as the digit strings `env()`
+     * returns.
      *
      * @return void
      */
@@ -66,9 +65,7 @@ final class SessionRetentionTest extends TestCase
     }
 
     /**
-     * `SessionRetention` is a static utility; instantiation is disallowed
-     * through the private constructor. Reflection invokes it so the line is
-     * covered while still documenting the access modifier.
+     * The constructor is private.
      *
      * @return void
      *

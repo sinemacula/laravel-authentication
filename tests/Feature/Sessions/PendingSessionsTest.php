@@ -97,10 +97,8 @@ use Tests\Integration\Fixtures\WideKeySession;
 use Tests\TestCase;
 
 /**
- * Tests of pending sessions through the session service: the actions a pending
- * credential allows, satisfying a further factor with a proof, choosing a
- * principal, discarding, and what a pending session refuses everywhere else,
- * against a real database through Laravel's guards and routes.
+ * Tests of pending sessions through the session service against a real
+ * database, Laravel's guards and routes.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -215,11 +213,8 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * A credential waiting on a further factor allows exactly the five factor
-     * actions and lists no principal; one waiting on a choice allows listing
-     * and choosing principals, and lists the eligible ones; one waiting on a
-     * factor and then a choice allows the factor actions only, and lists none
-     * until the factor is met.
+     * A pending credential allows only the actions of its first outstanding
+     * requirement.
      *
      * @return void
      *
@@ -263,9 +258,7 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * Looking a pending session up reads it, with its owner, principal, method
-     * and expiry, and changes nothing: it dispatches nothing and the credential
-     * still works.
+     * Looking a pending session up reads it and changes nothing.
      *
      * @return void
      *
@@ -315,9 +308,8 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * Rows of `[credential]` that cannot name a pending session, so are
-     * rejected before any query: none, no secret, no key, or a key no session
-     * can have.
+     * Rows of `[credential]` that cannot name a pending session and are
+     * rejected before any query.
      *
      * @return iterable<string, array{0: string}>
      */
@@ -363,9 +355,8 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * A session key as long as the identifier columns hold, 255 characters,
-     * names its pending session, however many bytes its characters take; a
-     * credential whose key is a character longer names nothing.
+     * A session key of 255 characters names its pending session, however many
+     * bytes; one character longer names nothing.
      *
      * @return void
      *
@@ -397,9 +388,8 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * A credential whose secret does not match, presented on another guard,
-     * expired with its session, or whose session was revoked, activated or is
-     * not pending, names no live pending session.
+     * A credential names no live pending session once its secret, guard, expiry
+     * or session status does not match.
      *
      * @return void
      *
@@ -438,10 +428,8 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * A credential is no token, and no token is a credential: an access or
-     * refresh token names no pending session, and the pending credential is
-     * refused as a bearer token and as a refresh token, so one kind is never
-     * accepted as another.
+     * Access and refresh tokens name no pending session, and the pending
+     * credential is refused as either token.
      *
      * @return void
      *
@@ -471,12 +459,8 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * Satisfying the further factor activates the pending session in place: the
-     * same id, now active, waiting on nothing and holding no pending digest or
-     * slots, with a pair whose access token authenticates and names the further
-     * factor in `amr` and its time as `auth_time`, and whose refresh token
-     * refreshes; the guard is bound, `SessionCreated` and `SignedIn` report the
-     * sign-in, and the credential is consumed.
+     * Satisfying the further factor activates the pending session in place and
+     * issues a working pair.
      *
      * @return void
      *
@@ -532,11 +516,8 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * Satisfying writes the session's issuance guard under the row lock before
-     * it records the further factor's proof, so an issuance of the session that
-     * overlaps the proof reads it; the activation then writes the row itself,
-     * which is its own guard, before the proofs are read for its pair. A choice
-     * that activates the session writes the row and no further guard.
+     * Satisfying writes the issuance guard before the proof, and the activation
+     * writes the row before the proofs are read.
      *
      * @return void
      *
@@ -583,9 +564,8 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * The pending credential a sign-in returned is taken as the `Secret` it was
-     * returned as, as its revealed string is: looked up, satisfied, chosen with
-     * and discarded.
+     * The pending credential is accepted as the `Secret` a sign-in returned it
+     * as.
      *
      * @return void
      *
@@ -613,10 +593,8 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * A session waiting on a factor and then a choice moves on to the choice
-     * once the factor is satisfied: still pending, with the same credential,
-     * which now lists the principals and allows the choice, and no token; the
-     * choice then activates it as the principal, in its own tenant.
+     * Satisfying the factor moves the session on to the choice, which then
+     * activates it.
      *
      * @return void
      *
@@ -653,9 +631,8 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * A satisfied factor that leaves the session pending has the context of a
-     * guard bound to the session forgotten once it commits, so the rest of the
-     * request sees the factor.
+     * A factor that leaves the session pending resets a bound guard's context
+     * once it commits.
      *
      * @return void
      *
@@ -685,9 +662,8 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * A further factor is not taken while only the choice is outstanding, and a
-     * choice is not taken while a factor is: each is refused as
-     * `pending_action_not_allowed`, reported, and leaves the session pending.
+     * An action the first outstanding requirement does not allow is refused as
+     * `pending_action_not_allowed`.
      *
      * @return void
      *
@@ -724,9 +700,8 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * A principal that is not one of the identity's, resolved through the
-     * hinted path as that very one, is refused as `principal_mismatch`, and the
-     * session stays pending for another choice.
+     * Choosing a principal that is not the identity's is refused as
+     * `principal_mismatch` and the session stays pending.
      *
      * @return void
      *
@@ -771,10 +746,8 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * A choice after which the identity's factor policy now asks for a further
-     * factor records the principal and its tenant and waits for the factor with
-     * the same credential, the session it describes holding what was written as
-     * stored; satisfying it then activates the session as that principal.
+     * A choice after which the identity owes a factor records the principal and
+     * waits for that factor.
      *
      * @return void
      *
@@ -817,10 +790,8 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * Each check a sign-in made is made again when the pending session is acted
-     * on, so what changed while it waited refuses the action and leaves the
-     * session pending: an identity deactivated, a method the application no
-     * longer allows, a recorded principal whose tenant was deactivated.
+     * Each sign-in check is made again on a pending action, so a change while
+     * waiting refuses it.
      *
      * @return void
      *
@@ -862,10 +833,8 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * A sign-in that proved the session its client holds supersedes it only
-     * when it first activates: the proven session stays live while the new one
-     * waits, and is revoked as `superseded`, reported before the sign-in's
-     * events, when it activates.
+     * The proven session is superseded only when the new session first
+     * activates.
      *
      * @return void
      *
@@ -907,10 +876,8 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * An activation by a satisfaction given a client, as a service layer that
-     * keeps HTTP out gives it, records that client as the session's last use
-     * and reports with it: the superseded session's revocation and the new
-     * session's creation and sign-in, not the guard's request.
+     * A satisfaction given a client records and reports the activation with
+     * that client.
      *
      * @return void
      *
@@ -976,12 +943,8 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * A choice whose tenant is deactivated after the choice admitted it, before
-     * the choice commits, ends the pending session once checked: it is revoked
-     * as `tenant_deactivated`, reported as revoked (its client holds its
-     * pending credential), the choice is refused as `tenant_inactive` with
-     * `Failed` and `AuthenticationFailed` naming the session and the method it
-     * records, nothing reports an activation, and the guard is not bound.
+     * A choice whose tenant is deactivated before it commits ends the pending
+     * session and is refused as `tenant_inactive`.
      *
      * @return void
      *
@@ -1013,12 +976,8 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * A choice that supersedes the proven session its client holds, and whose
-     * tenant is deactivated after the choice admitted it, still reports the
-     * superseded session, which stays revoked as `superseded`, after its check
-     * has ended the chosen session as `tenant_deactivated` and reported that:
-     * the choice is refused as `tenant_inactive`, nothing reports an
-     * activation, and the guard is not bound.
+     * A choice that supersedes a session and then fails its check still reports
+     * the superseded session.
      *
      * @return void
      *
@@ -1122,10 +1081,8 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * At activation the factor policy is told of the session the sign-in's
-     * client proved it holds only while that session is as it was proven: of
-     * this guard and owner, active, unrevoked and holding the digest it was
-     * proven against. Only then is it superseded.
+     * At activation the factor policy is told of the proven session only while
+     * it is as it was proven.
      *
      * @param  array<string, mixed>  $change
      * @param  bool  $proven
@@ -1174,11 +1131,8 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * At activation the factor policy is asked as the sign-in was: about the
-     * first factor's proof, the client the sign-in came from and the name and
-     * platform it gave, as the session recorded them, never about the client
-     * acting on the pending session, whose address only becomes the session's
-     * last use.
+     * At activation the factor policy is asked as the sign-in was, never about
+     * the client acting on the session.
      *
      * @return void
      *
@@ -1236,14 +1190,8 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * A choice whose proven session changes after the factor policy waived the
-     * factor for it, and before the activation could supersede it, is judged
-     * again without it, the factor policy asked again: the session waits on the
-     * factor, the chosen principal and tenant recorded, when the policy now
-     * asks for one, and otherwise activates superseding nothing, for the client
-     * the choice was given, which `SignedIn` carries and the activation writes
-     * as the session's last use. The changed session stays as its change left
-     * it either way.
+     * A choice whose proven session changes before the activation supersedes it
+     * is judged again without it.
      *
      * @param  bool  $required
      * @param  bool  $activates
@@ -1314,10 +1262,8 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * A method that checks two secrets counts two checks against the account,
-     * and its pending session gives both slots back once it activates, as a
-     * sign-in that starts its session at once does: satisfying further factors
-     * never uses up the account's limit.
+     * An activation gives back every attempt slot its method took on the
+     * account.
      *
      * @return void
      *
@@ -1355,11 +1301,8 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * Under Eloquent strict mode, which prevents lazy loading on models read
-     * together, a pending session is looked up with its principals listed, the
-     * choice is made and recorded, the session recording that principal and its
-     * tenant is looked up again, and its factor activates it: each principal's
-     * tenant is read as stored.
+     * Under Eloquent strict mode a pending session is looked up, chosen on and
+     * activated without a lazy load.
      *
      * @return void
      *
@@ -1398,11 +1341,8 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * A guard that requires a verified identifier offers no choice to an
-     * identity whose identifier is unverified: the sign-in fails as
-     * `identifier_unverified` with nothing written. Once it is verified the
-     * choice is offered; an identifier unverified again while the session waits
-     * names nothing to act on, and the choice is refused for it.
+     * A guard that requires a verified identifier offers no choice while the
+     * identifier is unverified.
      *
      * @return void
      *
@@ -1446,10 +1386,8 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * Discarding a pending session revokes it as `signed_out`, reported once
-     * with the client given, not the guard's request, so its credential names
-     * nothing afterwards; a credential that names no live pending session
-     * discards nothing and reports nothing.
+     * Discarding revokes the pending session as `signed_out`, reported once
+     * with the client given.
      *
      * @return void
      *
@@ -1478,10 +1416,8 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * Satisfying and choosing judge the pending session under its row's lock,
-     * so every read of its proofs either makes, the gate's (the tenant's
-     * policy's included) and the activation's, takes a shared lock where the
-     * engine takes one; looking it up reads them plainly.
+     * Satisfying and choosing read the proofs with a shared lock; a look-up
+     * reads them plainly.
      *
      * @return void
      *
@@ -1545,12 +1481,8 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * Once the action is admitted, satisfying and choosing read the session the
-     * sign-in's client proved it holds locked for update, before satisfying's
-     * issuance guard (choosing writes none) and before any read of the pending
-     * session's proofs, so the supersede an activation makes takes no session
-     * row after them; a refused action never reads it, and looking a pending
-     * session that waits on a further factor up reads it without a lock.
+     * An admitted action locks the proven session before the issuance guard and
+     * the proof reads; a refused one never reads it.
      *
      * @param  string  $action
      * @return void
@@ -1602,10 +1534,8 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * Looking a pending session up reads its row without a lock, while every
-     * action on it (satisfying, choosing, discarding) reads it locked for
-     * update first, so a revocation or another action waits for it. On SQLite,
-     * which takes no row lock, the lock is written into the SQL as a comment.
+     * Only an action reads the pending row locked for update; SQLite takes no
+     * row lock, so there the lock is an SQL comment.
      *
      * @return void
      *
@@ -1655,11 +1585,8 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * A pending session is no active session: the list of the identity's
-     * sessions leaves it out, and a session that is made pending refuses its
-     * access token on every request (`session_pending`, a 401) and its refresh
-     * token as `session_pending`, not as a replay, so the session is not
-     * revoked.
+     * A pending session is left out of the session list and its tokens
+     * authenticate nothing.
      *
      * @return void
      *
@@ -1702,11 +1629,8 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * A satisfied factor that leaves the session waiting on a choice with no
-     * principal left to choose from is refused for the reason the last was
-     * refused, after the proof was stored, and the refusal rolls everything
-     * back: the session still waits on the factor and the choice, and the proof
-     * is gone.
+     * A factor that leaves no principal to choose is refused and rolls back its
+     * stored proof.
      *
      * @return void
      *
@@ -1738,10 +1662,8 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * A satisfied factor whose recorded tenant now requires a connection the
-     * session was not established through is refused as `sso_required` after
-     * the proof was stored, and the refusal rolls the proof back with
-     * everything else.
+     * A factor whose tenant now requires a connection is refused as
+     * `sso_required` and rolls back its proof.
      *
      * @return void
      *
@@ -1766,11 +1688,8 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * A pending session names what its authentication still falls short of, the
-     * strictest of the identity's requirement and its tenant's while each is
-     * unmet, with the first factor it signed in with and its counting proofs,
-     * newest first; a factor the check does not find enough leaves it pending
-     * and short of the same, and one it finds enough activates it.
+     * A pending session names the strictest requirement it still falls short
+     * of, with its counting proofs.
      *
      * @return void
      *
@@ -1858,11 +1777,8 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * A failure while a satisfied factor is judged, after the proof was stored,
-     * is thrown on as it was raised, and rolls back everything the call wrote:
-     * no transaction is left open, the proof is gone, nothing is reported, and
-     * the session waits on the factor exactly as it did, so the same credential
-     * activates it once the failure clears.
+     * A failure while a factor is judged is thrown on as raised and rolls back
+     * everything the call wrote.
      *
      * @return void
      *
@@ -1911,11 +1827,8 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * A deadlock raised inside a caller's transaction is thrown on as Laravel's
-     * `DeadlockException`, with the caller's transaction level restored (on
-     * MySQL and MariaDB the deadlock has already rolled the whole transaction
-     * back, its savepoints with it). The caller rolls its whole transaction
-     * back, and its retry activates the session.
+     * A deadlock inside a caller's transaction is thrown on as
+     * `DeadlockException` with the transaction level restored.
      *
      * @return void
      *
@@ -1960,10 +1873,8 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * A refusal inside a caller's transaction rolls back only what the action
-     * wrote, the proof it stored among it, and answers with the refusal: the
-     * caller's transaction stays open at its level with its own writes, and
-     * commits them.
+     * A refusal inside a caller's transaction rolls back only the action's
+     * writes and leaves the caller's open.
      *
      * @return void
      *
@@ -1997,10 +1908,8 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * A failure inside a caller's transaction that is no concurrency error is
-     * thrown on as it was raised, and rolls back only what the action wrote,
-     * the proof it stored among it: the caller's transaction stays open at its
-     * level with its own writes, and commits them.
+     * A failure inside a caller's transaction rolls back only the action's
+     * writes and is thrown on as raised.
      *
      * @return void
      *
@@ -2047,10 +1956,7 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * The pre-action seam answers nothing for a session the gate would refuse,
-     * so no code is sent and no enrolment begun for one that can never
-     * activate: its identity deactivated, or its method no longer allowed. Once
-     * neither holds, it answers again.
+     * The pre-action seam answers nothing for a session the gate would refuse.
      *
      * @return void
      *
@@ -2080,9 +1986,8 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * Under an enforced morph map, a choice records the principal by its alias,
-     * and its `SignedIn` names the identity and principal by their aliases and
-     * the tenant the map leaves out by its class, with its identifier.
+     * Under an enforced morph map a choice records aliases and names an
+     * unmapped tenant by its class.
      *
      * @return void
      *
@@ -2117,9 +2022,8 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * Rows of `[change]` after which the gate refuses the principal a pending
-     * session records, or the active tenant it records for it, although the
-     * credential still names the session.
+     * Rows of `[change]` after which the gate refuses the recorded principal or
+     * active tenant.
      *
      * @return iterable<string, array{0: \Closure(mixed): void}>
      */
@@ -2149,9 +2053,8 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * The pre-action seam answers nothing for a session whose recorded
-     * principal or active tenant the gate would refuse, as satisfying it is
-     * refused, so no code is sent and no enrolment begun for it.
+     * The pre-action seam answers nothing for a recorded principal or tenant
+     * the gate would refuse.
      *
      * @param  \Closure(mixed): void  $change
      * @return void
@@ -2231,11 +2134,8 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * A credential names nothing once the session's owner no longer loads
-     * through the guard's provider, once the principal it records no longer
-     * resolves or belongs to another identity, or once the pending row waits on
-     * nothing: `pending()` answers `null`, and `satisfy()` and `choose()` fail
-     * as `pending_invalid`.
+     * A credential names nothing once its session's owner, recorded principal
+     * or pending state no longer holds.
      *
      * @param  \Closure(\Tests\Integration\Fixtures\ActivatableTenantMember, \Tests\Integration\Fixtures\ActivatableTenantMembership): void  $change
      * @return void
@@ -2282,11 +2182,8 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * A choice may name the tenant the principal is to be active in: with an
-     * application tree that lets the principal act in a tenant below its own,
-     * the session activates there, records it, and every request it
-     * authenticates acts in it; with the defaults the same choice is refused as
-     * `tenant_ineligible` and the session keeps waiting.
+     * A choice may name a tenant the application lets the principal act in, and
+     * is refused one it does not.
      *
      * @return void
      *
@@ -2332,9 +2229,8 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * A pending session waits from its sign-in: a further factor proved the
-     * second before it is refused as `proof_invalid`, and one proved in its
-     * second activates it.
+     * A pending session refuses a further factor proved before its sign-in as
+     * `proof_invalid`.
      *
      * @return void
      *
@@ -2355,9 +2251,8 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * A session that returned to pending waits from the return: a further
-     * factor proved after its sign-in but before the return is refused as
-     * `proof_invalid`, and one proved since activates it.
+     * A session returned to pending refuses a further factor proved before the
+     * return as `proof_invalid`.
      *
      * @return void
      *
@@ -2389,10 +2284,8 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * A session that returns to pending and activates again within one second
-     * refuses every token issued before the return, and those its activation
-     * issued, until that second has passed: a refresh then gives it a pair that
-     * authenticates.
+     * A return to pending and an activation within one second revive no earlier
+     * token until the second passes.
      *
      * @return void
      *
@@ -2487,10 +2380,8 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * Run the callback and return what each statement it sent did, in order:
-     * `locked` for a read of the proven session's row locked for update and
-     * `plain` for one without a lock; with `$around`, also `guard` for a write
-     * of an issuance guard and `proofs` for a read of a session's proofs.
+     * Run the callback and return, in order, how each statement read the proven
+     * session, and with `$around` the guard writes and proof reads.
      *
      * @param  \Closure(): mixed  $callback
      * @param  string  $proven
@@ -2516,9 +2407,8 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * Refresh the session with the refresh token under a tenant policy that now
-     * asks for a further factor, which returns it to pending, and bind a check
-     * that meets that factor once the session holds one.
+     * Refresh the session into pending under a tenant policy that asks for a
+     * further factor, and bind a check that meets it.
      *
      * @param  string  $refreshToken
      * @return \SineMacula\Laravel\Authentication\Sessions\RefreshResult

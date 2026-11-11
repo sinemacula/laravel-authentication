@@ -24,9 +24,7 @@ use Tests\Unit\Stubs\StubBareSession;
 
 /**
  * Feature tests holding the token service to issuing no session token to a
- * non-human identity: no access token for one, and no refresh token for a
- * session one owns or for one as the principal, while human sessions are issued
- * as before.
+ * non-human identity.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -127,9 +125,8 @@ final class MachineJwtTokenServiceTest extends TestCase
     }
 
     /**
-     * A session that is a model but not the package's Eloquent session records
-     * no owner the service can read, so only its own state decides: here, its
-     * missing deadlines.
+     * A model session that records no owner the service can read is judged by
+     * its own state alone.
      *
      * @return void
      */
@@ -144,10 +141,8 @@ final class MachineJwtTokenServiceTest extends TestCase
     }
 
     /**
-     * A client token carries the access claims of its machine and principal, no
-     * session, the key's id in `cid` and the scopes, space-separated, in
-     * `scope`; it lives the guard's access lifetime, never past the time it is
-     * bounded by.
+     * A client token carries its machine's access claims, the key id in `cid`
+     * and the scopes in `scope`, and no session.
      *
      * @return void
      *

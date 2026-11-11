@@ -25,9 +25,7 @@ use Tests\Unit\Stubs\PlainTenantFixture;
 use Tests\Unit\Stubs\StubSession;
 
 /**
- * Feature tests for the guarded refresh-state writes and the locking re-read,
- * against a real session table on whichever engine the suite runs on, and a
- * session kept on a second connection.
+ * Feature tests for the guarded refresh-state writes and the locking re-read.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -81,9 +79,8 @@ final class RefreshRotationStoreTest extends TestCase
     }
 
     /**
-     * A rotation records the next digest as current, the presented one as
-     * previous, the rotation time, and the new idle deadline, then mirrors them
-     * on the in-memory session as persisted state.
+     * A rotation records the new digests, rotation time and idle deadline, and
+     * mirrors them on the in-memory session.
      *
      * @return void
      */
@@ -109,9 +106,8 @@ final class RefreshRotationStoreTest extends TestCase
     }
 
     /**
-     * A rotation records the tenant policy version the refresh was checked
-     * against when it differs from the one the session was loaded with, and
-     * leaves it when it is the same.
+     * A rotation records the tenant policy version when it differs from the one
+     * the session was loaded with.
      *
      * @return void
      */
@@ -148,11 +144,8 @@ final class RefreshRotationStoreTest extends TestCase
     }
 
     /**
-     * The swap applies only to the state the session was loaded with: after a
-     * concurrent rotation, revocation, return to pending, or deadline change it
-     * affects no row, reports so, and leaves the in-memory session as it was.
-     * The status is matched on its own, since a pending session's deadline can
-     * equal the one it held while active.
+     * A rotation after any change since the session was loaded affects no row
+     * and leaves the session as it was.
      *
      * @param  array<string, mixed>  $change
      * @return void
@@ -173,9 +166,8 @@ final class RefreshRotationStoreTest extends TestCase
     }
 
     /**
-     * A switch records the destination principal and tenant, the switch time,
-     * the policy version, the rotation and both deadlines, on the row and on
-     * the in-memory session.
+     * A switch records the destination, switch time, policy version, rotation
+     * and deadlines, and mirrors them.
      *
      * @return void
      */
@@ -210,9 +202,8 @@ final class RefreshRotationStoreTest extends TestCase
     }
 
     /**
-     * A switch that changes only the active tenant records the tenant and the
-     * switch time, keeping the principal; one that changes only the principal
-     * records it, keeping the tenant.
+     * A switch that changes only the tenant or only the principal records that
+     * one and keeps the other.
      *
      * @return void
      */
@@ -256,9 +247,8 @@ final class RefreshRotationStoreTest extends TestCase
     }
 
     /**
-     * A switch in the second the session last switched in records its switch
-     * one second later, so a token issued in that second is below the new
-     * floor; a later switch records its own second.
+     * A switch in the same second as the last one records its switch a second
+     * later, so that second's tokens fall below the floor.
      *
      * @return void
      */
@@ -298,10 +288,8 @@ final class RefreshRotationStoreTest extends TestCase
     }
 
     /**
-     * The switch applies only to the state the session was loaded with: after a
-     * concurrent rotation, revocation, deadline change, switch of principal or
-     * tenant, policy version write or return to pending it affects no row,
-     * reports so, and leaves the in-memory session as it was.
+     * A switch after any change since the session was loaded affects no row and
+     * leaves the session as it was.
      *
      * @param  array<string, mixed>  $change
      * @return void
@@ -325,9 +313,8 @@ final class RefreshRotationStoreTest extends TestCase
     }
 
     /**
-     * Which of the principal and the tenant a destination changes is read from
-     * the session as it was loaded, by type and identifier, so a tenant set on
-     * the in-memory session before the switch does not hide a change.
+     * Which of the principal and tenant a switch changes is read from the
+     * session as it was loaded.
      *
      * @return void
      */
@@ -396,9 +383,8 @@ final class RefreshRotationStoreTest extends TestCase
     }
 
     /**
-     * A revocation of the session as it was loaded records the time and reason,
-     * clears both digests, and mirrors them on the in-memory session, while the
-     * row is still as it was loaded.
+     * A revocation as loaded records the time and reason, clears both digests
+     * and mirrors them, while the row is unchanged.
      *
      * @return void
      */
@@ -435,10 +421,8 @@ final class RefreshRotationStoreTest extends TestCase
     }
 
     /**
-     * A revocation decided on the loaded state applies only to it: after a
-     * concurrent rotation, revocation, switch of principal or tenant, or return
-     * to pending it affects no row, reports so, and leaves the in-memory
-     * session as it was.
+     * A revocation as loaded affects no row once the row has changed since the
+     * session was loaded.
      *
      * @param  array<string, mixed>  $change
      * @return void
@@ -459,9 +443,8 @@ final class RefreshRotationStoreTest extends TestCase
     }
 
     /**
-     * The columns a revocation writes are the ones the session writer's
-     * replacement writes too: the time in the model's own format, the reason,
-     * and both digests cleared, and nothing else.
+     * A revocation writes the time in the model's format, the reason and both
+     * digests cleared, and nothing else.
      *
      * @return void
      */
@@ -556,9 +539,8 @@ final class RefreshRotationStoreTest extends TestCase
     }
 
     /**
-     * A session kept on its own connection is rotated, revoked, and read again
-     * on that connection, never on the default one, even when the default
-     * connection holds a table of the same name with the same row.
+     * A session kept on its own connection is written and re-read on that
+     * connection, never the default one.
      *
      * @return void
      */

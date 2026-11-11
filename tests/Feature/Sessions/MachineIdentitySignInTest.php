@@ -39,13 +39,8 @@ use Tests\Integration\Fixtures\MachineClient;
 use Tests\TestCase;
 
 /**
- * Feature tests holding non-human identities to having no password, no
- * interactive sign-in, no session and no refresh, at every entry point that
- * verifies something: a password is never checked for a machine, every sign-in
- * method's identity is refused at admission (a passkey whose owner became a
- * machine included), a machine's session can neither refresh nor switch
- * principal, a session token naming one is refused, and the token service
- * issues it no session token.
+ * Feature tests holding machine identities to no password, sign-in, session or
+ * refresh.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -104,9 +99,7 @@ final class MachineIdentitySignInTest extends TestCase
     }
 
     /**
-     * A machine's password is never checked, whatever it stores: signing in
-     * with it fails as invalid credentials, as `attempt()` and `validate()` do,
-     * without asking the hasher and without counting the machine's account.
+     * A machine's password is never checked.
      *
      * @return void
      */
@@ -136,9 +129,7 @@ final class MachineIdentitySignInTest extends TestCase
     }
 
     /**
-     * A wrong password for a human account counts that account, and the same
-     * attempt for a machine counts nothing more than the identifier and the IP
-     * address: a machine has no account whose password can be guessed.
+     * A machine's account is never counted.
      *
      * @return void
      */
@@ -160,8 +151,7 @@ final class MachineIdentitySignInTest extends TestCase
     }
 
     /**
-     * Rows of `[method]`: sign-in methods a machine's identity may be proven
-     * through, each of which admission refuses alike.
+     * Rows of a sign-in method a machine's identity may be proven through.
      *
      * @return iterable<string, array{0: string}>
      */
@@ -171,8 +161,7 @@ final class MachineIdentitySignInTest extends TestCase
     }
 
     /**
-     * Whatever method proved it, a machine is refused at admission as
-     * `machine_identity`: no session, no pending sign-in.
+     * Any sign-in of a machine is refused as `machine_identity`.
      *
      * @param  string  $method
      * @return void
@@ -196,10 +185,7 @@ final class MachineIdentitySignInTest extends TestCase
     }
 
     /**
-     * A passkey a person registered, whose owner is now a machine with the same
-     * key, signs nothing in: the assertion verifies, and admission refuses the
-     * machine as `machine_identity` with no session. A machine cannot register
-     * a passkey of its own.
+     * A passkey whose owner became a machine signs nothing in.
      *
      * @return void
      *
@@ -233,8 +219,7 @@ final class MachineIdentitySignInTest extends TestCase
     }
 
     /**
-     * A session started for an externally verified machine is refused the same
-     * way, before anything is resolved or written.
+     * Starting a session for a machine is refused before anything is written.
      *
      * @return void
      */
@@ -249,8 +234,7 @@ final class MachineIdentitySignInTest extends TestCase
     }
 
     /**
-     * A session a machine owns (left from before it became one, say) neither
-     * refreshes nor switches principal, and its access token is refused.
+     * A machine's session neither refreshes, switches nor authenticates.
      *
      * @return void
      *
@@ -292,9 +276,7 @@ final class MachineIdentitySignInTest extends TestCase
     }
 
     /**
-     * The token service issues a machine no session token: no access token for
-     * it, and no refresh token for a session it owns or for it as the
-     * principal.
+     * The token service issues a machine no session token.
      *
      * @return void
      */
@@ -331,8 +313,7 @@ final class MachineIdentitySignInTest extends TestCase
     }
 
     /**
-     * Configure the guards: `api` over humans, and `machines`, a jwt guard over
-     * machine clients that allows every method.
+     * Configure `api` over humans and `machines` over machine clients.
      *
      * @param  mixed  $app
      * @return void
@@ -365,9 +346,8 @@ final class MachineIdentitySignInTest extends TestCase
     }
 
     /**
-     * Sign a human in on `api`, then make the session's owner and principal a
-     * machine with the same key, and point the guard's provider at machines:
-     * the state a session is in when its owner became a machine.
+     * Sign a human in on `api`, then make the session's owner a machine with
+     * the same key.
      *
      * @return \SineMacula\Laravel\Authentication\Sessions\SignedInSession
      */

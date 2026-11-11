@@ -44,9 +44,8 @@ final class ValidatesGuardCredentialsTest extends AbstractGuardTestCase
     }
 
     /**
-     * Fragments configured in `redacted_credential_keys` are removed too,
-     * case-insensitively, while `password` is still removed and blank or
-     * non-string entries are ignored.
+     * Fragments configured in `redacted_credential_keys` are removed
+     * case-insensitively, and invalid entries ignored.
      *
      * @return void
      */

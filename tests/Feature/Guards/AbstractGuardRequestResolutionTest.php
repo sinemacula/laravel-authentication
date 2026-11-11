@@ -13,10 +13,8 @@ use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use Tests\Unit\Stubs\StubRequestResolvingGuard;
 
 /**
- * Feature tests for request resolution on `AbstractGuard`: `user()` resolves
- * the request at most once, success or failure, `setRequest()` starts over,
- * explicit sign-in still works after a failed resolution, and `logout()` keeps
- * the guard signed out for the rest of the request.
+ * Feature tests for how `AbstractGuard` resolves the request: at most once,
+ * again after `setRequest()`, and never after `logout()`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -160,10 +158,8 @@ final class AbstractGuardRequestResolutionTest extends AbstractGuardTestCase
     }
 
     /**
-     * An explicit `login()` settles the request before it fires `Login`: a
-     * listener that reads the guard mid-bind gets no identity instead of
-     * resolving the request's own credential, and the guard ends up bound to
-     * the identity signing in.
+     * `login()` settles the request before `Login`, so a listener reading the
+     * guard mid-bind does not resolve its credential.
      *
      * @return void
      */
@@ -192,9 +188,8 @@ final class AbstractGuardRequestResolutionTest extends AbstractGuardTestCase
     }
 
     /**
-     * A second `login()` on the guard clears the first sign-in before it fires
-     * `Login`: a listener that reads the guard mid-bind sees none of the first
-     * sign-in's identity, principal or session.
+     * A second `login()` clears the first sign-in before `Login`, so a listener
+     * sees none of it.
      *
      * @return void
      */
@@ -241,9 +236,8 @@ final class AbstractGuardRequestResolutionTest extends AbstractGuardTestCase
     }
 
     /**
-     * After `setUser()` and `logout()` on a request nothing has resolved, the
-     * request's own credential is not resolved either: `logout()` settles the
-     * request, so the guard does not sign the credential's identity back in.
+     * After `setUser()` and `logout()` on an unresolved request, the request's
+     * credential is not resolved.
      *
      * @return void
      */
@@ -266,9 +260,8 @@ final class AbstractGuardRequestResolutionTest extends AbstractGuardTestCase
     }
 
     /**
-     * `logout()` on a request nothing has resolved yet resolves it first, so
-     * `Logout` carries the request's identity, and the guard then stays signed
-     * out.
+     * `logout()` resolves an unresolved request first, so `Logout` carries its
+     * identity.
      *
      * @return void
      */

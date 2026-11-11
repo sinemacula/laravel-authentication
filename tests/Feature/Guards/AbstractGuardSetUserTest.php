@@ -9,9 +9,8 @@ use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
 
 /**
- * Feature tests for `AbstractGuard::setUser()`: it replaces the whole
- * contextual state and binds the new identity's default principal, so one
- * identity is never paired with another's principal or session.
+ * Feature tests for `AbstractGuard::setUser()`, which replaces the whole
+ * contextual state.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

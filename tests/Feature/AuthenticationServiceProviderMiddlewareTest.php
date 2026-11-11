@@ -22,9 +22,8 @@ use Tests\Concerns\InteractsWithSessions;
 use Tests\TestCase;
 
 /**
- * Feature tests for the middleware the provider registers: the opt-in alias,
- * and the place `authentication.no-store` takes in the HTTP kernel's priority,
- * even against an application that sets the whole priority list itself.
+ * Feature tests for the middleware the provider registers and its place in the
+ * HTTP kernel's priority.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -72,10 +71,8 @@ final class AuthenticationServiceProviderMiddlewareTest extends TestCase
     }
 
     /**
-     * The alias names the middleware, and the middleware comes first in the
-     * kernel's priority, once, ahead of the application's own order, and in the
-     * router's, which the kernel keeps in step; the credential middleware join
-     * the application's order just before `SubstituteBindings`.
+     * The middleware comes first in the kernel's and router's priority, once,
+     * and the credential middleware join just before `SubstituteBindings`.
      *
      * @return void
      */
@@ -122,9 +119,7 @@ final class AuthenticationServiceProviderMiddlewareTest extends TestCase
     }
 
     /**
-     * A kernel that is not the foundation's has no priority list to join, and
-     * is left as it is. The mock ignores the calls the test harness makes on
-     * every kernel it resolves, and refuses the package's.
+     * A kernel that is not the foundation's is left as it is.
      *
      * @return void
      */
@@ -143,8 +138,7 @@ final class AuthenticationServiceProviderMiddlewareTest extends TestCase
 
     /**
      * Configure the guards, and an application that sets the kernel's whole
-     * priority list itself when the kernel is resolved, as `withMiddleware()`
-     * does before any provider boots.
+     * priority list itself.
      *
      * @param  mixed  $app
      * @return void

@@ -38,12 +38,8 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\PlainPrincipalFixture;
 
 /**
- * Feature tests of proving, from a refresh token, the session a client holds
- * now, without rotating it: the current token and, inside the grace window, the
- * one it replaced prove the session; every other token is refused with the
- * reason a refresh would give, in an `AuthenticationFailed` of the flow asked
- * for that is returned and not dispatched; and a replay revokes the session,
- * reported once the revocation commits.
+ * Feature tests of proving the session a client holds from a refresh token,
+ * without rotating it.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -96,9 +92,8 @@ final class RefreshProofTest extends TestCase
     }
 
     /**
-     * The session's current refresh token, as a secret or in clear, proves the
-     * session as its current rotation, with the principal the token names; the
-     * session is left exactly as it was and nothing is dispatched.
+     * The current refresh token proves its session without changing it or
+     * dispatching anything.
      *
      * @return void
      *
@@ -164,11 +159,8 @@ final class RefreshProofTest extends TestCase
     }
 
     /**
-     * The replaced token presented after the grace window is a replay: it is
-     * refused as `rotation_reuse`, the session is revoked for it and reported
-     * once by `SessionRevoked`, both naming the owner and the principal the
-     * session records, and the session's current token is refused as revoked
-     * from then on.
+     * The replaced token after the grace window is a replay that revokes the
+     * session.
      *
      * @return void
      *
@@ -215,9 +207,7 @@ final class RefreshProofTest extends TestCase
     }
 
     /**
-     * A replay proven for a client given, as a sign-out from plain values
-     * proves it, reports the revocation and the refusal with that client, not
-     * the guard's request's.
+     * A replay proven for a client given reports with that client.
      *
      * @return void
      *
@@ -244,10 +234,8 @@ final class RefreshProofTest extends TestCase
     }
 
     /**
-     * Every token that proves no session is refused with the reason a refresh
-     * gives it, in an `AuthenticationFailed` of the flow asked for (`sign_out`,
-     * or `refresh`), for this guard, naming the session when the token names
-     * one; the event is returned, not dispatched, and no session is revoked.
+     * Every token that proves no session returns an undispatched
+     * `AuthenticationFailed` with its flow and reason.
      *
      * @return void
      *
@@ -339,12 +327,8 @@ final class RefreshProofTest extends TestCase
     }
 
     /**
-     * The token names its principal by identifier alone, so a token naming a
-     * principal of another class with the recorded principal's identifier (as a
-     * token from before a switch between two such principals is, inside the
-     * grace window) proves the session: a sign-out may revoke it, since the
-     * same token revokes it as a replay once the window closes, and a caller
-     * that acts as the principal checks its type itself.
+     * A token naming another class with the recorded identifier proves the
+     * session, as tokens name principals by identifier alone.
      *
      * @return void
      *
@@ -369,9 +353,8 @@ final class RefreshProofTest extends TestCase
     }
 
     /**
-     * A replay inside the caller's transaction is reported once the transaction
-     * commits, and not at all when it rolls back, which undoes the revocation
-     * too.
+     * A replay's report waits for the caller's commit and is dropped on
+     * rollback.
      *
      * @return void
      *
@@ -411,9 +394,8 @@ final class RefreshProofTest extends TestCase
     }
 
     /**
-     * A replay of a session another writer revoked after the proof read it is
-     * still refused as `rotation_reuse`, but the revocation the other writer
-     * made stands and is not reported again.
+     * A replay of a session revoked meanwhile is refused but not reported
+     * again.
      *
      * @return void
      *

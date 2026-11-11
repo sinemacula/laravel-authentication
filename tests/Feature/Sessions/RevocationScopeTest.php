@@ -32,10 +32,8 @@ use Tests\Integration\Fixtures\SavingCutoffIdentity;
 use Tests\TestCase;
 
 /**
- * Feature tests of a principal's revocation scope: whether it has sessions is
- * decided by its owner as stored, read afresh, never by an identity relation
- * whoever loaded the principal set on it; an owner that cannot be read does not
- * stop its sessions being ended, and neither does Eloquent strict mode.
+ * Feature tests of a principal's revocation scope, decided by its owner as
+ * stored and read afresh.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -96,9 +94,8 @@ final class RevocationScopeTest extends TestCase
     }
 
     /**
-     * A membership whose identity relation was set to an identity that holds no
-     * sessions still has its sessions revoked: its stored owner holds them, and
-     * the scope carries that owner.
+     * An identity relation set on a membership does not stand in for its stored
+     * owner.
      *
      * @return void
      *
@@ -124,9 +121,7 @@ final class RevocationScopeTest extends TestCase
     }
 
     /**
-     * A membership whose owner can no longer be read (its row deleted) still
-     * has its sessions revoked: an unreadable owner might hold sessions, so
-     * they are looked for, and the scope carries no identity.
+     * A membership whose owner row is deleted still has its sessions revoked.
      *
      * @return void
      *
@@ -151,9 +146,8 @@ final class RevocationScopeTest extends TestCase
     }
 
     /**
-     * A membership hydrated with others in one collection while Eloquent
-     * prevents lazy loading (strict mode) has its owner read all the same, and
-     * its sessions are ended.
+     * A membership hydrated under Eloquent strict mode has its owner read and
+     * its sessions ended.
      *
      * @return void
      *
@@ -203,8 +197,7 @@ final class RevocationScopeTest extends TestCase
 
     /**
      * An identity's scope carries the keys of its pending identifier changes of
-     * the types given, none when none are given; a principal's carries none,
-     * and keeping the cutoff keeps them.
+     * the types given.
      *
      * @return void
      */
@@ -247,11 +240,7 @@ final class RevocationScopeTest extends TestCase
     }
 
     /**
-     * Only the cutoff of a model loaded from its row is moved: once a hard
-     * delete removes the row, an identity's scope and a principal's still hold
-     * its sessions but no cutoff, as does an identity never saved, so a
-     * `HasTokensValidAfter` that persists through `save()` never inserts the
-     * row again.
+     * Only a model loaded from its row has a cutoff to move.
      *
      * @return void
      *
@@ -281,9 +270,7 @@ final class RevocationScopeTest extends TestCase
     }
 
     /**
-     * A reference to a stored identity by its key alone is not loaded from its
-     * row (`exists` is `false`): its sessions end, but its cutoff stays where
-     * it is, while the model loaded from the row has its cutoff moved.
+     * A reference by key alone ends its sessions but moves no cutoff.
      *
      * @return void
      *
@@ -309,10 +296,7 @@ final class RevocationScopeTest extends TestCase
     }
 
     /**
-     * An observer revokes once the transaction commits, on the model as it is
-     * then: a password change and a hard delete committed together end the
-     * sessions with no cutoff moved, so a `HasTokensValidAfter` that persists
-     * through `save()` never inserts the deleted row again.
+     * A model deleted before the commit ends its sessions with no cutoff moved.
      *
      * @return void
      *
@@ -365,10 +349,7 @@ final class RevocationScopeTest extends TestCase
     }
 
     /**
-     * A tenant's scope holds every session acting in it, of every guard and
-     * whatever principal it acts as, and no session acting elsewhere; it has no
-     * cutoff and no identity or principal of its own. A tenant without an
-     * identifier holds no session.
+     * A tenant's scope holds every session acting in it, and no other.
      *
      * @return void
      *

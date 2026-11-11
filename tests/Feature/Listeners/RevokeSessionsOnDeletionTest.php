@@ -32,11 +32,7 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\StubModel;
 
 /**
- * Feature tests of the optional `RevokeSessionsOnDeletion` observer, registered
- * by the test as an application registers it: deleting an identity ends every
- * session it holds, and deleting a principal every session acting as it, once
- * the delete commits; a soft delete counts, a restore brings nothing back, and
- * a later force delete revokes only a session written since.
+ * Feature tests of the optional `RevokeSessionsOnDeletion` observer.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -113,10 +109,8 @@ final class RevokeSessionsOnDeletionTest extends TestCase
     }
 
     /**
-     * Deleting an identity revokes every session it holds, pending ones and
-     * those acting as each of its principals included, with `identity_deleted`,
-     * reporting each and then the identity signed out everywhere; another
-     * identity's session is left alone.
+     * Deleting an identity revokes every session it holds with
+     * `identity_deleted`, leaving other identities' sessions alone.
      *
      * @return void
      *
@@ -156,8 +150,7 @@ final class RevokeSessionsOnDeletionTest extends TestCase
 
     /**
      * Deleting a principal revokes only the sessions acting as it, pending ones
-     * included, with `principal_deleted`; its owner's session acting as another
-     * principal stays live.
+     * included, with `principal_deleted`.
      *
      * @return void
      *
@@ -220,8 +213,7 @@ final class RevokeSessionsOnDeletionTest extends TestCase
 
     /**
      * Deleting a model that is neither an identity nor a principal, such as a
-     * tenant, cannot end its sessions here: the observer was registered where
-     * it cannot act, which is reported, and nothing is revoked.
+     * tenant, is reported and revokes nothing.
      *
      * @return void
      *
@@ -254,9 +246,7 @@ final class RevokeSessionsOnDeletionTest extends TestCase
     }
 
     /**
-     * A soft delete counts as deletion: an identity's sessions end with
-     * `identity_deleted` and its cutoff moves to now, and a principal's with
-     * `principal_deleted` and its own cutoff moves.
+     * A soft delete revokes the sessions and moves the cutoff as a delete does.
      *
      * @return void
      *
@@ -321,9 +311,8 @@ final class RevokeSessionsOnDeletionTest extends TestCase
     }
 
     /**
-     * A force delete after a soft delete runs the revocation again and revokes
-     * nothing more: no session changes or is reported, and the identity is
-     * reported signed out everywhere of none, its cutoff gone with its row.
+     * A force delete after a soft delete revokes and reports no further
+     * session.
      *
      * @return void
      *
@@ -355,9 +344,8 @@ final class RevokeSessionsOnDeletionTest extends TestCase
     }
 
     /**
-     * A session written after a restore, while the identity is live again, is
-     * ended by a later force delete; the session the soft delete ended keeps
-     * its first revocation.
+     * A force delete ends a session written since the restore, and the
+     * soft-deleted session keeps its first revocation.
      *
      * @return void
      *
@@ -415,9 +403,8 @@ final class RevokeSessionsOnDeletionTest extends TestCase
     }
 
     /**
-     * A hard delete moves no cutoff, so an identity whose own
-     * `HasTokensValidAfter` persists it through `save()` is not inserted again:
-     * its sessions end and its row stays gone.
+     * A hard delete moves no cutoff, so an identity persisting its cutoff
+     * through `save()` is not inserted again.
      *
      * @return void
      *

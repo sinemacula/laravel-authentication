@@ -13,9 +13,7 @@ use Tests\TestCase;
 
 /**
  * Feature tests of the application checks `authentication:check` runs for a
- * `jwt` guard, against the policy the container binds: the package's policy
- * validates the guard's settings, and a policy of the application's own is
- * asked every answer it could give.
+ * `jwt` guard.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -28,9 +26,7 @@ final class ApplicationChecksTest extends TestCase
     use MockeryPHPUnitIntegration;
 
     /**
-     * A policy of the application's own is asked whether the guard allows each
-     * registered sign-in method, `external_provider` and `client_credentials`,
-     * and then once whether it allows `client_secret_post`.
+     * A custom policy is asked every name and then `client_secret_post`.
      *
      * @return void
      *
@@ -85,8 +81,7 @@ final class ApplicationChecksTest extends TestCase
 
     /**
      * The package's policy validates the guard's settings instead of being
-     * asked: valid ones pass, and a `client_secret_post` that is not a boolean
-     * is a problem.
+     * asked.
      *
      * @return void
      *

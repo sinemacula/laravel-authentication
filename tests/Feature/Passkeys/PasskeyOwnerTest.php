@@ -20,9 +20,7 @@ use Tests\TestCase;
 
 /**
  * Feature tests for who may own a passkey and how its owner is recorded and
- * found again: a saved Eloquent identity that is not a machine identity,
- * recorded by its morph class and key, and reloaded through a guard's provider
- * only as that very model.
+ * found again.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -107,9 +105,8 @@ final class PasskeyOwnerTest extends TestCase
     }
 
     /**
-     * The owner is recorded by its morph class and its key as a string, and a
-     * passkey is owned only by the model with both: not one of another class
-     * under the key, and not another key.
+     * The owner is recorded by its morph class and key, and only that model
+     * owns the passkey.
      *
      * @return void
      *
@@ -145,9 +142,8 @@ final class PasskeyOwnerTest extends TestCase
     }
 
     /**
-     * The owner reloads through the guard's provider only as the very model the
-     * passkey records: not another identity, not an identity that is not a
-     * model, and not nothing.
+     * The owner reloads through the guard's provider only as the model the
+     * passkey records.
      *
      * @return void
      *
@@ -172,9 +168,7 @@ final class PasskeyOwnerTest extends TestCase
     }
 
     /**
-     * `PasskeyOwner` is a static utility; instantiation is disallowed via the
-     * private constructor. Reflection invokes it so the line is covered while
-     * still documenting the access modifier.
+     * The constructor is private.
      *
      * @return void
      *

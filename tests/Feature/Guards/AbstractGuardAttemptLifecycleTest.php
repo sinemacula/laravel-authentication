@@ -13,12 +13,8 @@ use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use Tests\Unit\Stubs\StubSession;
 
 /**
- * Feature tests for the timebox budget, lifecycle state management, and
- * explicit-argument paths on `AbstractGuard::attempt()`.
- *
- * Covers the `Timebox::call()` budget selection, the `returnEarly()` call on
- * success, `clearContextualState()` between logins, and the explicit
- * principal/session argument paths.
+ * Feature tests for the timebox budget, contextual state and explicit arguments
+ * of `AbstractGuard::attempt()`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -30,8 +26,7 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
 {
     /**
      * validate() checks the credentials inside Timebox::call with the default
-     * 400,000us budget when the package config has not set a specific
-     * microsecond window.
+     * 400,000us budget when none is configured.
      *
      * @return void
      *
@@ -63,8 +58,8 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
     }
 
     /**
-     * The configured `timebox.credentials_microseconds` value is passed to
-     * `Timebox::call()` when the project overrides the default.
+     * A configured `timebox.credentials_microseconds` overrides the
+     * `Timebox::call()` budget.
      *
      * @return void
      *
@@ -98,9 +93,8 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
     }
 
     /**
-     * `validate()` calls `Timebox::returnEarly()` when credentials are valid,
-     * so the timing budget is consumed on the success path. Mutation guard:
-     * pins the `$timebox->returnEarly()` call in `validate()`.
+     * `validate()` calls `Timebox::returnEarly()` when the credentials are
+     * valid.
      *
      * @return void
      *
@@ -157,10 +151,8 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
     }
 
     /**
-     * `attempt()` calls `Timebox::returnEarly()` when credentials and principal
-     * resolve successfully, so the timing budget is consumed on the success
-     * path. Mutation guard: pins the `$timebox->returnEarly()` call in
-     * `attempt()`.
+     * `attempt()` calls `Timebox::returnEarly()` when the credentials and
+     * principal resolve.
      *
      * @return void
      *
@@ -222,11 +214,8 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
     }
 
     /**
-     * `bindAuthenticationLifecycle()` clears prior contextual state before
-     * binding the new triple, so a stale session from a previous login does not
-     * leak into a sessionless `attempt()`. Mutation guard: pins the
-     * `clearContextualState()` call at the top of
-     * `bindAuthenticationLifecycle()`.
+     * `attempt()` clears the prior contextual state, so a stale session does
+     * not leak into a sessionless sign-in.
      *
      * @return void
      */
@@ -255,11 +244,7 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
     }
 
     /**
-     * When the `Config` facade cannot read the budget (here a value that is not
-     * an integer), the `catch (\Throwable)` branch of
-     * `CredentialTimebox::microseconds()` returns the default budget rather
-     * than letting the exception propagate. Mutation guard: pins the
-     * `return self::DEFAULT_MICROSECONDS` inside the `catch` block.
+     * A budget the config cannot read as an integer falls back to the default.
      *
      * @return void
      *
@@ -293,9 +278,8 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
     }
 
     /**
-     * `attempt()` resolves an explicit `Principal` argument through the
-     * resolver's hinted path instead of the default principal, and binds the
-     * resolver's instance.
+     * `attempt()` resolves an explicit principal through the resolver's hinted
+     * path and binds the resolver's instance.
      *
      * @return void
      *
@@ -337,10 +321,8 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
     }
 
     /**
-     * `attempt()` fires `SessionAuthenticated` exactly once when an explicit
-     * `Session` argument the identity owns is supplied. Pins the `setSession`
-     * call inside `bindAuthenticationLifecycle` for the non-null session
-     * branch.
+     * `attempt()` fires `SessionAuthenticated` once for an explicit session the
+     * identity owns.
      *
      * @return void
      *
@@ -394,9 +376,8 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
     }
 
     /**
-     * `attempt()` does NOT fire `SessionAuthenticated` when no session is
-     * supplied. Pins the `if ($session !== null)` guard inside
-     * `bindAuthenticationLifecycle`.
+     * `attempt()` does not fire `SessionAuthenticated` when no session is
+     * supplied.
      *
      * @return void
      *

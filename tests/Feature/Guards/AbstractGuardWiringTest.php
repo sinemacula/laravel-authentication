@@ -12,12 +12,8 @@ use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 
 /**
- * Feature tests for the runtime rebind hooks (`setDispatcher`,
- * `setPrincipalResolver`), the `id()` type-narrowing matrix, and the
+ * Feature tests for the rebind hooks, `id()` type narrowing and the
  * `validate()` failure path on `AbstractGuard`.
- *
- * Split out of `AbstractGuardLifecycleTest` so each class stays focused on a
- * single behavioural slice.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -28,10 +24,8 @@ use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 final class AbstractGuardWiringTest extends AbstractGuardTestCase
 {
     /**
-     * `setDispatcher()` swaps the bound dispatcher and returns the guard for
-     * chaining. The next event firing routes through the fresh dispatcher
-     * rather than the constructor-time instance, which is what `Event::fake()`
-     * and similar test fakes rely on.
+     * `setDispatcher()` swaps the bound dispatcher and returns the guard, so
+     * later events reach the new one.
      *
      * @return void
      */
@@ -64,9 +58,8 @@ final class AbstractGuardWiringTest extends AbstractGuardTestCase
     }
 
     /**
-     * `setPrincipalResolver()` swaps the bound resolver and returns the guard
-     * for chaining. The next `attempt()` routes through the replacement
-     * resolver, proving the rebind reaches the live credential path.
+     * `setPrincipalResolver()` swaps the bound resolver and returns the guard,
+     * so the next `attempt()` uses it.
      *
      * @return void
      *
@@ -102,9 +95,8 @@ final class AbstractGuardWiringTest extends AbstractGuardTestCase
     }
 
     /**
-     * `id()` returns `null` when the bound identity's auth identifier is
-     * neither an int nor a string (e.g. a misbehaving model that returns an
-     * array). Pins the type-narrowing default branch.
+     * `id()` returns `null` for an identifier that is neither an int nor a
+     * string.
      *
      * @return void
      */
@@ -124,8 +116,7 @@ final class AbstractGuardWiringTest extends AbstractGuardTestCase
     }
 
     /**
-     * `id()` returns the literal string `'42'` when the identifier is a string,
-     * proving the type guard accepts strings (not just ints).
+     * `id()` returns a string identifier verbatim.
      *
      * @return void
      */
@@ -145,9 +136,7 @@ final class AbstractGuardWiringTest extends AbstractGuardTestCase
     }
 
     /**
-     * `id()` returns the literal integer `0` when the identifier is zero. Pins
-     * the type check as `is_int(...)`, not a truthy check - a mutation that
-     * swapped the branch would drop zero to `null`.
+     * `id()` returns an integer identifier of `0` as is.
      *
      * @return void
      */
@@ -167,8 +156,7 @@ final class AbstractGuardWiringTest extends AbstractGuardTestCase
     }
 
     /**
-     * `id()` returns the literal string `'0'` when the identifier is the zero
-     * string. Same mutation guard as the integer variant.
+     * `id()` returns a string identifier of `'0'` as is.
      *
      * @return void
      */
@@ -188,8 +176,7 @@ final class AbstractGuardWiringTest extends AbstractGuardTestCase
     }
 
     /**
-     * `id()` returns `null` when `getAuthIdentifier()` returns a float - the
-     * type narrowing rejects floats to avoid truncating to an int.
+     * `id()` returns `null` for a float identifier rather than truncating it.
      *
      * @return void
      */
@@ -209,8 +196,7 @@ final class AbstractGuardWiringTest extends AbstractGuardTestCase
     }
 
     /**
-     * `id()` returns `null` when `getAuthIdentifier()` returns a boolean. Pins
-     * the matrix: bool is neither int nor string.
+     * `id()` returns `null` for a boolean identifier.
      *
      * @return void
      */
@@ -230,8 +216,7 @@ final class AbstractGuardWiringTest extends AbstractGuardTestCase
     }
 
     /**
-     * `id()` returns `null` when `getAuthIdentifier()` returns an object (e.g.
-     * a value-object id). Pins the matrix: object is neither int nor string.
+     * `id()` returns `null` for an object identifier.
      *
      * @return void
      */
@@ -251,10 +236,8 @@ final class AbstractGuardWiringTest extends AbstractGuardTestCase
     }
 
     /**
-     * `validate()` returns `false` (and does NOT call `Timebox::returnEarly`)
-     * when the identity provider returns a non-Identity user, which the
-     * password sign-in method never verifies. Pins the `return false` arm of
-     * the validate() match.
+     * `validate()` returns `false` without `Timebox::returnEarly()` when the
+     * provider returns a non-Identity user.
      *
      * @return void
      *
@@ -275,8 +258,7 @@ final class AbstractGuardWiringTest extends AbstractGuardTestCase
     }
 
     /**
-     * `validate()` accepts the documented default `[]` argument and returns
-     * false because the empty credentials never resolve a user.
+     * `validate()` returns `false` for the default empty credentials.
      *
      * @return void
      *

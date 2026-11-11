@@ -48,12 +48,7 @@ final class GuardApplicationPolicyTest extends TestCase
     }
 
     /**
-     * The shipped defaults, read from the package's own configuration file,
-     * list no method, require no verified identifier and allow no client
-     * credentials in the body, so out of the box an application allows nothing
-     * until it lists what it uses, a client credentials exchange it turns on
-     * accepts HTTP Basic alone, and any identity is admitted whatever
-     * identifier it signed in with.
+     * The shipped defaults allow no method and admit any identity.
      *
      * @return void
      */
@@ -148,9 +143,8 @@ final class GuardApplicationPolicyTest extends TestCase
     }
 
     /**
-     * `methods()` lists the names the guard's own list holds, in its order,
-     * whether or not anything is registered under them, else the package
-     * list's; an empty list lists nothing.
+     * `methods()` lists the guard's own names in order, else the package
+     * list's.
      *
      * @return void
      */
@@ -170,8 +164,7 @@ final class GuardApplicationPolicyTest extends TestCase
 
     /**
      * Neither a guard's `audience` block nor `authentication.audience` is an
-     * application setting: a guard that lists its methods only there has no
-     * `application` block, so it allows nothing, and validates.
+     * application setting.
      *
      * @return void
      */
@@ -232,9 +225,8 @@ final class GuardApplicationPolicyTest extends TestCase
     }
 
     /**
-     * With the gate on, a sign-in with an identifier of a type is admitted only
-     * when the identity reports that identifier verified; a sign-in that used
-     * no identifier is not gated.
+     * With the gate on, a sign-in is admitted only when its identifier is
+     * verified.
      *
      * @return void
      */
@@ -250,10 +242,7 @@ final class GuardApplicationPolicyTest extends TestCase
     }
 
     /**
-     * The gate alone, for the identity before any principal: with the gate on,
-     * an identifier of a type is admitted only when the identity reports it
-     * verified, while a sign-in that used no identifier, or a guard without the
-     * gate, admits it without reading the identity.
+     * The gate alone decides for the identity before any principal.
      *
      * @return void
      */

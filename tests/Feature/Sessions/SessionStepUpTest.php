@@ -50,10 +50,7 @@ use Tests\TestCase;
 
 /**
  * Feature tests of stepping a session up with a further factor its adapter
- * verified, over HTTP behind `auth:api` and through the session service: a new
- * access token for the same session and nothing else, the proof recorded and
- * reported once committed, and every refusal of the proof or of the session
- * answered and reported, never thrown.
+ * verified.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -129,10 +126,8 @@ final class SessionStepUpTest extends TestCase
     }
 
     /**
-     * Stepping up through a route behind `auth:api` answers a new access token
-     * for the same session, which authenticates, as the one before it still
-     * does until it expires; the session keeps its refresh token, deadlines and
-     * row, and its refresh token still refreshes.
+     * A step-up over HTTP issues a new access token for the same session and
+     * changes nothing else.
      *
      * @return void
      *
@@ -162,9 +157,7 @@ final class SessionStepUpTest extends TestCase
     }
 
     /**
-     * A step-up records the proof on the session for `step_up`, bound to its
-     * owner and guard, with the adapter's evaluation, and the new token's
-     * expiry; `SteppedUp` reports it with the proof's kind and method once
+     * A step-up records the proof on the session and reports `SteppedUp` once
      * committed.
      *
      * @return void
@@ -220,10 +213,7 @@ final class SessionStepUpTest extends TestCase
     }
 
     /**
-     * A step-up reports with the client given, never the guard's own request:
-     * `SteppedUp` once it commits, and `AuthenticationFailed` for a refusal,
-     * carry it while the guard serves a cross-site request from another
-     * address.
+     * A step-up reports with the client given, never the guard's own request.
      *
      * @return void
      *
@@ -250,9 +240,8 @@ final class SessionStepUpTest extends TestCase
     }
 
     /**
-     * The new access token's `auth_time` is the step-up's, and its `amr` gains
-     * the proof's values, and `mfa` only when the evaluation reports
-     * multifactor authentication.
+     * The new access token's `auth_time` and `amr` come from the step-up's
+     * proof.
      *
      * @return void
      *
@@ -279,12 +268,8 @@ final class SessionStepUpTest extends TestCase
     }
 
     /**
-     * A refresh and a switch of principal after a step-up carry the session's
-     * authentication as it stands and never renew it: each new access token's
-     * `auth_time` is the step-up's, ten minutes before its own issue time, and
-     * its `amr` keeps the step-up's values and `mfa`. Each names the tenant its
-     * principal acts within: the refreshed token the first membership's, and
-     * the switched token the tenant of the membership switched to.
+     * A refresh and a switch after a step-up keep the step-up's `auth_time` and
+     * `amr`.
      *
      * @return void
      *
@@ -347,10 +332,8 @@ final class SessionStepUpTest extends TestCase
     }
 
     /**
-     * A proof time an adapter reports in a time zone other than the
-     * application's is recorded as the same instant: the new token's
-     * `auth_time` is that instant, and the proof meets a freshness requirement
-     * straight away.
+     * A proof time reported in another time zone is recorded as the same
+     * instant.
      *
      * @param  string  $zone
      * @return void
@@ -375,9 +358,8 @@ final class SessionStepUpTest extends TestCase
     }
 
     /**
-     * Rows of `[changes, reason]`: every proof a step-up refuses, as what
-     * differs from one it takes (a further factor made now by the session's
-     * owner, on its guard, for it and `step_up`, accepted).
+     * Rows of `[changes, reason]`: each proof a step-up refuses, as its
+     * difference from one it takes.
      *
      * @return iterable<string, array{0: array<string, mixed>, 1: \SineMacula\Laravel\Authentication\Events\Enums\FailureReason}>
      */
@@ -402,9 +384,8 @@ final class SessionStepUpTest extends TestCase
     }
 
     /**
-     * A proof the step-up does not take is refused with its reason, reported by
-     * `AuthenticationFailed` (flow `step_up`), records nothing, issues nothing
-     * and reports no step-up.
+     * A proof the step-up does not take is refused and reported, and records
+     * and issues nothing.
      *
      * @param  array<string, mixed>  $changes
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
@@ -445,8 +426,8 @@ final class SessionStepUpTest extends TestCase
     }
 
     /**
-     * A proof bound to another session of the same identity cannot step this
-     * one up: it steps up the one it names, or none.
+     * A proof bound to another session of the same identity steps only that
+     * session up.
      *
      * @return void
      *
@@ -490,10 +471,7 @@ final class SessionStepUpTest extends TestCase
     }
 
     /**
-     * A session that is gone, not this guard's live session, owned by a
-     * machine, acting as a principal it no longer resolves to, or whose
-     * identity or method no longer passes, takes no step-up, whatever the
-     * proof.
+     * A session that cannot take a step-up refuses it, whatever the proof.
      *
      * @param  string  $state
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
@@ -560,8 +538,7 @@ final class SessionStepUpTest extends TestCase
     }
 
     /**
-     * A proof made in the very second the session signed in steps it up: the
-     * proof is measured from the session's own start, not from now.
+     * A proof made in the second the session signed in steps it up.
      *
      * @return void
      *
@@ -580,8 +557,7 @@ final class SessionStepUpTest extends TestCase
     }
 
     /**
-     * The new access token never outlives its session: when the session ends
-     * before the access lifetime does, the token and the result expire with it.
+     * The new access token expires no later than its session.
      *
      * @return void
      *
@@ -625,9 +601,8 @@ final class SessionStepUpTest extends TestCase
     }
 
     /**
-     * Inside an application's transaction, `SteppedUp` waits for the commit and
-     * is never reported when the transaction rolls back, with the proof it
-     * reports.
+     * `SteppedUp` waits for the commit and is never reported when the
+     * transaction rolls back.
      *
      * @return void
      *
@@ -731,10 +706,8 @@ final class SessionStepUpTest extends TestCase
     }
 
     /**
-     * Assert the step-up was refused with the reason, reported by one
-     * `AuthenticationFailed` (flow `step_up`) naming the method the proof was
-     * verified with, with no proof recorded beyond the first factor and no
-     * step-up reported.
+     * Assert the step-up was refused and reported with the reason, recording
+     * and issuing nothing.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\AccessTokenResult  $result
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason

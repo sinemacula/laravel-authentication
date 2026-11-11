@@ -60,12 +60,7 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
 /**
- * Feature tests of the proofs a sign-in records on its session: the first
- * factor a password sign-in verified, the one `start()` records, the provider's
- * an external sign-in records, the provenance itself, the further factor a
- * pending sign-in is completed with and every refusal of one, a choice of
- * principal carrying the first factor and provenance across, and the fresh
- * proofs of a session that replaces another.
+ * Feature tests of the proofs and provenance a sign-in records on its session.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -129,11 +124,8 @@ final class SignInProofsTest extends TestCase
     }
 
     /**
-     * A password sign-in records one proof on its new session: the first
-     * factor, for `sign_in`, through the `password` method over a password
-     * channel with no reference, nothing observed and no evaluation, standing
-     * for `pwd`, timed at the sign-in, and bound to the identity, the guard and
-     * the session's key.
+     * A password sign-in records its first factor as the one proof on its new
+     * session.
      *
      * @return void
      *
@@ -168,8 +160,7 @@ final class SignInProofsTest extends TestCase
     }
 
     /**
-     * A session's proofs are hidden from its serialised form: a code proof's
-     * destination and the factor an adapter used are personal data.
+     * A proof's channel and factor references are hidden when serialised.
      *
      * @return void
      *
@@ -191,9 +182,8 @@ final class SignInProofsTest extends TestCase
     }
 
     /**
-     * `start()` records a first factor the caller did not describe: under the
-     * method it names, an unknown channel, no `amr` value, timed now, and no
-     * provenance.
+     * `start()` records a first factor the caller did not describe under an
+     * unknown channel.
      *
      * @return void
      *
@@ -219,12 +209,8 @@ final class SignInProofsTest extends TestCase
     }
 
     /**
-     * An external sign-in records the provider's first factor (under
-     * `external_provider`, the connection as an external-provider channel, the
-     * private namespaced `amr` value, the provider's authentication time) and
-     * the provenance of the result, with the link's id and no evidence; the
-     * session's first access token says it authenticated when the provider did,
-     * two minutes before the token was issued.
+     * An external sign-in records the provider's first factor and the
+     * provenance of the result.
      *
      * @return void
      *
@@ -268,9 +254,8 @@ final class SignInProofsTest extends TestCase
     }
 
     /**
-     * A provider authentication time after now is recorded as now, since the
-     * clocks disagree, and a provenance without one is timed now; neither
-     * changes the provenance's own record of what the provider said.
+     * A provider authentication time after now, or none, is recorded on the
+     * proof as now.
      *
      * @return void
      *
@@ -309,9 +294,8 @@ final class SignInProofsTest extends TestCase
     }
 
     /**
-     * Rows of `[hours from now to the context's own deadline, hours from now to
-     * the deadline the session is capped at]`, with the provider's deadline 8
-     * hours from now.
+     * Rows of `[hours to the context's deadline, hours to the capped deadline]`
+     * against a provider deadline 8 hours away.
      *
      * @return iterable<string, array{0: int, 1: int}>
      */
@@ -324,8 +308,8 @@ final class SignInProofsTest extends TestCase
     }
 
     /**
-     * Of the provider's deadline and the context's own, the earlier caps the
-     * session, and the provenance still records the provider's as it was given.
+     * The earlier of the provider's and the context's deadlines caps the
+     * session.
      *
      * @param  int  $contextIn
      * @param  int  $cappedIn
@@ -346,10 +330,8 @@ final class SignInProofsTest extends TestCase
     }
 
     /**
-     * A provider whose deadline is this second or has passed starts no session:
-     * the sign-in is refused as `session_expired`, reported by
-     * `AuthenticationFailed`, before any session, proof or provenance is
-     * written.
+     * A provider deadline at or before now is refused as `session_expired`
+     * before anything is written.
      *
      * @return void
      *
@@ -389,9 +371,8 @@ final class SignInProofsTest extends TestCase
     }
 
     /**
-     * A provider's deadline given in a time zone other than the application's
-     * is kept to the same instant while the session waits for a further factor,
-     * so the session ends exactly then once it activates.
+     * A provider's deadline in another time zone is kept to the same instant
+     * while the session waits for a further factor.
      *
      * @param  string  $zone
      * @return void
@@ -419,9 +400,8 @@ final class SignInProofsTest extends TestCase
     }
 
     /**
-     * A provider's deadline given in a time zone other than the application's
-     * is kept to the same instant while the session waits for a choice of
-     * principal, so the session the choice activates ends exactly then.
+     * A provider's deadline in another time zone is kept to the same instant
+     * while the session waits for a choice of principal.
      *
      * @param  string  $zone
      * @return void
@@ -446,11 +426,8 @@ final class SignInProofsTest extends TestCase
     }
 
     /**
-     * The provider's times given in a time zone other than the application's
-     * are recorded as the same instants when an external sign-in starts at
-     * once: the provenance's authentication time and deadline, the first
-     * factor's time, the session's absolute deadline and its access token's
-     * `auth_time`.
+     * The provider's times in another time zone are recorded as the same
+     * instants when an external sign-in starts at once.
      *
      * @param  string  $zone
      * @return void
@@ -486,9 +463,8 @@ final class SignInProofsTest extends TestCase
     }
 
     /**
-     * A sign-in that replaces the session the client proved it holds is a new
-     * session with its own first factor; the replaced session keeps its own
-     * proofs, and nothing is copied across.
+     * A superseding sign-in records its own first factor and copies nothing
+     * from the session it replaces.
      *
      * @return void
      *
@@ -516,9 +492,8 @@ final class SignInProofsTest extends TestCase
     }
 
     /**
-     * A provenance whose insert a model event cancels fails the sign-in with a
-     * `LogicException`, and rolls back the session and its first factor with
-     * it, so none of them is left behind.
+     * A provenance whose insert a model event cancels fails the sign-in and
+     * rolls back the session and its proofs.
      *
      * @return void
      *
@@ -571,9 +546,8 @@ final class SignInProofsTest extends TestCase
     }
 
     /**
-     * A pending session records its first factor when it is written, timed when
-     * the credentials were verified, and keeps it, unchanged, when the session
-     * activates later; the credential's digest is never shown.
+     * A pending session records its first factor when it is written and keeps
+     * it unchanged when it activates.
      *
      * @return void
      *
@@ -608,9 +582,8 @@ final class SignInProofsTest extends TestCase
     }
 
     /**
-     * A pending session satisfied with the further factor its adapter verified
-     * records it beside the first factor, with its kind, method, channel,
-     * factor, evaluation, `amr` values and time.
+     * Satisfying a pending session records the further factor beside the first
+     * factor.
      *
      * @return void
      *
@@ -647,13 +620,8 @@ final class SignInProofsTest extends TestCase
     }
 
     /**
-     * An additional verification, the recovery-code fallback and multifactor
-     * authentication stay apart: a recovery code satisfies the session as a
-     * recovery code, never an additional factor, the check sees its kind and
-     * evaluation as recorded, never an additional verification whatever the
-     * adapter reported, and the token's `amr` carries its own values and `mfa`
-     * only once an accepted evaluation reports multifactor authentication,
-     * never because two factors were used.
+     * A recovery code is never an additional verification, and `mfa` joins the
+     * `amr` only when an accepted evaluation reports it.
      *
      * @return void
      *
@@ -702,9 +670,8 @@ final class SignInProofsTest extends TestCase
     }
 
     /**
-     * The further factor that confirms a factor enrolled while the session
-     * waited (purpose `enrollment`) satisfies it as any further factor does,
-     * and is recorded with that purpose.
+     * The further factor confirming a bootstrap enrolment satisfies the session
+     * and is recorded with the `enrollment` purpose.
      *
      * @return void
      *
@@ -732,11 +699,8 @@ final class SignInProofsTest extends TestCase
     }
 
     /**
-     * Rows of `[changes, reason]`: every further factor a pending session
-     * refuses, as what differs from one it takes (made now by the session's
-     * identity, on its guard, for its id and `sign_in`, accepted): the kind,
-     * the purpose, the evaluation, the seconds from now it was made at, and
-     * whether it names another identity, application or session.
+     * Rows of `[changes, reason]`: what makes a pending session refuse a
+     * further factor it would otherwise take.
      *
      * @return iterable<string, array{0: array<string, mixed>, 1: \SineMacula\Laravel\Authentication\Events\Enums\FailureReason}>
      */
@@ -765,9 +729,8 @@ final class SignInProofsTest extends TestCase
     }
 
     /**
-     * A further factor the pending session refuses fails `satisfy()` with the
-     * reason, reported by `AuthenticationFailed`; it is not stored, and the
-     * session stays pending, so a proof it takes still activates it.
+     * A refused further factor fails `satisfy()` with the reason and leaves the
+     * session pending.
      *
      * @param  array<string, mixed>  $changes
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
@@ -850,9 +813,8 @@ final class SignInProofsTest extends TestCase
     }
 
     /**
-     * A sign-in started through an external provider that waits for a further
-     * factor records its first factor and provenance with the pending session,
-     * and they are the active session's, as they were, once it activates.
+     * A pending external sign-in keeps its first factor and provenance once it
+     * activates.
      *
      * @return void
      *
@@ -895,10 +857,8 @@ final class SignInProofsTest extends TestCase
     }
 
     /**
-     * A session that waits for its identity to choose a principal keeps its
-     * first factor, with the time it was verified, and its provenance, provider
-     * context included, and the session the choice activates holds them as they
-     * were.
+     * A choice of principal carries the first factor and provenance to the
+     * session it activates.
      *
      * @return void
      *
@@ -931,10 +891,8 @@ final class SignInProofsTest extends TestCase
     }
 
     /**
-     * A choice after which the identity's factor policy asks for a further
-     * factor records the principal and waits for it with the same credential,
-     * so the session it activates records the time the password was verified
-     * and then the further factor.
+     * A choice that then waits for a further factor keeps the first factor's
+     * time.
      *
      * @return void
      *
@@ -973,8 +931,7 @@ final class SignInProofsTest extends TestCase
     }
 
     /**
-     * A proof is never recorded on a session that has no key, so none is left
-     * bound to nothing.
+     * A proof is never recorded on a session that has no key.
      *
      * @return void
      */
@@ -1008,8 +965,8 @@ final class SignInProofsTest extends TestCase
     }
 
     /**
-     * Persist a member with two memberships, in two active tenants, so a
-     * sign-in that names no principal waits for a choice.
+     * Persist a member with memberships in two active tenants, so a sign-in
+     * waits for a choice.
      *
      * @return array{0: \Tests\Integration\Fixtures\ChoosingMember, 1: \Tests\Integration\Fixtures\ChoosingMembership}
      */
@@ -1077,9 +1034,7 @@ final class SignInProofsTest extends TestCase
     }
 
     /**
-     * The identity a proof names: the one given, another persisted beside it
-     * (`other`), one that is not a model (`plain`), or a model of another class
-     * with the same key (`same key`).
+     * The identity a proof names.
      *
      * @param  mixed  $who
      * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity

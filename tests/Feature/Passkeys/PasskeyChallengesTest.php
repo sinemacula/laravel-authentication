@@ -35,10 +35,8 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
 /**
- * Feature tests for the challenges of passkey ceremonies: what an issued
- * challenge records, the conditions only one answer can use it up under, the
- * exact owner among them whatever the collation counts as equal, and the
- * configured lifetime.
+ * Feature tests for passkey ceremony challenges: issue, single use, owner
+ * matching and lifetime.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -91,9 +89,8 @@ final class PasskeyChallengesTest extends TestCase
     }
 
     /**
-     * An issued challenge records its ceremony, guard, relying party, owner and
-     * options, and expires after the lifetime; what the client is handed names
-     * it.
+     * An issued challenge records its ceremony, owner and options, and expires
+     * after the lifetime.
      *
      * @return void
      *
@@ -114,9 +111,8 @@ final class PasskeyChallengesTest extends TestCase
     }
 
     /**
-     * A challenge is used up by the first answer that matches it, which gets
-     * its options back; a second answer is told it was used, and the row is
-     * kept with the time it was consumed.
+     * A challenge is used up by the first matching answer; a second is told it
+     * was used.
      *
      * @return void
      *
@@ -138,10 +134,8 @@ final class PasskeyChallengesTest extends TestCase
     }
 
     /**
-     * A challenge nobody answered in time is told it expired, from the second
-     * of its expiry, and is not consumed by the answer; one that was used and
-     * then expired is still told it was used; one answered in the last second
-     * of its lifetime is used, not expired.
+     * An expired challenge is told apart from a used one from the second of its
+     * expiry.
      *
      * @return void
      *
@@ -167,8 +161,7 @@ final class PasskeyChallengesTest extends TestCase
 
     /**
      * An expired or used challenge answers `not found` to anyone but its own
-     * ceremony, guard, relying party, owner and binding, so a response to
-     * another's challenge learns nothing of its lifecycle.
+     * ceremony and binding.
      *
      * @return void
      *
@@ -206,11 +199,8 @@ final class PasskeyChallengesTest extends TestCase
     }
 
     /**
-     * A challenge issued for a binding records its session and purpose and is
-     * used up only by an answer for that binding (another session's or
-     * purpose's gets nothing and leaves it), or by one that names none, as a
-     * registration's does; the binding it records is read back with the guard
-     * it was issued on. One issued for no binding records none.
+     * A bound challenge is used up only by an answer for its binding or one
+     * that names none.
      *
      * @return void
      *
@@ -267,9 +257,7 @@ final class PasskeyChallengesTest extends TestCase
 
     /**
      * Rows of `[purpose, guard, owner, seconds later, id]`: answers that do not
-     * match a registration challenge of `api` for the identity (`owner` is
-     * `identity`, `none`, `another` identity or a `member` of another class
-     * under the same key; `id` replaces the challenge's when given).
+     * match the identity's registration challenge of `api`.
      *
      * @return iterable<string, array{0: \SineMacula\Laravel\Authentication\Passkeys\Enums\ChallengePurpose, 1: string, 2: string, 3: int, 4: ?string}>
      */
@@ -445,8 +433,8 @@ final class PasskeyChallengesTest extends TestCase
     }
 
     /**
-     * A lifetime out of range or of another type fails closed, naming the key,
-     * before anything is stored.
+     * A lifetime out of range or of another type fails closed before anything
+     * is stored.
      *
      * @param  mixed  $lifetime
      * @return void
@@ -470,10 +458,8 @@ final class PasskeyChallengesTest extends TestCase
     }
 
     /**
-     * With the owner columns under a collation that counts distinct keys as
-     * equal, an identity whose key differs from the owner's only in case or
-     * accent cannot answer the owner's registration challenge, which it leaves
-     * unused, so the owner still registers with it.
+     * An identity whose key only collates equal to the owner's cannot answer
+     * its registration challenge.
      *
      * @param  string  $folded
      * @return void
@@ -508,11 +494,8 @@ final class PasskeyChallengesTest extends TestCase
     }
 
     /**
-     * With the owner columns under a collation that counts distinct keys as
-     * equal, an identity whose key differs from the owner's only in case or
-     * accent cannot answer the owner's factor challenge with the owner's
-     * passkey, which it leaves unused, so the owner still verifies the factor
-     * with it.
+     * An identity whose key only collates equal to the owner's cannot answer
+     * its factor challenge.
      *
      * @param  string  $folded
      * @return void
@@ -552,8 +535,8 @@ final class PasskeyChallengesTest extends TestCase
     }
 
     /**
-     * Rows of `[column, recorded]`: a challenge's column and a value recorded
-     * in it that differs from what an answer names only in case.
+     * Rows of `[column, recorded]`: a recorded value that differs from the
+     * answer's only in case.
      *
      * @return iterable<string, array{0: string, 1: string}>
      */
@@ -568,10 +551,8 @@ final class PasskeyChallengesTest extends TestCase
     }
 
     /**
-     * With the column under a collation that counts the recorded value as equal
-     * to the answer's, a challenge whose ceremony, guard, relying party or
-     * owner's class differs from the answer's only in case gets nothing, and is
-     * left unused.
+     * A challenge recording a value that differs from the answer's only in case
+     * gets nothing.
      *
      * @param  string  $column
      * @param  string  $recorded
@@ -597,10 +578,8 @@ final class PasskeyChallengesTest extends TestCase
     }
 
     /**
-     * With the guard column under a collation that counts distinct guards as
-     * equal, a guard whose name differs from the issuing guard's only in case
-     * cannot answer its registration challenge, which it leaves unused, so the
-     * issuing guard still registers with it.
+     * A guard whose name differs only in case cannot answer a registration
+     * challenge.
      *
      * @return void
      *
@@ -628,11 +607,8 @@ final class PasskeyChallengesTest extends TestCase
     }
 
     /**
-     * With the guard column under a collation that counts distinct guards as
-     * equal, a sign-in through a guard whose name differs from the issuing
-     * guard's only in case cannot answer its sign-in challenge: it fails as
-     * `passkey_challenge_invalid`, the passkey is not touched and the challenge
-     * is left unused, so a sign-in through the issuing guard still answers it.
+     * A guard whose name differs only in case cannot answer a sign-in
+     * challenge.
      *
      * @return void
      *
@@ -663,10 +639,7 @@ final class PasskeyChallengesTest extends TestCase
     }
 
     /**
-     * With the guard column under a collation that counts distinct guards as
-     * equal, a guard whose name differs from the issuing guard's only in case
-     * cannot answer its factor challenge, which it leaves unused, so the
-     * issuing guard still verifies the factor with it.
+     * A guard whose name differs only in case cannot answer a factor challenge.
      *
      * @return void
      *
@@ -719,8 +692,8 @@ final class PasskeyChallengesTest extends TestCase
     }
 
     /**
-     * Put the challenges' guard column under the folding collation of the
-     * engine and configure `API` as `api` is.
+     * Put the guard column under the engine's folding collation and configure
+     * `API` as `api` is.
      *
      * @return void
      */

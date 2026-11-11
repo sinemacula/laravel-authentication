@@ -45,12 +45,7 @@ use Tests\Integration\Fixtures\MachineClient;
 use Tests\TestCase;
 
 /**
- * Feature tests of the package's freshness policy through the container: the
- * requirement each operation has on an application (configured, the caller's,
- * the stricter of both, or none), and whether a session holds a proof fresh
- * enough, judged on the newest that meets the requirement, on the session as
- * stored; asked plainly and, inside a transaction, current, on the session as
- * committed, which answer alike.
+ * Feature tests of the package's freshness policy through the container.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -106,9 +101,7 @@ final class ConfiguredFreshnessTest extends TestCase
     }
 
     /**
-     * By default the container binds the configured policy, one instance shared
-     * by every caller; an application's own binding replaces it (see
-     * `ProviderBindingOrderTest` and `ReboundFreshnessPolicyTest`).
+     * The container binds one shared instance of the configured policy.
      *
      * @return void
      */
@@ -120,8 +113,7 @@ final class ConfiguredFreshnessTest extends TestCase
 
     /**
      * The requirement is the configured one, the caller's, or the stricter of
-     * both; none for an operation with neither, for two with no kind in common,
-     * or for a name that is not an operation's.
+     * both.
      *
      * @return void
      */
@@ -150,7 +142,7 @@ final class ConfiguredFreshnessTest extends TestCase
 
     /**
      * A session is fresh for a configured operation within its age and stale
-     * after it; the fresh proof is the newest the requirement takes.
+     * after it.
      *
      * @return void
      *
@@ -171,8 +163,7 @@ final class ConfiguredFreshnessTest extends TestCase
     }
 
     /**
-     * A reauthentication, or a step-up, makes a long-lived session fresh again,
-     * and is the fresh proof.
+     * A reauthentication or a step-up makes a long-lived session fresh again.
      *
      * @return void
      *
@@ -192,9 +183,8 @@ final class ConfiguredFreshnessTest extends TestCase
     }
 
     /**
-     * The shipped `factor_change` requirement takes only further factors and
-     * recovery codes, as changing a factor needs a fresh step-up: it ignores a
-     * fresh first factor and a fresh reauthentication, and takes a step-up.
+     * The shipped `factor_change` requirement takes a step-up and ignores a
+     * fresh first factor or reauthentication.
      *
      * @return void
      *
@@ -216,9 +206,8 @@ final class ConfiguredFreshnessTest extends TestCase
     }
 
     /**
-     * A caller's requirement makes the configured one stricter in its age, its
-     * kinds and its flags, and stands alone for an operation of its own, such
-     * as another package's.
+     * A caller's requirement makes the configured one stricter, and stands
+     * alone for an operation of its own.
      *
      * @return void
      *
@@ -248,11 +237,8 @@ final class ConfiguredFreshnessTest extends TestCase
     }
 
     /**
-     * Freshness takes no external provider's evidence: a provider's proof whose
-     * evidence was accepted as multifactor, three days old, never meets a
-     * requirement that asks for multifactor authentication, whether it is the
-     * sign-in's or a reauthentication's, though it still meets one that does
-     * not ask for it.
+     * A provider's evidence never meets a requirement for multifactor
+     * authentication.
      *
      * @return void
      *
@@ -310,7 +296,7 @@ final class ConfiguredFreshnessTest extends TestCase
 
     /**
      * A guard's own entry replaces the package's, and `null` there removes the
-     * operation, so only a caller's requirement makes it fresh.
+     * operation.
      *
      * @return void
      *
@@ -330,9 +316,7 @@ final class ConfiguredFreshnessTest extends TestCase
     }
 
     /**
-     * The session is judged as stored, never as the caller holds it: one
-     * revoked or ended since the caller loaded it, moved to another guard, or
-     * gone, is never fresh.
+     * The session is judged as stored, never as the caller holds it.
      *
      * @return void
      *
@@ -363,9 +347,7 @@ final class ConfiguredFreshnessTest extends TestCase
     }
 
     /**
-     * The ways a session a model that reissues keys put under the caller's key
-     * can record another owner: another identity's key, or another morph type
-     * with the same key.
+     * The ways a session under the caller's key can record another owner.
      *
      * @return iterable<string, array{array<string, string>}>
      */
@@ -377,10 +359,8 @@ final class ConfiguredFreshnessTest extends TestCase
     }
 
     /**
-     * A session the caller still holds after its key was given to a live
-     * session of another owner, on the same guard and with a fresh proof of its
-     * own, is not fresh: the replacement's proof is found only for the
-     * replacement.
+     * A retained session whose key now holds another owner's session is not
+     * fresh.
      *
      * @param  array<string, string>  $owner
      * @return void
@@ -403,8 +383,8 @@ final class ConfiguredFreshnessTest extends TestCase
     }
 
     /**
-     * Rows of `[how long after the retained session the replacement started]`:
-     * later, or in the same second, which only the generation tells apart.
+     * How long after the retained session its replacement started; the same
+     * second only the generation tells apart.
      *
      * @return iterable<string, array{int}>
      */
@@ -416,10 +396,7 @@ final class ConfiguredFreshnessTest extends TestCase
     }
 
     /**
-     * A session the caller still holds after it was deleted and its key given
-     * to a later session of the same identity, on the same guard, is not fresh
-     * for the replacement's further factor: the retained session never stepped
-     * up, and only the replacement's own instance is answered with the proof.
+     * A retained session is not fresh for its replacement's proof.
      *
      * @param  int  $after
      * @return void
@@ -448,7 +425,7 @@ final class ConfiguredFreshnessTest extends TestCase
 
     /**
      * A session that is not an Eloquent session records no owner, so it is
-     * never fresh, even under the key and guard of a live session that is.
+     * never fresh.
      *
      * @return void
      *
@@ -499,10 +476,8 @@ final class ConfiguredFreshnessTest extends TestCase
     }
 
     /**
-     * Asked current inside a transaction, for a proof or until when, the policy
-     * reads the session's row with a lock held until the transaction ends and
-     * its proofs with a shared lock (on MySQL and MariaDB, the marked SQLite
-     * included): still two queries. Asked plainly, it takes neither.
+     * Asked current inside a transaction, the policy locks the session's row
+     * and reads its proofs with a shared lock.
      *
      * @return void
      *
@@ -534,9 +509,8 @@ final class ConfiguredFreshnessTest extends TestCase
     }
 
     /**
-     * Asked current outside any transaction, for a proof or until when, the
-     * policy refuses with a `LogicException` before it reads anything, the
-     * requirement included, for an operation with a requirement or with none.
+     * Asked current outside a transaction, the policy refuses before it reads
+     * anything.
      *
      * @return void
      *
@@ -570,9 +544,8 @@ final class ConfiguredFreshnessTest extends TestCase
     }
 
     /**
-     * A session that is not an Eloquent session (a plain one, one that only
-     * names the boundary, or a model that does not implement it) is answered
-     * with no proof without a query, asked plainly or current.
+     * A session that is not an Eloquent session is answered with no proof
+     * without a query.
      *
      * @return void
      *
@@ -603,10 +576,8 @@ final class ConfiguredFreshnessTest extends TestCase
     }
 
     /**
-     * A session stays fresh until its newest qualifying proof is as old as the
-     * effective requirement's maximum age: that second is the first that is no
-     * longer fresh, and a stricter caller's age brings it forward. A session
-     * with no fresh proof is fresh until no time at all.
+     * A session stays fresh until its newest qualifying proof reaches the
+     * requirement's maximum age.
      *
      * @return void
      *
@@ -640,9 +611,7 @@ final class ConfiguredFreshnessTest extends TestCase
     }
 
     /**
-     * A factor excluded from the judgement never makes the session fresh:
-     * another factor's step-up still does, and the deadline follows the proof
-     * that counts.
+     * A factor excluded from the judgement never makes the session fresh.
      *
      * @return void
      *

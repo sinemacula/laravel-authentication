@@ -17,9 +17,7 @@ use SineMacula\Laravel\Authentication\IdentifierChanges\RequestedChange;
 use Tests\TestCase;
 
 /**
- * Feature tests for the signed links that confirm identifier changes, through
- * Laravel's URL generator: which routes and parameters can carry one, what a
- * link carries, and how a request to one is read.
+ * Feature tests for the signed links that confirm identifier changes.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -76,9 +74,8 @@ final class ChangeLinksTest extends TestCase
     }
 
     /**
-     * A signed link carries the change's fields and its digest, and reads back
-     * as the change it names; one whose signature has passed its time reads as
-     * expired.
+     * A signed link reads back as the change it names, or as expired once its
+     * time has passed.
      *
      * @return void
      */

@@ -32,13 +32,8 @@ use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 use Tests\TestCase;
 
 /**
- * Feature tests of forgetting the authentication context a guard holds when the
- * bound session's proofs change in the request: a step-up, a reauthentication
- * with the first factor and one at the external provider each have every
- * resolved guard bound to the session build it again once the proof commits,
- * never before, and once it rolls back, so a context built inside the
- * transaction never outlives a proof that did not commit; no guard is created
- * to do so.
+ * Feature tests of forgetting a guard's authentication context when the
+ * session's proofs change.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -89,9 +84,7 @@ final class ContextForgettingTest extends TestCase
     }
 
     /**
-     * A step-up in the request the session's token authenticated makes the rest
-     * of the request's context hold the further factor; a guard of another name
-     * the request never resolved is not created for it.
+     * A step-up is seen by the rest of the request.
      *
      * @return void
      *
@@ -118,9 +111,7 @@ final class ContextForgettingTest extends TestCase
     }
 
     /**
-     * Inside a caller's transaction a context held from before the step-up is
-     * kept until the step-up commits; a step-up rolled back has it built again,
-     * from the proofs as they stand.
+     * A context held from before a step-up is kept until the step-up commits.
      *
      * @return void
      *
@@ -156,9 +147,7 @@ final class ContextForgettingTest extends TestCase
     }
 
     /**
-     * A context first built inside a caller's transaction after a step-up in it
-     * holds the uncommitted further factor; once the transaction rolls back the
-     * guard forgets it, so the rest of the request holds none.
+     * A context built inside a rolled back step-up is forgotten.
      *
      * @return void
      *
@@ -188,9 +177,7 @@ final class ContextForgettingTest extends TestCase
     }
 
     /**
-     * A context first built inside a caller's transaction after a
-     * reauthentication in it holds the uncommitted authentication time; once
-     * the transaction rolls back the guard forgets it.
+     * A context built inside a rolled back reauthentication is forgotten.
      *
      * @return void
      *
@@ -214,9 +201,8 @@ final class ContextForgettingTest extends TestCase
     }
 
     /**
-     * A step-up in a nested transaction that commits into the outer one is
-     * forgotten when the outer one rolls back, and one whose nested transaction
-     * rolls back is forgotten at once, the outer one going on.
+     * A context built inside a nested transaction is forgotten whichever rolls
+     * back.
      *
      * @return void
      *
@@ -257,10 +243,7 @@ final class ContextForgettingTest extends TestCase
     }
 
     /**
-     * Every resolved guard bound to the session forgets the context it holds,
-     * once the proof rolls back and once it commits; a guard bound to another
-     * session keeps its own, and a guard the request never resolved is not
-     * created to forget.
+     * Every resolved guard bound to the session forgets its context.
      *
      * @return void
      *
@@ -305,11 +288,7 @@ final class ContextForgettingTest extends TestCase
     }
 
     /**
-     * A tenant policy that reads the context once an external
-     * reauthentication's proof is recorded, and then refuses it or throws,
-     * leaves no context built from that proof: the proof rolls back and the
-     * context is built again from the proofs as they stand, inside a caller's
-     * transaction too, which goes on.
+     * A context built from a proof a tenant policy refused is forgotten.
      *
      * @return void
      *

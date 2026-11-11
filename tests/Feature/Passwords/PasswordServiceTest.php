@@ -51,11 +51,8 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\PlainIdentityFixture;
 
 /**
- * Feature tests of `Auth::passwords()`: the policy and its Laravel rule, and
- * setting a password at a registration, a change and a reset through the
- * package's guards, against the shipped session table, with the sessions each
- * flow ends, the event it reports, the refusals, and a change made over HTTP
- * from a signed-in session.
+ * Feature tests of `Auth::passwords()`: the policy, its rule, and setting a
+ * password in each flow.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -109,11 +106,8 @@ final class PasswordServiceTest extends TestCase
     }
 
     /**
-     * A registration of an identity not stored yet inserts it with the hash of
-     * the password, which Laravel's hasher verifies, reads the row it stored to
-     * outdate the reset proofs of its identifiers, revokes nothing, and reports
-     * `PasswordSet` for the registration with the guard, the request's client
-     * and the new identity.
+     * A registration inserts a new identity with the hashed password and
+     * reports `PasswordSet`.
      *
      * @return void
      *
@@ -168,9 +162,8 @@ final class PasswordServiceTest extends TestCase
     }
 
     /**
-     * A registration of an identity the application stored first, with no
-     * password yet (`null` or empty), sets only its password (and
-     * `updated_at`), revoking nothing, even sessions it already had.
+     * A registration of a stored identity with no password sets it and revokes
+     * nothing.
      *
      * @param  ?string  $none
      * @return void
@@ -200,9 +193,8 @@ final class PasswordServiceTest extends TestCase
     }
 
     /**
-     * A registration never replaces a password a stored identity has, which
-     * would be a change that ends no session: it throws, and the password, the
-     * sessions and the events stay as they were.
+     * A registration never replaces an existing password: it throws and changes
+     * nothing.
      *
      * @return void
      *
@@ -231,9 +223,7 @@ final class PasswordServiceTest extends TestCase
     }
 
     /**
-     * Every event of a password set reports the client the caller names, not
-     * the request the guard is serving: the sessions a change or a reset ends,
-     * its `SignedOutEverywhere` and its `PasswordSet`.
+     * Every event of a password set reports the client the caller names.
      *
      * @return void
      *
@@ -264,10 +254,8 @@ final class PasswordServiceTest extends TestCase
     }
 
     /**
-     * A change ends every session of the identity, through every guard whose
-     * provider returns it, except the session it was made from; moves the
-     * identity's cutoff; and reports `PasswordSet` with the session kept, after
-     * each `SessionRevoked` and the `SignedOutEverywhere`.
+     * A change ends every session of the identity except the one it was made
+     * from.
      *
      * @return void
      *
@@ -320,8 +308,8 @@ final class PasswordServiceTest extends TestCase
     }
 
     /**
-     * A password that breaks the policy writes nothing, revokes nothing and
-     * reports nothing: the result lists the rules it breaks.
+     * A password that breaks the policy changes nothing, and the result lists
+     * the rules broken.
      *
      * @return void
      *
@@ -347,9 +335,7 @@ final class PasswordServiceTest extends TestCase
     }
 
     /**
-     * A checker failing with an exception of its own lets it propagate through
-     * `check()` and `set()`, and no frame of its trace carries the password as
-     * an argument, even with arguments recorded in traces.
+     * A checker's own exception propagates without the password in its trace.
      *
      * @return void
      *
@@ -376,9 +362,7 @@ final class PasswordServiceTest extends TestCase
     }
 
     /**
-     * A write that fails inside its transaction leaves the new password and its
-     * hash out of every frame of the trace, the transaction's closure and what
-     * it captured included, even with arguments recorded in traces.
+     * A failed write leaves the password and its hash out of the trace.
      *
      * @return void
      *
@@ -404,10 +388,8 @@ final class PasswordServiceTest extends TestCase
     }
 
     /**
-     * An update the database refuses (here for a column the table lost) throws
-     * Laravel's own `QueryException`, which carries the new hash, as the
-     * passwords guide says, in its bindings and its message; the password
-     * itself is in no frame of the trace.
+     * An update the database refuses throws Laravel's `QueryException`,
+     * carrying only the hash.
      *
      * @return void
      *
@@ -436,9 +418,8 @@ final class PasswordServiceTest extends TestCase
     }
 
     /**
-     * Under bcrypt, a password holding a null character, which the hasher would
-     * refuse with an exception, is rejected instead, in every flow: nothing is
-     * written or reported.
+     * Under bcrypt, a password holding a null character is rejected in every
+     * flow.
      *
      * @return void
      *
@@ -465,10 +446,8 @@ final class PasswordServiceTest extends TestCase
     }
 
     /**
-     * A breached password is rejected after the other rules pass, and with the
-     * checker down the default fails closed, in every flow `set()` takes: each
-     * is rejected with the violation, and the stored passwords, the sessions
-     * and the events stay as they were.
+     * A breached password, or any with the checker down, is rejected in every
+     * flow.
      *
      * @return void
      *
@@ -509,9 +488,8 @@ final class PasswordServiceTest extends TestCase
     }
 
     /**
-     * With the checker down and the policy set to fail open, the password is
-     * set as if it had passed, and the outage is reported to the exception
-     * handler.
+     * With the checker down and set to fail open, the password is set and the
+     * outage reported.
      *
      * @return void
      *
@@ -535,10 +513,7 @@ final class PasswordServiceTest extends TestCase
     }
 
     /**
-     * The helper's write is one query-builder update of the password column:
-     * another attribute left dirty on the model is neither saved nor discarded,
-     * and no model event fires, so the optional observer does not revoke the
-     * session the change kept.
+     * Only the password column is written, and no model event fires.
      *
      * @return void
      *
@@ -711,9 +686,7 @@ final class PasswordServiceTest extends TestCase
     }
 
     /**
-     * The policy never applies to the automatic rehash: an identity whose
-     * legacy password is shorter than the policy allows still signs in, and its
-     * outdated hash is replaced, with nothing reported as set or revoked.
+     * The policy never applies to the automatic rehash on sign-in.
      *
      * @return void
      *
@@ -741,9 +714,8 @@ final class PasswordServiceTest extends TestCase
     }
 
     /**
-     * A change of password over HTTP, as an application's route makes it: the
-     * signed-in session stays signed in and its token keeps working, while the
-     * identity's other session is ended and its token refused.
+     * A change over HTTP keeps the request's session and ends the identity's
+     * other one.
      *
      * @return void
      *
@@ -781,13 +753,8 @@ final class PasswordServiceTest extends TestCase
     }
 
     /**
-     * The documented password change route, over HTTP: a wrong current password
-     * sets nothing and keeps its sign-in slots, taken before the transaction; a
-     * right one sets the new password, ends the identity's other session, keeps
-     * the request's session and gives the slots back. The identity's row is
-     * locked as the transaction starts, the current password is checked against
-     * it without looking the identity up by its address, and no counter is
-     * written inside the transaction.
+     * The documented change checks the current password against the identity's
+     * locked row.
      *
      * @return void
      *
@@ -849,10 +816,8 @@ final class PasswordServiceTest extends TestCase
     }
 
     /**
-     * The documented change checks the current password against the identity it
-     * locked, never through its address: once the address the session was
-     * opened with belongs to another identity, that identity's password does
-     * not change this one's.
+     * The documented change ignores another identity that now holds the
+     * session's address.
      *
      * @return void
      *
@@ -887,10 +852,8 @@ final class PasswordServiceTest extends TestCase
     }
 
     /**
-     * `rule()` is Laravel's `Password` rule for the same length and
-     * composition, so a form and `check()` agree on every password the rule can
-     * judge; the three differences are pinned: the rule runs no breached check,
-     * and cannot see bcrypt's byte ceiling or its refusal of a null character.
+     * `rule()` agrees with `check()` over a corpus, apart from the breached
+     * check and bcrypt's limits.
      *
      * @return void
      */

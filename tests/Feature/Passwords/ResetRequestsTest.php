@@ -22,10 +22,8 @@ use Tests\Concerns\InteractsWithPasswordResets;
 use Tests\TestCase;
 
 /**
- * Feature tests of requests for a password reset link or code through
- * `Auth::passwords()`: the same answer and the same queued job for an
- * identifier no one holds, the refusals, the request limits and the resend
- * cooldown, and the misconfigurations that throw before anything is counted.
+ * Feature tests of password reset link and code requests through
+ * `Auth::passwords()`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -39,9 +37,8 @@ final class ResetRequestsTest extends TestCase
     use InteractsWithPasswordResets;
 
     /**
-     * A request for an identifier no one holds answers exactly as one for the
-     * seeded identity, queues the same delivery job instead of delivering
-     * inline, and the job sends nothing for it.
+     * An unknown identifier gets the same answer and job as a held one, and the
+     * job sends nothing.
      *
      * @return void
      *
@@ -101,9 +98,8 @@ final class ResetRequestsTest extends TestCase
     }
 
     /**
-     * Each refused request answers `identifier_invalid`, reports
-     * `AuthenticationFailed` for the reset flow with the identifier as given,
-     * and issues nothing.
+     * Each refused request answers `identifier_invalid`, is reported, and
+     * issues nothing.
      *
      * @param  \Closure(\SineMacula\Laravel\Authentication\Passwords\PasswordService): mixed  $request
      * @param  string  $reason
@@ -165,9 +161,7 @@ final class ResetRequestsTest extends TestCase
     }
 
     /**
-     * Within the resend cooldown a second request issues nothing and says when
-     * another may be made; once the request limit is used up for the
-     * identifier, it says how long until the window ends.
+     * Requests are held back by the resend cooldown and the request limit.
      *
      * @return void
      *
@@ -196,9 +190,7 @@ final class ResetRequestsTest extends TestCase
     }
 
     /**
-     * A reset code's answer carries the challenge id its reset names, and when
-     * another may be requested, for an identifier no one holds as for a held
-     * one; a reset link's carries no challenge, its token being its own.
+     * A code's answer carries its challenge id, and a link's carries none.
      *
      * @return void
      *
@@ -220,9 +212,8 @@ final class ResetRequestsTest extends TestCase
     }
 
     /**
-     * Once an identifier's delivery window has had all its deliveries, a
-     * request for a reset is refused until the window ends, reported as
-     * `deliveries_exhausted` with the wait.
+     * An identifier out of deliveries is refused as `deliveries_exhausted`
+     * until its window ends.
      *
      * @return void
      *
@@ -296,8 +287,8 @@ final class ResetRequestsTest extends TestCase
     }
 
     /**
-     * Without a code sender, a reset code is refused before anything is counted
-     * or issued; a link, delivered by its own sender, still goes out.
+     * Without a code sender a reset code is refused, while a link still goes
+     * out.
      *
      * @return void
      *

@@ -22,11 +22,8 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\PlainSessionFixture;
 
 /**
- * Feature tests of the `auth_time` and `amr` an access token of a session
- * carries: its newest counting proof's time and the values of its counting
- * proofs, read current by default, as an issuance reads them once it has
- * written the session's issuance guard, and as the transaction sees them only
- * when asked; a session with no counting first factor has none.
+ * Feature tests of the `auth_time` and `amr` claims a session's access token
+ * carries.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -81,8 +78,7 @@ final class AuthenticationClaimsTest extends TestCase
 
     /**
      * A session's claims are its newest counting proof's time and the values of
-     * all its counting proofs, whether read current or as the transaction sees
-     * them.
+     * all its counting proofs.
      *
      * @return void
      *
@@ -105,8 +101,7 @@ final class AuthenticationClaimsTest extends TestCase
     }
 
     /**
-     * A session whose proofs hold no counting first factor has no claims: no
-     * token says when or how it authenticated.
+     * A session whose proofs hold no counting first factor has no claims.
      *
      * @return void
      *
@@ -129,9 +124,8 @@ final class AuthenticationClaimsTest extends TestCase
     }
 
     /**
-     * The claims are read current unless asked otherwise: on MySQL and MariaDB
-     * the read takes a shared lock, and asked to read as the transaction sees
-     * them it takes none; no other engine takes one either way.
+     * The claims are read with a shared lock on MySQL and MariaDB unless asked
+     * otherwise.
      *
      * @param  string  $driver
      * @return void
@@ -167,8 +161,7 @@ final class AuthenticationClaimsTest extends TestCase
     }
 
     /**
-     * Assert the read finds no counting first factor, as a pretended read of no
-     * rows does.
+     * Assert the read finds no counting first factor.
      *
      * @param  \Closure(): mixed  $read
      * @return void

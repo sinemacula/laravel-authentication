@@ -52,9 +52,8 @@ final class PrunesSessionsTest extends TestCase
     }
 
     /**
-     * The query selects sessions revoked, idle-expired or absolutely expired at
-     * or before now less the retention, grouped so a scope added to it cannot
-     * widen it, with 30 days when nothing is configured.
+     * The query selects sessions ended at or before now less the retention, 30
+     * days by default, grouped so a scope cannot widen it.
      *
      * @return void
      */

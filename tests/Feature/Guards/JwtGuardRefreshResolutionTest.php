@@ -39,12 +39,8 @@ use Tests\Unit\Stubs\StubPrincipal;
 use Tests\Unit\Stubs\StubSession;
 
 /**
- * Feature tests for the identity and principal resolution paths within
- * JwtGuard's refresh-token exchange, plus the successful refresh lifecycle.
- *
- * Split from JwtGuardRefreshTest so each class stays focused on a single
- * behavioural slice: this class covers identity/principal resolution failures
- * and the success-path event sequence.
+ * Feature tests for identity and principal resolution in `JwtGuard`'s
+ * refresh-token exchange, and the successful refresh.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -134,9 +130,8 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * Refresh reloads the session owner through the guard's provider by the
-     * owner key on the session row and accepts only that exact owner; any other
-     * answer fails with `identity_unknown` before a principal is resolved.
+     * Refresh accepts only the exact session owner the provider reloads,
+     * failing as `identity_unknown` otherwise.
      *
      * @param  \Closure(): mixed  $answer
      * @return void
@@ -225,9 +220,8 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * When a refresh token carries a `principal` hint but the resolver returns
-     * `null`, refresh fails with `principal_unresolved` instead of downgrading
-     * to the default principal.
+     * A refresh whose `principal` hint the resolver cannot resolve fails as
+     * `principal_unresolved`.
      *
      * @return void
      *
@@ -335,8 +329,8 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * Fail-closed: a hinted principal whose identifier stringifies to `null`
-     * must be rejected rather than rebound into a transient principal.
+     * A hinted principal whose identifier is `null` is rejected rather than
+     * rebound as a transient principal.
      *
      * @return void
      *
@@ -447,10 +441,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * Fail-closed: when the resolver returns `null` for a hinted `principal`
-     * during refresh, the hint check must fail so the exchange rejects the
-     * token. Mutation guard: pins the null-safe principal read in
-     * `RefreshTokenExchange::resolveRefreshPrincipal()`.
+     * A refresh whose hinted `principal` resolves to `null` rejects the token.
      *
      * @return void
      *
@@ -500,9 +491,8 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * A successful refresh preserves the original active principal by carrying
-     * the same `principal` through the rotated refresh token and newly issued
-     * access token.
+     * A successful refresh carries the same `principal` through the rotated
+     * refresh token and the new access token.
      *
      * @return void
      *
@@ -597,9 +587,8 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * A successful refresh is a sign-in: `Attempting`, the package `Refreshed`
-     * and `SignedIn` (a refresh, on the session it continued), reported before
-     * the bind, then `Validated`, `Login` and the bind events.
+     * A successful refresh reports `Refreshed` and `SignedIn` before the bind,
+     * then `Validated`, `Login` and the bind events.
      *
      * @return void
      *
@@ -680,10 +669,8 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * After a successful refresh the guard has the identity, principal, and
-     * session bound for the rest of the request. The session bound is the row
-     * the exchange read again under its lock, so it is the same record rather
-     * than the same instance.
+     * A successful refresh binds the identity, principal and the session row
+     * the exchange read under its lock.
      *
      * @return void
      *
@@ -740,9 +727,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * Rebinding the guard's principal resolver reaches the refresh exchange,
-     * which reads the guard's context, so `refresh()` uses the replacement
-     * resolver rather than the constructor-time one.
+     * `refresh()` uses a principal resolver rebound on the guard.
      *
      * @return void
      *
@@ -803,9 +788,8 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * `setPrincipalResolver()` rebinds the resolver bearer resolution reads as
-     * well as the one refresh reads: a bearer token resolved after the rebind
-     * goes through the replacement.
+     * `setPrincipalResolver()` also rebinds the resolver bearer resolution
+     * reads.
      *
      * @return void
      *
@@ -850,9 +834,8 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * `setDispatcher()` returns the guard and rebinds the dispatcher the
-     * refresh path reads: a later failed refresh reports `Attempting`,
-     * `AuthenticationFailed` and `Failed` to the new dispatcher only.
+     * `setDispatcher()` returns the guard and sends later refresh failures to
+     * the new dispatcher only.
      *
      * @return void
      *
@@ -882,11 +865,8 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * Allow the standard `Attempting` + `Failed` events that every failed
-     * refresh now dispatches (alongside the package-specific
-     * `AuthenticationFailed` event). Tests that assert a specific
-     * `AuthenticationFailed` reason call this helper first to permit the
-     * standard events without constraining them.
+     * Allow the `Attempting` and `Failed` events every failed refresh
+     * dispatches, without constraining them.
      *
      * @return void
      */

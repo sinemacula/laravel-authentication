@@ -13,10 +13,7 @@ use Tests\Integration\Fixtures\SeparateConnectionSession;
 use Tests\TestCase;
 
 /**
- * Feature tests for where the package's tables live: the storage connection,
- * the counters' connection that falls back to it, a malformed setting failing
- * closed, and whether a model lives on the storage connection, compared by
- * name, a model's own or the default one.
+ * Feature tests for the connections the package's tables live on.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -27,8 +24,8 @@ use Tests\TestCase;
 final class StorageConnectionTest extends TestCase
 {
     /**
-     * The storage connection is the one configured, read on each call; `null`
-     * or an empty name means the default connection.
+     * The storage connection is the one configured; `null` or an empty name
+     * means the default connection.
      *
      * @return void
      */
@@ -72,8 +69,8 @@ final class StorageConnectionTest extends TestCase
     }
 
     /**
-     * Rows of `[key, value, message]`: settings that are neither a connection
-     * name nor `null` or empty, and what each is refused with.
+     * Settings that are not a connection name, and the message each is refused
+     * with.
      *
      * @return iterable<string, array{0: string, 1: mixed, 2: string}>
      */
@@ -93,9 +90,7 @@ final class StorageConnectionTest extends TestCase
     }
 
     /**
-     * A setting that is not a name fails closed, naming the key, instead of
-     * putting the tables on another connection than the one meant; the
-     * counters' connection refuses a malformed storage connection too.
+     * A setting that is not a connection name is refused, naming the key.
      *
      * @param  string  $key
      * @param  mixed  $value
@@ -117,9 +112,8 @@ final class StorageConnectionTest extends TestCase
     }
 
     /**
-     * A model lives on the storage connection when the two name the same one, a
-     * model that names none counting as on the default, whichever of them names
-     * it explicitly.
+     * A model lives on the storage connection when both resolve to the same
+     * connection name.
      *
      * @return void
      */
@@ -145,9 +139,7 @@ final class StorageConnectionTest extends TestCase
     }
 
     /**
-     * `StorageConnection` is a utility container, not to be instantiated: its
-     * constructor is private. Reflection invokes it so the line is covered
-     * while still documenting the access modifier.
+     * The constructor is private.
      *
      * @return void
      *

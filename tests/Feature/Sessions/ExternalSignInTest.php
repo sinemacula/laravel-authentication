@@ -67,12 +67,8 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
 /**
- * Feature tests for signing in through `Auth::sessions()` with a result an
- * external identity provider verified, which a trusted adapter hands over: only
- * on an application that allows `external_provider`, only for an identity the
- * link contract links the result's connection, issuer and subject to, and
- * otherwise as `start()` signs in, under `external_provider`, with the link's
- * id on the provenance.
+ * Feature tests of signing in with a result an external identity provider
+ * verified.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -131,11 +127,8 @@ final class ExternalSignInTest extends TestCase
     }
 
     /**
-     * A linked result signs its identity in at once: the session records
-     * `external_provider`, the link contract is asked once with the result's
-     * connection, issuer and subject exactly as given, the provenance records
-     * the link's id, the reports follow the session and the guard is bound to
-     * it. No `Attempting` is dispatched and no attempt is counted.
+     * A linked result signs its identity in at once, recording the link on the
+     * provenance.
      *
      * @return void
      *
@@ -172,9 +165,7 @@ final class ExternalSignInTest extends TestCase
 
     /**
      * An application that does not allow `external_provider` refuses every
-     * external result as `method_not_allowed` before the link contract is
-     * asked, reported by `Failed` and `AuthenticationFailed`, and writes
-     * nothing.
+     * external result.
      *
      * @return void
      *
@@ -204,10 +195,7 @@ final class ExternalSignInTest extends TestCase
     }
 
     /**
-     * A result the link contract links to no identity reports
-     * `ExternalResultUnlinked`, with the guard, the client, the connection and
-     * the issuer and no identity, then fails as `external_result_unlinked`,
-     * writing nothing and binding nothing.
+     * An unlinked result is reported and refused, writing nothing.
      *
      * @return void
      *
@@ -237,10 +225,7 @@ final class ExternalSignInTest extends TestCase
     }
 
     /**
-     * A redeemed result is reported once the session commits, after the
-     * session's own events, as a sign-in redemption naming the session, the
-     * identity and principal it established, the connection and the request
-     * reference; the session's own events name neither.
+     * A redemption is reported after the session's own events.
      *
      * @return void
      *
@@ -271,11 +256,7 @@ final class ExternalSignInTest extends TestCase
     }
 
     /**
-     * A redemption given a `SignInContext` built from plain values binds the
-     * guard with that context's client: its bind's `PrincipalAssigned` and
-     * `SessionAuthenticated` carry it, and with a last-use throttle that
-     * records every use the session's last use is that client's, not the
-     * guard's own request's.
+     * A redemption given a context binds with that context's client.
      *
      * @return void
      *
@@ -302,9 +283,7 @@ final class ExternalSignInTest extends TestCase
     }
 
     /**
-     * A result's provider context is recorded with the provenance, as given,
-     * pending or active, and is in none of the events the sign-in reports, a
-     * refused one's included, nor in the serialised session or provenance.
+     * The provider context is recorded and never reported or serialised.
      *
      * @return void
      *
@@ -359,9 +338,7 @@ final class ExternalSignInTest extends TestCase
     }
 
     /**
-     * A redemption that leaves its session pending is reported after
-     * `SessionPending`; one the caller's transaction rolls back is never
-     * reported; one with no request reference names none.
+     * A pending redemption is reported and a rolled back one is not.
      *
      * @return void
      *
@@ -398,12 +375,7 @@ final class ExternalSignInTest extends TestCase
     }
 
     /**
-     * An external sign-in whose identity is deactivated after its admission,
-     * before its session is written, is refused once the sign-in's own
-     * transaction commits, before the call returns: the session is revoked as
-     * `identity_deactivated`, the refusal names the connection as any refused
-     * redemption does, and neither the session's events nor
-     * `ExternalResultRedeemed` are reported.
+     * A redemption whose identity is deactivated before its write is refused.
      *
      * @return void
      *
@@ -435,8 +407,8 @@ final class ExternalSignInTest extends TestCase
     }
 
     /**
-     * A refused redemption names the connection and the request reference on
-     * every event it reports, the unlinked report included.
+     * A refused redemption names the connection and request reference on every
+     * event.
      *
      * @return void
      *
@@ -459,9 +431,7 @@ final class ExternalSignInTest extends TestCase
     }
 
     /**
-     * A result is linked only through the connection, issuer and subject it was
-     * linked by: another connection, issuer or subject for the same identity is
-     * unlinked, and so is a subject that is the identity's email address.
+     * A result is linked only through its own connection, issuer and subject.
      *
      * @return void
      *
@@ -488,9 +458,7 @@ final class ExternalSignInTest extends TestCase
     }
 
     /**
-     * The linked identity is reloaded through the guard's provider: an identity
-     * the provider no longer finds is `identity_unknown`, and an inactive one
-     * `identity_inactive`, each reported with the method and nothing written.
+     * The linked identity is reloaded and admitted as `start()` admits it.
      *
      * @return void
      *
@@ -513,9 +481,7 @@ final class ExternalSignInTest extends TestCase
     }
 
     /**
-     * The principal the context names is the one the session acts as, and with
-     * none named an identity with several principals waits for a choice,
-     * pending under `external_provider`, its provenance recorded.
+     * The principal comes from the context or waits for a choice.
      *
      * @return void
      *
@@ -545,9 +511,8 @@ final class ExternalSignInTest extends TestCase
     }
 
     /**
-     * An external result never arrives as a sign-in's input: `signIn()` with
-     * `external_provider` names no registered method and throws before anything
-     * is dispatched or written.
+     * `signIn()` with `external_provider` throws before anything is dispatched
+     * or written.
      *
      * @return void
      *
@@ -576,8 +541,8 @@ final class ExternalSignInTest extends TestCase
     }
 
     /**
-     * An exception the link contract throws reaches the caller, and nothing is
-     * reported or written.
+     * An exception from the link contract propagates, with nothing reported or
+     * written.
      *
      * @return void
      *
@@ -604,12 +569,7 @@ final class ExternalSignInTest extends TestCase
     }
 
     /**
-     * Evidence the evidence contract accepts as multifactor authentication
-     * meets the identity-level requirement in memory, so the sign-in starts
-     * active: the first proof carries the acceptance, the provenance the
-     * evidence (dated no later than now), and the token's `amr` gains `mfa`.
-     * The default contract accepts nothing, so the same sign-in waits for a
-     * further factor, and nothing of the evidence is recorded.
+     * Accepted evidence meets the identity-level factor requirement.
      *
      * @return void
      *
@@ -673,10 +633,7 @@ final class ExternalSignInTest extends TestCase
     }
 
     /**
-     * A tenant that requires a further factor of its sessions is met by
-     * evidence the evidence contract accepts, so the sign-in through its
-     * connection starts active, while one through a connection it does not name
-     * is `sso_required`.
+     * Accepted evidence meets a tenant's factor requirement.
      *
      * @return void
      *
@@ -703,11 +660,8 @@ final class ExternalSignInTest extends TestCase
     }
 
     /**
-     * A tenant that requires only phishing resistance is met by evidence the
-     * evidence contract says meets phishing resistance but neither multifactor
-     * authentication nor an additional verification (a single hardware key):
-     * the evidence is accepted, recorded, not as multifactor, and the sign-in
-     * starts active.
+     * Evidence that only meets phishing resistance meets a tenant that requires
+     * it.
      *
      * @return void
      *
@@ -731,12 +685,7 @@ final class ExternalSignInTest extends TestCase
     }
 
     /**
-     * A result that names the link the adapter redeemed signs in only through
-     * exactly that link: one naming another link than the contract answers (the
-     * link removed and made again since) is refused as `link_mismatch`,
-     * reported, before its evidence is judged, writing nothing. Called outside
-     * a transaction, the sign-in asks the contract inside one of its own, which
-     * the session commits in.
+     * A result naming its link signs in only through that link.
      *
      * @return void
      *
@@ -782,10 +731,7 @@ final class ExternalSignInTest extends TestCase
     }
 
     /**
-     * A tenant that requires only a minimum assurance level is met by evidence
-     * the evidence contract accepts for a level and nothing else: the evidence
-     * is accepted, recorded, not as multifactor, and judged against the level
-     * the tenant asks for, so the sign-in starts active.
+     * Evidence accepted only for a level meets a tenant that requires a level.
      *
      * @return void
      *
@@ -811,8 +757,7 @@ final class ExternalSignInTest extends TestCase
     }
 
     /**
-     * A sign-in that names no context takes the request's client, and the
-     * provider's deadline alone caps the session.
+     * Without a context the request's client is used.
      *
      * @return void
      *
@@ -830,11 +775,8 @@ final class ExternalSignInTest extends TestCase
     }
 
     /**
-     * A cookie application's external sign-in is not held to the same-site
-     * check `signIn()` and `start()` are: the provider's callback arrives as a
-     * cross-site navigation, with another site's `Origin` and no custom header,
-     * and with a context built from plain values, and the session still starts
-     * with the refresh token in its cookie.
+     * A cookie application's external sign-in is exempt from the same-site
+     * check.
      *
      * @return void
      *

@@ -54,9 +54,7 @@ use Tests\Unit\Stubs\PlainSessionFixture;
 use Tests\Unit\Stubs\PlainTenantFixture;
 
 /**
- * Feature tests of the session service's sign-out and revocation methods: what
- * each revokes, what it leaves alone, what it reports, and the cutoff and
- * pending sessions a bulk revocation ends with the others.
+ * Feature tests of the session service's sign-out and revocation methods.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -141,9 +139,8 @@ final class RevocationWriterTest extends TestCase
     }
 
     /**
-     * An access-only token, which names no stored session, is only forgotten:
-     * `Logout` fires, nothing is revoked, and the guard stays signed out for
-     * the rest of the request even though the request carries a credential.
+     * An access-only token is only forgotten: `Logout` fires and nothing is
+     * revoked.
      *
      * @return void
      */
@@ -231,9 +228,8 @@ final class RevocationWriterTest extends TestCase
     }
 
     /**
-     * IdentitySessions is a static utility; instantiation is disallowed through
-     * the private constructor. Reflection invokes it so the line is covered
-     * while still documenting the access modifier.
+     * `IdentitySessions` is a static utility with a private constructor,
+     * invoked here for coverage.
      *
      * @return void
      *
@@ -351,10 +347,8 @@ final class RevocationWriterTest extends TestCase
     }
 
     /**
-     * Revoking an identity's sessions covers every guard, skips the excepted
-     * session, leaves other identities' sessions alone, ends the identity's
-     * pending session with the rest, so its credential can no longer activate
-     * it, and reports each session and then the scope.
+     * Revoking an identity's sessions ends every one but the excepted, its
+     * pending session included.
      *
      * @return void
      *
@@ -452,8 +446,7 @@ final class RevocationWriterTest extends TestCase
 
     /**
      * A bulk revocation deletes the pending identifier changes its identity
-     * scopes name, in the same transaction as their sessions, and no other: a
-     * principal's scope names none.
+     * scopes name, in the same transaction.
      *
      * @return void
      *
@@ -491,9 +484,8 @@ final class RevocationWriterTest extends TestCase
     }
 
     /**
-     * A bulk revocation given a callback for its commit runs it once the
-     * revocation commits, before the session and the scope it ended are
-     * reported, and never when it rolls back.
+     * A bulk revocation runs its commit callback before it reports, and never
+     * on rollback.
      *
      * @return void
      *
@@ -538,14 +530,8 @@ final class RevocationWriterTest extends TestCase
     }
 
     /**
-     * The second pass of a deactivation's or deletion's revocation ends the
-     * scopes' sessions again only once the transactions open when it was asked
-     * for have committed, so it reads past them: with none open it does
-     * nothing, a rollback runs nothing, and after a commit it revokes each
-     * session left unrevoked, reports each one, keeps every cutoff where it
-     * was, and reports no scope; a changed subject that is not a model leaves
-     * the session model's connection alone to wait for. Ending a scope never
-     * narrows its query, so it can be ended again.
+     * The second pass ends the scopes' sessions again once the transactions
+     * open when it was asked for commit.
      *
      * @return void
      *
@@ -601,9 +587,7 @@ final class RevocationWriterTest extends TestCase
 
     /**
      * The second pass waits for a transaction open on the changed model's own
-     * connection, though none is open on the session model's: nothing is
-     * revoked before it commits, the session is revoked and reported once it
-     * has, and a rollback there runs nothing, since the change was undone.
+     * connection.
      *
      * @return void
      *
@@ -653,9 +637,7 @@ final class RevocationWriterTest extends TestCase
 
     /**
      * The second pass waits for a transaction open on the session model's
-     * connection, though none is open on the changed model's own: nothing is
-     * revoked before it commits, the session is revoked and reported once it
-     * has, and a rollback there runs nothing.
+     * connection.
      *
      * @return void
      *
@@ -703,9 +685,8 @@ final class RevocationWriterTest extends TestCase
     }
 
     /**
-     * A report of the first pass that throws at the commit cannot skip the
-     * second: a session written after the first pass read the scopes is still
-     * ended and reported, and the report's exception is thrown.
+     * A first-pass report that throws at the commit cannot skip the second
+     * pass.
      *
      * @return void
      *
@@ -755,10 +736,8 @@ final class RevocationWriterTest extends TestCase
     }
 
     /**
-     * The second pass deletes the pending identifier changes its identity
-     * scopes name once more, as the first did, so a change requested between
-     * the two passes, from a session the first pass could not see, is dropped
-     * with that session.
+     * The second pass deletes pending identifier changes requested since the
+     * first.
      *
      * @return void
      *
@@ -812,10 +791,8 @@ final class RevocationWriterTest extends TestCase
     }
 
     /**
-     * An identity that cannot hold sessions cannot hold a pending one either
-     * (no session starts for it), so its revocation leaves the session table
-     * alone, a pending row recorded for it by hand included, and is still
-     * reported.
+     * Revoking an identity that cannot hold sessions leaves the session table
+     * alone and is still reported.
      *
      * @return void
      *
@@ -937,9 +914,8 @@ final class RevocationWriterTest extends TestCase
     }
 
     /**
-     * A scope that records a "tokens valid after" cutoff has it moved to the
-     * revocation's second, which the event reports; a second revocation in the
-     * same second moves nothing and reports none.
+     * A scope's cutoff moves to the revocation's second and is reported, once
+     * per second.
      *
      * @return void
      *
@@ -966,10 +942,8 @@ final class RevocationWriterTest extends TestCase
     }
 
     /**
-     * A bulk revocation that excepts a session records it as kept by each
-     * holder whose cutoff it moved, at the cutoff it moved it to, and by no
-     * holder whose cutoff it left where it was (one already moved within the
-     * second); an excepted session that is no model is kept by none.
+     * An excepted session is recorded as kept by each holder whose cutoff the
+     * revocation moved.
      *
      * @return void
      *
@@ -1007,10 +981,7 @@ final class RevocationWriterTest extends TestCase
     }
 
     /**
-     * A move of an Eloquent holder's cutoff that rolls back with its
-     * transaction forgets the session the revocation kept, since the cutoff is
-     * back where it was; a holder that is no model keeps it, since its cutoff
-     * is not written in a transaction the package can see.
+     * A kept session is forgotten when the move of a model's cutoff rolls back.
      *
      * @return void
      *
@@ -1083,9 +1054,8 @@ final class RevocationWriterTest extends TestCase
     }
 
     /**
-     * Sign the identity with the email in while every sign-in needs a further
-     * factor, and return its pending session's id, its credential, and an
-     * accepted further factor's proof bound to it.
+     * Sign the identity in pending a further factor, and return the session id,
+     * credential and an accepted factor proof.
      *
      * @param  string  $email
      * @return array{0: string, 1: string, 2: \SineMacula\Laravel\Authentication\Proofs\ProofResult}

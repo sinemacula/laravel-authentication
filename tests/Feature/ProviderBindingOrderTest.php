@@ -33,9 +33,7 @@ use Tests\Fixtures\Sessions\ProvenIdentitySignIn;
 
 /**
  * Feature tests for the order the package's service provider and another
- * package's provider register in: every binding the package makes is a default,
- * kept out of the way of one made before it and replaced by one made after, on
- * an application that holds only its base bindings and the two providers'.
+ * package's provider register in.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -77,7 +75,7 @@ final class ProviderBindingOrderTest extends TestCase
 
     /**
      * A binding another package made before the package's provider registers is
-     * kept: the package's default does not replace it.
+     * kept.
      *
      * @param  string  $abstract
      * @return void
@@ -96,7 +94,7 @@ final class ProviderBindingOrderTest extends TestCase
 
     /**
      * A binding another package makes after the package's provider registers
-     * replaces the default, as any later binding does.
+     * replaces the default.
      *
      * @param  string  $abstract
      * @return void
@@ -144,9 +142,8 @@ final class ProviderBindingOrderTest extends TestCase
     }
 
     /**
-     * A sign-in method another package registers once the registry resolves,
-     * from a provider that registers before the package's, is on the package's
-     * registry.
+     * A sign-in method another package registers once the registry resolves is
+     * on the package's registry.
      *
      * @return void
      */
@@ -179,9 +176,8 @@ final class ProviderBindingOrderTest extends TestCase
     }
 
     /**
-     * An additional-factor policy a deferred provider offers is loaded in place
-     * of the default when the policy is first resolved, as Laravel installs
-     * deferred services after registering the eager providers.
+     * An additional-factor policy a deferred provider offers replaces the
+     * default when the policy is first resolved.
      *
      * @return void
      */
@@ -198,7 +194,7 @@ final class ProviderBindingOrderTest extends TestCase
 
     /**
      * A policy bound with `singleton()` after the default has resolved still
-     * replaces it, as the container drops the resolved instance.
+     * replaces it.
      *
      * @return void
      */
@@ -217,8 +213,7 @@ final class ProviderBindingOrderTest extends TestCase
 
     /**
      * A deferred provider is not loaded for a default that has already
-     * resolved: Laravel loads one only for a service with no instance yet, so
-     * the default stays.
+     * resolved.
      *
      * @return void
      */
@@ -250,7 +245,7 @@ final class ProviderBindingOrderTest extends TestCase
 
     /**
      * An application holding nothing but its base bindings and a configuration
-     * repository, which the package's provider merges its configuration into.
+     * repository.
      *
      * @return \Illuminate\Foundation\Application
      */

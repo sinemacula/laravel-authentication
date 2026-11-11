@@ -19,9 +19,7 @@ use Tests\TestCase;
 
 /**
  * Feature tests of the one credential timebox every check of a secret on a
- * guard shares: `attempt()`, a session service sign-in, a reauthentication and
- * a password reset run in the same box, and whichever of them follows a success
- * that ended the box early waits it out when it fails.
+ * guard shares.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -41,11 +39,8 @@ final class SharedCredentialTimeboxTest extends TestCase
     private const string WRONG_PASSWORD = 'not the password';
 
     /**
-     * Every flow of one guard runs its check in the guard's one timebox, and a
-     * failure after a success is padded whichever flows the two are: a failed
-     * sign-in after a successful `attempt()`, a failed reauthentication after a
-     * successful sign-in, a failed reset after a successful reauthentication,
-     * and a failed `attempt()` after a successful reset.
+     * A failure after a success on one guard is padded whichever flows the two
+     * are.
      *
      * @return void
      *

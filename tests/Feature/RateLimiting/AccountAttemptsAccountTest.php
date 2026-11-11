@@ -14,7 +14,7 @@ use Tests\TestCase;
 
 /**
  * Feature tests for what identifies an Eloquent identity's account to its
- * attempt limit: the row it is stored in, whichever model class reads it.
+ * attempt limit.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -41,9 +41,7 @@ final class AccountAttemptsAccountTest extends TestCase
     }
 
     /**
-     * Two model classes over one table (an admin model over the users table,
-     * say) name the same account for the same row, and different rows name
-     * different accounts.
+     * Two model classes over one table name the same account for the same row.
      *
      * @return void
      */
@@ -58,10 +56,8 @@ final class AccountAttemptsAccountTest extends TestCase
     }
 
     /**
-     * The same key in another database, another table, under another table
-     * prefix or on another connection is another account, so one tenant's
-     * failures never use up another tenant's limit when the counters live on a
-     * central connection.
+     * The same key in another database, table, prefix or connection is another
+     * account.
      *
      * @return void
      */
@@ -92,9 +88,8 @@ final class AccountAttemptsAccountTest extends TestCase
     }
 
     /**
-     * The table is the one the database holds, the connection's prefix joined
-     * to the model's table name, so a table reached once through a prefix and
-     * once through a full table name is one account.
+     * A table reached through a prefix and through its full name is one
+     * account.
      *
      * @return void
      */

@@ -25,9 +25,6 @@ use Tests\Unit\Stubs\StubIdentity;
  * Feature tests for JWT guard factory validation and shared principal-resolver
  * validation on `AuthenticationServiceProvider`.
  *
- * Covers the JWT driver's session-model pre-checks and the guard-local
- * `principal_resolver` override validation path.
- *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
@@ -37,20 +34,13 @@ use Tests\Unit\Stubs\StubIdentity;
 final class AuthenticationServiceProviderGuardValidationTest extends TestCase
 {
     /**
-     * A per-guard `principal_resolver` override on a JWT guard must be used by
-     * the guard so bearer flows use the guard-scoped resolver rather than the
-     * global binding.
-     *
-     * The exchange's resolver sharing is verified indirectly: the factory
-     * constructs both the guard and its exchange with the same resolved
-     * instance, and `JwtGuard::setPrincipalResolver()` propagates future
-     * rebinds to the exchange.
+     * A JWT guard uses its own `principal_resolver` over the global binding.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function testJwtGuardAppliesPerGuardPrincipalResolverOverrideAndSharesItWithRefreshExchange(): void
+    public function testJwtGuardUsesItsOwnPrincipalResolver(): void
     {
         $globalPrincipal = $this->mockPrincipal('global');
         $scopedPrincipal = $this->mockPrincipal('scoped');
@@ -96,8 +86,7 @@ final class AuthenticationServiceProviderGuardValidationTest extends TestCase
     }
 
     /**
-     * JWT guards fail fast when `authentication.session.model` is empty instead
-     * of constructing a guard whose refresh path cannot resolve sessions.
+     * JWT guards fail fast when `authentication.session.model` is empty.
      *
      * @return void
      *
@@ -117,9 +106,7 @@ final class AuthenticationServiceProviderGuardValidationTest extends TestCase
     }
 
     /**
-     * JWT guards require the configured session model to satisfy the explicit
-     * Eloquent-backed persistence boundary, not just the generic `Session`
-     * contract.
+     * JWT guards require the configured session model to be Eloquent-backed.
      *
      * @return void
      *
@@ -139,8 +126,7 @@ final class AuthenticationServiceProviderGuardValidationTest extends TestCase
     }
 
     /**
-     * Plain-object session fixtures remain valid event/token payloads, but they
-     * are rejected when misconfigured as the persisted JWT session model.
+     * A plain-object session is rejected as the JWT session model.
      *
      * @return void
      *
@@ -160,10 +146,8 @@ final class AuthenticationServiceProviderGuardValidationTest extends TestCase
     }
 
     /**
-     * JWT guards fail fast when the configured session model names a connection
-     * other than the storage connection, where its sessions are written with
-     * the package's other rows in one transaction; once the storage connection
-     * is that connection, the guard is built.
+     * JWT guards fail fast when the session model names a connection other than
+     * the storage connection.
      *
      * @return void
      *
@@ -192,9 +176,7 @@ final class AuthenticationServiceProviderGuardValidationTest extends TestCase
     }
 
     /**
-     * Guard-local resolver overrides must be non-empty strings so invalid
-     * config fails loudly instead of silently falling back to the global
-     * binding.
+     * Guard-local resolver overrides must be non-empty strings.
      *
      * @return void
      *
@@ -213,8 +195,7 @@ final class AuthenticationServiceProviderGuardValidationTest extends TestCase
     }
 
     /**
-     * Guard-local resolver overrides must be strings, not arbitrary config
-     * payloads.
+     * Guard-local resolver overrides must be strings.
      *
      * @return void
      *
@@ -233,8 +214,7 @@ final class AuthenticationServiceProviderGuardValidationTest extends TestCase
     }
 
     /**
-     * A configured guard-local resolver must resolve to the contract; any other
-     * object type is a configuration error.
+     * A configured guard-local resolver must resolve to the contract.
      *
      * @return void
      *
@@ -255,8 +235,7 @@ final class AuthenticationServiceProviderGuardValidationTest extends TestCase
     }
 
     /**
-     * Missing container bindings for guard-local resolvers bubble up during
-     * guard construction rather than silently falling back.
+     * A missing binding for a guard-local resolver fails guard construction.
      *
      * @return void
      *
@@ -280,8 +259,7 @@ final class AuthenticationServiceProviderGuardValidationTest extends TestCase
     }
 
     /**
-     * Register the package service provider against the Testbench application
-     * so the container has the package config bindings.
+     * Register the package service provider.
      *
      * @param  mixed  $app
      * @return array<int, class-string<\Illuminate\Support\ServiceProvider>>
@@ -293,8 +271,7 @@ final class AuthenticationServiceProviderGuardValidationTest extends TestCase
     }
 
     /**
-     * Register a stub auth provider the guard factories can resolve via
-     * `IlluminateAuth::createUserProvider()` during construction.
+     * Register a stub auth provider the guard factories can resolve.
      *
      * @param  mixed  $app
      * @return void

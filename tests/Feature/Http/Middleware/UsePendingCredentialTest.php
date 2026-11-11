@@ -19,11 +19,7 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
 /**
- * Feature tests of `authentication.pending`: it declares the pending credential
- * for a pending action on the request, of the guard named or the default one,
- * makes a named guard the default as `auth:<guard>` does, refuses an action
- * that is not a pending action before passing anything on, and is ordered
- * before `SubstituteBindings`, however a route lists it.
+ * Feature tests of the `authentication.pending` middleware.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -34,9 +30,8 @@ use Tests\TestCase;
 final class UsePendingCredentialTest extends TestCase
 {
     /**
-     * The middleware declares the pending credential of the default guard for
-     * the action and passes the request on, leaving the default guard as it
-     * was.
+     * The default guard's pending credential is declared and the default guard
+     * left as it was.
      *
      * @return void
      */
@@ -73,7 +68,7 @@ final class UsePendingCredentialTest extends TestCase
 
     /**
      * An action that is not a pending action is refused before the request is
-     * passed on or a guard is used.
+     * passed on.
      *
      * @return void
      */
@@ -91,9 +86,8 @@ final class UsePendingCredentialTest extends TestCase
     }
 
     /**
-     * Through its alias, the declaration is in place before the route's
-     * parameters are bound, even when the route lists it after
-     * `SubstituteBindings`.
+     * Through its alias, the declaration precedes route binding even when
+     * listed after `SubstituteBindings`.
      *
      * @return void
      */

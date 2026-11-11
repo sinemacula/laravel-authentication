@@ -90,8 +90,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
     private const string HS384_SECRET = 'hs384-secret-material-with-at-least-48-bytes!!!!';
 
     /**
-     * Freeze Carbon and the JWT library clock before each test so time-based
-     * assertions are deterministic.
+     * Freeze Carbon and the JWT library clock before each test.
      *
      * @return void
      */
@@ -121,11 +120,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
-     * `Auth::jwt()` resolves a service for the current default guard, so the
-     * no-argument issuance API is still explicit about which guard it targets.
-     *
-     * Verified by issuing a token and asserting its `aud` claim and TTL match
-     * the package defaults.
+     * `Auth::jwt()` resolves a service for the current default guard.
      *
      * @return void
      *
@@ -150,12 +145,8 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
-     * `Auth::manager()->jwt('staff')` resolves the staff guard's override set,
-     * not the package defaults or another guard's JWT config.
-     *
-     * Verified by issuing a token with the staff service and confirming it can
-     * be parsed by a standalone service using the same kid and secret, and that
-     * the `aud` claim reflects the staff audience.
+     * `Auth::manager()->jwt('staff')` resolves the staff guard's overrides, not
+     * the package defaults.
      *
      * @return void
      *
@@ -177,8 +168,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
-     * `Auth::jwt('customer')` resolves a distinct guard-scoped service, so
-     * multi-guard apps do not share a context-free JWT issuer.
+     * `Auth::jwt('customer')` resolves a distinct guard-scoped service.
      *
      * @return void
      *
@@ -200,11 +190,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
-     * Guards with no `jwt` sub-block fall back cleanly to the package defaults,
-     * preserving single-guard behaviour.
-     *
-     * Verified by issuing a token and asserting the `aud` claim, TTL, and
-     * signing secret all match the package-wide config.
+     * A guard with no `jwt` block falls back to the package defaults.
      *
      * @return void
      *
@@ -226,11 +212,8 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
-     * Key-map overrides are guard-scoped too, so one guard can rotate keys
-     * independently of the package defaults.
-     *
-     * Verified by issuing a token and checking the JWT header's `kid` field,
-     * then confirming both the new and old keys can verify it.
+     * A guard's key map override lets it rotate keys apart from the package
+     * defaults.
      *
      * @return void
      *
@@ -254,11 +237,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
-     * When a PSR-3 logger is bound, the factory forwards it into the built
-     * service instead of falling back to `NullLogger`.
-     *
-     * Verified by parsing an invalid token and asserting the mock logger
-     * received a `debug` call from the decode-failure path.
+     * A bound PSR-3 logger is passed into the built service.
      *
      * @return void
      *
@@ -332,9 +311,8 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
-     * A purely numeric kid (which PHP stores as an integer array key) signs and
-     * verifies like any other kid, including a numeric kid kept only for
-     * verification during rotation.
+     * A purely numeric kid, which PHP stores as an integer key, signs and
+     * verifies like any other, including one kept only for verification.
      *
      * @return void
      *
@@ -495,9 +473,8 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
-     * A guard that overrides only `active_kid` with a purely numeric kid
-     * written as an integer signs with that kid from the package-wide key map
-     * instead of falling back to the package-wide active kid.
+     * A guard overriding only `active_kid` with an integer kid signs with that
+     * kid from the package-wide key map.
      *
      * @return void
      *
@@ -571,9 +548,8 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
-     * A guard `active_kid` that is neither a string nor an integer fails closed
-     * with the typed configuration exception instead of silently falling back
-     * to the package-wide active kid.
+     * A guard `active_kid` that is neither a string nor an integer fails
+     * closed.
      *
      * @return void
      */
@@ -637,9 +613,8 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
-     * A guard's `jwt.algorithm` override reaches signing through the keyring:
-     * the issued token names that algorithm in its header and verifies under
-     * the same service.
+     * A guard's `jwt.algorithm` override is the algorithm its tokens are signed
+     * and verified with.
      *
      * @return void
      *
@@ -668,8 +643,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
-     * `forGuard()` rejects an empty guard name with an
-     * `InvalidArgumentException`. Pins the `$guard === ''` early-throw.
+     * `forGuard()` rejects an empty guard name.
      *
      * @return void
      */
@@ -685,11 +659,8 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
-     * Per-guard integer JWT config overrides (e.g. `access_ttl_minutes`) are
-     * honoured over the package defaults. Pins the guard-level int return in
-     * `resolveJwtInteger()`.
-     *
-     * Verified by issuing a token and checking the `exp - iat` delta.
+     * A guard's integer override, such as `access_ttl_minutes`, wins over the
+     * package default.
      *
      * @return void
      *
@@ -721,9 +692,8 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
-     * When the PSR-3 logger is not bound in the container, the factory returns
-     * null so the JWT service uses its NullLogger fallback. Pins the
-     * `!$this->app->bound(LoggerInterface::class)` return path.
+     * Without a bound PSR-3 logger, the built service falls back to its null
+     * logger.
      *
      * @return void
      *
@@ -746,8 +716,8 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
-     * Repeated calls to `forGuard()` with the same guard name return the same
-     * memoised instance rather than constructing a new service.
+     * Repeated calls to `forGuard()` with the same guard return the memoised
+     * instance.
      *
      * @return void
      */
@@ -847,10 +817,8 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
-     * The absolute lifetime may be `null`, explicitly, for no absolute limit: a
-     * package `null` applies to every guard without an override, a guard's
-     * `null` override lifts the package's limit for that guard alone, and a
-     * guard's number caps a package `null`.
+     * The absolute lifetime may be an explicit `null` for no limit, at the
+     * package level or as a guard override.
      *
      * @return void
      *
@@ -978,9 +946,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
-     * Each key accepts exactly its range: no lifetime of zero, at most a day
-     * for access tokens and ten years for sessions, and at most five minutes of
-     * leeway.
+     * Each key accepts exactly its range.
      *
      * @param  string  $key
      * @param  int  $value
@@ -1064,9 +1030,8 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
-     * An algorithm override that is not a string fails closed instead of
-     * falling back to the package algorithm, as does a package algorithm that
-     * is not a string.
+     * An algorithm override or package algorithm that is not a string fails
+     * closed.
      *
      * @param  string  $where
      * @param  mixed  $value
@@ -1121,9 +1086,8 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
-     * An issuer or audience override that is not a non-empty string fails
-     * closed, `null` included: an override that is present wins, so it never
-     * falls back to the package value, and every token must carry both.
+     * An issuer or audience override that is not a non-empty string, `null`
+     * included, fails closed.
      *
      * @param  string  $key
      * @param  mixed  $value
@@ -1237,9 +1201,8 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
-     * A guard's lifetimes are the guard's alone: a `jwt` key the factory does
-     * not read, such as a leftover `by_principal_type` map, changes nothing, so
-     * every access token the service issues lives the guard's access lifetime.
+     * A `jwt` key the factory does not read, such as `by_principal_type`,
+     * changes no lifetime.
      *
      * @return void
      *
@@ -1343,9 +1306,8 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
-     * Build a standalone verifier for the named guard over the supplied key
-     * map, using its first kid as the active kid: a numeric kid is an integer
-     * key.
+     * Build a standalone verifier for the guard over the key map, with its
+     * first kid active.
      *
      * @param  string  $guard
      * @param  array<array-key, string>  $keys

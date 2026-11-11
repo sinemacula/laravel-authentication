@@ -21,11 +21,7 @@ use Tests\Integration\Fixtures\RecheckedMembership;
 use Tests\TestCase;
 
 /**
- * Feature tests for the sessions a bulk revocation kept on purpose: the floor a
- * holder's cutoff must pass to end a session's call is the call's start, or the
- * latest cutoff a revocation that kept that session moved for that holder, with
- * sessions and holders told apart as their rows are, or by class and
- * identifier, and a record forgotten again when its move rolls back.
+ * Feature tests of the sessions a bulk revocation kept on purpose.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -40,9 +36,8 @@ final class KeptSessionsTest extends TestCase
     private const string ELSEWHERE = 'elsewhere';
 
     /**
-     * The floor is the call's start until a revocation kept the session, then
-     * the latest cutoff such a revocation moved, never earlier than the call's
-     * start.
+     * The floor is the call's start or the latest cutoff a revocation that kept
+     * the session moved.
      *
      * @return void
      */
@@ -67,9 +62,7 @@ final class KeptSessionsTest extends TestCase
     }
 
     /**
-     * Forgetting a record leaves the others: the floor falls back to the latest
-     * cutoff still kept, whichever order the records are forgotten in, and to
-     * the call's start once none is.
+     * Forgetting a record falls back to the latest cutoff still kept.
      *
      * @return void
      */
@@ -101,10 +94,7 @@ final class KeptSessionsTest extends TestCase
     }
 
     /**
-     * Sessions and holders that are Eloquent models are told apart as their
-     * rows are: another key, the same key in another table, or the same key on
-     * another connection is another; another instance of the same row is the
-     * same.
+     * Sessions and holders that are models are told apart as their rows are.
      *
      * @return void
      */
@@ -125,8 +115,7 @@ final class KeptSessionsTest extends TestCase
     }
 
     /**
-     * The same key on a connection whose table prefix or database is no longer
-     * the one it was kept under is another row.
+     * The same key under another table prefix or database is another row.
      *
      * @return void
      */
@@ -151,9 +140,7 @@ final class KeptSessionsTest extends TestCase
     }
 
     /**
-     * A holder that is no Eloquent model is told apart by its class and its
-     * identifier, as an identity or as a principal, and any other holder by the
-     * instance itself.
+     * A holder that is no model is told apart by its class and identifier.
      *
      * @return void
      */

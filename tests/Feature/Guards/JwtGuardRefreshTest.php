@@ -29,12 +29,8 @@ use Tests\Unit\Stubs\StubIdentity;
 use Tests\Unit\Stubs\StubSession;
 
 /**
- * Feature tests for the token-level and session-level validation paths within a
- * JWT guard's refresh-token exchange, including rotation integrity checks.
- *
- * Covers token parsing failures, session lookup, replay detection and the grace
- * window, and session revocation. Identity and principal resolution tests live
- * in JwtGuardRefreshResolutionTest.
+ * Feature tests for token and session validation in a JWT guard's refresh-token
+ * exchange.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -129,10 +125,8 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
     }
 
     /**
-     * A refresh token for a live session whose rotation id the session never
-     * held as current or previous is a replay: `refresh()` fails, revokes the
-     * session, and dispatches `SessionRevoked`, `AuthenticationFailed` with
-     * reason `rotation_reuse`, and Laravel's `Failed`.
+     * A refresh token whose rotation id the session never held is a replay that
+     * revokes the session and reports `rotation_reuse`.
      *
      * @return void
      *
@@ -171,9 +165,8 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
     }
 
     /**
-     * A refresh token whose `jti` is present but empty lacks a required claim,
-     * so it fails to parse and yields `token_invalid`; a token that does not
-     * parse carries no session id for attribution.
+     * A refresh token with an empty `jti` fails to parse as `token_invalid`,
+     * with no session id.
      *
      * @return void
      *
@@ -202,9 +195,8 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
     }
 
     /**
-     * A refresh token whose `jti` is not a string is malformed and yields
-     * `token_invalid` while preserving the parseable session id for
-     * attribution.
+     * A refresh token whose `jti` is not a string is `token_invalid`, keeping
+     * the session id for attribution.
      *
      * @return void
      *
@@ -233,9 +225,8 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
     }
 
     /**
-     * A refresh attempt against a session whose `revoked_at` column is set
-     * fails and fires `AuthenticationFailed` with reason `session_revoked`,
-     * regardless of whether the rotation id verifies against the stored digest.
+     * A refresh against a revoked session fails as `session_revoked`, whatever
+     * the rotation id.
      *
      * @return void
      *
@@ -276,11 +267,8 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
     }
 
     /**
-     * A digest replaced between the exchange's re-read and its swap, inside its
-     * own transaction, by something other than a rotation (no previous digest
-     * records the presented id) is judged again from the row as it now is: the
-     * presented id is neither current nor previous, so it is a replay and the
-     * session is revoked.
+     * A digest replaced by something other than a rotation before the swap is
+     * judged again, and the refresh is a replay.
      *
      * @return void
      *
@@ -347,10 +335,8 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
     }
 
     /**
-     * The refresh token a successful refresh replaced still gets the session's
-     * current credential inside the grace window, through the guard, with the
-     * same events as any refresh; once the window has passed it is a replay and
-     * revokes the session.
+     * A replaced refresh token is honoured inside the grace window and is a
+     * replay once it has passed.
      *
      * @return void
      *
@@ -419,9 +405,8 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
     }
 
     /**
-     * A failed refresh dispatches the standard Laravel `Failed` event in
-     * addition to the package-specific `AuthenticationFailed`. Mutation guard:
-     * pins the `Failed` the refresh dispatches with no user and no credentials.
+     * A failed refresh dispatches Laravel's `Failed` with no user and no
+     * credentials.
      *
      * @return void
      *
@@ -451,11 +436,8 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
     }
 
     /**
-     * Allow the standard `Attempting` + `Failed` events that every failed
-     * refresh now dispatches (alongside the package-specific
-     * `AuthenticationFailed` event). Tests that assert a specific
-     * `AuthenticationFailed` reason call this helper first to permit the
-     * standard events without constraining them.
+     * Allow the `Attempting` and `Failed` events every failed refresh
+     * dispatches, without constraining them.
      *
      * @return void
      */

@@ -107,11 +107,8 @@ final class PasskeyChallengeTest extends TestCase
     }
 
     /**
-     * Pruning deletes the challenges that expired a challenge lifetime ago (300
-     * seconds by default), used or not, at that second, and keeps those that
-     * can still be answered, those that expired less ago, so a response to them
-     * is told it expired, and a used one until it expires and its lifetime has
-     * passed too.
+     * Pruning deletes challenges that expired a challenge lifetime ago, used or
+     * not, and keeps the rest.
      *
      * @return void
      */

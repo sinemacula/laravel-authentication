@@ -11,9 +11,8 @@ use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Guards\Concerns\ExposesCollaborators;
 
 /**
- * Feature tests for the read access a guard gives the code that signs in
- * through it: each collaborator as the guard holds it now, rebinds included,
- * and the guard's credential timebox.
+ * Feature tests for the read access a guard gives to its collaborators and
+ * credential timebox.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

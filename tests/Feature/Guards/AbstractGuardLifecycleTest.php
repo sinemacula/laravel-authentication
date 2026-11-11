@@ -15,11 +15,7 @@ use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 
 /**
- * Feature tests for the Laravel `Guard` contract surface on `AbstractGuard`
- * (`check`, `guest`, `user`, `id`, `hasUser`, `setUser`, `logout`).
- *
- * Split out of the original AbstractGuardTest so each class stays focused on a
- * single behavioural slice.
+ * Feature tests for the Laravel `Guard` contract on `AbstractGuard`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -272,11 +268,8 @@ final class AbstractGuardLifecycleTest extends AbstractGuardTestCase
     }
 
     /**
-     * Calling `login()` directly (e.g. from a refresh exchange or an OAuth
-     * callback) fires the standard `Validated` event before the bind, even
-     * though no credentials were checked. This is the M14 design call:
-     * `login()` is the public entry point that asserts "this identity has been
-     * validated", and the standard event sequence reflects that.
+     * `login()` fires `Validated` before the bind, even though no credentials
+     * were checked.
      *
      * @return void
      */
@@ -332,8 +325,7 @@ final class AbstractGuardLifecycleTest extends AbstractGuardTestCase
     }
 
     /**
-     * Rebinding the request must clear any previously memoised contextual state
-     * so guard instances cannot leak auth context across requests.
+     * Rebinding the request clears the memoised contextual state.
      *
      * @return void
      */

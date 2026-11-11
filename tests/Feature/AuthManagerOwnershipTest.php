@@ -24,9 +24,7 @@ use Tests\Unit\Stubs\StubAuthenticatableModel;
 
 /**
  * Feature tests for the package's ownership of the `auth` binding when another
- * package used Laravel's manager before the package booted: the drivers, the
- * user resolver and the resolved guards it left on that manager are the package
- * manager's, and the facades reach the package manager.
+ * package used Laravel's manager before the package booted.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -38,9 +36,7 @@ use Tests\Unit\Stubs\StubAuthenticatableModel;
 final class AuthManagerOwnershipTest extends TestCase
 {
     /**
-     * The container, Laravel's facade and the package's facade all reach the
-     * package's manager, though the facade resolved Laravel's before the
-     * package booted, and the package's guard driver is registered on it.
+     * The container and both facades reach the package's manager.
      *
      * @return void
      */
@@ -70,9 +66,8 @@ final class AuthManagerOwnershipTest extends TestCase
     }
 
     /**
-     * A request guard registered with `viaRequest()` before the package booted
-     * takes its user provider from the package's manager, through a driver
-     * (`model`) registered only after the manager was replaced.
+     * A request guard registered before the package booted takes a provider
+     * driver registered after.
      *
      * @return void
      */
@@ -85,9 +80,8 @@ final class AuthManagerOwnershipTest extends TestCase
     }
 
     /**
-     * The default guard, resolved before the package booted, is the one the
-     * package's manager returns and the one `auth.driver` holds, and it still
-     * receives each new request.
+     * A guard resolved before the package booted is kept and still receives
+     * each new request.
      *
      * @return void
      *
@@ -110,9 +104,7 @@ final class AuthManagerOwnershipTest extends TestCase
     }
 
     /**
-     * The user resolver set with `resolveUsersUsing()` before the package
-     * booted is the one the gate, the request and the `Authenticatable`
-     * contract resolve the user through.
+     * A user resolver set before the package booted resolves the user.
      *
      * @return void
      */
@@ -140,8 +132,7 @@ final class AuthManagerOwnershipTest extends TestCase
     }
 
     /**
-     * Configure the early provider's guards, a request guard whose default
-     * provider uses the package's `model` driver, and a JWT guard.
+     * Configure the early provider's guards, a request guard and a JWT guard.
      *
      * @param  mixed  $app
      * @return void

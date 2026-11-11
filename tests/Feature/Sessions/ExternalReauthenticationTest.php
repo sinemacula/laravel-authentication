@@ -58,12 +58,8 @@ use Tests\Integration\Fixtures\MachineClient;
 use Tests\TestCase;
 
 /**
- * Feature tests of reauthenticating a session through `Auth::sessions()` with a
- * result an external identity provider verified: only through the very link
- * that established the session, a new access token whose `auth_time` is the
- * later of the session's and the provider's, nothing else renewed unless the
- * evidence contract accepts the provider's evidence, and every refusal answered
- * and reported, never thrown.
+ * Feature tests of reauthenticating a session with a result an external
+ * identity provider verified.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -117,12 +113,8 @@ final class ExternalReauthenticationTest extends TestCase
     }
 
     /**
-     * A reauthentication through the session's own link records an
-     * `external_reauthentication` proof at the provider's time, with the
-     * connection as its channel and no evaluation, and issues a new access
-     * token only, whose `auth_time` is the provider's and whose `amr` is the
-     * session's as it was; the session keeps its refresh token, deadlines and
-     * provenance, and `Reauthenticated` reports it with `external_provider`.
+     * A reauthentication through the session's own link renews its
+     * authentication time only.
      *
      * @return void
      *
@@ -161,9 +153,7 @@ final class ExternalReauthenticationTest extends TestCase
     }
 
     /**
-     * A reauthentication whose result carries another provider context leaves
-     * the one the session was established with as it was, and reports neither
-     * on its events.
+     * A reauthentication keeps the provider context the session began with.
      *
      * @return void
      *
@@ -194,10 +184,8 @@ final class ExternalReauthenticationTest extends TestCase
     }
 
     /**
-     * A reauthentication reports `ExternalResultRedeemed` (flow
-     * `reauthentication`) after `Reauthenticated`, naming the session, the
-     * connection and the request reference; a refused one names both on its
-     * `AuthenticationFailed`, and reports no redemption.
+     * A redemption is reported after `Reauthenticated`, and a refused one
+     * reports none.
      *
      * @return void
      *
@@ -237,10 +225,8 @@ final class ExternalReauthenticationTest extends TestCase
     }
 
     /**
-     * An external reauthentication reports with the client given, never the
-     * guard's own request: `Reauthenticated` and `ExternalResultRedeemed` once
-     * it commits, and `AuthenticationFailed` for a refusal, carry it while the
-     * guard serves a cross-site request from another address.
+     * An external reauthentication reports the client given, never the guard's
+     * request.
      *
      * @return void
      *
@@ -270,10 +256,7 @@ final class ExternalReauthenticationTest extends TestCase
     }
 
     /**
-     * `auth_time` becomes the later of the session's and the provider's: a
-     * provider time older than the session's newest proof, but not before the
-     * session began, is recorded and leaves `auth_time` where it was, and one
-     * after now is recorded as now.
+     * The `auth_time` becomes the later of the session's and the provider's.
      *
      * @return void
      *
@@ -306,10 +289,7 @@ final class ExternalReauthenticationTest extends TestCase
     }
 
     /**
-     * Evidence the evidence contract accepts as multifactor authentication is
-     * recorded with the proof, whose evaluation is accepted and multifactor, so
-     * the token's `amr` gains the provider's value again and `mfa`; evidence
-     * the default contract judges records nothing and adds nothing.
+     * Only evidence the evidence contract accepts adds to the `amr`.
      *
      * @return void
      *
@@ -351,12 +331,7 @@ final class ExternalReauthenticationTest extends TestCase
     }
 
     /**
-     * Only the very link that established the session reauthenticates it:
-     * another link of the same identity through the same connection, the same
-     * subject through another connection, and a link that maps to another
-     * identity are each `link_mismatch`, reported with the session, and record
-     * nothing. A link to another identity is refused before anything is locked,
-     * so the evidence that identity's result brings is never judged.
+     * Only the link that established the session reauthenticates it.
      *
      * @return void
      *
@@ -409,10 +384,7 @@ final class ExternalReauthenticationTest extends TestCase
     }
 
     /**
-     * A result that names a link the contract does not answer with (the
-     * session's link removed and made again since) is `link_mismatch` before
-     * anything is locked, recording nothing; one naming the session's own link
-     * reauthenticates it.
+     * A result naming another link is refused before anything is locked.
      *
      * @return void
      *
@@ -440,8 +412,8 @@ final class ExternalReauthenticationTest extends TestCase
     }
 
     /**
-     * A session no external provider established, so no link either, is never
-     * reauthenticated through one.
+     * A session no external provider established is never reauthenticated
+     * through a link.
      *
      * @return void
      *
@@ -487,10 +459,7 @@ final class ExternalReauthenticationTest extends TestCase
     }
 
     /**
-     * An application that does not allow `external_provider` refuses before the
-     * session is read or the link contract asked; a result that does not say
-     * when the provider authenticated the identity is `proof_invalid` before
-     * the link contract is asked, and so is one timed before the session began.
+     * A disallowed method, or a result with no or too early a time, is refused.
      *
      * @return void
      *
@@ -524,11 +493,7 @@ final class ExternalReauthenticationTest extends TestCase
     }
 
     /**
-     * A session that is another guard's, revoked, pending, ended or a machine's
-     * takes no external reauthentication, nor does an identifier that names no
-     * session or cannot be a key, and the link contract is never asked for
-     * them. A machine's session that is also revoked is refused as revoked: the
-     * session's own refusal comes before its owner's.
+     * A session that is not live takes no external reauthentication.
      *
      * @return void
      *
@@ -570,11 +535,7 @@ final class ExternalReauthenticationTest extends TestCase
 
     /**
      * What changes while the adapter holds the result is judged again under the
-     * session's lock: a session revoked meanwhile is `session_revoked`, one
-     * whose provenance now records another link `link_mismatch`, another
-     * identity's session put under the key `link_mismatch`, and a new session
-     * of the same identity under the key `session_unknown`, reported for the
-     * session given. None records a proof.
+     * lock.
      *
      * @return void
      *
@@ -613,9 +574,8 @@ final class ExternalReauthenticationTest extends TestCase
     }
 
     /**
-     * A session deleted while the adapter holds the result is gone when its row
-     * is locked: `session_unknown`, reported for the session given, and nothing
-     * recorded.
+     * A session deleted meanwhile is `session_unknown`, reported for the
+     * session given.
      *
      * @return void
      *
@@ -638,15 +598,7 @@ final class ExternalReauthenticationTest extends TestCase
     }
 
     /**
-     * The session is judged against its tenant's authentication policy with the
-     * proof just recorded among its own: a tenant that no longer admits the
-     * connection is `sso_required`, one that now requires a further factor the
-     * session does not meet `additional_factor_required`, each reported with
-     * the session and its principal and recording nothing, inside the adapter's
-     * transaction too, which goes on, and the row is left as it was; evidence
-     * this very reauthentication brings, once accepted, meets that factor, and
-     * the token is issued, reported for the member, the principal and the
-     * session.
+     * The tenant's policy is asked with the proof just recorded.
      *
      * @return void
      *
@@ -725,13 +677,7 @@ final class ExternalReauthenticationTest extends TestCase
     }
 
     /**
-     * A reauthentication judges the session against its tenant's policy under
-     * the row's lock, with the proof it recorded, so every read of the
-     * session's provenance and proofs that judgement makes takes a shared lock
-     * where the engine takes one: the connection, the first factor, the
-     * accepted evidence and the check's proofs, whether it then refuses or
-     * issues. The link's check before it reads the provenance plainly, and the
-     * issuance reads the proofs current, as it always does.
+     * The tenant's policy is judged on current reads under the row's lock.
      *
      * @return void
      *
@@ -780,10 +726,7 @@ final class ExternalReauthenticationTest extends TestCase
     }
 
     /**
-     * A reauthentication bringing evidence the evidence contract accepts only
-     * for less than the tenant requires is issued, as one bringing no evidence
-     * is: the multifactor evidence the session signed in with still meets the
-     * tenant's requirement, though the newer evidence does not.
+     * Newer evidence accepted for less keeps the tenant's requirement met.
      *
      * @return void
      *
@@ -825,8 +768,8 @@ final class ExternalReauthenticationTest extends TestCase
     }
 
     /**
-     * Inside the adapter's transaction `Reauthenticated` waits for the commit,
-     * and a rollback withdraws it with the proof.
+     * `Reauthenticated` waits for the adapter's commit and a rollback withdraws
+     * it.
      *
      * @return void
      *
@@ -854,13 +797,7 @@ final class ExternalReauthenticationTest extends TestCase
     }
 
     /**
-     * A session's standing is answered under its row's lock inside the
-     * adapter's transaction: `null` for this guard's live session through
-     * exactly the identity, connection and link that established it, and
-     * `link_mismatch` for another link, connection or identity, or for a
-     * session no link established. With no link given, any link of that
-     * connection stands, but a session recorded with no link still does not.
-     * Nothing is written or reported.
+     * A session's standing holds only for the link that established it.
      *
      * @return void
      *
@@ -900,10 +837,7 @@ final class ExternalReauthenticationTest extends TestCase
     }
 
     /**
-     * A session's standing asked inside a transaction reads its provenance
-     * current under the row's lock, a shared lock where the engine takes one,
-     * since no check of the row's generation comes before it; asked outside
-     * one, it reads the provenance plainly, as it reads the row.
+     * A standing inside a transaction reads the provenance current.
      *
      * @return void
      *
@@ -929,9 +863,7 @@ final class ExternalReauthenticationTest extends TestCase
     }
 
     /**
-     * A session that is unknown, another guard's, revoked, pending, ended or a
-     * machine's has no standing, and nor has any session on an application that
-     * does not allow `external_provider`.
+     * A session that is not live has no standing.
      *
      * @return void
      *
@@ -970,9 +902,7 @@ final class ExternalReauthenticationTest extends TestCase
     }
 
     /**
-     * A standing asked inside a transaction locks the session's row until the
-     * transaction ends; asked outside one, as when a reauthentication flow
-     * starts, it answers alike and locks nothing.
+     * A standing locks the session's row only inside a transaction.
      *
      * @return void
      *
@@ -1026,8 +956,7 @@ final class ExternalReauthenticationTest extends TestCase
     }
 
     /**
-     * What a reauthentication must leave as it was: the session's refresh
-     * token, deadlines and provenance.
+     * The session's refresh token, deadlines and provenance.
      *
      * @return array<string, mixed>
      */
@@ -1042,8 +971,7 @@ final class ExternalReauthenticationTest extends TestCase
     }
 
     /**
-     * Sign the seeded identity in through its link, `link-1` of `connection-7`,
-     * authenticated at the provider now, with the provider context given.
+     * Sign the seeded identity in through `link-1` of `connection-7`.
      *
      * @param  ?\SineMacula\Laravel\Authentication\External\ProviderContext  $providerContext
      * @return \SineMacula\Laravel\Authentication\Sessions\SignedInSession
@@ -1074,8 +1002,7 @@ final class ExternalReauthenticationTest extends TestCase
     }
 
     /**
-     * Reauthenticate the session through the seeded identity's link, the
-     * provider authenticating it now.
+     * Reauthenticate the session through the seeded identity's link.
      *
      * @param  \Illuminate\Database\Eloquent\Model  $session
      * @return \SineMacula\Laravel\Authentication\Sessions\AccessTokenResult

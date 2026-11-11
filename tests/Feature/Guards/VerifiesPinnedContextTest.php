@@ -27,9 +27,8 @@ use Tests\Unit\Stubs\StubPinnedContextGuard;
 use Tests\Unit\Stubs\StubSession;
 
 /**
- * Feature tests for the principal and session a caller pins on `attempt()`:
- * each is bound only once proven to belong to the authenticated identity, and a
- * pin that fails the check fails the attempt.
+ * Feature tests for the principal and session a caller pins on `attempt()`,
+ * each bound only once proven owned.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -146,8 +145,7 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
 
     /**
      * A principal of another identity fails the attempt even when the resolver
-     * returns it for the hint, as one whose hinted lookup is not scoped to the
-     * identity does: the guard checks the principal's own identity.
+     * returns it for the hint.
      *
      * @return void
      *
@@ -196,9 +194,8 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
     }
 
     /**
-     * A pinned principal whose owner cannot be read (its `getIdentity()` throws
-     * a `LogicException`, as for a deleted owner) is not owned, so it fails the
-     * attempt instead of the request.
+     * A pinned principal whose owner cannot be read fails the attempt instead
+     * of the request.
      *
      * @return void
      *
@@ -220,9 +217,8 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
     }
 
     /**
-     * A pinned `ActsAsPrincipal` model without an identity relation (the shape
-     * of a principal that never declared `identity()`) cannot report an owner,
-     * so it fails the attempt instead of the request.
+     * A pinned `ActsAsPrincipal` model without an identity relation fails the
+     * attempt instead of the request.
      *
      * @return void
      *
@@ -244,9 +240,8 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
     }
 
     /**
-     * Under Eloquent's strict missing-attribute mode, a persisted pinned
-     * `ActsAsPrincipal` model without an identity relation still fails the
-     * attempt instead of the request.
+     * Under strict missing-attribute mode, a pinned principal without an
+     * identity relation still fails the attempt.
      *
      * @return void
      *
@@ -277,10 +272,8 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
     }
 
     /**
-     * A pinned principal hydrated with lazy loading prevented (one of several
-     * rows under Eloquent's strict mode) is still proven owned: the package
-     * re-reads its owner on purpose, so that read is not a lazy-loading
-     * violation.
+     * A pinned principal hydrated with lazy loading prevented is still proven
+     * owned, since the owner re-read is deliberate.
      *
      * @return void
      *
@@ -296,8 +289,7 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
         $owner = \Mockery::mock(BelongsTo::class);
         $owner->shouldReceive('getResults')->once()->andReturn($identity);
 
-        // A subclass of its own, so the resolved relation stays off the shared
-        // stub class.
+        // A subclass keeps the static relation off the shared stub class.
         $pinned = new class extends Stub3dPrincipal {};
 
         $pinned::resolveRelationUsing('identity', static fn (): Relation => $owner);
@@ -313,10 +305,8 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
     }
 
     /**
-     * An identity relation already set on the resolved principal does not vouch
-     * for it: the owner is read from the principal's own stored key, so a
-     * principal that names the identity only through a preloaded relation fails
-     * the attempt.
+     * A principal that names the identity only through a preloaded relation
+     * fails the attempt.
      *
      * @return void
      *
@@ -547,9 +537,8 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
     }
 
     /**
-     * A pinned session whose identifier cannot be a key of the identity's
-     * session model fails the attempt without querying, as a malformed `sid`
-     * does.
+     * A pinned session whose identifier cannot be a session key fails the
+     * attempt without querying.
      *
      * @return void
      *
@@ -590,9 +579,8 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
     }
 
     /**
-     * The pinned-principal, pinned-session, and session-hint checks are
-     * callable from a guard subclass, as `JwtGuard` calls the session-hint
-     * lookup, and return the identity's own instances.
+     * The pinned-principal, pinned-session and session-hint checks are callable
+     * from a guard subclass.
      *
      * @return void
      */
@@ -737,9 +725,8 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
     }
 
     /**
-     * Build a session of the guard that started now, with the supplied
-     * identifier and revocation time, acting as the principal when one is
-     * given.
+     * Build a session of the guard that started now, acting as the principal
+     * when one is given.
      *
      * @param  ?string  $identifier
      * @param  ?\Carbon\CarbonImmutable  $revokedAt

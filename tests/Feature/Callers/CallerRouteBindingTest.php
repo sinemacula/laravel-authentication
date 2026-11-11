@@ -20,11 +20,8 @@ use Tests\Concerns\InteractsWithCallers;
 use Tests\TestCase;
 
 /**
- * Feature tests of an application's own session binding built on the caller of
- * the request, as the sessions guide wires it, driven over HTTP: its keyword
- * (`current`) binds the caller's session, any other id binds only a session the
- * caller owns, on a bearer route and on one that authenticates with the refresh
- * credential, and a request without a caller is a JSON `401`.
+ * Feature tests of an application's session route binding built on the
+ * request's caller.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -104,9 +101,8 @@ final class CallerRouteBindingTest extends TestCase
     }
 
     /**
-     * Behind the refresh credential, `current` is the session the refresh token
-     * proves and an id binds only that very session; without a refresh token
-     * there is no caller, a JSON `401`.
+     * Behind the refresh credential, only the session the token proves is
+     * bound.
      *
      * @return void
      *

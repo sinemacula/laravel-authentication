@@ -20,10 +20,7 @@ use Tests\Unit\Stubs\PlainIdentityFixture;
 
 /**
  * Feature tests for deciding whether an external provider's evidence is
- * accepted at all, through the evidence policy bound in the container: only
- * when the policy accepts it for multifactor authentication, an additional
- * verification, phishing resistance or a minimum level, and then with what it
- * was accepted for; never by default.
+ * accepted, through the evidence policy bound in the container.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -46,16 +43,8 @@ final class EvidenceAcceptanceTest extends TestCase
     }
 
     /**
-     * Evidence the policy accepts for multifactor authentication is accepted as
-     * multifactor and as an additional verification, after one question;
-     * evidence it accepts only for an additional verification is accepted as
-     * one, not as multifactor, after it was asked for multifactor first;
-     * evidence it accepts only for phishing resistance is accepted, as neither,
-     * after both; evidence it accepts only for the lowest assurance level is
-     * accepted, as neither, after all three; evidence it accepts for none is
-     * not accepted. Each question is the policy's `accepts()`, for the one
-     * part, of any age, about the subject, with reads pinned to the write
-     * connection.
+     * Evidence is accepted only for what the policy accepts it for, asking each
+     * kind in turn with reads pinned to the write connection.
      *
      * @return void
      */
@@ -113,9 +102,7 @@ final class EvidenceAcceptanceTest extends TestCase
     }
 
     /**
-     * Evidence dated after the time it is judged at is judged as of that time,
-     * keeping its methods and context; evidence dated then or before is judged
-     * as it is.
+     * Evidence dated after the time it is judged at is judged as of that time.
      *
      * @return void
      */
@@ -138,8 +125,7 @@ final class EvidenceAcceptanceTest extends TestCase
     }
 
     /**
-     * What the policy throws reaches the caller, so the transaction it was
-     * asked in rolls back.
+     * What the policy throws reaches the caller.
      *
      * @return void
      */
@@ -165,7 +151,7 @@ final class EvidenceAcceptanceTest extends TestCase
             }
 
             /**
-             * Meet nothing: acceptance is all this policy is asked.
+             * Meet nothing.
              *
              * @param  \SineMacula\Laravel\Authentication\External\ExternalEvidence  $evidence
              * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $requirement
@@ -186,8 +172,7 @@ final class EvidenceAcceptanceTest extends TestCase
     }
 
     /**
-     * The acceptance is a static utility that cannot be instantiated from
-     * outside.
+     * The constructor is private.
      *
      * @return void
      */

@@ -55,13 +55,8 @@ use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\TestCase;
 
 /**
- * Feature tests of refreshing a session through the session service: the
- * rotated session it returns and the guard bound to it, the events in their
- * order, each refusal returned with its reason, `rate_limited` with its wait
- * rather than a thrown 429, and where a refresh read from the request found its
- * token; and a refresh from plain values, on a cookie application and a body
- * one, which judges the token and the client it is handed and reads nothing
- * from the guard's request.
+ * Feature tests of refreshing a session through the session service, from the
+ * request and from plain values.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -146,11 +141,8 @@ final class SessionRefreshTest extends TestCase
     }
 
     /**
-     * A refresh rotates the session's refresh token, reports the rotation with
-     * `Refreshed` and then `SignedIn` (a refresh, on no new session), and then
-     * binds the guard as a sign-in; the result carries the same session with
-     * the new pair, the body the token was presented from, and no reason or
-     * wait.
+     * A refresh rotates the session, reports the rotation and then binds the
+     * guard.
      *
      * @return void
      *
@@ -230,9 +222,7 @@ final class SessionRefreshTest extends TestCase
     }
 
     /**
-     * The bind events carry the tenant the refresh admitted the principal in
-     * and the sign-in method the session records, as the rotation's report
-     * does.
+     * The bind events carry the tenant and method the refresh established.
      *
      * @return void
      *
@@ -265,9 +255,8 @@ final class SessionRefreshTest extends TestCase
     }
 
     /**
-     * Every refusal of the exchange is returned with its reason, after
-     * `Attempting`, Laravel's `Failed` (no user, no credentials) and
-     * `AuthenticationFailed` with the same reason, and binds nothing.
+     * Every refusal is returned with its reason after the failure events, and
+     * binds nothing.
      *
      * @return void
      *
@@ -323,9 +312,8 @@ final class SessionRefreshTest extends TestCase
     }
 
     /**
-     * A refresh the limits refuse is returned as `rate_limited` with the wait
-     * the failure reports, after the same events as any refusal; nothing is
-     * thrown.
+     * A rate-limited refresh is returned as `rate_limited` with its wait
+     * instead of thrown.
      *
      * @return void
      *
@@ -392,9 +380,7 @@ final class SessionRefreshTest extends TestCase
     }
 
     /**
-     * A token the transport refuses is a refused refresh, reported with the
-     * transport's reason and the request's client and no identity, returned
-     * with no source, and the session is left as it was.
+     * A token the transport refuses is a refused refresh with no source.
      *
      * @return void
      *
@@ -430,9 +416,7 @@ final class SessionRefreshTest extends TestCase
     }
 
     /**
-     * The rotation is reported before the guard is bound: a `Login` listener
-     * that throws propagates, after `Refreshed` and `SignedIn` were dispatched
-     * for the rotation already written.
+     * The rotation is reported before the guard is bound.
      *
      * @return void
      *
@@ -464,9 +448,8 @@ final class SessionRefreshTest extends TestCase
     }
 
     /**
-     * Inside the caller's transaction the rotation's report and then the bind
-     * wait for the commit, in that order, as with no transaction open, and a
-     * rollback drops both, leaving the guard unbound.
+     * The report and then the bind wait for the caller's commit, and a rollback
+     * drops both.
      *
      * @return void
      *
@@ -524,10 +507,7 @@ final class SessionRefreshTest extends TestCase
     }
 
     /**
-     * A refresh's bind that waited for the commit reads the session again
-     * first: one the same transaction revoked, returned to pending, replaced or
-     * switched to another principal or tenant is never bound, though its
-     * rotation is reported.
+     * A deferred bind is skipped for a session the same transaction changed.
      *
      * @param  array<string, mixed>  $change
      * @return void
@@ -582,12 +562,8 @@ final class SessionRefreshTest extends TestCase
     }
 
     /**
-     * A cookie application refreshes from plain values: the token presented
-     * from its cookie and a same-site client, on a guard whose own request is
-     * cross-site, from another address and carries no cookie. The result
-     * carries the cookie that sets the new refresh token, never the token, and
-     * refreshes again; the rotation and the guard's bind are reported with the
-     * client given.
+     * A cookie application refreshes from plain values, and the result carries
+     * the cookie instead of the token.
      *
      * @return void
      *
@@ -627,12 +603,7 @@ final class SessionRefreshTest extends TestCase
     }
 
     /**
-     * The guard's bind after a plain refresh describes the client given, not
-     * the guard's own request: its `PrincipalAssigned` and
-     * `SessionAuthenticated` carry it, so the last use the bind records is that
-     * client's once the last-use throttle allows it (inside the window nothing
-     * is written over the sign-in's). The guard keeps no client: a later bind
-     * in the same request describes the request.
+     * The bind after a plain refresh records the client given as the last use.
      *
      * @return void
      *
@@ -686,9 +657,7 @@ final class SessionRefreshTest extends TestCase
     }
 
     /**
-     * A plain refresh inside the caller's transaction binds once it commits,
-     * and that deferred bind still describes the client given, so with a
-     * last-use throttle that records every use the last use is that client's.
+     * A deferred bind after a plain refresh still describes the client given.
      *
      * @return void
      *
@@ -720,11 +689,8 @@ final class SessionRefreshTest extends TestCase
     }
 
     /**
-     * A cookie application refuses a token presented from its cookie with a
-     * client the same-site check refuses, as `cross_site_request`, though the
-     * guard's own request is same-site and carries the same cookie: the refusal
-     * is reported with the client given, the result says where the token was
-     * presented, and the session is left as it was.
+     * A cookie token with a client that fails the same-site check is refused as
+     * `cross_site_request`.
      *
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return void
@@ -781,10 +747,8 @@ final class SessionRefreshTest extends TestCase
     }
 
     /**
-     * A live token presented with facts the transport refuses is refused with
-     * its reason before the exchange, from a same-site client too, reported
-     * as the request form reports it, and its result says where it was
-     * presented; the session is left as it was.
+     * A live token with facts the transport refuses is refused with its reason
+     * before the exchange.
      *
      * @param  string  $guardName
      * @param  \SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource  $source
@@ -818,10 +782,7 @@ final class SessionRefreshTest extends TestCase
     }
 
     /**
-     * A body application refreshes from a token presented from its body field
-     * or its header with a client that has no same-site facts at all: neither
-     * carrier is sent by a browser by itself. The result says which, and
-     * carries the new refresh token, no cookie.
+     * A body application refreshes from plain values without same-site facts.
      *
      * @return void
      *
@@ -858,9 +819,8 @@ final class SessionRefreshTest extends TestCase
     }
 
     /**
-     * A reason the extraction answered, handed in, is a refused refresh
-     * reported as a refusal of the judgement is, with the client given, and
-     * with no source: nothing was presented.
+     * A reason the transport answered, handed in, is a reported refusal with no
+     * source.
      *
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
      * @return void
@@ -889,10 +849,8 @@ final class SessionRefreshTest extends TestCase
     }
 
     /**
-     * A reason the extraction never answers, handed in, is the caller's error:
-     * it throws before anything is dispatched, on either application, the
-     * same-site judgement's `cross_site_request` included, which only the
-     * package makes, on the client.
+     * A reason the transport never answers, handed in, throws before anything
+     * is dispatched.
      *
      * @return void
      *
@@ -937,10 +895,7 @@ final class SessionRefreshTest extends TestCase
     }
 
     /**
-     * A token presented again inside the grace window gets the session's
-     * current credential through the plain form too, and once the window has
-     * closed it is a replay: the session is revoked as `rotation_reuse`,
-     * reported with the client given.
+     * Grace and replay hold for a plain refresh.
      *
      * @return void
      *
@@ -976,11 +931,7 @@ final class SessionRefreshTest extends TestCase
     }
 
     /**
-     * The attempt limit of a plain refresh counts the client given: a refusal
-     * from its address limits the next from it, as `rate_limited` with the
-     * wait, but not one from another address; and a client with no address is
-     * not counted by the guard's own request's address, though that address's
-     * count is full.
+     * A plain refresh's attempt limit counts the client given.
      *
      * @return void
      *
@@ -1008,10 +959,8 @@ final class SessionRefreshTest extends TestCase
     }
 
     /**
-     * A plain refresh from a client with no IP address is limited by the
-     * token's session alone: a replay of the session's token fills its count,
-     * so the session's current token is then refused as `rate_limited` with the
-     * wait, while another session's token still refreshes for the same client.
+     * A plain refresh from a client without an address is limited by the
+     * token's session alone.
      *
      * @return void
      *
@@ -1039,9 +988,7 @@ final class SessionRefreshTest extends TestCase
     }
 
     /**
-     * Inside the caller's transaction a plain refresh's report and bind wait
-     * for the commit, the report carrying the client given, and a rollback
-     * drops both.
+     * A plain refresh's report and bind wait for the caller's commit.
      *
      * @return void
      *
@@ -1087,9 +1034,8 @@ final class SessionRefreshTest extends TestCase
     }
 
     /**
-     * A refresh that expects the session its token proves is made, and so is
-     * one that expects none; an expected id that is not the session's is not
-     * matched, and refuses the refresh without rotating.
+     * A refresh expecting its own session, or none, is made; another expected
+     * id refuses it.
      *
      * @return void
      *
@@ -1118,11 +1064,8 @@ final class SessionRefreshTest extends TestCase
     }
 
     /**
-     * A token proving another session than the one expected is refused as
-     * `session_mismatch`: `Attempting`, `Failed` and `AuthenticationFailed`
-     * (flow `refresh`, describing the token's own session) are dispatched, the
-     * refusal is counted by the refresh limits against the token's session, and
-     * the session is not rotated, revoked or bound.
+     * A token proving another session than expected is refused as
+     * `session_mismatch`.
      *
      * @return void
      *
@@ -1166,11 +1109,7 @@ final class SessionRefreshTest extends TestCase
     }
 
     /**
-     * The token is judged before the session is compared: the old token inside
-     * the grace window matches its own session and is answered with the current
-     * credential, and is refused as a mismatch for another; after the window it
-     * is a replay and revokes the session as `rotation_reuse` whichever session
-     * is expected; and a revoked session reports its own reason.
+     * The token is judged before the expected session is compared.
      *
      * @return void
      *

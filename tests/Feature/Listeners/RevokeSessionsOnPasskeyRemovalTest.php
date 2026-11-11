@@ -31,9 +31,7 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\PlainIdentityFixture;
 
 /**
- * Feature tests of the optional `RevokeSessionsOnPasskeyRemoval` listener,
- * registered as an application registers it: removing a passkey ends every
- * session of its owner, once the removal commits.
+ * Feature tests of the optional `RevokeSessionsOnPasskeyRemoval` listener.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -74,9 +72,8 @@ final class RevokeSessionsOnPasskeyRemovalTest extends TestCase
     }
 
     /**
-     * Removing a passkey revokes every session of its owner, the one signed in
-     * with it and a password session alike, with `factor_removed`; another
-     * identity's sessions are left alone.
+     * Removing a passkey revokes every session of its owner with
+     * `factor_removed`, leaving other identities' sessions alone.
      *
      * @return void
      *
@@ -143,9 +140,8 @@ final class RevokeSessionsOnPasskeyRemovalTest extends TestCase
     }
 
     /**
-     * An identity a global scope hides from every ordinary query, as a soft
-     * delete or a tenant or application scope does, still has every session
-     * ended: the identity is read with none of its model's global scopes.
+     * An identity a global scope hides still has every session ended, as it is
+     * read without global scopes.
      *
      * @return void
      *
@@ -204,8 +200,7 @@ final class RevokeSessionsOnPasskeyRemovalTest extends TestCase
 
     /**
      * An identity authenticated by a column other than its key is read by that
-     * column, as its guard's provider reads it: only its own sessions are
-     * ended, though its auth identifier is another identity's key.
+     * column, as its provider reads it.
      *
      * @return void
      *
@@ -241,11 +236,7 @@ final class RevokeSessionsOnPasskeyRemovalTest extends TestCase
     }
 
     /**
-     * Rows of an event that names no identity a passkey could belong to: an
-     * identifier no row has, an identity that is not a model, a model that is
-     * not an identity (a session row, under its own key), a class that does not
-     * exist, and a type without an identifier or an identifier without a type,
-     * as a session row can record them.
+     * Rows of an event that names no identity a passkey could belong to.
      *
      * @formatter:off
      *

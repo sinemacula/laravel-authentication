@@ -42,11 +42,8 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\StubVerbatimNormalizer;
 
 /**
- * Feature tests for signing in with a one-time code sent to a phone number,
- * through `Auth::sessions($guard)->signIn('phone_code', ...)`: the session a
- * correct code starts, and how every wrong, expired, exhausted, replayed,
- * foreign or malformed code is refused, counted and reported; and the proof a
- * code records, on a sign-in and on a reauthentication.
+ * Feature tests for signing in and reauthenticating with a one-time code sent
+ * to a phone number.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -106,10 +103,7 @@ final class CodeSignInTest extends TestCase
     }
 
     /**
-     * The code sent to a verified number starts a session for its identity that
-     * records the method and the identifier type, and uses the code up; its
-     * first proof is the text message to the number in its normal form, with
-     * the `sms` value and nothing observed.
+     * The code sent to a verified number starts a session and is used up.
      *
      * @return void
      *
@@ -178,9 +172,7 @@ final class CodeSignInTest extends TestCase
     }
 
     /**
-     * A wrong code is refused and counted against the code; the identity is not
-     * named on the failure, which looks as it would for no identity, and the
-     * challenge the code answered is.
+     * A wrong code is refused, counted against the code and names no identity.
      *
      * @return void
      *
@@ -207,8 +199,7 @@ final class CodeSignInTest extends TestCase
 
     /**
      * Rows of `[setting the clock or the code apart, reason only the event
-     * says]`: an expired code and one that used up its attempts are refused as
-     * `invalid_credentials` in the result.
+     * says]`.
      *
      * @return iterable<string, array{0: string, 1: \SineMacula\Laravel\Authentication\Events\Enums\FailureReason}>
      */
@@ -281,9 +272,8 @@ final class CodeSignInTest extends TestCase
     }
 
     /**
-     * A code requested for a number no identity has is still issued, so a guess
-     * at it is counted and locks it exactly as for a known number; even the
-     * right code signs no one in.
+     * A code for a number no identity has is counted exactly as for a known
+     * number.
      *
      * @return void
      *
@@ -307,9 +297,8 @@ final class CodeSignInTest extends TestCase
     }
 
     /**
-     * The right code for an identity whose number is not verified proves the
-     * number is held, so the sign-in says `identifier_unverified` rather than
-     * hiding it; no session starts.
+     * The right code for an unverified number is refused as
+     * `identifier_unverified`.
      *
      * @return void
      *
@@ -383,9 +372,7 @@ final class CodeSignInTest extends TestCase
     }
 
     /**
-     * A code is bound to the guard it was requested for: on another guard that
-     * allows the method, the same number and code sign no one in, and count
-     * nothing against the code.
+     * A code works only on the guard it was requested for.
      *
      * @return void
      *
@@ -420,9 +407,7 @@ final class CodeSignInTest extends TestCase
     }
 
     /**
-     * When the account has used up its attempts, the code is not checked at
-     * all: the result says `invalid_credentials`, the event says
-     * `account_rate_limited`, and the code keeps its attempts.
+     * An account without attempts left leaves the code unchecked.
      *
      * @return void
      *
@@ -475,9 +460,7 @@ final class CodeSignInTest extends TestCase
     }
 
     /**
-     * Rows of input that cannot carry a code, a number or a challenge id; the
-     * live challenge's id is added to every row that sets none, and a row that
-     * sets it to `null` has none.
+     * Rows of input that cannot carry a code, a number or a challenge id.
      *
      * @return iterable<string, array{0: array<string, mixed>}>
      */
@@ -502,9 +485,8 @@ final class CodeSignInTest extends TestCase
     }
 
     /**
-     * Input without a well-formed number, code and challenge id is refused
-     * before any lookup or check: nothing is counted against the code, and a
-     * challenge id not in the form the engine issues is never reported.
+     * Malformed input is refused before any lookup and counts nothing against
+     * the code.
      *
      * @param  array<string, mixed>  $input
      * @return void
@@ -530,9 +512,7 @@ final class CodeSignInTest extends TestCase
     }
 
     /**
-     * The right code for another challenge than the live one (one sent before,
-     * or none at all) is refused, and spends no attempt on the live challenge,
-     * whose code still signs in.
+     * The right code for another challenge spends no attempt on the live one.
      *
      * @return void
      *
@@ -610,9 +590,7 @@ final class CodeSignInTest extends TestCase
     }
 
     /**
-     * The package registers `phone_code` itself, once per process, and an
-     * application registers a code method for another identifier type through
-     * the container.
+     * An application registers a code method for another identifier type.
      *
      * @return void
      *
@@ -680,9 +658,8 @@ final class CodeSignInTest extends TestCase
     }
 
     /**
-     * Rows of `[destination, whether it is recorded]`: destinations that fit
-     * the channel reference's 255 characters (counted as characters, not
-     * bytes), and one that does not.
+     * Rows of `[destination, whether it is recorded]` around the channel
+     * reference's 255 characters.
      *
      * @return iterable<string, array{0: string, 1: bool}>
      */
@@ -696,9 +673,8 @@ final class CodeSignInTest extends TestCase
     }
 
     /**
-     * A code sent to a destination that fits the channel reference is recorded
-     * with it; a longer one, which a custom type's normaliser may keep, is
-     * recorded with no reference rather than cut.
+     * A destination is recorded only when it fits the channel reference, never
+     * cut.
      *
      * @param  string  $handle
      * @param  bool  $recorded
@@ -729,10 +705,7 @@ final class CodeSignInTest extends TestCase
     }
 
     /**
-     * A session reauthenticated with a code records a first-factor
-     * reauthentication over the code's channel, to the number in its normal
-     * form, with the `sms` value; the new token's `auth_time` moves and its
-     * `amr` stays the session's own.
+     * A code reauthenticates a session over its channel.
      *
      * @return void
      *

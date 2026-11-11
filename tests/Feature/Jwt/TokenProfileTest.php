@@ -31,12 +31,8 @@ use Tests\Concerns\InteractsWithSessions;
 use Tests\TestCase;
 
 /**
- * Feature tests for the token profile through Laravel: the tokens a sign-in
- * through the session service issues, and what a request behind the `auth`
- * middleware accepts. A token that breaks the profile in any way (its binding
- * to the guard, the issuer and the audience, its header type, its claim names,
- * its subject type, its session's authentication) is a 401 reported as
- * `token_invalid`, however well it is signed.
+ * Feature tests for the token profile through Laravel: what a sign-in issues
+ * and what the `auth` middleware accepts.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -94,11 +90,8 @@ final class TokenProfileTest extends TestCase
     }
 
     /**
-     * A sign-in's access token is an `at+jwt` naming the issuer, audience and
-     * guard, the identity as a person, its principal, its session and the
-     * session's password authentication, with no tenant in 2D; its refresh
-     * token is a `refresh+jwt` naming the session; and the access token
-     * authenticates a request.
+     * A sign-in's tokens keep the profile, and the access token authenticates a
+     * request.
      *
      * @return void
      *
@@ -128,10 +121,8 @@ final class TokenProfileTest extends TestCase
     }
 
     /**
-     * A session's authentication recorded after the token's issue time (another
-     * server's clock ahead of this one's) is carried as the issue time, so the
-     * token never claims an authentication fresher than itself and still
-     * parses.
+     * An authentication recorded after the token's issue time, by a server
+     * whose clock runs ahead, is carried as the issue time.
      *
      * @return void
      *
@@ -178,8 +169,7 @@ final class TokenProfileTest extends TestCase
 
     /**
      * A token is never issued naming a tenant the principal does not act
-     * within: a member's principal with another tenant given is refused, and
-     * with its own the token names it.
+     * within.
      *
      * @return void
      *
@@ -203,11 +193,7 @@ final class TokenProfileTest extends TestCase
     }
 
     /**
-     * A token of a session names the session's active tenant and no other:
-     * issued for the session with any other tenant, or with none, it is
-     * refused, and once the session acts in another tenant (one below the
-     * principal's own, say) its tokens name that one, which a token without a
-     * session never could.
+     * A session's token names the session's active tenant and no other.
      *
      * @return void
      *
@@ -245,9 +231,8 @@ final class TokenProfileTest extends TestCase
     }
 
     /**
-     * A grace retry, the refresh token a refresh replaced presented again
-     * inside the grace window, is handed an access token that names the tenant
-     * the session's principal acts within, as the refresh's own does.
+     * A grace retry's access token names the tenant the session's principal
+     * acts within.
      *
      * @return void
      *
@@ -356,10 +341,8 @@ final class TokenProfileTest extends TestCase
     }
 
     /**
-     * A refresh token offered as proof of the client's previous session still
-     * has its header and claims checked once it has expired: an expired refresh
-     * token replaces its session, while the same token with an access token's
-     * header type, or another issuer, proves nothing and replaces none.
+     * An expired refresh token offered as proof still has its header and claims
+     * checked.
      *
      * @return void
      *

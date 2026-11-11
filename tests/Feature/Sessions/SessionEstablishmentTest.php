@@ -61,10 +61,8 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
 /**
- * Feature tests of session establishment on its own: what it writes, returns
- * and schedules for an admitted sign-in, a required further factor and a
- * completion, and that it never binds the guard, which is the session service's
- * to do once it has returned.
+ * Feature tests of session establishment on its own, which never binds the
+ * guard.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -121,9 +119,8 @@ final class SessionEstablishmentTest extends TestCase
     }
 
     /**
-     * An admitted sign-in is written on a new session and reported, with
-     * `SessionCreated` and then `SignedIn`, while the guard stays a guest: no
-     * bind event fires and nothing is bound.
+     * An admitted sign-in is written and reported while the guard stays a
+     * guest.
      *
      * @return void
      *
@@ -167,10 +164,8 @@ final class SessionEstablishmentTest extends TestCase
     }
 
     /**
-     * A session written after its identity was deactivated, past the sign-in's
-     * admission, is checked once committed and reported by nothing: it is
-     * revoked as `identity_deactivated`, and the call's check holds the refusal
-     * the session service answers with.
+     * A session written after its identity was deactivated is revoked on commit
+     * and never reported.
      *
      * @param  bool  $pending
      * @return void
@@ -199,9 +194,7 @@ final class SessionEstablishmentTest extends TestCase
     }
 
     /**
-     * A replacing sign-in whose identity stopped standing before its write
-     * still reports the proven session it superseded, which stays revoked, but
-     * nothing reports the new session, which the check revokes.
+     * A replacement that fails its check still reports the superseded session.
      *
      * @return void
      *
@@ -280,12 +273,8 @@ final class SessionEstablishmentTest extends TestCase
     }
 
     /**
-     * A client that proves it holds a session of the same identity and
-     * principal gets a new session, and the proven one is revoked as
-     * `superseded`. Once the caller's transaction commits, the revocation is
-     * reported first, for the proven session with the method it records and the
-     * sign-in's client, then `SessionCreated` and `SignedIn` for the new
-     * session.
+     * A proven session is replaced as `superseded`, reported before the new
+     * session's events.
      *
      * @return void
      *
@@ -390,9 +379,8 @@ final class SessionEstablishmentTest extends TestCase
     }
 
     /**
-     * A replacement whose new session a model event cancels reports nothing,
-     * and its exception reaches the caller with the proven session still live
-     * at its digest and no new session written.
+     * A replacement a model event cancels reports nothing and leaves the proven
+     * session live.
      *
      * @return void
      *
@@ -439,11 +427,8 @@ final class SessionEstablishmentTest extends TestCase
     }
 
     /**
-     * A proof whose session changes before it can be replaced (here a refresh
-     * rotates it while the factor policy is asked) is dropped: the sign-in is
-     * reconsidered without it, the policy asked again with no proven session,
-     * and a new session starts while the refreshed one stays live and
-     * unreported.
+     * A proof whose session changes before the swap is dropped and the sign-in
+     * reconsidered without it.
      *
      * @return void
      *
@@ -521,9 +506,8 @@ final class SessionEstablishmentTest extends TestCase
     }
 
     /**
-     * A listener on the replaced session's revocation that throws stops the
-     * reports after it, and its exception reaches the caller, while the
-     * committed writes stand: the proven session revoked, the new one live.
+     * A revocation listener that throws stops the later reports while the
+     * committed writes stand.
      *
      * @return void
      *
@@ -571,10 +555,8 @@ final class SessionEstablishmentTest extends TestCase
     }
 
     /**
-     * Inside a caller's transaction, a listener on the replaced session's
-     * revocation that throws at the commit cannot keep the new session from
-     * being checked: the check is registered first, so a session whose identity
-     * was deactivated before the commit is still ended.
+     * A revocation listener that throws at the commit cannot skip the new
+     * session's check.
      *
      * @return void
      *
@@ -627,12 +609,8 @@ final class SessionEstablishmentTest extends TestCase
     }
 
     /**
-     * When the additional-factor policy asks for a further factor the default
-     * check never finds met, the sign-in is written as a pending session
-     * waiting on it, naming the requirement and the first factor it recorded,
-     * carrying the slots it took and holding no token, reported by
-     * `SessionPending` once committed; no session is created or signed in and
-     * the guard is not bound.
+     * A required further factor holds the sign-in as a pending session reported
+     * by `SessionPending`.
      *
      * @return void
      *
@@ -678,10 +656,8 @@ final class SessionEstablishmentTest extends TestCase
     }
 
     /**
-     * A sign-in with principals to choose from is written as a pending session
-     * waiting on the choice, after the further factor when one is required,
-     * recording no principal and listing none until the factor is met: the
-     * holder of the first factor alone never sees the identity's principals.
+     * A sign-in with principals to choose from waits on the choice after any
+     * further factor.
      *
      * @return void
      *
@@ -740,9 +716,8 @@ final class SessionEstablishmentTest extends TestCase
     }
 
     /**
-     * A sign-in whose deadline is this second or earlier is refused as
-     * `session_expired` with the identity, before its principals are read, the
-     * factor policy is asked, or anything is written or reported.
+     * A sign-in past its deadline is refused as `session_expired` before
+     * anything else.
      *
      * @return void
      *
@@ -771,11 +746,8 @@ final class SessionEstablishmentTest extends TestCase
     }
 
     /**
-     * A deadline that passes between the selection and the session (a slow
-     * principal lookup or password rehash, say) refuses the sign-in as
-     * `session_expired` with the identity and principal, whether the session
-     * would start active or pending, before the proof is checked, the factor
-     * policy asked, or anything written or reported.
+     * A deadline passed since the selection is refused as `session_expired`
+     * before anything is written.
      *
      * @return void
      *
@@ -815,10 +787,8 @@ final class SessionEstablishmentTest extends TestCase
     }
 
     /**
-     * A sign-in naming a tenant its principal may not act in is refused as
-     * `tenant_ineligible`, with the principal and the session the client proved
-     * it holds, before the tenant's policy is asked or anything is written: the
-     * proven session stays live and nothing is reported.
+     * A tenant the principal may not act in is refused as `tenant_ineligible`
+     * before any write.
      *
      * @return void
      *
@@ -887,9 +857,8 @@ final class SessionEstablishmentTest extends TestCase
     }
 
     /**
-     * A selected principal whose tenant requires a connection the sign-in did
-     * not come through is refused as `sso_required`, with the principal and
-     * tenant it was refused in, before anything is written or reported.
+     * A tenant requiring a connection refuses the sign-in as `sso_required`
+     * before any write.
      *
      * @return void
      *
@@ -923,10 +892,7 @@ final class SessionEstablishmentTest extends TestCase
     }
 
     /**
-     * A selected principal whose tenant requires a further factor the sign-in
-     * did not prove holds the sign-in pending on `mfa`, its principal and
-     * tenant recorded with the version the policy answered, though the
-     * identity's own policy asks for none.
+     * A tenant requiring a further factor holds the sign-in pending on `mfa`.
      *
      * @return void
      *
@@ -991,9 +957,8 @@ final class SessionEstablishmentTest extends TestCase
     }
 
     /**
-     * A requirement the bound check finds the first factor alone meets (an
-     * assurance level the password already reaches, say) starts the session
-     * active at sign-in, judged on the sign-in's own proof.
+     * A requirement the first factor meets starts the session active at
+     * sign-in.
      *
      * @return void
      *
@@ -1088,9 +1053,8 @@ final class SessionEstablishmentTest extends TestCase
     }
 
     /**
-     * The check of a sign-in through the guard the last establishment was built
-     * for, made for the request's client and begun now, as the session service
-     * makes it.
+     * Build the session service's check of a sign-in through the last
+     * establishment's guard.
      *
      * @return \SineMacula\Laravel\Authentication\Sessions\AdmissionRecheck
      */
@@ -1111,9 +1075,8 @@ final class SessionEstablishmentTest extends TestCase
     }
 
     /**
-     * The context of a sign-in from the request, with the refresh token the
-     * client presents, if any, and the deadline the session may last until, if
-     * any.
+     * Build a sign-in context from the request, with the client's refresh token
+     * and deadline, if any.
      *
      * @param  ?string  $refreshToken
      * @param  ?\Carbon\CarbonInterface  $notAfter

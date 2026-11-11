@@ -14,10 +14,7 @@ use SineMacula\Laravel\Authentication\Sessions\PendingCredential;
 use Tests\TestCase;
 
 /**
- * Feature tests for the helper a controller reads a request's pending
- * credential with: the configured body field alone, as a secret, refused as
- * `pending_invalid` when it is not a non-empty string, and absent when the body
- * has no such field.
+ * Feature tests of reading a request's pending credential from the body.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -28,10 +25,7 @@ use Tests\TestCase;
 final class PendingCredentialTest extends TestCase
 {
     /**
-     * Rows of `[the request, what is read]`: the pending credential from the
-     * JSON or form body field, a field that is not a non-empty string, and a
-     * request whose body has no such field, the query string and a header never
-     * read.
+     * Rows of `[the request, what is read]`.
      *
      * @formatter:off
      *
@@ -65,10 +59,7 @@ final class PendingCredentialTest extends TestCase
     }
 
     /**
-     * `extract()` reads the pending credential a request presents from the body
-     * field alone: the credential as a secret, `pending_invalid` for a field
-     * that is not a non-empty string, `null` when the body has no such field.
-     * It reports nothing.
+     * `extract()` reads the pending credential from the body field alone.
      *
      * @param  \Closure(): \Illuminate\Http\Request  $request
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|string|null  $expected
@@ -92,8 +83,7 @@ final class PendingCredentialTest extends TestCase
     }
 
     /**
-     * `extract()` reads the field the configuration names, and refuses a name
-     * PHP would file under another key.
+     * `extract()` reads the configured field and refuses one PHP would rename.
      *
      * @return void
      */

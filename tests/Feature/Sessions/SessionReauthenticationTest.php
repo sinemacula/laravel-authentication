@@ -53,11 +53,7 @@ use Tests\Integration\Fixtures\MachineClient;
 use Tests\TestCase;
 
 /**
- * Feature tests of reauthenticating a session with its identity's first factor:
- * a new access token whose authentication time is renewed and nothing else, the
- * proof recorded and reported once committed, the attempt counted as a
- * sign-in's and given back on success, and every refusal answered and reported,
- * never thrown, never saying whose a credential was.
+ * Feature tests of reauthenticating a session with its identity's first factor.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -130,9 +126,7 @@ final class SessionReauthenticationTest extends TestCase
     }
 
     /**
-     * Reauthenticating with the password through a route behind `auth:api`,
-     * while the access token is still live, answers a new access token for the
-     * session; the session keeps its refresh token and deadlines.
+     * Reauthenticating over HTTP answers a new access token only.
      *
      * @return void
      *
@@ -155,10 +149,8 @@ final class SessionReauthenticationTest extends TestCase
     }
 
     /**
-     * A reauthentication records a first-factor reauthentication proof for
-     * `reauthenticate`, through the method, with the method's channel, values
-     * and no evaluation, reports it with `Reauthenticated` once committed, and
-     * gives back every attempt slot it took.
+     * A reauthentication records and reports the proof and gives back its
+     * attempt slots.
      *
      * @return void
      *
@@ -214,9 +206,8 @@ final class SessionReauthenticationTest extends TestCase
     }
 
     /**
-     * A wrong password, and another identity's right one, are both refused as
-     * invalid credentials, the same way, and recorded nowhere; the attempt
-     * stays counted.
+     * A wrong password and another identity's right one are refused the same
+     * way.
      *
      * @return void
      *
@@ -244,9 +235,7 @@ final class SessionReauthenticationTest extends TestCase
 
     /**
      * A method the application does not allow is refused before anything is
-     * counted and before its driver is built, naming no challenge whether a
-     * method is registered under it or not, and a machine credential kind is no
-     * method at all.
+     * counted.
      *
      * @return void
      *
@@ -296,9 +285,7 @@ final class SessionReauthenticationTest extends TestCase
     }
 
     /**
-     * A method the application allows but no driver is registered under names
-     * no challenge: a revoked session is refused as revoked and reported with
-     * no challenge, and a live one throws when the method is asked to verify.
+     * An allowed method with no driver registered names no challenge.
      *
      * @return void
      *
@@ -331,9 +318,8 @@ final class SessionReauthenticationTest extends TestCase
     }
 
     /**
-     * `external_provider` is no method a first factor reauthenticates with,
-     * even on an application that allows external sign-in: it throws before
-     * anything is counted or reported.
+     * `external_provider` is no reauthentication method and throws before
+     * anything is counted.
      *
      * @return void
      *
@@ -385,11 +371,7 @@ final class SessionReauthenticationTest extends TestCase
     }
 
     /**
-     * A reauthentication is counted against the client given and reports with
-     * it, never the guard's own request: `Reauthenticated` once it commits, and
-     * `AuthenticationFailed` for a wrong credential, carry it while the guard
-     * serves a cross-site request from another address, and the attempt limit
-     * counts the client's address.
+     * A reauthentication is counted against and reported with the client given.
      *
      * @return void
      *
@@ -446,10 +428,8 @@ final class SessionReauthenticationTest extends TestCase
     }
 
     /**
-     * A session owned by a machine takes no reauthentication, before anything
-     * is counted; one whose recorded principal no longer resolves as that very
-     * principal is refused once admitted again, under the lock. Neither records
-     * a proof, and each is reported.
+     * A machine's session, or one whose principal no longer resolves, takes no
+     * reauthentication.
      *
      * @return void
      *
@@ -482,11 +462,8 @@ final class SessionReauthenticationTest extends TestCase
     }
 
     /**
-     * An account with no attempts left is not reauthenticated, whether the
-     * method honours the account's refusal or checks the secret anyway: the
-     * result answers `invalid_credentials` with no wait, so it never says the
-     * account exists, while `AuthenticationFailed` carries the account's limit
-     * and wait; nothing is recorded or given back.
+     * An account out of attempts is answered `invalid_credentials` with no
+     * wait, so it never confirms the account exists.
      *
      * @return void
      *
@@ -529,11 +506,8 @@ final class SessionReauthenticationTest extends TestCase
     }
 
     /**
-     * A reauthentication runs in the guard's credential timebox and cuts it
-     * short only once the session's own owner's credential has verified: a
-     * wrong password and another identity's right one each wait the box out,
-     * after a sign-in on the same guard cut its own short, so a valid password
-     * for some other account takes as long as a wrong one.
+     * Only the owner's verified credential cuts the timebox short, so a foreign
+     * valid password takes as long as a wrong one.
      *
      * @return void
      *
@@ -562,11 +536,8 @@ final class SessionReauthenticationTest extends TestCase
     }
 
     /**
-     * An identity deactivated since the sign-in is refused once its correct
-     * password has verified, when the session is admitted again under the lock:
-     * the result and `AuthenticationFailed` (flow `reauthentication`, about
-     * that identity) say `identity_inactive`, no proof is recorded, and the
-     * attempt's slots stay counted.
+     * An identity deactivated since the sign-in is refused under the lock as
+     * `identity_inactive`.
      *
      * @return void
      *
@@ -596,9 +567,8 @@ final class SessionReauthenticationTest extends TestCase
     }
 
     /**
-     * A session whose idle deadline passes while its credential is checked is
-     * judged at the time its lock is taken, not when the reauthentication
-     * began: it is refused as expired, and nothing is recorded or issued.
+     * A session that ends during the check is judged when its lock is taken and
+     * refused as expired.
      *
      * @return void
      *
@@ -656,9 +626,7 @@ final class SessionReauthenticationTest extends TestCase
     }
 
     /**
-     * Inside an application's transaction, `Reauthenticated` waits for the
-     * commit and is never reported when the transaction rolls back, with the
-     * proof it reports.
+     * `Reauthenticated` waits for the commit and is never reported on rollback.
      *
      * @return void
      *
@@ -720,11 +688,8 @@ final class SessionReauthenticationTest extends TestCase
     }
 
     /**
-     * Another identity's session put under the verified session's key while the
-     * credential was checked, as a session model that reissues keys could, is
-     * not the session verified, even one started in the same second: the
-     * reauthentication is `session_unknown`, reported for the session verified,
-     * and nothing is recorded or issued.
+     * Another identity's session put under the verified key is
+     * `session_unknown`.
      *
      * @return void
      *
@@ -754,13 +719,8 @@ final class SessionReauthenticationTest extends TestCase
     }
 
     /**
-     * A session of the same identity put under the verified session's key while
-     * the credential was checked, as a session model that reissues keys could,
-     * is not the session verified, even one started in the same second that
-     * holds a stronger proof than the password: the reauthentication is
-     * `session_unknown`, reported for the session verified, no token carries
-     * the replacement's `mfa` to the caller, and the replacement keeps only its
-     * own proofs.
+     * A same-identity session put under the verified key is `session_unknown`
+     * and keeps only its own proofs.
      *
      * @param  int  $after
      * @return void
@@ -790,10 +750,8 @@ final class SessionReauthenticationTest extends TestCase
     }
 
     /**
-     * A session the caller still holds whose key was given to another session
-     * of the same identity before the call, in the same second, is unknown: it
-     * is refused before anything is counted or verified, reported with no
-     * session, and nothing is recorded on the replacement or issued.
+     * A session whose key was reused before the call is unknown and refused
+     * before anything is counted.
      *
      * @return void
      *
@@ -849,9 +807,8 @@ final class SessionReauthenticationTest extends TestCase
     }
 
     /**
-     * A session deleted while its credential was checked is not found under the
-     * lock: the reauthentication is `session_unknown`, reported for the session
-     * verified, and nothing is recorded or issued.
+     * A session deleted during the check is `session_unknown`, reported for the
+     * session verified.
      *
      * @return void
      *
@@ -901,11 +858,8 @@ final class SessionReauthenticationTest extends TestCase
     }
 
     /**
-     * Put another session of the same identity under the session's key, as a
-     * session model that reissues keys could: the session's row and proofs are
-     * deleted, and a session started at the time given is written under the key
-     * with a generation of its own, its first factor, and an accepted further
-     * factor that reported multifactor authentication.
+     * Put another session of the same identity, started at the time given,
+     * under the session's key.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $signedIn
      * @param  \Carbon\CarbonImmutable  $started
@@ -928,9 +882,8 @@ final class SessionReauthenticationTest extends TestCase
     }
 
     /**
-     * Reauthenticate the session with its owner's password, changing its row as
-     * given once the credential is being checked, as if another session had
-     * been put under its key or the session deleted.
+     * Reauthenticate with the owner's password, applying the change while the
+     * credential is checked.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $signedIn
      * @param  \Closure(\Illuminate\Database\Query\Builder): mixed  $change
@@ -962,9 +915,8 @@ final class SessionReauthenticationTest extends TestCase
     }
 
     /**
-     * Assert the reauthentication was refused as `session_unknown`, reported
-     * for the owner and key of the session verified, with nothing recorded or
-     * issued.
+     * Assert the reauthentication was refused as `session_unknown` with nothing
+     * recorded or issued.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $signedIn
      * @param  \SineMacula\Laravel\Authentication\Sessions\AccessTokenResult  $result

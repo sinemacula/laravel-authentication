@@ -23,11 +23,8 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
 /**
- * Feature tests of the documented passkey routes, registered as an application
- * would and driven over HTTP with the virtual authenticator as the browser: a
- * signed-in identity registers a passkey, lists and removes it, and signs in
- * with it usernameless; the access token that sign-in returns authenticates
- * through `auth:api`.
+ * Feature tests of the documented passkey routes, driven over HTTP with the
+ * virtual authenticator.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -82,9 +79,7 @@ final class PasskeyRoutesTest extends TestCase
     }
 
     /**
-     * A signed-in identity registers a passkey over HTTP, lists it, signs in
-     * with it on a new session without naming itself, and that session's access
-     * token authenticates; removing the passkey stops it signing in.
+     * A passkey is registered, listed, used to sign in and removed over HTTP.
      *
      * @return void
      *
@@ -140,8 +135,8 @@ final class PasskeyRoutesTest extends TestCase
     }
 
     /**
-     * A registration that does not verify is answered 422 with the reason, and
-     * the routes behind `auth:api` refuse a request without a token.
+     * A failed registration is answered 422, and the `auth:api` routes refuse a
+     * request without a token.
      *
      * @return void
      *
@@ -205,8 +200,7 @@ final class PasskeyRoutesTest extends TestCase
     }
 
     /**
-     * The registration options route: options for the signed-in identity, shown
-     * under its email address.
+     * The registration options route for the signed-in identity.
      *
      * @return \Illuminate\Http\JsonResponse
      *
@@ -222,8 +216,7 @@ final class PasskeyRoutesTest extends TestCase
     }
 
     /**
-     * The registration route: register the browser's response for the signed-in
-     * identity, 201 with the summary, or 422 with the reason.
+     * The registration route: 201 with the summary, or 422 with the reason.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\JsonResponse
@@ -286,8 +279,8 @@ final class PasskeyRoutesTest extends TestCase
     }
 
     /**
-     * The passkey sign-in route: sign in through the session service with the
-     * challenge and the browser's response, 401 on any failure.
+     * The passkey sign-in route through the session service, 401 on any
+     * failure.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return array<string, ?string>

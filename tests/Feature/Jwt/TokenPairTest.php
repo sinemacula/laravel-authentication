@@ -32,11 +32,8 @@ use Tests\Integration\Fixtures\ChoosingMembership;
 use Tests\TestCase;
 
 /**
- * Feature tests, through the `Auth` facade and the session service, of the
- * expiry every token pair carries: a sign-in, a pending session satisfied, a
- * choice, a refresh and its grace retry, a switch, and a cookie application's
- * sign-in each hand back a pair that says its access token expires when the
- * token's own `exp` says, and lives the seconds from its `iat` to then.
+ * Feature tests of the expiry every token pair carries, through the `Auth`
+ * facade and the session service.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -244,9 +241,8 @@ final class TokenPairTest extends TestCase
     }
 
     /**
-     * Assert the pair says its access token expires at the token's `exp`, now
-     * plus the default access lifetime, and lives that lifetime: `exp` minus
-     * `iat`.
+     * Assert the pair expires at its access token's `exp`, now plus the default
+     * lifetime, and lives that lifetime.
      *
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Jwt\TokenPair  $tokens

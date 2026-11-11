@@ -81,9 +81,8 @@ final class AuthManagerTest extends TestCase
     }
 
     /**
-     * `sessions()` builds a session service of the named JWT guard, or of the
-     * default guard when no name is given, on each call: on the guard's context
-     * and token service, with the guard as the binding it signs in.
+     * `sessions()` builds a session service of the named or default JWT guard
+     * on each call.
      *
      * @return void
      *
@@ -111,10 +110,8 @@ final class AuthManagerTest extends TestCase
     }
 
     /**
-     * A JWT guard's session service is built on the application container, and
-     * resolves the database transactions manager each time it defers its
-     * events, so a manager bound later is the one consulted and none is used
-     * when the container has none.
+     * A session service resolves the transactions manager from the container
+     * each time it defers its events.
      *
      * @return void
      *
@@ -145,9 +142,8 @@ final class AuthManagerTest extends TestCase
     }
 
     /**
-     * `passkeys()` hands out a passkey service of the named JWT guard, or of
-     * the default guard when no name is given; a guard that is not a JWT guard
-     * has none, and asking for one names the guard.
+     * `passkeys()` hands out a passkey service of the named or default JWT
+     * guard only.
      *
      * @return void
      */
@@ -200,8 +196,8 @@ final class AuthManagerTest extends TestCase
     }
 
     /**
-     * `refreshTransport()` hands out the named JWT guard's transport, or the
-     * default guard's, built from that guard's configuration.
+     * `refreshTransport()` hands out the named or default JWT guard's
+     * transport.
      *
      * @return void
      */
@@ -243,9 +239,8 @@ final class AuthManagerTest extends TestCase
     }
 
     /**
-     * `forgetGuardState()` resets each resolved package guard to the current
-     * request, signed out, without recreating it, and leaves guards of other
-     * drivers alone.
+     * `forgetGuardState()` signs each resolved package guard out on the current
+     * request and leaves other drivers' guards alone.
      *
      * @return void
      */
@@ -261,7 +256,6 @@ final class AuthManagerTest extends TestCase
         $manager->extend('mocked', fn (): Guard => $session);
         config()->set('auth.guards.mocked', ['driver' => 'mocked']);
 
-        // Another driver's guard resolved first, so the reset must pass it by.
         $manager->guard('mocked');
 
         $jwt = $manager->guard('test_jwt');
@@ -291,10 +285,7 @@ final class AuthManagerTest extends TestCase
     }
 
     /**
-     * `caller()` reads the caller of the request being served: the guard's
-     * signed-in identity for a route that declares nothing, and none for one
-     * that declares the refresh credential and carries a refresh token that
-     * does not parse, which is reported once.
+     * `caller()` reads the caller of the request being served.
      *
      * @return void
      *
@@ -348,9 +339,8 @@ final class AuthManagerTest extends TestCase
     }
 
     /**
-     * Under a default guard that is not contextual, the manager's own accessors
-     * answer `null` rather than passing the call on to the guard, which has no
-     * such methods.
+     * Under a default guard that is not contextual, the manager's accessors
+     * answer `null`.
      *
      * @return void
      */
@@ -371,9 +361,7 @@ final class AuthManagerTest extends TestCase
     }
 
     /**
-     * `context()` answers what the bound authentication contexts answer, so an
-     * application or a test that rebinds the contract changes what every caller
-     * of the manager reads.
+     * `context()` answers what the bound authentication contexts answer.
      *
      * @return void
      */
@@ -394,8 +382,7 @@ final class AuthManagerTest extends TestCase
 
     /**
      * `resolvedGuard()` answers a package guard only once it is resolved, and
-     * never creates one: a guard not resolved yet, a name no guard has and a
-     * guard of another driver all answer `null`.
+     * never creates one.
      *
      * @return void
      */
@@ -423,8 +410,7 @@ final class AuthManagerTest extends TestCase
 
     /**
      * `inheritStateFrom()` takes over the replaced manager's guard and user
-     * provider creators, so guards and providers registered on it before the
-     * package booted resolve through the package's manager.
+     * provider creators.
      *
      * @return void
      *
@@ -456,10 +442,8 @@ final class AuthManagerTest extends TestCase
     }
 
     /**
-     * A creator bound to the replaced manager, as `viaRequest()` binds its own,
-     * is bound to the package's manager instead: the request guard it builds
-     * takes the user provider the package's manager creates, from a driver
-     * registered only after the swap.
+     * A creator bound to the replaced manager is bound to the package's manager
+     * instead.
      *
      * @return void
      *
@@ -489,8 +473,7 @@ final class AuthManagerTest extends TestCase
 
     /**
      * A user provider creator bound to the replaced manager is bound to the
-     * package's manager too: one that builds its provider from another of the
-     * manager's providers reaches a driver registered only after the swap.
+     * package's manager too.
      *
      * @return void
      *
@@ -519,9 +502,7 @@ final class AuthManagerTest extends TestCase
     }
 
     /**
-     * A closure bound to anything but the replaced manager is taken as it is,
-     * and so is a first-class callable of the replaced manager's own method,
-     * which keeps the object whose method it is.
+     * A closure bound to anything but the replaced manager is taken as it is.
      *
      * @return void
      *
@@ -550,9 +531,7 @@ final class AuthManagerTest extends TestCase
     }
 
     /**
-     * The replaced manager's default user resolver, bound to it, is bound to
-     * the package's manager, so the user resolves through the package's guards;
-     * so is the one `shouldUse()` sets.
+     * The replaced manager's user resolver is bound to the package's manager.
      *
      * @return void
      *
@@ -586,8 +565,8 @@ final class AuthManagerTest extends TestCase
     }
 
     /**
-     * A user resolver set on the replaced manager with `resolveUsersUsing()`,
-     * here a static closure, bound to nothing, is the package manager's.
+     * A custom user resolver set on the replaced manager is the package
+     * manager's.
      *
      * @return void
      */
@@ -632,8 +611,7 @@ final class AuthManagerTest extends TestCase
     }
 
     /**
-     * `jwt()` throws when the default guard resolves to an empty string. Pins
-     * the `$guardName === ''` early-throw in `AuthManager::jwt()`.
+     * `jwt()` throws when the default guard resolves to an empty string.
      *
      * @return void
      */
@@ -652,7 +630,7 @@ final class AuthManagerTest extends TestCase
 
     /**
      * A replaced manager with nothing registered leaves the package's manager
-     * with nothing: a provider of an unregistered driver is still unknown.
+     * with nothing.
      *
      * @return void
      */
@@ -674,8 +652,7 @@ final class AuthManagerTest extends TestCase
     }
 
     /**
-     * Register the package service provider against the Testbench application
-     * so the `auth` binding is overridden by the package subclass during boot.
+     * Register the package service provider.
      *
      * @param  mixed  $app
      * @return array<int, class-string<\Illuminate\Support\ServiceProvider>>

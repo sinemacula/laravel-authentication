@@ -39,9 +39,8 @@ use Tests\Unit\Stubs\StubIdentity;
 use Tests\Unit\Stubs\StubSession;
 
 /**
- * Feature tests for the session service a JWT guard hands out, for a refresh
- * refused because too many have failed, and for a refresh with the token the
- * request carries.
+ * Feature tests for a JWT guard's session service, rate-limited refresh and
+ * refresh from the request.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -63,9 +62,8 @@ final class JwtGuardTest extends JwtGuardTestCase
     }
 
     /**
-     * The context's timebox runs the callback in the guard's own credential
-     * timebox, with the configured budget, hands it that timebox, and returns
-     * what it returns; an exception from the callback propagates.
+     * The context's timebox runs the callback in the guard's credential timebox
+     * with the configured budget.
      *
      * @return void
      *
@@ -101,10 +99,8 @@ final class JwtGuardTest extends JwtGuardTestCase
     }
 
     /**
-     * A refresh the limits refuse is counted against the request's IP address,
-     * dispatches `Attempting`, `Failed` and `AuthenticationFailed`
-     * (`rate_limited`) in that order, and is returned with the wait, not
-     * thrown.
+     * A rate-limited refresh is counted against the IP address, reported as
+     * `rate_limited` and returned with the wait.
      *
      * @return void
      *
@@ -227,9 +223,8 @@ final class JwtGuardTest extends JwtGuardTestCase
     }
 
     /**
-     * A token the transport refuses is reported as a failed refresh, with
-     * `Attempting`, `Failed` and `AuthenticationFailed` carrying the
-     * transport's reason and the request's client, and the reason is returned.
+     * A token the transport refuses is reported as a failed refresh with the
+     * transport's reason, which is returned.
      *
      * @return void
      *
@@ -282,9 +277,8 @@ final class JwtGuardTest extends JwtGuardTestCase
     }
 
     /**
-     * A refresh with the token the request carried says where it was read from,
-     * and one with a token a body application read itself says it came from the
-     * body.
+     * A refresh says where its token was read from, and a token the application
+     * read itself came from the body.
      *
      * @return void
      *
@@ -309,10 +303,8 @@ final class JwtGuardTest extends JwtGuardTestCase
     }
 
     /**
-     * A refresh with the token the request carries reports `Refreshed` and then
-     * `SignedIn` (a refresh, on no new session) only once the session's
-     * connection commits, and only then binds as a sign-in, with `Validated`
-     * and `Login` (not remembered) before the bind events.
+     * A refresh from the request reports and binds as a sign-in only once the
+     * session's connection commits.
      *
      * @return void
      *
@@ -365,9 +357,8 @@ final class JwtGuardTest extends JwtGuardTestCase
     }
 
     /**
-     * A listener that throws on any bind event fails the refresh after its
-     * rotation was written, but `Refreshed` and `SignedIn` were dispatched
-     * before the bind began, and the listener's exception reaches the caller.
+     * A refresh whose bind listener throws still reports `Refreshed` and
+     * `SignedIn`, and the exception reaches the caller.
      *
      * @param  class-string  $bindEvent
      * @return void

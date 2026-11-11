@@ -23,9 +23,7 @@ use Tests\Unit\Stubs\PlainIdentityFixture;
 
 /**
  * Feature tests of the default password reset link sender, Laravel's
- * notification: it delivers a token that resets the password, refuses a guard
- * whose password identifier is not `email`, and fails the job for an identity
- * that cannot be notified.
+ * notification.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -39,8 +37,7 @@ final class NotifyingResetLinkSenderTest extends TestCase
     use InteractsWithPasswordResets;
 
     /**
-     * Laravel's notification is the default link sender: a guard whose password
-     * identifier is `email` gets Laravel's `ResetPassword`, whose token resets
+     * Laravel's notification is the default link sender, and its token resets
      * the password.
      *
      * @return void
@@ -74,9 +71,8 @@ final class NotifyingResetLinkSenderTest extends TestCase
     }
 
     /**
-     * While Laravel's notification is the sender, a guard identifying passwords
-     * by anything but `email` is refused a reset link before anything is
-     * counted; with a sender of the application's own it works.
+     * The default sender refuses a guard whose password identifier is not
+     * `email`.
      *
      * @return void
      *

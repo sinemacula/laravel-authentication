@@ -20,10 +20,8 @@ use Tests\Integration\Fixtures\CodeMachineClient;
 use Tests\TestCase;
 
 /**
- * Feature tests holding the code sign-in methods to the rule that a non-human
- * identity has no interactive sign-in: a machine is never sent a code, but one
- * that holds the right code for its verified phone number or email address is
- * still refused at admission, and no session is started.
+ * Feature tests holding the code sign-in methods to a machine having no
+ * interactive sign-in.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -81,9 +79,8 @@ final class MachineCodeSignInTest extends TestCase
     }
 
     /**
-     * The code a machine's verified identifier was issued proves the
-     * identifier, and admission then refuses the machine as `machine_identity`:
-     * no session and no pending sign-in.
+     * A machine holding the right code is refused at admission as
+     * `machine_identity`.
      *
      * @param  string  $method
      * @param  string  $type

@@ -23,12 +23,8 @@ use Tests\Fixtures\Http\ApplicationAuthenticate;
 use Tests\TestCase;
 
 /**
- * Feature tests of the messages the package answers a client with, served over
- * HTTP in the application's locale: the `401` of the package guards, whichever
- * `auth` middleware refused the guest, and the `429` of a throttled passkey
- * sign-in. The application's `lang/fr.json` translates them, and a locale it
- * has no translation for gets the English text; the status and the
- * `Retry-After` header are the same in every locale.
+ * Feature tests of the `401` and `429` messages the package answers in the
+ * application's locale.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -44,7 +40,7 @@ final class LocalizedMessagesTest extends TestCase
     use InteractsWithPasskeys, InteractsWithSessions;
 
     /**
-     * Create the tables, add the routes, and load the application's JSON
+     * Create the tables, add the routes and load the application's JSON
      * translations.
      *
      * @return void
@@ -77,8 +73,7 @@ final class LocalizedMessagesTest extends TestCase
     }
 
     /**
-     * Data provider of a locale, with the `401` message a client is answered
-     * with in it.
+     * Data provider of a locale and the `401` message in it.
      *
      * @return iterable<string, array{0: string, 1: string}>
      */
@@ -92,8 +87,8 @@ final class LocalizedMessagesTest extends TestCase
     }
 
     /**
-     * A guest refused by the package's `auth` middleware gets `401` with the
-     * message in the application's locale, whatever its `Accept` header.
+     * A guest refused by the package's `auth` middleware gets the `401` in the
+     * locale.
      *
      * @param  string  $locale
      * @param  string  $unauthenticated
@@ -109,9 +104,8 @@ final class LocalizedMessagesTest extends TestCase
     }
 
     /**
-     * A guest on a package guard refused by an application's middleware that
-     * extends Laravel's, which raises Laravel's own `Unauthenticated.`, gets
-     * the `401` in the application's locale too.
+     * A guest refused by an application middleware extending Laravel's gets the
+     * `401` in the locale.
      *
      * @param  string  $locale
      * @param  string  $unauthenticated
@@ -126,8 +120,7 @@ final class LocalizedMessagesTest extends TestCase
     }
 
     /**
-     * Data provider of a locale, with the `429` message a client is answered
-     * with in it.
+     * Data provider of a locale and the `429` message in it.
      *
      * @return iterable<string, array{0: string, 1: string}>
      */
@@ -141,8 +134,8 @@ final class LocalizedMessagesTest extends TestCase
     }
 
     /**
-     * Sign-in options past the client's limit are answered `429` with the wait
-     * in `Retry-After` and the message in the application's locale.
+     * Throttled sign-in options are answered `429` with `Retry-After` and the
+     * message in the locale.
      *
      * @param  string  $locale
      * @param  string  $throttled
@@ -164,8 +157,7 @@ final class LocalizedMessagesTest extends TestCase
     }
 
     /**
-     * The locale is read when the message is rendered, so one application
-     * answers each request in the locale it was set to for that request.
+     * Each request is answered in the locale set for it.
      *
      * @return void
      */
@@ -181,9 +173,7 @@ final class LocalizedMessagesTest extends TestCase
     }
 
     /**
-     * The translator is resolved as each message is rendered, so one the
-     * application binds after the exception handler and its `401` responder
-     * were resolved words the messages from then on.
+     * Messages are worded by the translator bound when they are rendered.
      *
      * @return void
      */

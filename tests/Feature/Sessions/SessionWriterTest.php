@@ -50,9 +50,7 @@ use Tests\Unit\Stubs\PlainTenantFixture;
 use Tests\Unit\Stubs\StubSession;
 
 /**
- * Feature tests for writing a session: creating a session, and replacing a
- * proven one, revoked by a compare-and-swap that applies only to the row as it
- * was proven, in the same transaction as the new session.
+ * Feature tests for creating a session and replacing a proven one.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -107,10 +105,7 @@ final class SessionWriterTest extends TestCase
     }
 
     /**
-     * A new session records the sign-in, its method and the type of identifier
-     * it used, as created from the origin's client and last used by the
-     * context's, and is issued a pair at `$now` whose refresh token carries the
-     * rotation id the session stores the digest of.
+     * A new session records the sign-in and is issued a pair at `$now`.
      *
      * @return void
      *
@@ -149,9 +144,8 @@ final class SessionWriterTest extends TestCase
     }
 
     /**
-     * A sign-in's insert is its session's issuance guard: the session is stored
-     * with its issuance sequence at zero, active or pending, and its first pair
-     * is issued with no further write to its row.
+     * A sign-in's insert is its session's issuance guard, with no further write
+     * to its row.
      *
      * @return void
      *
@@ -184,11 +178,7 @@ final class SessionWriterTest extends TestCase
     }
 
     /**
-     * A sign-in reads its new session's proofs as its own transaction sees
-     * them, never with a lock, on every engine: until it commits, no other
-     * transaction can record a proof under the session it inserted, and a
-     * shared lock on the newest session's proofs would make every concurrent
-     * sign-in on MySQL wait on it.
+     * A sign-in reads its own session's proofs without a lock on every engine.
      *
      * @param  string  $driver
      * @return void
@@ -219,9 +209,8 @@ final class SessionWriterTest extends TestCase
     }
 
     /**
-     * A session written under a tenant policy records the version it was
-     * checked against, and its first factor under the id the sign-in chose; a
-     * writer under none records no version.
+     * A session records the tenant policy version it was checked against and
+     * its first factor's id.
      *
      * @return void
      *
@@ -256,9 +245,8 @@ final class SessionWriterTest extends TestCase
     }
 
     /**
-     * A new session records the tenant its sign-in was admitted in as its
-     * active tenant, by identifier, and the access token it is issued names it;
-     * one admitted in no tenant records none, and its token names none.
+     * A new session records the tenant its sign-in was admitted in, and its
+     * access token names it.
      *
      * @return void
      *
@@ -282,8 +270,7 @@ final class SessionWriterTest extends TestCase
     }
 
     /**
-     * A session can only be owned by an Eloquent identity; anything else is a
-     * misconfiguration and writes nothing.
+     * A session cannot be owned by an identity that is not an Eloquent model.
      *
      * @return void
      *
@@ -345,12 +332,8 @@ final class SessionWriterTest extends TestCase
     }
 
     /**
-     * Replacing a proven session revokes it as `superseded`, forgetting both of
-     * its digests, mirrors that on the in-memory session as persisted, and
-     * writes a new session for the sign-in: a new key and rotation id, the new
-     * sign-in's method and type of identifier (none included), created from the
-     * origin's client, and a session that starts at `$now`. The proven session
-     * keeps everything else it recorded.
+     * Replacing a proven session revokes it as `superseded` and writes a new
+     * session for the sign-in.
      *
      * @return void
      *
@@ -448,9 +431,8 @@ final class SessionWriterTest extends TestCase
     }
 
     /**
-     * The new session records the client name and platform the sign-in gives,
-     * and, for each it does not give, what the proven session recorded: the
-     * client proved it is the same one.
+     * A replacement inherits the client name and platform the sign-in does not
+     * give.
      *
      * @param  ?string  $recordedName
      * @param  ?string  $recordedPlatform
@@ -550,8 +532,7 @@ final class SessionWriterTest extends TestCase
 
     /**
      * A description is inherited as the session model reads it, not as it is
-     * stored, so a model that encrypts its descriptions encrypts the inherited
-     * ones once: the new session reads back what the proven one recorded.
+     * stored.
      *
      * @return void
      *
@@ -595,9 +576,8 @@ final class SessionWriterTest extends TestCase
     }
 
     /**
-     * A description the proven session was loaded without is not inherited, and
-     * is not asked for, so a model that prevents reading a missing attribute
-     * replaces it all the same.
+     * A description the proven session was loaded without is neither inherited
+     * nor read.
      *
      * @return void
      *
@@ -666,8 +646,7 @@ final class SessionWriterTest extends TestCase
     }
 
     /**
-     * A row that changed after it was proven is not replaced: the swap misses,
-     * nothing is written or issued, and the in-memory session keeps its state.
+     * A row that changed after it was proven is not replaced.
      *
      * @param  array<string, mixed>  $change
      * @return void
@@ -712,10 +691,8 @@ final class SessionWriterTest extends TestCase
     }
 
     /**
-     * A failure while issuing the new session's pair (here a principal whose
-     * identifier cannot be written into its claim) rolls the replacement back
-     * whole: the proven session stays live at the digest it was proven at, and
-     * no new session is left.
+     * A failure while issuing the new pair rolls the replacement back, leaving
+     * the proven session live.
      *
      * @return void
      *
@@ -748,8 +725,8 @@ final class SessionWriterTest extends TestCase
     }
 
     /**
-     * A replacement a model event cancels rolls back whole: the proven session
-     * is not revoked and keeps both digests, and no new session is left.
+     * A replacement a model event cancels rolls back, leaving the proven
+     * session live.
      *
      * @return void
      *
@@ -794,9 +771,8 @@ final class SessionWriterTest extends TestCase
     }
 
     /**
-     * Only an admitted sign-in on an Eloquent session the client proved can
-     * replace one: without a session, or on one that is not an Eloquent
-     * session, it is a misconfiguration and writes nothing.
+     * A replacement without an Eloquent session is a misconfiguration and
+     * writes nothing.
      *
      * @return void
      *
@@ -823,9 +799,8 @@ final class SessionWriterTest extends TestCase
     }
 
     /**
-     * Rows of `[absolute lifetime or null, seconds from now to the context's
-     * deadline or null, seconds from now to the expected absolute deadline or
-     * null, seconds from now to the expected idle deadline]`.
+     * Rows of `[absolute lifetime, seconds to the context's deadline, expected
+     * absolute in, expected idle in]`.
      *
      * @return iterable<string, array{0: ?int, 1: ?int, 2: ?int, 3: int}>
      */
@@ -842,10 +817,8 @@ final class SessionWriterTest extends TestCase
     }
 
     /**
-     * A new session's absolute deadline is the earlier of the application's
-     * limit and the context's deadline, either alone, or none when there is
-     * neither, and its idle deadline never passes it; replacing a proven
-     * session caps the new one at the context's deadline the same way.
+     * A session's deadlines are capped at the context's deadline, on creation
+     * and on replacement.
      *
      * @param  ?int  $absolute
      * @param  ?int  $deadlineIn
@@ -879,9 +852,7 @@ final class SessionWriterTest extends TestCase
     }
 
     /**
-     * Every session the writer inserts records a generation of its own, a UUID,
-     * which the instance it answers holds: the session that replaces a proven
-     * one has another.
+     * Every session the writer inserts records a UUID generation of its own.
      *
      * @return void
      *
@@ -910,10 +881,8 @@ final class SessionWriterTest extends TestCase
     }
 
     /**
-     * A session written under a key an earlier session left proofs and a
-     * provenance under, bound to the same owner and guard, counts only its own
-     * sign-in's: what the earlier one left is deleted before its first factor
-     * is recorded.
+     * A session under a reused key keeps only its own sign-in's proofs and
+     * provenance.
      *
      * @return void
      *
@@ -960,9 +929,8 @@ final class SessionWriterTest extends TestCase
     }
 
     /**
-     * The writer refuses a context whose deadline is the session's start or
-     * earlier, before writing anything: establishment refuses such a sign-in
-     * first, so this only guards the writer's own contract.
+     * The writer refuses a context whose deadline is not after the session's
+     * start.
      *
      * @return void
      *
@@ -987,13 +955,8 @@ final class SessionWriterTest extends TestCase
     }
 
     /**
-     * A pending session records what it waits on, the digest of its
-     * credential's secret and no refresh credential, the session the client
-     * proved and the digest it was proven against, and the slots its sign-in
-     * holds, as created and last used by the sign-in's client; its idle
-     * deadline is the credential's expiry; its first factor is recorded with
-     * it; and its credential is its key and the secret, which only the digest
-     * verifies.
+     * A pending session records what it waits on and is handed a credential
+     * only its digest verifies.
      *
      * @return void
      *
@@ -1047,11 +1010,7 @@ final class SessionWriterTest extends TestCase
     }
 
     /**
-     * Each write of a session an external provider established, active, a
-     * replacement or pending, writes the guard of the link its provenance
-     * records before any session row, so a revocation of the link or the
-     * connection racing it writes the same row first or waits for it; a sign-in
-     * with no provenance writes no guard.
+     * An external sign-in writes its link's guard before any session row.
      *
      * @return void
      *
@@ -1104,10 +1063,7 @@ final class SessionWriterTest extends TestCase
     }
 
     /**
-     * A pending session waiting on a choice records no principal, and one whose
-     * absolute deadline comes before its credential's expiry idles out at the
-     * absolute deadline; a sign-in that proved nothing and holds no slots
-     * records none.
+     * A pending session never outlives its absolute deadline.
      *
      * @return void
      *
@@ -1196,9 +1152,7 @@ final class SessionWriterTest extends TestCase
     }
 
     /**
-     * The session the writer hands back reads as active and waiting on nothing
-     * from what the writer set, also on a session model that gives its columns
-     * no defaults, as one an application writes itself may not.
+     * A new session reads as active on a model whose columns have no defaults.
      *
      * @return void
      *

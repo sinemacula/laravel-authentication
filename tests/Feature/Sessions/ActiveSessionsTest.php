@@ -30,13 +30,8 @@ use Tests\Integration\Fixtures\ForeignModelSessionsIdentity;
 use Tests\TestCase;
 
 /**
- * Feature tests of a session list route an application registers behind
- * `auth:api`, driven over HTTP: `Auth::sessions('api')->sessions()` lists the
- * signed-in identity's active sessions of every guard, marks the one the
- * request is authenticated with, pages them, and never exposes a digest,
- * revocation column, owner or principal; and of the lookup of one of them,
- * `session()`, which finds exactly the sessions the list holds, as the list
- * shows them.
+ * Feature tests of listing and finding the signed-in identity's active sessions
+ * over HTTP.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -105,9 +100,8 @@ final class ActiveSessionsTest extends TestCase
     }
 
     /**
-     * The list holds the identity's sessions of every guard, marks only the
-     * session the request's access token names, and shows each without its
-     * digests, revocation, owner or principal.
+     * The list holds the identity's sessions of every guard, marks the current
+     * one and hides its digests.
      *
      * @return void
      */
@@ -194,9 +188,7 @@ final class ActiveSessionsTest extends TestCase
     }
 
     /**
-     * A session bound to the guard is the current one only when it is of the
-     * listed session's class as well as its identifier: a session of another
-     * class that shares the identifier marks none.
+     * A bound session of another class with the same identifier is not current.
      *
      * @return void
      *
@@ -296,7 +288,7 @@ final class ActiveSessionsTest extends TestCase
     }
 
     /**
-     * An identity that holds no sessions has no list: a misconfiguration.
+     * An identity that holds no sessions is refused.
      *
      * @return void
      */
@@ -323,10 +315,7 @@ final class ActiveSessionsTest extends TestCase
     }
 
     /**
-     * Every session the list holds, across all its pages, is found by its
-     * identifier with the very summary the list gives, the current one marked;
-     * a session the list leaves out (revoked, pending, past a deadline, or
-     * another identity's) is not found.
+     * Every listed session is found as the list shows it, and no other.
      *
      * @return void
      *
@@ -383,8 +372,7 @@ final class ActiveSessionsTest extends TestCase
     }
 
     /**
-     * Rows of an identifier that cannot be a key of the shipped session model,
-     * whose keys are UUIDs.
+     * Rows of an identifier that cannot be a UUID session key.
      *
      * @return iterable<string, array{0: mixed}>
      */
@@ -451,8 +439,7 @@ final class ActiveSessionsTest extends TestCase
     }
 
     /**
-     * An identity that holds no sessions has none to find: a misconfiguration,
-     * refused before anything is read.
+     * An identity that holds no sessions is refused before anything is read.
      *
      * @return void
      */

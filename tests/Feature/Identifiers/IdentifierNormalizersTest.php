@@ -14,7 +14,7 @@ use Tests\TestCase;
 
 /**
  * Feature tests for the identifier normaliser registry resolved from the
- * container over `authentication.identifiers.normalizers`.
+ * container.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -25,8 +25,8 @@ use Tests\TestCase;
 final class IdentifierNormalizersTest extends TestCase
 {
     /**
-     * The registry is one instance for the application, and out of the box it
-     * knows only the email and E.164 phone normalisers.
+     * The registry is a singleton that ships only the email and E.164 phone
+     * normalisers.
      *
      * @return void
      */
@@ -45,8 +45,8 @@ final class IdentifierNormalizersTest extends TestCase
     }
 
     /**
-     * An application registers a normaliser for another type under a container
-     * abstract of its own, resolved through the container.
+     * An application normaliser registered under its own abstract is resolved
+     * through the container.
      *
      * @return void
      */
@@ -92,8 +92,8 @@ final class IdentifierNormalizersTest extends TestCase
     }
 
     /**
-     * An abstract that does not resolve to a normaliser is reported, naming the
-     * type, the abstract and what it resolved to.
+     * An abstract that does not resolve to a normaliser is reported with the
+     * type and what it resolved to.
      *
      * @return void
      */
@@ -129,8 +129,7 @@ final class IdentifierNormalizersTest extends TestCase
     }
 
     /**
-     * A malformed map fails closed on every question, rather than leaving
-     * identifiers as given.
+     * A malformed map fails closed on every question.
      *
      * @param  mixed  $map
      * @param  string  $message

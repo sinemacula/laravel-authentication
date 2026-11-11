@@ -16,9 +16,8 @@ use Tests\Fixtures\Providers\BindsCustomizedAuthManager;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
 
 /**
- * Feature tests for an application's own auth manager, a subclass of the
- * package's bound to `auth` in a `register()`: the package keeps it, with its
- * own behaviour, and registers its drivers on it.
+ * Feature tests for an application's own subclass of the package's auth
+ * manager.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -29,8 +28,7 @@ use Tests\Unit\Stubs\StubAuthenticatableModel;
 final class AuthManagerCustomizationTest extends TestCase
 {
     /**
-     * The application's manager is the one `auth` and the facade resolve, with
-     * its own method, and the package's guard driver is registered on it.
+     * The application's manager is kept, with the package's drivers on it.
      *
      * @return void
      */

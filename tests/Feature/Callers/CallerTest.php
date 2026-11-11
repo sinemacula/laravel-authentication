@@ -27,10 +27,6 @@ use Tests\Unit\Stubs\StubBareSession;
 
 /**
  * Feature tests of whether a session, identity or principal model is the
- * caller's: a session of the caller's guard and identity, and the very one a
- * refresh or pending credential proves; the caller's own identity; and the
- * principal it acts as, one its pending session offers, or one its identity may
- * use the application as; each judged by class and key, and nothing else the
  * caller's.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -70,10 +66,8 @@ final class CallerTest extends TestCase
     }
 
     /**
-     * With the access credential, every session of the caller's guard that its
-     * member owns is the caller's, so a screen can list and revoke the member's
-     * other sessions; another member's session, the member's session of another
-     * application, and a session model the package does not store are not.
+     * With the access credential, every session of the guard and member is the
+     * caller's.
      *
      * @return void
      *
@@ -98,9 +92,7 @@ final class CallerTest extends TestCase
     }
 
     /**
-     * With a refresh credential, only the very session the credential proves is
-     * the caller's: not another session of its member, and not the same row
-     * read as a session model of another class.
+     * With a refresh credential, only the session it proves is the caller's.
      *
      * @return void
      *
@@ -126,15 +118,14 @@ final class CallerTest extends TestCase
     }
 
     /**
-     * With a pending credential, the pending session and its member are the
-     * caller's, as is each membership the session offers for the choice, while
-     * the member's active session and another member's membership are not.
+     * With a pending credential, the pending session and the memberships it
+     * offers are the caller's.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testWithAPendingCredentialThePendingSessionAndTheMembershipsItOffersAreTheCallers(): void
+    public function testPendingCredentialOwnsItsSessionAndOfferedMemberships(): void
     {
         [$member, [$first, $second]] = $this->seedMember('ada@example.test', 2);
         [, [$graces]]                = $this->seedMember('grace@example.test');
@@ -161,9 +152,7 @@ final class CallerTest extends TestCase
     }
 
     /**
-     * The caller's own identity is the caller's, as a fresh instance of its
-     * class with its key; another member, or a model of another class with the
-     * same key, is not.
+     * The caller's identity is judged by class and key.
      *
      * @return void
      *
@@ -182,10 +171,8 @@ final class CallerTest extends TestCase
     }
 
     /**
-     * With the access credential, the principal the caller acts as is the
-     * caller's, and so is another membership its member may use the application
-     * as; a membership of another member, a soft-deleted one, and a principal
-     * of another class with the same id are not.
+     * A principal is the caller's when it acts as it or its identity may use
+     * it.
      *
      * @return void
      *
@@ -236,9 +223,7 @@ final class CallerTest extends TestCase
 
     /**
      * A principal is admitted by its id only through the guard's session
-     * service, also for a caller whose credential holds no session (an
-     * access-only token's); a caller without the service admits none, and a
-     * refresh caller without a session owns no session.
+     * service.
      *
      * @return void
      *

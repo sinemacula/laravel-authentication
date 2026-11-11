@@ -33,12 +33,8 @@ use Tests\Unit\Stubs\StubIdentity;
 use Tests\Unit\Stubs\StubSession;
 
 /**
- * Feature tests for the RecordSessionUsage listener, which the event names the
- * session to by its identifier only: on the path every request takes, the
- * session the event's guard has bound is written in place, with nothing read;
- * otherwise the session is read by its identifier through the configured
- * session model, and one that is gone, or is not an Eloquent session, records
- * nothing.
+ * Feature tests for the `RecordSessionUsage` listener, whose event names the
+ * session by its identifier only.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -100,9 +96,8 @@ final class RecordSessionUsageTest extends TestCase
     }
 
     /**
-     * A first use of the session the guard has bound records the time, the
-     * request's IP address, and its user agent on the row in one update, with
-     * nothing read, and mirrors them on the bound model as persisted state.
+     * A first use of the guard's bound session records the time, IP address and
+     * user agent in one update, reading nothing.
      *
      * @return void
      */
@@ -129,9 +124,8 @@ final class RecordSessionUsageTest extends TestCase
     }
 
     /**
-     * A session no resolved guard has bound, or one the guard has not bound, is
-     * read by its identifier through the configured session model and written
-     * there; the instance the event was built from is not touched.
+     * A session the guard has not bound is read by its identifier through the
+     * configured model and written there.
      *
      * @return void
      */
@@ -156,10 +150,8 @@ final class RecordSessionUsageTest extends TestCase
     }
 
     /**
-     * A guard resolved for the request but not yet asked, its bearer token one
-     * it would refuse, has bound no session: the session is read by its
-     * identifier and written, and the guard's request is left unresolved, so
-     * nothing is refused.
+     * A guard not yet asked has bound no session, so the session is read by its
+     * identifier and its request left unresolved.
      *
      * @return void
      */
@@ -221,9 +213,7 @@ final class RecordSessionUsageTest extends TestCase
     }
 
     /**
-     * An event that names no session is done with before the auth manager is
-     * resolved, so it needs nothing bound: in a container that binds nothing,
-     * it resolves nothing and does not throw.
+     * An event naming no session resolves nothing, not even the auth manager.
      *
      * @return void
      *
@@ -342,8 +332,7 @@ final class RecordSessionUsageTest extends TestCase
 
     /**
      * A last-use time stored without a `datetime` cast still starts the
-     * throttle window, rather than reading as "never used" and writing on every
-     * request.
+     * throttle window.
      *
      * @return void
      */
@@ -366,9 +355,8 @@ final class RecordSessionUsageTest extends TestCase
     }
 
     /**
-     * A last use recorded further in the future than the throttle window, by a
-     * server whose clock ran ahead, is replaced with the real time instead of
-     * blocking every write until it is reached.
+     * A last use recorded in the future beyond the throttle window is replaced
+     * with the real time.
      *
      * @return void
      */
@@ -399,9 +387,7 @@ final class RecordSessionUsageTest extends TestCase
     }
 
     /**
-     * The client is stored as `ClientContext` cleans it: an address that is not
-     * an IP address is dropped, and a user agent with a NUL byte and invalid
-     * UTF-8 is stored without them.
+     * The client is stored as `ClientContext` cleans it.
      *
      * @return void
      */

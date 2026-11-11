@@ -44,10 +44,7 @@ use Tests\Integration\Fixtures\MachineClient;
 use Tests\TestCase;
 
 /**
- * Feature tests for `Auth::codes($guard)`: sending sign-in codes (the checks a
- * request passes, the limits and cooldown it is held to, the job it queues once
- * the code is committed, and what each refusal reports), and sending and
- * checking codes that verify an identity's identifier.
+ * Feature tests for sending and checking codes through `Auth::codes($guard)`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -68,9 +65,8 @@ final class CodeServiceTest extends TestCase
     private CarbonImmutable $now;
 
     /**
-     * Freeze the clock, create the table, issue known codes, and fake a queue
-     * that a worker would run, so a delivery is pushed as soon as it is
-     * dispatched.
+     * Freeze the clock, create the table, issue known codes and push each
+     * queued job at once.
      *
      * @return void
      */
@@ -109,10 +105,7 @@ final class CodeServiceTest extends TestCase
 
     /**
      * A sign-in code is issued and its delivery queued on the configured
-     * connection and queue: the job carries the binding and the issuance, and
-     * no identity, since the recipient is found only when it runs. The result
-     * says when the code expires and when another may be requested; nothing is
-     * reported as failed.
+     * connection.
      *
      * @return void
      *
@@ -267,9 +260,8 @@ final class CodeServiceTest extends TestCase
     }
 
     /**
-     * Within the resend cooldown no code is issued: the request is rate limited
-     * for the seconds left, reported with the wait, and the code already sent
-     * keeps working.
+     * Within the resend cooldown no code is issued and the request is rate
+     * limited.
      *
      * @return void
      *
@@ -293,9 +285,7 @@ final class CodeServiceTest extends TestCase
     }
 
     /**
-     * Every request counts against the number's and the IP address's code
-     * request limits, refused or not, and once a limit is used up the request
-     * is rate limited until its window ends, without issuing a code.
+     * Code requests are limited per number and per IP address.
      *
      * @return void
      *
@@ -324,9 +314,7 @@ final class CodeServiceTest extends TestCase
     }
 
     /**
-     * The delivery is queued only once the code is committed on its connection:
-     * inside a transaction it waits for the commit, and a rollback, which takes
-     * the code back, queues nothing.
+     * The delivery is queued only once the code is committed on its connection.
      *
      * @return void
      *
@@ -446,10 +434,7 @@ final class CodeServiceTest extends TestCase
     }
 
     /**
-     * A verification code that is wrong, malformed, expired or exhausted, or
-     * was sent to a number the identity no longer has, verifies nothing: the
-     * outcome says why, not concealed, and the reason is reported for the
-     * identity and the challenge.
+     * A refused verification reports why for the identity and the challenge.
      *
      * @param  string  $before
      * @param  string  $code
@@ -515,9 +500,8 @@ final class CodeServiceTest extends TestCase
     }
 
     /**
-     * Rows of `[challenge id, code]` a verification check refuses as malformed,
-     * and a type the identity has no identifier of, which has no binding to
-     * check against.
+     * Rows of `[challenge id, code]` a verification check refuses as malformed
+     * or unbound.
      *
      * @return iterable<string, array{0: ?string, 1: string, 2: bool}>
      */
@@ -531,9 +515,8 @@ final class CodeServiceTest extends TestCase
     }
 
     /**
-     * Once the identity's checks are used up, a malformed check or one for an
-     * unbound type is `rate_limited`, with the wait, not `invalid`: the limit
-     * is taken before the input is judged.
+     * Once the limit is used up, a malformed or unbound check is
+     * `rate_limited`.
      *
      * @param  ?string  $challengeId
      * @param  string  $code
@@ -612,9 +595,8 @@ final class CodeServiceTest extends TestCase
     }
 
     /**
-     * A right code whose number changed after the identity was loaded is used
-     * up and answers `mismatch`: neither number is recorded verified and
-     * nothing is reported.
+     * A right code whose number changed after the identity was loaded answers
+     * `mismatch`.
      *
      * @return void
      *
@@ -638,9 +620,8 @@ final class CodeServiceTest extends TestCase
     }
 
     /**
-     * An identity with no number, or one the normaliser refuses, has nothing to
-     * verify: `identifier_invalid`, reported with the identity, and nothing
-     * counted or issued.
+     * An identity with no valid number has nothing to verify:
+     * `identifier_invalid`.
      *
      * @return void
      *
@@ -856,9 +837,8 @@ final class CodeServiceTest extends TestCase
     }
 
     /**
-     * A malformed setting a factor code needs, or a key that cannot be had,
-     * fails a send or a check closed before anything is counted, admitted or
-     * issued, with the factor package's counters ready to admit it.
+     * A malformed setting a factor code needs fails closed before anything is
+     * counted.
      *
      * @param  array<string, mixed>  $settings
      * @param  non-empty-string  $message
@@ -891,9 +871,7 @@ final class CodeServiceTest extends TestCase
     }
 
     /**
-     * A request answers the id of the challenge it sent; a resend after the
-     * cooldown is the same challenge, with a new code, and keeps it while it
-     * lives; once it is used, the next request is a new challenge.
+     * A resend after the cooldown keeps the challenge while it lives.
      *
      * @return void
      *
@@ -922,10 +900,8 @@ final class CodeServiceTest extends TestCase
     }
 
     /**
-     * Once a number's delivery window has had all its deliveries, a request is
-     * refused until the window ends, answered with the wait and reported as
-     * `deliveries_exhausted` on the `code_request` flow, for a number no one
-     * has exactly as for a known one.
+     * A number out of deliveries is refused until its window ends, known or
+     * not.
      *
      * @return void
      *
@@ -960,10 +936,7 @@ final class CodeServiceTest extends TestCase
     }
 
     /**
-     * A verification check names its challenge: a malformed id is `invalid`,
-     * counts no attempt and is never reported as a challenge; another
-     * challenge's id is `invalid`, spends no attempt on the live one and is
-     * reported as the challenge the check answered.
+     * A verification check names its challenge and spends nothing on another.
      *
      * @return void
      *
@@ -989,11 +962,7 @@ final class CodeServiceTest extends TestCase
     }
 
     /**
-     * A verification check counts against the identity's account and the IP
-     * address (`identifier_verification`): a wrong code keeps its slots, a
-     * correct one gives them back, and an identity out of checks is answered
-     * `rate_limited`, reported with the wait, before its code is touched (the
-     * code keeps the two attempts the earlier checks spent).
+     * A verification check is limited per identity and per IP address.
      *
      * @return void
      *

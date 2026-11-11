@@ -42,8 +42,7 @@ final class RateLimitTest extends TestCase
 
     /**
      * The model reads its table and connection from the configuration each time
-     * it is built; an empty connection name means the storage connection, the
-     * default one unless it names another.
+     * it is built, empty meaning the storage connection.
      *
      * @return void
      */
@@ -84,9 +83,7 @@ final class RateLimitTest extends TestCase
     }
 
     /**
-     * A connection that is not a name fails closed instead of counting on the
-     * storage connection, inside the transactions a separate connection keeps
-     * the counts out of.
+     * A connection that is not a name fails closed.
      *
      * @param  mixed  $connection
      * @return void

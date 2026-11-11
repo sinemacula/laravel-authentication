@@ -15,10 +15,6 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
 /**
  * Feature tests for the package Auth facade.
  *
- * Boots the package service provider so the `auth` binding resolves to the
- * package `AuthManager` subclass, then verifies the facade's structural
- * inheritance and the `manager()` type-narrowing accessor.
- *
  * @internal
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -32,8 +28,7 @@ final class AuthFacadeTest extends TestCase
         . ' - check that AuthenticationServiceProvider is registered.';
 
     /**
-     * The package facade subclass extends Laravel's framework `Auth` facade so
-     * IDE autocompletion picks up both surfaces.
+     * The package facade extends Laravel's `Auth` facade.
      *
      * @return void
      */
@@ -48,10 +43,8 @@ final class AuthFacadeTest extends TestCase
     }
 
     /**
-     * The contextual accessors (`principal`, `session`, `tenant`) and
-     * `sessions()` are real instance methods on the package `AuthManager` - not
-     * macros, and there is no principal type accessor. Verify they exist on the
-     * resolved manager so a rename or removal fails the suite.
+     * The contextual accessors are instance methods on the package
+     * `AuthManager`.
      *
      * @return void
      */
@@ -72,9 +65,7 @@ final class AuthFacadeTest extends TestCase
     }
 
     /**
-     * `Auth::manager()` returns the package `AuthManager` instance resolved
-     * from the container, type-narrowed to the package subclass so consumers
-     * can call its contextual accessors directly.
+     * `Auth::manager()` returns the package `AuthManager` from the container.
      *
      * @return void
      */
@@ -87,9 +78,8 @@ final class AuthFacadeTest extends TestCase
     }
 
     /**
-     * `Auth::manager()` throws `LogicException` when the `auth` container
-     * binding does not resolve to a package `AuthManager` instance - the safety
-     * net for consumers who forgot to register the package service provider.
+     * `Auth::manager()` throws when the `auth` binding is not the package
+     * `AuthManager`.
      *
      * @return void
      */
@@ -104,8 +94,7 @@ final class AuthFacadeTest extends TestCase
     }
 
     /**
-     * `Auth::manager()` throws the same `LogicException` when the facades have
-     * no application to resolve the binding from.
+     * `Auth::manager()` throws when the facades have no application.
      *
      * @return void
      */
@@ -126,11 +115,8 @@ final class AuthFacadeTest extends TestCase
     }
 
     /**
-     * The facade annotates every public method the package `AuthManager`
-     * declares, with the method's parameters and the return type its own
-     * docblock states, so an IDE and static analysis see what a call takes and
-     * returns: no method is missing, none is left over, and none says it may
-     * return `null` when it never does.
+     * The facade annotates every public `AuthManager` method with its declared
+     * parameters and return type.
      *
      * @return void
      */
@@ -156,8 +142,7 @@ final class AuthFacadeTest extends TestCase
     }
 
     /**
-     * Register the package service provider so the `auth` binding resolves to
-     * the package `AuthManager` subclass.
+     * Register the package service provider.
      *
      * @param  mixed  $app
      * @return array<int, class-string<\Illuminate\Support\ServiceProvider>>
@@ -170,7 +155,7 @@ final class AuthFacadeTest extends TestCase
 
     /**
      * The signature each `@method` annotation on the facade gives, by method
-     * name: its return type and its parameter list.
+     * name.
      *
      * @return array<string, string>
      */
@@ -188,9 +173,7 @@ final class AuthFacadeTest extends TestCase
     }
 
     /**
-     * The signature a manager method declares, in the facade's notation: the
-     * return type its docblock states (`?T` written `T|null`) and its
-     * parameters with their types and defaults.
+     * The signature a manager method declares, in the facade's notation.
      *
      * @param  \ReflectionMethod  $method
      * @return string

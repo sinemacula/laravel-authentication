@@ -46,9 +46,8 @@ use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 use Tests\TestCase;
 
 /**
- * Feature tests for judging a session, or a sign-in's evidence, against its
- * tenant's authentication policy, with a scripted policy and check, against
- * sessions and proofs in a real database.
+ * Feature tests for judging a session or a sign-in's evidence against its
+ * tenant's authentication policy.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -119,9 +118,8 @@ final class TenantPolicyCheckTest extends TestCase
     }
 
     /**
-     * The policy is asked about the application, the identity, the principal,
-     * the tenant and the session, and its version is passed through; an answer
-     * that asks for nothing reads neither provenance nor proofs.
+     * An answer that asks for nothing is met without reading provenance or
+     * proofs.
      *
      * @return void
      *
@@ -159,9 +157,7 @@ final class TenantPolicyCheckTest extends TestCase
 
     /**
      * Named connections are met only by a session established through one of
-     * them, as its provenance records; a session no provider established, an
-     * empty list, and no session at all meet none, and a verdict that requires
-     * a connection names no further factor.
+     * them.
      *
      * @return void
      *
@@ -232,9 +228,7 @@ final class TenantPolicyCheckTest extends TestCase
     }
 
     /**
-     * A requirement already answered is judged as `check()` judges the policy's
-     * answer, without asking the policy: against the sign-in's evidence, its
-     * version carried on the verdict.
+     * A requirement already answered is judged without asking the policy.
      *
      * @return void
      *
@@ -259,12 +253,7 @@ final class TenantPolicyCheckTest extends TestCase
     }
 
     /**
-     * A further factor is met only when the bound check finds it met against
-     * the session's counting proofs, read newest first, with the first factor
-     * at hand; never by the default check, and never without a session or
-     * evidence. A verdict that falls short of it names the requirement, and one
-     * that meets it names none; either carries the first factor it was judged
-     * on, read once.
+     * A further factor is met only when the bound check finds it met.
      *
      * @return void
      *
@@ -313,11 +302,7 @@ final class TenantPolicyCheckTest extends TestCase
     }
 
     /**
-     * A check made under the session's lock reads its provenance and proofs
-     * current: the connection, the first factor, the accepted evidence and the
-     * check's proofs, each with a shared lock where the engine takes one,
-     * through `check()` and `judge()` alike; a plain check takes none, and a
-     * policy that asks for nothing reads nothing either way.
+     * A check under the session's lock reads the provenance and proofs current.
      *
      * @return void
      *
@@ -354,9 +339,7 @@ final class TenantPolicyCheckTest extends TestCase
     }
 
     /**
-     * A sign-in's evidence is read in place of the session's stored proofs when
-     * both are given: a further factor the session stores does not meet a
-     * requirement the sign-in's own proofs do not.
+     * A sign-in's evidence is read in place of the session's stored proofs.
      *
      * @return void
      *
@@ -384,10 +367,8 @@ final class TenantPolicyCheckTest extends TestCase
     }
 
     /**
-     * A tenant's further factor is met by a sign-in through one of its
-     * connections whose evidence the evidence policy accepted and says meets
-     * it, with no further factor proved; not by the default evidence policy,
-     * which leaves it to the check.
+     * A tenant's further factor is met by evidence the evidence policy
+     * accepted.
      *
      * @return void
      *
@@ -451,11 +432,7 @@ final class TenantPolicyCheckTest extends TestCase
     }
 
     /**
-     * The policy is told the connection the session was established through,
-     * read once for it and the judgement: a provider-established active
-     * session's, a pending session's, the sign-in's own before its session is
-     * written (without a read), and none for a session no provider established
-     * or none at all.
+     * The policy is told the connection the session was established through.
      *
      * @return void
      *
@@ -507,10 +484,7 @@ final class TenantPolicyCheckTest extends TestCase
     }
 
     /**
-     * The connection is read only when asked, and once: the default policy,
-     * which never asks, and a judgement that names no connections cost no read
-     * of the session's provenance; a policy that reads the connection and a
-     * judgement that names connections read it once between them.
+     * The connection is read only when asked, and once.
      *
      * @return void
      *
@@ -553,9 +527,7 @@ final class TenantPolicyCheckTest extends TestCase
     }
 
     /**
-     * A policy that keeps its context cannot read the connection after the
-     * check: one it did not read is expired, whether the check returned or the
-     * policy threw, and reads no provenance; one it read stays readable.
+     * A kept context cannot read a connection it did not read after the check.
      *
      * @return void
      *

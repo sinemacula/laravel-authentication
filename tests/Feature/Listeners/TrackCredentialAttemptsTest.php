@@ -30,12 +30,8 @@ use Tests\TestCase;
 final class TrackCredentialAttemptsTest extends TestCase
 {
     /**
-     * An attempt's `Validated` marks its user on the shared mark, for the
-     * password the attempt was made with, so a save that re-encodes that
-     * password is held as the attempt's rehash, for `OtherDeviceLogout`; each
-     * of `Login`, `Authenticated` and `Failed` for that user ends the attempt,
-     * so a save after it is a change, while an end for another user leaves it
-     * open.
+     * An attempt's `Validated` marks its user until `Login`, `Authenticated` or
+     * `Failed` for that user ends it.
      *
      * @return void
      *
@@ -90,9 +86,7 @@ final class TrackCredentialAttemptsTest extends TestCase
     }
 
     /**
-     * `OtherDeviceLogout` runs the change held for its user: the save it
-     * follows was the forced rehash of `logoutOtherDevices()`, not the open
-     * attempt's.
+     * `OtherDeviceLogout` runs the change held for its user.
      *
      * @return void
      *

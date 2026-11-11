@@ -13,9 +13,8 @@ use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\Concerns\RebindsCollaborators;
 
 /**
- * Feature tests for the collaborators a guard follows when the container swaps
- * them: a new request forgets everything resolved for the last one and is
- * resolved again, and a new dispatcher or resolver is used from then on.
+ * Feature tests for the request, dispatcher and resolver a guard follows when
+ * the container swaps them.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

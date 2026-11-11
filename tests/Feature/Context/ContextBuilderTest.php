@@ -43,10 +43,7 @@ use Tests\Unit\Stubs\StubBareSession;
 
 /**
  * Feature tests of the authentication context a person's request is built with,
- * over HTTP behind `auth`: every package key from what the guard validated, the
- * session's proofs and the request the trusted proxies resolved, never from the
- * token's claims or input; and each registered contributor's keys under its
- * namespace, loudly refused when they are not plain.
+ * over HTTP behind `auth`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -103,10 +100,7 @@ final class ContextBuilderTest extends TestCase
     }
 
     /**
-     * A session token's request is a person's: the identity acting as itself in
-     * no tenant, the guard as the application, the session, `pwd` at the
-     * sign-in's time and nothing further, an access token as the credential, no
-     * scopes, and the client's address.
+     * A session token's context is what the guard validated.
      *
      * @return void
      *
@@ -140,9 +134,7 @@ final class ContextBuilderTest extends TestCase
     }
 
     /**
-     * A step-up is read from the session's proofs, not from the token the
-     * request carries: the token issued before it already reports the further
-     * factor, multifactor authentication and the seconds since it was proved.
+     * A step-up is read from the session's proofs, never from the token.
      *
      * @return void
      *
@@ -167,9 +159,7 @@ final class ContextBuilderTest extends TestCase
     }
 
     /**
-     * A recovery code is kept apart from an additional verification: it sets
-     * its own key, is no multifactor authentication unless its evaluation said
-     * so, and times the step-up.
+     * A recovery code sets its own key apart from an additional verification.
      *
      * @return void
      *
@@ -218,9 +208,7 @@ final class ContextBuilderTest extends TestCase
     }
 
     /**
-     * A person's access-only token names no session: its context is the token's
-     * identity and principal with an access token as the credential, the scopes
-     * `Auth::scopes()` gives, and no proof.
+     * An access-only token's context holds no session and no proof.
      *
      * @return void
      *
@@ -281,9 +269,8 @@ final class ContextBuilderTest extends TestCase
     }
 
     /**
-     * Rows of `[trusted kinds, mfa, multifactor, amr]`: what the evidence
-     * policy trusts an external provider's evidence for, and what an external
-     * sign-in's context then says.
+     * Rows of `[trusted kinds, mfa, multifactor, amr]` for an external
+     * sign-in's evidence.
      *
      * @return iterable<string, array{0: list<\SineMacula\Laravel\Authentication\Requirements\Enums\RequirementKind>, 1: bool, 2: bool, 3: list<string>}>
      */
@@ -299,10 +286,8 @@ final class ContextBuilderTest extends TestCase
     }
 
     /**
-     * An external sign-in counts as an additional verification only when the
-     * evidence contract accepted its provider's evidence for one or for
-     * multifactor authentication; evidence accepted only for phishing
-     * resistance or a level, or not accepted, never does.
+     * An external sign-in is an additional verification only when its evidence
+     * was accepted for one.
      *
      * @param  list<\SineMacula\Laravel\Authentication\Requirements\Enums\RequirementKind>  $trusted
      * @param  bool  $mfa
@@ -313,7 +298,7 @@ final class ContextBuilderTest extends TestCase
      * @throws \Throwable
      */
     #[DataProvider('provideExternalEvidence')]
-    public function testAnExternalSignInIsAnAdditionalVerificationOnlyWhenItsEvidenceWasAcceptedForOne(array $trusted, bool $mfa, bool $multifactor, array $amr): void
+    public function testExternalSignInVerifiesOnlyWithAcceptedEvidence(array $trusted, bool $mfa, bool $multifactor, array $amr): void
     {
         app()->instance(ExternalEvidencePolicy::class, new ScriptedEvidencePolicy($trusted));
 
@@ -357,9 +342,7 @@ final class ContextBuilderTest extends TestCase
     }
 
     /**
-     * The address is the one Laravel resolves through the application's trusted
-     * proxies: a forwarded address from a trusted proxy, the peer's own from
-     * any other.
+     * The address is the one Laravel resolves through the trusted proxies.
      *
      * @return void
      *
@@ -400,9 +383,8 @@ final class ContextBuilderTest extends TestCase
     }
 
     /**
-     * Each registered contributor is asked once, in the order registered, with
-     * the package's keys and the live identity, principal, tenant and session,
-     * and its keys are added under its namespace.
+     * Each contributor is asked once, in order, and its keys go under its
+     * namespace.
      *
      * @return void
      *
@@ -436,9 +418,7 @@ final class ContextBuilderTest extends TestCase
     }
 
     /**
-     * A contributor reads the provider context the adapter gave with the
-     * session's provenance and reports what it wants of it under its own
-     * namespace; the package's own keys carry nothing of it.
+     * A contributor reports the provider context under its own namespace.
      *
      * @return void
      *
@@ -481,9 +461,7 @@ final class ContextBuilderTest extends TestCase
     }
 
     /**
-     * A contributor's keys that are not plain fail the request loudly, naming
-     * its namespace and the key, rather than a context being built without
-     * them.
+     * A contributor's keys that are not plain fail the request loudly.
      *
      * @param  array<array-key, mixed>  $keys
      * @param  string  $message

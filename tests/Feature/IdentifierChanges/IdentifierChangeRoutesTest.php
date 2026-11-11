@@ -29,12 +29,8 @@ use Tests\Concerns\ChangesIdentifiers;
 use Tests\TestCase;
 
 /**
- * Feature tests of the documented identifier change routes, registered as an
- * application would and driven over HTTP with a bearer token from a real
- * sign-in: change the signed-in identity's email address by a code sent to the
- * new one, proven by the session's recent sign-in, or by a link, proven by the
- * current password; with the sender and notifier fakes, on the `sync`
- * connection, so deliveries run once each response is sent.
+ * Feature tests of the documented identifier change routes, driven over HTTP
+ * with a real sign-in.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -50,8 +46,8 @@ final class IdentifierChangeRoutesTest extends TestCase
     private static array $mailed = [];
 
     /**
-     * Freeze the clocks, create the table, fake the sender and the notifier,
-     * and register the routes.
+     * Freeze the clocks, create the table, fake the sender and notifier and
+     * register the routes.
      *
      * @return void
      */
@@ -95,9 +91,8 @@ final class IdentifierChangeRoutesTest extends TestCase
     }
 
     /**
-     * Signed in moments ago, the identity asks for a code at the new address,
-     * which arrives there once the response is sent; the code confirms the
-     * change, the old address is told, and the session goes on.
+     * A recently signed-in identity changes its email by a code sent to the new
+     * address.
      *
      * @return void
      */
@@ -129,10 +124,7 @@ final class IdentifierChangeRoutesTest extends TestCase
     }
 
     /**
-     * A session signed in longer ago than the window is asked to
-     * reauthenticate, and an address that is not new is refused; the current
-     * password, sent with the request, then proves it without signing in again,
-     * and a wrong one does not.
+     * A stale session must reauthenticate, which the current password does.
      *
      * @return void
      */
@@ -159,11 +151,8 @@ final class IdentifierChangeRoutesTest extends TestCase
     }
 
     /**
-     * Proven by the current password, the change is confirmed by the link
-     * mailed to the new address, which works once and needs no session:
-     * following the link only shows the confirmation, so a mail scanner that
-     * fetches it changes nothing, and the page's form, posted back to the same
-     * signed address, makes the change.
+     * A link proven by the password changes the email once, and only through
+     * the confirmation form.
      *
      * @return void
      */
@@ -210,9 +199,7 @@ final class IdentifierChangeRoutesTest extends TestCase
     }
 
     /**
-     * The documented route that starts a change proven by code: the password,
-     * when one is sent, or else the session's recent sign-in is the proof, and
-     * the code goes to the new address.
+     * The documented route that starts a change proven by code.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\JsonResponse
@@ -241,9 +228,7 @@ final class IdentifierChangeRoutesTest extends TestCase
     }
 
     /**
-     * The documented route that starts a change proven by link: the current
-     * password is the proof, and the link is mailed to the new address, never
-     * returned.
+     * The documented route that starts a change proven by link.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\JsonResponse
@@ -292,8 +277,8 @@ final class IdentifierChangeRoutesTest extends TestCase
     }
 
     /**
-     * The documented route the change link points at: it only shows the
-     * confirmation, a form that posts back to the same signed address.
+     * The documented route the change link points at, which only shows the
+     * confirmation form.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\Response

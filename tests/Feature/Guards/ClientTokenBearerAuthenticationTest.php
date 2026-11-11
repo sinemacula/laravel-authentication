@@ -32,11 +32,8 @@ use Tests\Integration\Fixtures\MachineMembership;
 use Tests\TestCase;
 
 /**
- * Feature tests for the access tokens a client credentials exchange issues, on
- * the `jwt` guard's bearer path over HTTP: what they bind, and that each is
- * held to its API key on every request, so revoking the key, the end of a
- * rotation's overlap, or a change of the binding it was issued for ends it at
- * once, not at its expiry.
+ * Feature tests for client credentials access tokens on the `jwt` guard's
+ * bearer path, each held to its API key on every request.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -93,9 +90,8 @@ final class ClientTokenBearerAuthenticationTest extends TestCase
     }
 
     /**
-     * A client token binds its machine with the scopes it grants and no
-     * session, as an authentication reporting `client_credentials`, its key and
-     * scopes.
+     * A client token binds its machine with its scopes and no session,
+     * reporting `client_credentials`, its key and scopes.
      *
      * @return void
      *
@@ -121,10 +117,8 @@ final class ClientTokenBearerAuthenticationTest extends TestCase
     }
 
     /**
-     * A key with the longest list of scopes a key may have is exchanged for a
-     * token that grants every one of them, in order. That token is longer than
-     * the 8 KB a request header line may take under nginx's and Apache's
-     * defaults, as the guide warns, so a proxy with those defaults refuses it.
+     * A key with the longest list of scopes is exchanged for a token that
+     * grants every one of them, in order.
      *
      * @return void
      *
@@ -235,9 +229,8 @@ final class ClientTokenBearerAuthenticationTest extends TestCase
     }
 
     /**
-     * A token whose key records a human owner, principal and all, is
-     * `credential_invalid` though the binding holds: client tokens are a
-     * machine's only.
+     * A token whose key records a human owner is `credential_invalid` though
+     * the binding holds.
      *
      * @return void
      *
@@ -276,9 +269,8 @@ final class ClientTokenBearerAuthenticationTest extends TestCase
     }
 
     /**
-     * A token stays bound to the principal, its type and tenant, and the owner
-     * its key records: a membership moved to another tenant, or a key whose
-     * recorded principal or owner type changed under the same ids, rejects it.
+     * A token is rejected once the principal, tenant or owner its key records
+     * changes.
      *
      * @return void
      *
@@ -314,9 +306,8 @@ final class ClientTokenBearerAuthenticationTest extends TestCase
     }
 
     /**
-     * A token issued before the membership moved to a tenant of another type
-     * under the same identifier is rejected as `principal_mismatch`, and
-     * accepted again once the membership is back.
+     * A token is rejected as `principal_mismatch` while its membership sits in
+     * a tenant of another type under the same identifier.
      *
      * @return void
      *

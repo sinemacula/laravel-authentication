@@ -48,11 +48,8 @@ use Tests\Integration\Fixtures\SuspendableChangeableIdentity;
 use Tests\TestCase;
 
 /**
- * Feature tests for confirming a change of identifier through
- * `Auth::identifierChanges($guard)`: by the code sent to the new identifier and
- * by the signed link, what a confirmed change writes, invalidates, reports and
- * notifies, and every way a confirmation is refused, with the proof spent only
- * together with the change.
+ * Feature tests for confirming a change of identifier by code and by signed
+ * link.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -73,8 +70,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
     use ChangesIdentifiers, InspectsTraces;
 
     /**
-     * Start every test from a known moment, with the fakes bound and the routes
-     * links point at.
+     * Freeze the clock and bind the fakes and the routes links point at.
      *
      * @return void
      */
@@ -103,10 +99,8 @@ final class IdentifierChangeConfirmationTest extends TestCase
     }
 
     /**
-     * The right code replaces the identifier with the new one, recorded as
-     * verified, deletes the pending change and uses the code up; once
-     * committed, `IdentifierChanged` reports both identifiers and the notice to
-     * the old one is queued, which the notifier then receives.
+     * The right code replaces the identifier, uses the code up, reports the
+     * change and notifies the old one.
      *
      * @return void
      *
@@ -154,9 +148,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
 
     /**
      * The notice says whether the old identifier was verified when the change
-     * was requested, as the pending change recorded it then: one never verified
-     * may be a stranger's, for the notifier to decide what to tell. The notice
-     * is queued either way.
+     * was requested.
      *
      * @return void
      *
@@ -186,9 +178,8 @@ final class IdentifierChangeConfirmationTest extends TestCase
     }
 
     /**
-     * A wrong code is refused and its attempt kept; the change still waits and
-     * the right code makes it. A malformed one counts no attempt. Each refusal
-     * names the challenge it checked.
+     * A wrong code is refused and its attempt kept, while a malformed one
+     * counts none.
      *
      * @return void
      *
@@ -224,9 +215,8 @@ final class IdentifierChangeConfirmationTest extends TestCase
     }
 
     /**
-     * A request by code answers the challenge id its confirmation names; a
-     * malformed one is invalid, counts no attempt and is never reported, and
-     * another challenge's id spends no attempt on the live one.
+     * A confirmation names its challenge, and another challenge's id spends no
+     * attempt on the live one.
      *
      * @return void
      *
@@ -253,10 +243,8 @@ final class IdentifierChangeConfirmationTest extends TestCase
     }
 
     /**
-     * A confirmation counts against the identity's account and the IP address
-     * under `identifier_change`: a refused one keeps its slots, a confirmed
-     * change gives them back, and an identity out of confirmations is answered
-     * `rate_limited`, with the wait, before its code is touched.
+     * Confirmations are limited per identity and IP address, and a confirmed
+     * change gives its slots back.
      *
      * @return void
      *
@@ -287,9 +275,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
     }
 
     /**
-     * A code that used up its attempts is exhausted, one that expired is
-     * expired, and a change past its own expiry is expired, each saying so on
-     * the event.
+     * Exhausted and expired codes, and an expired change, are refused as such.
      *
      * @return void
      *
@@ -334,8 +320,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
     }
 
     /**
-     * Only the newest request's code confirms the change: an earlier one's is
-     * invalidated when it is replaced.
+     * Only the newest request's code confirms the change.
      *
      * @return void
      *
@@ -359,8 +344,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
     }
 
     /**
-     * A change pending through another guard is not confirmed through this one,
-     * and is left waiting.
+     * A change pending through another guard is not confirmed through this one.
      *
      * @return void
      *
@@ -403,9 +387,8 @@ final class IdentifierChangeConfirmationTest extends TestCase
     }
 
     /**
-     * A newer request that lands after this confirmation read the pending
-     * change, and before it deleted it, wins: the confirmation finds its
-     * request gone, and rolls back, its code unspent.
+     * A newer request landing during the confirmation wins, and the
+     * confirmation rolls back unspent.
      *
      * @return void
      *
@@ -436,9 +419,8 @@ final class IdentifierChangeConfirmationTest extends TestCase
     }
 
     /**
-     * A new identifier the guard's provider finds on another identity is taken:
-     * nothing is written and the proof is not spent, so once the other identity
-     * gives it up, the same code makes the change.
+     * An identifier another identity holds is taken, and the proof is not
+     * spent.
      *
      * @return void
      *
@@ -471,8 +453,8 @@ final class IdentifierChangeConfirmationTest extends TestCase
     }
 
     /**
-     * Without a unique index on the column, the provider's check is all that
-     * stops a change to an identifier another identity holds.
+     * Without a unique index the provider's check alone refuses an identifier
+     * another identity holds.
      *
      * @return void
      *
@@ -495,9 +477,8 @@ final class IdentifierChangeConfirmationTest extends TestCase
     }
 
     /**
-     * An identity that took the new identifier by another path is not a holder
-     * of its own change: the identifier it was requested against is gone, so
-     * the change is invalid, not taken.
+     * An identity that already holds its new identifier makes the change
+     * invalid, not taken.
      *
      * @return void
      *
@@ -519,10 +500,8 @@ final class IdentifierChangeConfirmationTest extends TestCase
     }
 
     /**
-     * When another identity takes the identifier after the provider looked (the
-     * race the application's unique index decides), the index refuses the
-     * write: the change is taken and rolled back whole, inside a transaction
-     * the caller holds open, which stays usable.
+     * The unique index decides a race for the identifier, rolling the change
+     * back whole.
      *
      * @return void
      *
@@ -561,9 +540,8 @@ final class IdentifierChangeConfirmationTest extends TestCase
     }
 
     /**
-     * An identifier changed by another path since the change was requested is
-     * kept: the replacement is conditional on the identifier the change was
-     * requested against, and the proof is not spent.
+     * An identifier changed by another path since the request is kept, and the
+     * proof is not spent.
      *
      * @return void
      *
@@ -584,8 +562,8 @@ final class IdentifierChangeConfirmationTest extends TestCase
     }
 
     /**
-     * A confirmation inside a transaction the caller rolls back changes nothing
-     * and reports and notifies nothing.
+     * A confirmation inside a transaction the caller rolls back changes,
+     * reports and notifies nothing.
      *
      * @return void
      *
@@ -613,11 +591,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
     }
 
     /**
-     * Every event goes, once committed, to the dispatcher the guard has when
-     * the commit runs it: the request's `IdentifierChangeRequested` and the
-     * confirmation's `IdentifierChanged` both reach the one swapped in after
-     * the confirmation, and neither the dispatcher of the request nor the one
-     * swapped in between receives either.
+     * Every event reaches the dispatcher the guard has when the commit runs.
      *
      * @return void
      *
@@ -658,9 +632,8 @@ final class IdentifierChangeConfirmationTest extends TestCase
     }
 
     /**
-     * A service handed out before the guard's dispatcher was rebound reports a
-     * refusal to the dispatcher bound now, with the client given, not the
-     * guard's request.
+     * A service handed out before a dispatcher rebind reports to the dispatcher
+     * bound now.
      *
      * @return void
      *
@@ -693,14 +666,8 @@ final class IdentifierChangeConfirmationTest extends TestCase
     }
 
     /**
-     * A confirmed change invalidates, in every jwt guard whose provider reads
-     * the identity's table, the codes of both the replaced and the new
-     * identifier: sign-in, password reset and reset link codes, and the
-     * identity's verification codes, a guard named with digits and one over
-     * another model of the same table included. Other identifiers' codes are
-     * kept, and so are the codes of a guard over another table, which belong to
-     * whoever holds the identifier there; a guard of another driver, wherever
-     * it is listed, is passed over.
+     * A confirmed change invalidates the codes of both identifiers in every jwt
+     * guard over the identity's table.
      *
      * @return void
      *
@@ -755,12 +722,8 @@ final class IdentifierChangeConfirmationTest extends TestCase
     }
 
     /**
-     * An identity deactivated after it requested a change confirms nothing, by
-     * link (which needs no session, so no guard checked it) or by code:
-     * `invalid`, reported as `identity_inactive`, before anything but its row
-     * is read, counted or spent, so the change confirms once the identity is
-     * active again: a deactivation that only clears the flag ends no session
-     * (one through `identityDeactivated()` cancels the change too).
+     * An inactive identity confirms nothing by link or by code, reported as
+     * `identity_inactive`.
      *
      * @return void
      *
@@ -818,10 +781,8 @@ final class IdentifierChangeConfirmationTest extends TestCase
     }
 
     /**
-     * The proofs a change outdates are those of the old identifier in its
-     * canonical form, so an address stored in another case (a legacy row
-     * written past the cast) loses the sign-in code and the reset link issued
-     * for it in normal form.
+     * The old address stored in another case loses the proofs issued for its
+     * normal form.
      *
      * @return void
      *
@@ -852,11 +813,8 @@ final class IdentifierChangeConfirmationTest extends TestCase
     }
 
     /**
-     * Whether the identity is active is read from its row under the lock, not
-     * from the instance given: one deactivated after the caller loaded it
-     * confirms nothing by code, and one deactivated after a link loaded it,
-     * before the lock, confirms nothing by link. Both are `invalid`, reported
-     * as `identity_inactive`, with nothing counted or spent.
+     * An identity deactivated after it was loaded confirms nothing, read from
+     * its locked row.
      *
      * @return void
      *
@@ -921,9 +879,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
     }
 
     /**
-     * A failure inside a confirmation's transaction leaves the code out of
-     * every frame of its trace, the proof's closure and what it captured
-     * included, even with arguments recorded in traces.
+     * A failed confirmation leaves the code out of every frame of its trace.
      *
      * @return void
      *
@@ -951,9 +907,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
     }
 
     /**
-     * An identity no longer stored confirms nothing with the instance the
-     * caller still holds: `invalid`, reported as `invalid_credentials`, with
-     * its code's attempt not counted.
+     * An identity no longer stored confirms nothing, with no attempt counted.
      *
      * @return void
      *
@@ -976,7 +930,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
     }
 
     /**
-     * The flows of a new password that end the identity's sessions.
+     * The new password flows that end the identity's sessions.
      *
      * @return iterable<string, array{0: \SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow}>
      */
@@ -989,11 +943,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
     }
 
     /**
-     * A change or a reset of the password cancels every identifier change the
-     * identity has pending, of each type and through each guard: neither the
-     * link nor the code of one requested from a session the new password ended
-     * makes it, though a link needs no session. Another identity's pending
-     * change is kept.
+     * A new password cancels every identifier change the identity has pending.
      *
      * @param  \SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow  $flow
      * @return void
@@ -1030,8 +980,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
     }
 
     /**
-     * A registration ends no session, so it leaves the identity's pending
-     * change, which its link still makes.
+     * A registration ends no session, so it keeps the pending change.
      *
      * @return void
      *
@@ -1051,8 +1000,8 @@ final class IdentifierChangeConfirmationTest extends TestCase
     }
 
     /**
-     * A verification link signed for the old identifier no longer verifies
-     * anything once it is replaced.
+     * A verification link signed for the old identifier verifies nothing once
+     * it is replaced.
      *
      * @return void
      *
@@ -1076,8 +1025,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
     }
 
     /**
-     * An identity that had no identifier of the type gets one with no notice,
-     * since there is no one to tell; the event says there was none.
+     * A first identifier of its type is set with no notice.
      *
      * @return void
      *
@@ -1101,8 +1049,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
     }
 
     /**
-     * A notifier that fails fails its job, for the queue to retry; the change
-     * stands.
+     * A failing notifier fails its job while the change stands.
      *
      * @return void
      *
@@ -1141,8 +1088,8 @@ final class IdentifierChangeConfirmationTest extends TestCase
     }
 
     /**
-     * A link confirms the change it was signed for, through the guard that
-     * signed it, and reports the client that followed it.
+     * A link confirms its change through the guard that signed it and reports
+     * the client that followed it.
      *
      * @return void
      *
@@ -1164,9 +1111,8 @@ final class IdentifierChangeConfirmationTest extends TestCase
     }
 
     /**
-     * A link whose signature, purpose or fields are not a change link's, or
-     * that another guard signed, is invalid; one past its time is expired, on
-     * the event as `link_expired`.
+     * A link that does not prove the change is invalid, and one past its time
+     * is expired.
      *
      * @return void
      *
@@ -1217,8 +1163,8 @@ final class IdentifierChangeConfirmationTest extends TestCase
     }
 
     /**
-     * At the second its change expires, a link whose own signature still holds
-     * is expired: the change's expiry decides.
+     * A link is expired at the second its change expires, even while its
+     * signature holds.
      *
      * @return void
      *
@@ -1239,8 +1185,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
     }
 
     /**
-     * A link signed through another guard is not confirmed through this one,
-     * and a link of a replaced request confirms nothing.
+     * A link of another guard or of a replaced request confirms nothing.
      *
      * @return void
      *
@@ -1281,8 +1226,8 @@ final class IdentifierChangeConfirmationTest extends TestCase
     }
 
     /**
-     * Seed an identity and request a change of its email address, proven by the
-     * engine's first code.
+     * Seed an identity and request an email change proven by the engine's first
+     * code.
      *
      * @return \Tests\Integration\Fixtures\ChangeableIdentity
      *
@@ -1298,8 +1243,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
     }
 
     /**
-     * Seed an identity and request a change of its email address, proven by a
-     * link: the identity and the link.
+     * Seed an identity and request an email change proven by a link.
      *
      * @return array{0: \Tests\Integration\Fixtures\ChangeableIdentity, 1: string}
      *

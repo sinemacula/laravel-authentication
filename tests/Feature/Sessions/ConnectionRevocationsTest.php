@@ -37,12 +37,8 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
 /**
- * Feature tests of the revocations by connection, through the session service
- * against a real database: a connection disabled or deleted ends every live
- * session it established, of every guard, pending ones included, and an
- * identity's link removed or widened in scope only that identity's sessions
- * through that very link; the per-event triggers can be turned off, a widened
- * scope cannot, and none ends anything that has already ended.
+ * Feature tests of the session revocations by connection and by link, against a
+ * real database.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -121,9 +117,7 @@ final class ConnectionRevocationsTest extends TestCase
 
     /**
      * A connection disabled or deleted ends every live session it established,
-     * of every guard and identity, with its reason, reporting each revocation,
-     * with the owner the session records, and no logout everywhere; another
-     * connection's sessions and a password session stay.
+     * and no other.
      *
      * @param  \Closure(\SineMacula\Laravel\Authentication\Sessions\SessionService, string): int  $revoke
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
@@ -161,9 +155,7 @@ final class ConnectionRevocationsTest extends TestCase
     }
 
     /**
-     * A trigger reads only what it ends: a connection's provenance is read by
-     * its id, and a trigger that finds no session through the connection locks
-     * no session and, for a link, reads no provenance.
+     * A trigger reads only what it ends.
      *
      * @return void
      *
@@ -200,12 +192,8 @@ final class ConnectionRevocationsTest extends TestCase
     }
 
     /**
-     * A link's trigger asks the provenance only about the identity's sessions
-     * an external provider established, each of which has one, never about its
-     * password sessions, which have none (on MySQL a locking read of a missing
-     * key would lock the gap it would go in, and so hold up other identities'
-     * sign-ins); a session recorded under another method is not one of the
-     * link's even with a provenance naming it.
+     * A link's trigger asks the provenance only about the identity's external
+     * sessions.
      *
      * @return void
      *
@@ -238,10 +226,7 @@ final class ConnectionRevocationsTest extends TestCase
     }
 
     /**
-     * Before it reads any session, a link's trigger writes the guard of its
-     * link and a connection's trigger every guard of the connection, which a
-     * sign-in through them writes too, even when it finds nothing to end; a
-     * trigger turned off writes none.
+     * A trigger writes its connection guards before it reads any session.
      *
      * @return void
      *
@@ -296,8 +281,7 @@ final class ConnectionRevocationsTest extends TestCase
     }
 
     /**
-     * A pending session the connection established is a session too, and ends
-     * with the rest, so its credential cannot activate it afterwards.
+     * A pending session the connection established ends with the rest.
      *
      * @return void
      *
@@ -343,11 +327,7 @@ final class ConnectionRevocationsTest extends TestCase
 
     /**
      * A link removed or widened in scope ends only the identity's sessions
-     * established through that very link, of every guard, with its reason: the
-     * identity's sessions through another link of the same connection, through
-     * the same link id of another connection, recorded with no link, or signed
-     * in with a password stay, and so do another identity's sessions through a
-     * link of its own with the same id.
+     * through that link.
      *
      * @param  \Closure(\SineMacula\Laravel\Authentication\Sessions\SessionService, \SineMacula\Laravel\Authentication\Contracts\Identity, string, string): int  $revoke
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
@@ -387,9 +367,8 @@ final class ConnectionRevocationsTest extends TestCase
     }
 
     /**
-     * A link's widened scope is mandatory: it ends the sessions through the
-     * link with every per-event trigger turned off, and even with a setting
-     * under its own name, which nothing reads.
+     * A link's widened scope ends sessions with every trigger setting turned
+     * off.
      *
      * @return void
      *
@@ -413,9 +392,7 @@ final class ConnectionRevocationsTest extends TestCase
     }
 
     /**
-     * A link's widened scope reported twice for one widening ends the sessions
-     * once: the second call, in the same transaction or a later one, finds
-     * nothing live left to end, revokes nothing and reports nothing.
+     * A link's widened scope reported twice ends the sessions once.
      *
      * @return void
      *
@@ -440,8 +417,7 @@ final class ConnectionRevocationsTest extends TestCase
     }
 
     /**
-     * Rows of `[the trigger]`, each ending the identity's sessions through
-     * `conn-a`.
+     * Rows of a trigger that ends the identity's sessions through `conn-a`.
      *
      * @formatter:off
      *
@@ -461,10 +437,8 @@ final class ConnectionRevocationsTest extends TestCase
     }
 
     /**
-     * A trigger that ends the session the request's guard is bound to forgets
-     * the binding once it commits, not before and not when it rolls back, so
-     * the rest of the request is not authenticated as a session it ended; a
-     * guard bound to a session it keeps stays bound.
+     * A trigger forgets the guard's binding to a session it ends once it
+     * commits.
      *
      * @param  \Closure(\SineMacula\Laravel\Authentication\Sessions\SessionService, \SineMacula\Laravel\Authentication\Contracts\Identity): int  $trigger
      * @return void
@@ -511,8 +485,7 @@ final class ConnectionRevocationsTest extends TestCase
     }
 
     /**
-     * Rows of `[the trigger, which of the two sessions it ends the guard is
-     * bound to]`.
+     * Rows of `[the trigger, which ended session the guard is bound to]`.
      *
      * @formatter:off
      *
@@ -533,9 +506,8 @@ final class ConnectionRevocationsTest extends TestCase
     }
 
     /**
-     * A `SessionRevoked` listener that throws once the trigger commits leaves
-     * the guard bound to none of the sessions the trigger ended, whichever it
-     * is bound to: the binding is forgotten before any session is reported.
+     * A listener that throws leaves the guard bound to no session the trigger
+     * ended.
      *
      * @param  \Closure(\SineMacula\Laravel\Authentication\Sessions\SessionService, \SineMacula\Laravel\Authentication\Contracts\Identity): int  $trigger
      * @param  int  $bound
@@ -655,9 +627,7 @@ final class ConnectionRevocationsTest extends TestCase
     }
 
     /**
-     * A link's trigger with a connection or link id that names nothing is
-     * refused before its setting is read, even with the trigger turned off, and
-     * ends nothing.
+     * A link's trigger refuses an empty id before its setting is read.
      *
      * @param  \Closure(\SineMacula\Laravel\Authentication\Sessions\SessionService, \SineMacula\Laravel\Authentication\Contracts\Identity, string, string): int  $revoke
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
@@ -688,8 +658,7 @@ final class ConnectionRevocationsTest extends TestCase
     }
 
     /**
-     * Sessions that have already ended, by revocation or past a deadline, are
-     * neither revoked again nor counted, for a connection or a link.
+     * Sessions that have already ended are neither revoked again nor counted.
      *
      * @return void
      *
@@ -762,8 +731,7 @@ final class ConnectionRevocationsTest extends TestCase
     }
 
     /**
-     * Every trigger, by name: those a setting turns off and the link's widened
-     * scope, which no setting does.
+     * Every trigger by name, the link's widened scope included.
      *
      * @formatter:off
      *
@@ -786,7 +754,7 @@ final class ConnectionRevocationsTest extends TestCase
 
     /**
      * The key of a session the identity started through the connection's link
-     * on the guard; a link other than `link-1` maps another subject.
+     * on the guard.
      *
      * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
      * @param  string  $connection

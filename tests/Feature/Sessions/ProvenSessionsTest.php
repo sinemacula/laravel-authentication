@@ -27,9 +27,7 @@ use Tests\TestCase;
 
 /**
  * Feature tests for what proves a client holds a session: its current refresh
- * token, validly signed for the guard and possibly expired, for a session of
- * the guard that the identity signing in owns, for the same principal, and that
- * is not revoked. Anything less proves nothing.
+ * token for the guard, owner and principal.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -136,9 +134,8 @@ final class ProvenSessionsTest extends TestCase
     }
 
     /**
-     * A session that returned to pending keeps its refresh digest but proves
-     * nothing until it is active again, so a factor policy is never told of a
-     * session that may not refresh.
+     * A session returned to pending keeps its refresh digest but proves nothing
+     * until it is active again.
      *
      * @return void
      */
@@ -180,9 +177,8 @@ final class ProvenSessionsTest extends TestCase
     }
 
     /**
-     * A proof for a sign-in that has no principal yet (one waiting for a
-     * choice) needs the session to be the identity's own for the guard, live,
-     * and holding the rotation id, whatever principal it records.
+     * A proof for a sign-in with no principal yet ignores the principal the
+     * session records.
      *
      * @return void
      */
@@ -204,9 +200,7 @@ final class ProvenSessionsTest extends TestCase
     }
 
     /**
-     * Only a refresh token of this guard naming an existing session is a proof:
-     * garbage, an access token, another guard's refresh token, and one naming
-     * no session prove nothing.
+     * Only a refresh token of this guard naming an existing session is a proof.
      *
      * @return void
      */
@@ -260,9 +254,8 @@ final class ProvenSessionsTest extends TestCase
     }
 
     /**
-     * Ask the `api` guard's proof for the session the token proves for the
-     * identity (the seeded one by default) acting as the principal (itself by
-     * default).
+     * Prove the session the token holds on the `api` guard, for the seeded
+     * identity acting as itself by default.
      *
      * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $token
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Identity  $identity

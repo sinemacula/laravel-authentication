@@ -48,9 +48,7 @@ use Tests\TestCase;
 
 /**
  * Feature tests for judging a session, or a sign-in's evidence, against a
- * requirement through the bound evidence policy, for accepted external
- * evidence, and the bound requirement check, against sessions and proofs in a
- * real database.
+ * requirement.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -96,8 +94,7 @@ final class RequirementJudgeTest extends TestCase
     }
 
     /**
-     * A requirement that asks for nothing is met by any session, or none,
-     * without a query and without asking the check.
+     * A requirement that asks for nothing is met without a query or the check.
      *
      * @return void
      *
@@ -118,10 +115,7 @@ final class RequirementJudgeTest extends TestCase
     }
 
     /**
-     * Against a stored session the check judges its counting proofs, read on
-     * the write connection, with the first factor it records at hand: met once
-     * it holds an accepted further factor, never by the default check, and
-     * judged about the identity, the application and the time given.
+     * A stored session is judged on its own counting proofs.
      *
      * @return void
      *
@@ -180,9 +174,8 @@ final class RequirementJudgeTest extends TestCase
     }
 
     /**
-     * The first factor a judgement is made on is the one given, else the
-     * evidence's, else the one the session records, read once and only then;
-     * with none of them there is none.
+     * The first factor is the one given, else the evidence's, else the one the
+     * session records.
      *
      * @return void
      *
@@ -217,10 +210,7 @@ final class RequirementJudgeTest extends TestCase
 
     /**
      * A sign-in's evidence is judged in memory, filtered by time to the second,
-     * as the stored proofs' query binds it, and by kind and cut to the limit,
-     * newest first, and the session not at all: a sign-in half a second into
-     * its second proves its first factor in that second, which a requirement
-     * asking from the sign-in's own time counts.
+     * by kind and by limit.
      *
      * @return void
      *
@@ -257,9 +247,8 @@ final class RequirementJudgeTest extends TestCase
     }
 
     /**
-     * The check reads a stored session's proofs and a sign-in's evidence from a
-     * mutable time in another zone as the same instant, and leaves it as it was
-     * given: a proof made at it is read and one made a second before it is not.
+     * The check reads proofs from a mutable time in another zone as the same
+     * instant and leaves the time unchanged.
      *
      * @return void
      *
@@ -298,8 +287,7 @@ final class RequirementJudgeTest extends TestCase
 
     /**
      * A sign-in's evidence is judged in place of the session's stored proofs
-     * when both are given: a further factor the session stores does not meet a
-     * requirement the sign-in's own proofs do not.
+     * when both are given.
      *
      * @return void
      *
@@ -322,10 +310,8 @@ final class RequirementJudgeTest extends TestCase
     }
 
     /**
-     * With a first factor but neither a session nor evidence the subject has no
-     * proofs to read, and no evidence: given one an external provider made, the
-     * evidence policy is never asked, however much it would trust, nothing is
-     * read, and the check alone judges.
+     * With a first factor but neither a session nor evidence, nothing is read
+     * and the check alone judges.
      *
      * @return void
      *
@@ -354,9 +340,7 @@ final class RequirementJudgeTest extends TestCase
     }
 
     /**
-     * A session that records no first factor, and no session and no evidence at
-     * all, meets no requirement that asks for something, and the check is never
-     * asked.
+     * Without a first factor no requirement that asks for something is met.
      *
      * @return void
      *
@@ -376,14 +360,8 @@ final class RequirementJudgeTest extends TestCase
     }
 
     /**
-     * A sign-in an external provider established, holding evidence the evidence
-     * contract accepted, meets a requirement in memory when the evidence policy
-     * says that evidence meets the whole of it, asked once with the whole
-     * requirement about the identity, the application, the connection and the
-     * time, with reads pinned to the write connection, the evidence judged as
-     * of now; the requirement check is never asked and nothing is read. When
-     * the policy finds it short, the check judges the proofs instead: evidence
-     * never meets part of a requirement.
+     * Accepted evidence meets a requirement in memory only when the evidence
+     * policy says it meets the whole of it.
      *
      * @return void
      *
@@ -422,9 +400,8 @@ final class RequirementJudgeTest extends TestCase
     }
 
     /**
-     * A tenant's requirement, given with the tenant, is judged unwrapped, and
-     * the evidence policy is told the tenant whose requirement it is; the
-     * identity-level requirement is judged for no tenant.
+     * A tenant's requirement is judged unwrapped, with the evidence policy told
+     * the tenant.
      *
      * @return void
      *
@@ -451,11 +428,8 @@ final class RequirementJudgeTest extends TestCase
     }
 
     /**
-     * Without accepted evidence the evidence policy is never asked: not for a
-     * sign-in an external provider established whose evidence was not accepted,
-     * nor for one no provider established, which the requirement check alone
-     * judges. By default no evidence meets anything, so the check judges every
-     * requirement.
+     * Without accepted evidence the evidence policy is never asked and the
+     * check alone judges.
      *
      * @return void
      *
@@ -487,11 +461,8 @@ final class RequirementJudgeTest extends TestCase
     }
 
     /**
-     * A stored session an external provider established is judged on the
-     * evidence its proofs hold accepted, the newest by its own time first (and
-     * no further once it meets), read in one more query; a session no provider
-     * established reads no evidence and never asks the policy: its first factor
-     * and the check's proofs are all it reads.
+     * A stored external session is judged on its accepted evidence, newest
+     * first.
      *
      * @return void
      *
@@ -537,11 +508,7 @@ final class RequirementJudgeTest extends TestCase
 
     /**
      * A judgement made under the session's lock reads each of the session's
-     * proofs it reads current: its first factor, its accepted evidence and
-     * every query the check makes of the subject, a later one included, each
-     * with a shared lock where the engine takes one. A plain judgement takes
-     * none, and one of a sign-in's evidence, or of no session, reads nothing
-     * either way.
+     * proofs current.
      *
      * @return void
      *
@@ -584,10 +551,8 @@ final class RequirementJudgeTest extends TestCase
     }
 
     /**
-     * Newer evidence the policy accepted for less never hides older evidence
-     * that still meets the requirement: the policy is asked of the newest first
-     * and then of the older, which meets it; evidence none of which meets it is
-     * refused once each has been asked.
+     * Newer evidence that falls short never hides older evidence that still
+     * meets the requirement.
      *
      * @return void
      *
@@ -620,10 +585,7 @@ final class RequirementJudgeTest extends TestCase
 
     /**
      * The requirement check never sees an external proof's acceptance, stored
-     * or in memory: provider multifactor evidence three days old, which the
-     * evidence policy finds too old for a five-minute requirement, reaches the
-     * check as proofs with no evaluation, so a check counting accepted
-     * multifactor proofs cannot credit it.
+     * or in memory.
      *
      * @return void
      *
@@ -660,7 +622,7 @@ final class RequirementJudgeTest extends TestCase
     }
 
     /**
-     * The judge is a static utility that cannot be instantiated from outside.
+     * The judge cannot be instantiated from outside.
      *
      * @return void
      */
@@ -721,8 +683,8 @@ final class RequirementJudgeTest extends TestCase
     }
 
     /**
-     * Record an external proof of the kind given on the session, through
-     * `conn-a`, with its evidence accepted as multifactor.
+     * Record an external proof on the session with its evidence accepted as
+     * multifactor.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\Session  $session
      * @param  \SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind  $kind
