@@ -10,12 +10,8 @@ use SineMacula\Laravel\Authentication\Contracts\IdentifierNormalizer;
  * The default normaliser for email addresses: surrounding whitespace removed
  * and every letter lower-cased.
  *
- * The whole address is lower-cased, local part included. RFC 5321 lets a mail
- * server treat the local part case-sensitively, but almost none do, and an
- * application that let `Ben@x.com` and `ben@x.com` be two accounts would invite
- * takeover by look-alike sign-up. The value is not otherwise validated: format
- * rules belong to the application's validation, so anything that is valid UTF-8
- * and not blank is accepted.
+ * The local part is lower-cased too, since `Ben@x.com` and `ben@x.com` as two
+ * accounts would invite takeover by look-alike sign-up.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

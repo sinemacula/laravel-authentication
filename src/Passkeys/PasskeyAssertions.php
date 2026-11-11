@@ -22,32 +22,7 @@ use SineMacula\Laravel\Authentication\Proofs\ProofBinding;
 use Webauthn\PublicKeyCredential;
 
 /**
- * Verifies a passkey assertion, for a sign-in or as a further factor, in the
- * order that spends nothing on a response that cannot succeed and never changes
- * a passkey for one that fails:
- *
- * 1. the challenge is used up (malformed, unknown, or another guard's, relying
- *    party's, ceremony's, identity's, or, for a factor, session's or purpose's:
- *    `passkey_challenge_invalid`; the response's own, and expired:
- *    `passkey_challenge_expired`; the response's own, and submitted to before,
- *    whether or not that one verified: `passkey_challenge_used`);
- * 2. the response must parse, and name a passkey of the relying party, one of
- *    those the challenge allowed when it named any, compared exactly
- *    (`invalid_credentials`);
- * 3. the caller admits the passkey's owner, or answers why not (a sign-in loads
- *    it through the guard's provider and counts the check against the
- *    account; a factor requires it to be the identity verifying);
- * 4. the assertion must verify: origin, relying party id hash, user presence,
- *    user verification where the challenge required it, signature, challenge
- *    and user handle (`invalid_credentials`);
- * 5. the sign counter rule (`SignCounter`) must accept the count, and the
- *    passkey's row is moved from the count it was verified against, by a
- *    compare-and-set (`passkey_counter_regressed`).
- *
- * A verified assertion answers what its authenticator data showed (user
- * presence and verification, backup eligibility and state), never what the
- * ceremony asked for. A verified use dispatches `PasskeyUsed` once its row is
- * committed.
+ * Verifies a passkey assertion, for a sign-in or as a further factor.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -63,15 +38,13 @@ final readonly class PasskeyAssertions
      */
     public function __construct(
 
-        /** Container the library wrapper, the configuration and the transactions manager are resolved from when needed. */
+        /** Container the library wrapper, configuration and transactions manager are resolved from. */
         private Container $container,
     ) {}
 
     /**
-     * Verify the response to the challenge and return the passkey's owner, as
-     * the owner callback admitted it, with the passkey and what the assertion
-     * showed; or why it was refused. A factor ceremony's challenge must record
-     * the binding given.
+     * Verify the response to the challenge and return the passkey's owner, the
+     * passkey and what the assertion showed, or why it was refused.
      *
      * @formatter:off
      *
@@ -133,9 +106,7 @@ final readonly class PasskeyAssertions
     }
 
     /**
-     * Dispatch `PasskeyUsed` for the passkey once its use is committed on its
-     * connection, through the caller's dispatch, which reads its dispatcher
-     * when the commit runs it.
+     * Dispatch `PasskeyUsed` for the passkey once its use is committed.
      *
      * @param  \SineMacula\Laravel\Authentication\Passkeys\RelyingParty  $rp
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
@@ -166,8 +137,7 @@ final readonly class PasskeyAssertions
     }
 
     /**
-     * Defers work until the writes on a passkey's connection are committed,
-     * with the transactions manager resolved when it runs.
+     * Defers work until the writes on a passkey's connection are committed.
      *
      * @return \SineMacula\Laravel\Authentication\Database\AfterCommit
      */
@@ -191,8 +161,8 @@ final readonly class PasskeyAssertions
     }
 
     /**
-     * The response parsed, with the passkey of the relying party it names, or
-     * `null` when it is malformed or names none.
+     * The parsed response with the passkey it names, or `null` when it is
+     * malformed or names none.
      *
      * @param  \SineMacula\Laravel\Authentication\Passkeys\RelyingParty  $rp
      * @param  mixed  $credential
@@ -210,9 +180,8 @@ final readonly class PasskeyAssertions
     }
 
     /**
-     * Whether the challenge allowed the passkey: any, for a ceremony that names
-     * none (a usernameless sign-in), else one whose credential id is the
-     * passkey's, compared byte for byte.
+     * Whether the challenge allowed the passkey; one that names none allows
+     * any.
      *
      * @param  array<array-key, mixed>  $options
      * @param  \SineMacula\Laravel\Authentication\Models\Passkey  $passkey
@@ -226,9 +195,7 @@ final readonly class PasskeyAssertions
     }
 
     /**
-     * Verify the assertion against the passkey (with the handle it was
-     * registered under, for a ceremony bound to an identity) and move its
-     * count: what the assertion showed when both succeed, else why not.
+     * Verify the assertion against the passkey and move its count.
      *
      * @param  \SineMacula\Laravel\Authentication\Passkeys\RelyingParty  $rp
      * @param  array<array-key, mixed>  $options

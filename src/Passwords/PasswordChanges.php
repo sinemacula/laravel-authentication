@@ -39,31 +39,6 @@ use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
  * Changes or establishes the password of a signed-in identity from the session
  * it is signed in with, for a guard, ending every other session it has.
  *
- * The session is read again by its key on the write connection: it must still
- * be the session given (of its generation), of this guard, not revoked, not
- * pending, not ended, and a person's, and its owner, reloaded through the
- * guard's provider, must live on the storage connection (see
- * `SharedConnection`), so the password, the revocations and the cutoff commit
- * as one. A change needs the current password, which the owner must have
- * (`password_not_set` otherwise): it is checked inside the guard's credential
- * timebox and counted first against the account and the IP address under the
- * guard's `sign_in` limits, before any transaction, as a sign-in's password
- * is; a correct one gives its slot back. An establishment needs an owner with
- * no password yet (`password_already_set` otherwise) and a proof on the
- * session fresh enough for `password_establishment` (see `FreshnessPolicy`).
- * The policy then judges the new password.
- *
- * Then, in one transaction on the identity's connection: the identity's row is
- * locked, then the session's, the order an identifier change takes; the session
- * must still be as above, a change's hash must still be the one the current
- * password was checked against, an establishment's row must still have no
- * password and its proof must still be fresh, judged on the session's proofs as
- * committed (the freshness policy asked current); and `PasswordWriter` writes
- * the password (an establishment only while the row has none, in the same
- * statement), invalidates the proofs it outdates and ends every other session,
- * `PasswordSet` following once it commits. Every refusal but a rejected
- * password is reported by `AuthenticationFailed` (flow `password_change`).
- *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
@@ -164,10 +139,8 @@ final readonly class PasswordChanges
     }
 
     /**
-     * Judge the new password, then, in one transaction on the identity's
-     * connection, lock the identity's row and the session's, check the session
-     * and the condition again on them as locked, and write the password with
-     * the flow, ending every other session.
+     * Judge the new password, then lock the identity's row and the session's,
+     * check them again and write the password in one transaction.
      *
      * @formatter:off
      *
@@ -201,8 +174,7 @@ final readonly class PasswordChanges
             return PasswordResult::rejected($check->violations);
         }
 
-        // `#[\SensitiveParameter]` does not cover what a closure captures,
-        // which a dump of the trace shows.
+        // `#[\SensitiveParameter]` does not cover what a closure captures.
         $secret = new \SensitiveParameterValue($password);
         $writer = new PasswordWriter($this->context, $this->revocations, $this->container);
         $client = $context->client;
@@ -231,9 +203,7 @@ final readonly class PasswordChanges
 
     /**
      * The session's owner, reloaded through the guard's provider, when the
-     * session as stored may change its password and the owner lives on the
-     * storage connection; otherwise why not. Settings a change reads fail
-     * closed first.
+     * session may change its password; otherwise why not.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @return (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity)|\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
@@ -279,9 +249,7 @@ final readonly class PasswordChanges
 
     /**
      * Why the session, as stored, may not have its owner's password changed
-     * from it, or `null` when it may: no longer the session given, a machine
-     * identity's, another guard's, revoked, pending or ended, or the identity
-     * given is none, or not its owner.
+     * from it, or `null` when it may.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $stored
@@ -301,10 +269,8 @@ final readonly class PasswordChanges
     }
 
     /**
-     * Whether the password is the identity's current one, checked inside the
-     * guard's credential timebox once a slot of the account's and the IP
-     * address's sign-in limits is taken; the seconds until another may be
-     * checked when they had none, or `invalid_credentials`.
+     * Whether the password is the identity's current one, or the seconds until
+     * another may be checked, or `invalid_credentials`.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $password
@@ -338,8 +304,7 @@ final readonly class PasswordChanges
     }
 
     /**
-     * Report a change refused for the reason, with the wait when it was
-     * limited, with `AuthenticationFailed`, and answer it.
+     * Report a change refused with `AuthenticationFailed`, and answer it.
      *
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
      * @param  \SineMacula\Laravel\Authentication\Events\EventContext  $context
@@ -364,8 +329,7 @@ final readonly class PasswordChanges
     {
         $hash = WriteConnection::during($identity, static fn (): mixed => $identity->getAuthPassword());
 
-        // The contract documents a string, but Eloquent returns the raw
-        // attribute: null for an account stored without a password.
+        // Eloquent returns the raw attribute, null when no password is set.
         // @phpstan-ignore function.alreadyNarrowedType
         return is_string($hash) ? $hash : '';
     }

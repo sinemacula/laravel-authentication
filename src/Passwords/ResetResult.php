@@ -7,10 +7,7 @@ namespace SineMacula\Laravel\Authentication\Passwords;
 use SineMacula\Laravel\Authentication\Passwords\Enums\ResetStatus;
 
 /**
- * How a password reset ended: the password set, with how many sessions were
- * revoked; refused as invalid, without saying why; rate limited, with the
- * seconds to wait; or rejected by the password policy, with the rules the new
- * password breaks.
+ * How a password reset ended.
  *
  * @api
  *

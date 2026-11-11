@@ -13,21 +13,8 @@ use SineMacula\Laravel\Authentication\Exceptions\BreachedPasswordCheckUnavailabl
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordViolation;
 
 /**
- * The password policy a new password must pass: its length in characters, the
- * composition rules switched on, bcrypt's 72-byte ceiling and its refusal of a
- * null character when the hashing driver is bcrypt, and then the
- * breached-password check.
- *
- * Length counts characters as Laravel's `min` and `max` rules do (`mb_strlen`),
- * and the composition rules use exactly the expressions of Laravel's `Password`
- * rule, so `rule()` and `check()` agree on everything that rule can express.
- * The breached check runs only for a password that passes the rest; a checker
- * that cannot answer is reported to the exception handler, and the password is
- * then rejected (`reject`, the default) or let through (`allow`).
- *
- * It is applied to passwords being set, never to the automatic rehash of a
- * password on sign-in, which re-encodes a password the identity already holds.
- * The settings and the checker are resolved on every call.
+ * The password policy a new password must pass: length, composition, bcrypt's
+ * limits and the breached-password check.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -85,8 +72,7 @@ final readonly class PasswordPolicy
 
     /**
      * Laravel's `Password` rule with the configured length and composition, for
-     * a form's validation. It cannot express the breached check or bcrypt's
-     * byte ceiling and null character, so `check()` stays authoritative.
+     * a form's validation; `check()` stays authoritative.
      *
      * @return \Illuminate\Validation\Rules\Password
      *
@@ -159,8 +145,7 @@ final readonly class PasswordPolicy
 
     /**
      * The rule the password breaks for the hasher: a null character, which
-     * bcrypt refuses (PHP throws, and Laravel's hasher with it, rather than
-     * hash it), while the hashing driver is bcrypt.
+     * bcrypt refuses, while the hashing driver is bcrypt.
      *
      * @param  \SineMacula\Laravel\Authentication\Passwords\PasswordSettings  $settings
      * @param  string  $password

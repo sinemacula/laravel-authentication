@@ -6,8 +6,7 @@ namespace SineMacula\Laravel\Authentication\Codes\Enums;
 
 /**
  * What the factor package answered when asked whether a factor code may be sent
- * or checked: it may; the factor or the identity is locked, until a time it
- * names; or it refuses, for a reason it names.
+ * or checked.
  *
  * @api
  *

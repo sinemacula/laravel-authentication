@@ -8,11 +8,7 @@ use SineMacula\Laravel\Authentication\Factors\FactorReference;
 
 /**
  * A factor package's association of a passkey being registered as one of the
- * identity's factors: its own reference to the factor, which the registration
- * answers with, and the factor package's own completion of the registration, if
- * it has one, which the registration hands back to its caller uninterpreted
- * (the judgement of the current session again, `factorChanged()`, carrying a
- * pending credential for the client when it returned to pending).
+ * identity's factors.
  *
  * @api
  *

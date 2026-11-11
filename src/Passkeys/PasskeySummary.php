@@ -9,14 +9,8 @@ use Illuminate\Contracts\Support\Arrayable;
 use SineMacula\Laravel\Authentication\Models\Passkey;
 
 /**
- * What a passkey list shows of one passkey: its id (to remove it by), the name
- * it was registered with, the transports it reported, its authenticator's
- * AAGUID, whether it may be and is backed up (a synced passkey), and when it
- * was registered and last used.
- *
- * Safe to return to the identity it belongs to as it is: it never holds the
- * credential id, the public key, the user handle or the sign counter.
- * `toArray()` and JSON use snake_case keys and ISO-8601 times.
+ * What a passkey list shows of one passkey; it never holds the credential id,
+ * public key, user handle or sign counter.
  *
  * @api
  *

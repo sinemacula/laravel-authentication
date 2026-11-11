@@ -10,14 +10,7 @@ use SineMacula\Laravel\Authentication\Codes\Enums\FactorCodeRefusal;
 
 /**
  * How checking a further factor's code, or an enrolment's, ended
- * (`CodeService::verifyFactorCode()`): verified, at the time given, or why not,
- * for the challenge it was checked against.
- *
- * A verified code is the factor package's to turn into a proof (its method, the
- * channel, its factor reference and the binding) and hand to the session
- * service's `satisfy()` or `stepUp()`, inside the same transaction when both
- * are to commit together. `lockedUntil` carries a lock the factor package
- * reported, whether the check found it or this attempt caused it.
+ * (`CodeService::verifyFactorCode()`).
  *
  * @api
  *

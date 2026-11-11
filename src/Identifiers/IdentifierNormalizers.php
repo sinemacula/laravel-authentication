@@ -9,14 +9,8 @@ use Illuminate\Contracts\Container\Container;
 use SineMacula\Laravel\Authentication\Contracts\IdentifierNormalizer;
 
 /**
- * The identifier normalisers, by identifier type, from
- * `authentication.identifiers.normalizers`: a map of type names to container
- * abstracts that resolve to an `IdentifierNormalizer`.
- *
- * The map is read on every call, and an entry whose name is not a valid
- * identifier type, whose abstract is not a non-empty string, or that does not
- * resolve to a normaliser fails closed with an `InvalidArgumentException`
- * rather than leaving identifiers of that type as given.
+ * The identifier normalisers by type, read from
+ * `authentication.identifiers.normalizers` on every call.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

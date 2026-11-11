@@ -11,9 +11,7 @@ use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Models\OneTimeCode;
 
 /**
- * The one-time code table as the engine reads and writes it: a key's row read
- * from the write PDO, whether a row can still be checked, whether a stored
- * transaction is the one given, and a query on the table for the writes.
+ * The one-time code table as the engine reads and writes it.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -47,9 +45,7 @@ final class CodeRows
     }
 
     /**
-     * The key's row when its code can still be checked, or why not: there is
-     * none (`not_found`), it was used (`used`), it has expired, or it has used
-     * up its attempts. A used row that has also expired is `used`.
+     * The key's row when its code can still be checked, or why not.
      *
      * @param  ?\SineMacula\Laravel\Authentication\Models\OneTimeCode  $row
      * @param  int  $max

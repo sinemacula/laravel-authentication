@@ -7,12 +7,8 @@ namespace SineMacula\Laravel\Authentication\Factors\Enums;
 use SineMacula\Laravel\Authentication\Freshness\Operations;
 
 /**
- * A change the factor package makes to an identity's further factors, which it
- * asks the factor-change gate about first (`SessionService::factorChange()`).
- * The values are the factor package's operations of the same meaning;
- * `ADD_FIRST` is its `mfa.add_factor` made by an identity with no further
- * factor yet, named apart in the same namespace because it is held to
- * `first_additional_factor`, not `factor_change`.
+ * A change the factor package makes to an identity's further factors, asked of
+ * the factor-change gate first.
  *
  * @api
  *
@@ -38,9 +34,7 @@ enum FactorChange: string
     case GENERATE_RECOVERY_CODES = 'mfa.generate_recovery_codes';
 
     /**
-     * The freshness operation the change must be fresh for:
-     * `first_additional_factor` for an identity's first additional factor,
-     * `factor_change` for every other.
+     * The freshness operation the change must be fresh for.
      *
      * @return string
      */

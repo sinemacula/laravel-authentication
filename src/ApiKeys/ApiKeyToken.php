@@ -7,13 +7,8 @@ namespace SineMacula\Laravel\Authentication\ApiKeys;
 use Random\Randomizer;
 
 /**
- * The form of an API key, `<prefix>_<public>_<secret>`: the configured prefix,
- * 16 lower-case letters or digits that make the public part unique (about 82
- * bits), and a 40-character secret of letters and digits (about 238 bits) from
- * a secure generator. `<prefix>_<public>` is stored, displayed and looked up;
- * the secret is kept only as its SHA-256 digest, since a secret that long needs
- * no password hash to resist guessing. The same pair also serves as an OAuth
- * client's id and secret.
+ * The form of an API key, `<prefix>_<public>_<secret>`; a 238-bit secret needs
+ * no password hash, so only its SHA-256 digest is stored.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -83,7 +78,7 @@ final class ApiKeyToken
 
     /**
      * The public part and the secret of a presented key, or `null` when it is
-     * not one in form, so a malformed key costs no query.
+     * malformed.
      *
      * @param  string  $key
      * @return ?array{0: string, 1: string}
@@ -106,8 +101,7 @@ final class ApiKeyToken
     }
 
     /**
-     * Whether a presented public part (an OAuth client id) is one in form:
-     * never a whole key or a secret.
+     * Whether a presented public part (an OAuth client id) is well formed.
      *
      * @param  string  $public
      * @return bool

@@ -18,15 +18,7 @@ use Webauthn\TrustPath\EmptyTrustPath;
 
 /**
  * Stores, finds, updates and removes passkeys, each scoped to the relying party
- * it was registered for: a guard only ever sees the passkeys of its own relying
- * party id.
- *
- * A credential is found by the SHA-256 digest of its raw id, since an id can be
- * longer than an index can hold, and its id is kept as canonical unpadded
- * base64url. Every read is from the write connection, and every write is one
- * conditional statement: a registration inserts unless the credential is
- * already registered, a use moves the sign counter only from the count it was
- * verified against, and a removal deletes only the passkey it read.
+ * it was registered for.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -47,8 +39,7 @@ final class PasskeyCredentials
     private function __construct() {}
 
     /**
-     * The passkey of the relying party with the raw credential id, if any, the
-     * relying party matched exactly, whatever the column's collation.
+     * The passkey of the relying party with the raw credential id, if any.
      *
      * @param  \SineMacula\Laravel\Authentication\Passkeys\RelyingParty  $rp
      * @param  string  $credentialId
@@ -67,10 +58,7 @@ final class PasskeyCredentials
     }
 
     /**
-     * The owner's passkeys for the relying party, oldest first. Each is checked
-     * against the owner and the relying party exactly, since the columns'
-     * collation may count distinct values, such as `alice` and `Alice`, as
-     * equal.
+     * The owner's passkeys for the relying party, oldest first.
      *
      * @param  \SineMacula\Laravel\Authentication\Passkeys\RelyingParty  $rp
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $owner
@@ -97,8 +85,8 @@ final class PasskeyCredentials
     }
 
     /**
-     * Whether a credential with the raw id is registered already, for anyone,
-     * under any relying party.
+     * Whether a credential with the raw id is registered under any relying
+     * party.
      *
      * @param  string  $credentialId
      * @return bool
@@ -109,8 +97,7 @@ final class PasskeyCredentials
     }
 
     /**
-     * The passkey a registration verified for the owner, under an id drawn now,
-     * not yet stored.
+     * The unsaved passkey a registration verified for the owner.
      *
      * @param  \SineMacula\Laravel\Authentication\Passkeys\RelyingParty  $rp
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $owner
@@ -148,9 +135,8 @@ final class PasskeyCredentials
     }
 
     /**
-     * Store the drafted passkey unless its credential is registered already
-     * (for anyone, under any relying party), and return whether this call
-     * stored it.
+     * Store the drafted passkey unless its credential is registered, and return
+     * whether this call stored it.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\Passkey  $passkey
      * @return bool
@@ -171,10 +157,8 @@ final class PasskeyCredentials
     }
 
     /**
-     * Record a verified use of the passkey: its new sign count, backup state
-     * and last use, only while it still holds the count it was verified
-     * against. Returns whether this call recorded it; when another use moved
-     * the count first, or the passkey was removed meanwhile, it did not.
+     * Record a verified use of the passkey if it still holds the count it was
+     * verified against, and return whether this call recorded it.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\Passkey  $passkey
      * @param  \Webauthn\CredentialRecord  $verified
@@ -209,9 +193,7 @@ final class PasskeyCredentials
     }
 
     /**
-     * The owner's passkey of the relying party with the id, read on the write
-     * connection and checked against the owner and the relying party exactly,
-     * or `null`; an id that is not a UUID names none, without a query.
+     * The owner's passkey of the relying party with the id, or `null`.
      *
      * @param  \SineMacula\Laravel\Authentication\Passkeys\RelyingParty  $rp
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $owner
@@ -240,8 +222,7 @@ final class PasskeyCredentials
     }
 
     /**
-     * Delete the passkey's row, and return whether this call deleted it; a
-     * passkey removed meanwhile is not.
+     * Delete the passkey's row and return whether this call deleted it.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\Passkey  $passkey
      * @return bool
@@ -254,8 +235,7 @@ final class PasskeyCredentials
     }
 
     /**
-     * The passkey as the library's credential record, to verify an assertion
-     * against.
+     * The passkey as the library's credential record.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\Passkey  $passkey
      * @return \Webauthn\CredentialRecord
@@ -301,10 +281,8 @@ final class PasskeyCredentials
     }
 
     /**
-     * Whether the credential id is canonical unpadded base64url: not empty, and
-     * the very encoding of the bytes it decodes to, so no two spellings name
-     * one credential. An encoding holds only the url alphabet and no padding,
-     * so nothing else survives the round trip.
+     * Whether the credential id is non-empty canonical unpadded base64url, so
+     * no two spellings name one credential.
      *
      * @param  string  $credentialId
      * @return bool
@@ -326,11 +304,8 @@ final class PasskeyCredentials
     }
 
     /**
-     * Whether an update of a use that reported no row matched one all the same.
-     * A count of 0 against a stored 0 moves nothing, so there is no race to
-     * lose, but MySQL reports a row the update matched without changing it (a
-     * second use within the same second) as unaffected. The passkey must still
-     * hold 0 on the writer: one removed meanwhile is not used.
+     * Whether a use's update that MySQL reported unaffected matched an
+     * unchanged row holding 0.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\Passkey  $passkey
      * @param  \Webauthn\CredentialRecord  $verified
@@ -343,8 +318,8 @@ final class PasskeyCredentials
     }
 
     /**
-     * The transports a response reported that WebAuthn defines, in order and
-     * without repeats; others are not kept.
+     * The transports a response reported that WebAuthn defines, without
+     * repeats.
      *
      * @param  array<array-key, mixed>  $transports
      * @return list<string>
@@ -358,8 +333,7 @@ final class PasskeyCredentials
     }
 
     /**
-     * The AAGUID of the credential's authenticator, or `null` for the nil one
-     * an authenticator reports when it names none.
+     * The AAGUID of the credential's authenticator, or `null` for the nil one.
      *
      * @param  \Webauthn\CredentialRecord  $record
      * @return ?string
@@ -372,8 +346,7 @@ final class PasskeyCredentials
     }
 
     /**
-     * The SHA-256 hex digest of a raw credential id, which the passkey is found
-     * by.
+     * The SHA-256 hex digest of a raw credential id.
      *
      * @param  string  $credentialId
      * @return string

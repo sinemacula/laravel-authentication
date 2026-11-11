@@ -12,14 +12,6 @@ use SineMacula\Laravel\Authentication\Secrets\Secret;
 /**
  * A one-time code to deliver: what `OneTimeCodeSender::send()` is given.
  *
- * The identifier is the destination, in its normal form (an E.164 number, a
- * trimmed, lower-cased address), which the delivery job has checked is exactly
- * the one the code is bound to: the recipient's own identifier of the type,
- * except for a `change_identifier` code, which goes to the new identifier the
- * identity does not hold yet. The identity is the recipient the job resolved.
- * The code is a `Secret`: reveal it only into the message to the recipient, and
- * never log it.
- *
  * @api
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>

@@ -7,13 +7,7 @@ namespace SineMacula\Laravel\Authentication\Passkeys;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 
 /**
- * How verifying one of an identity's passkeys as a further factor ended:
- * verified, with what the assertion showed (`PasskeyFactorAssertion`), or
- * refused, with why.
- *
- * The reason is not concealed, since the caller already holds the identity, and
- * nothing reports or counts a refusal: the factor's outcome is the
- * further-factor package's to report and limit.
+ * How verifying one of an identity's passkeys as a further factor ended.
  *
  * @api
  *

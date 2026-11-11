@@ -5,9 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Codes\Enums;
 
 /**
- * How a request for a one-time code, or a password reset link, ended. A sign-in
- * code and a reset are sent whether or not any identity has the identifier, so
- * `sent` never says that one does.
+ * How a request for a one-time code, or a password reset link, ended.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

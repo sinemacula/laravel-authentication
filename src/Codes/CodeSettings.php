@@ -8,11 +8,8 @@ use Illuminate\Contracts\Config\Repository;
 use SineMacula\Laravel\Authentication\Config\IntegerSetting;
 
 /**
- * The one-time code settings in `authentication.codes`, read on every call and
- * validated as they are read: each number an integer, or the digit string
- * `env()` returns for one, within its range. Anything else fails closed with an
- * `InvalidArgumentException` naming the key; `authentication:check` reports it.
- * Delivery is queued with the `DeliverySettings`.
+ * The one-time code settings in `authentication.codes`, validated as they are
+ * read.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -100,9 +97,8 @@ final readonly class CodeSettings
     }
 
     /**
-     * How many codes may be delivered to one destination (for one owner, where
-     * the purpose has one) within one delivery window, across every challenge
-     * the window holds, 1 to 10.
+     * How many codes may be delivered to one destination within one delivery
+     * window, 1 to 10.
      *
      * @return int
      *
@@ -115,8 +111,7 @@ final readonly class CodeSettings
 
     /**
      * How long a delivery window lasts from its first delivery, in seconds,
-     * from the code lifetime to 86400: no challenge outlives the window it was
-     * delivered in, and a resend never extends one past it.
+     * from the code lifetime to 86400.
      *
      * @return int
      *

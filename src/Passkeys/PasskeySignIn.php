@@ -20,39 +20,8 @@ use SineMacula\Laravel\Authentication\Proofs\FirstFactor;
 use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
 
 /**
- * The passkey sign-in method: usernameless, with a discoverable credential and
- * user verification, answering a challenge `Auth::passkeys()->signInOptions()`
- * handed out.
- *
- * The input is `['challenge' => <the options' challenge id>, 'credential' =>
- * <the browser's PublicKeyCredential, as JSON or decoded>]`. The method names
- * no identifier, so the attempt limits count the sign-in per IP address, and
- * the passkey's owner, once found, per account. In order: the guard's sign-in
- * challenge is used up (`passkey_challenge_invalid`, or `passkey_challenge_expired`
- * or `passkey_challenge_used` for a sign-in challenge of the guard that ran out
- * or was submitted to before, whether or not that one signed in; they say
- * nothing about any account, only about the challenge, so the result carries
- * them and the client starts again); the
- * response must parse and name a passkey of the guard's relying party; its
- * owner must load through the guard's provider as the very model the passkey
- * records; a slot of the owner's account limit is taken before the assertion is
- * checked; the assertion must verify, its user handle included; and the sign
- * counter must advance (`passkey_counter_regressed`, a possible clone, which
- * the result conceals as `invalid_credentials`). Every other refusal is
- * `invalid_credentials`. A verified passkey records its new count and last use
- * and dispatches `PasskeyUsed`, whether or not the session service then admits
- * the sign-in; the session service decides the rest (a machine identity,
- * activity, the principal, the application, a further factor, the session).
- *
- * A verified passkey is a proof over a `passkey` channel whose reference is the
- * passkey's own row id (never the WebAuthn credential id, which can run past a
- * thousand bytes), with the `pop` `amr` value (RFC 8176). What the assertion
- * showed is observed: the user was present and verified (the ceremony requires
- * both, and the assertion is refused without them), the credential's backup
- * eligibility and state as its authenticator data flags report them, and
- * resistance to phishing (the origin and relying party id were verified); how
- * its key is protected is not observed, as the passkey was registered with
- * attestation `none`.
+ * The usernameless passkey sign-in method, answering a challenge
+ * `Auth::passkeys()->signInOptions()` handed out.
  *
  * @api
  *
@@ -80,7 +49,7 @@ final readonly class PasskeySignIn implements SignInMethod
      */
     public function __construct(
 
-        /** Container the configuration, the library wrapper, the dispatcher and the transactions manager are resolved from on every call. */
+        /** Container the configuration, library wrapper, dispatcher and transactions manager are resolved from. */
         private Container $container,
     ) {}
 
@@ -110,8 +79,7 @@ final readonly class PasskeySignIn implements SignInMethod
     }
 
     /**
-     * The ceremony's challenge id the input answers, when it is in the form a
-     * passkey challenge is issued in: a UUID.
+     * The challenge id the input answers, when it is a UUID.
      *
      * @param  array<array-key, mixed>  $input
      * @return ?string

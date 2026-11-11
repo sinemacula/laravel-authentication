@@ -24,10 +24,7 @@ use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 
 /**
  * Sends and checks a factor package's codes for a guard, as
- * `CodeService::sendFactorCode()` and `verifyFactorCode()` describe: a further
- * factor's `mfa` challenges and the `enrollment` challenges that confirm a
- * factor being enrolled, with the bound `FactorCodeCounters` asked and told
- * inside one transaction on the storage connection.
+ * `CodeService::sendFactorCode()` and `verifyFactorCode()` describe.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -90,8 +87,7 @@ final readonly class FactorCodes
 
     /**
      * Check the code for the challenge against the binding, after the
-     * `factor_code` limits, inside one transaction that asks the counters first
-     * and reports the attempt it counts.
+     * `factor_code` limits.
      *
      * @param  \SineMacula\Laravel\Authentication\Codes\FactorCodeBinding  $binding
      * @param  string  $challengeId
@@ -122,8 +118,7 @@ final readonly class FactorCodes
             return $this->refuseCheck(new FactorCodeCheck($outcome, $challengeId), $context);
         }
 
-        // `#[\SensitiveParameter]` does not cover what a closure captures,
-        // which a dump of the trace shows.
+        // `#[\SensitiveParameter]` does not cover what a closure captures.
         $secret   = new \SensitiveParameterValue($code);
         $counters = $this->container->make(FactorCodeCounters::class);
         $bound    = CodeBinding::factor($guard, $binding);
@@ -228,12 +223,7 @@ final readonly class FactorCodes
     }
 
     /**
-     * The check a factor code ends in once the counters answered: `verified`
-     * at the time given, when they admitted a matching code; `locked` or
-     * `refused` when they did not admit one, or did not admit the check at
-     * all; `invalid`, carrying any lock or refusal they reported, for a wrong
-     * code. A challenge that is absent or used is answered before the counters
-     * are told, so is never one of these.
+     * The check a factor code ends in once the counters answered.
      *
      * @param  \SineMacula\Laravel\Authentication\Codes\FactorCodeAdmission  $admission
      * @param  string  $challengeId
@@ -317,9 +307,8 @@ final readonly class FactorCodes
     }
 
     /**
-     * Report a check that was not verified with `AuthenticationFailed`, with
-     * the id of the challenge it checked when that is in the form the engine
-     * issues, and answer it.
+     * Report a check that was not verified with `AuthenticationFailed` and
+     * answer it.
      *
      * @param  \SineMacula\Laravel\Authentication\Codes\FactorCodeCheck  $check
      * @param  \SineMacula\Laravel\Authentication\Events\EventContext  $context

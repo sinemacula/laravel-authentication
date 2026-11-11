@@ -8,9 +8,8 @@ use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 
 /**
- * The package's default additional-factor policy: no sign-in needs anything
- * beyond its first factor. Bind another `AdditionalFactorPolicy` to require
- * more.
+ * The package's default additional-factor policy: no sign-in needs more than
+ * its first factor.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

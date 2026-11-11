@@ -9,15 +9,7 @@ use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeRe
 use SineMacula\Laravel\Authentication\Secrets\Secret;
 
 /**
- * How a request to change an identifier ended: sent, with when the change
- * expires (and, for a change proven by link, the signed link to send to the new
- * identifier); rate limited, with the seconds until another may be requested;
- * or refused because the identity did not authenticate recently enough, or the
- * new identifier is invalid or unchanged.
- *
- * The link is the proof of the change, so it goes only to the new identifier,
- * never back to the client that asked: it is a `Secret`, read through `link()`,
- * so no dump of the object shows it, and serialising the object throws.
+ * How a request to change an identifier ended.
  *
  * @api
  *
@@ -51,8 +43,7 @@ final readonly class IdentifierChangeRequest
         /** Seconds until another change may be requested, for `rate_limited` only. */
         public ?int $retryAfter = null,
 
-        // The signed link that confirms the change, for a `sent` change proven
-        // by link.
+        // The signed link that confirms a `sent` change proven by link.
         #[\SensitiveParameter]
         ?string $link = null,
 
@@ -63,9 +54,7 @@ final readonly class IdentifierChangeRequest
     }
 
     /**
-     * The change waits for its proof until the time given: a code was issued,
-     * for the challenge given, and its delivery queued, or the link given was
-     * signed.
+     * The change waits for its proof until the time given.
      *
      * @param  \Carbon\CarbonImmutable  $expiresAt
      * @param  ?string  $link
@@ -131,9 +120,7 @@ final readonly class IdentifierChangeRequest
     }
 
     /**
-     * The signed link that confirms the change, for a `sent` change proven by
-     * link; `null` otherwise. Reveal it only into the message to the new
-     * identifier.
+     * The signed link that confirms a `sent` change proven by link.
      *
      * @return ?\SineMacula\Laravel\Authentication\Secrets\Secret
      */

@@ -10,10 +10,6 @@ use SineMacula\Laravel\Authentication\Passkeys\PasskeyRegistration;
 /**
  * Why a passkey challenge could not be consumed.
  *
- * Only a challenge that records exactly the ceremony, guard, relying party,
- * owner and binding of the response is ever answered `EXPIRED` or `USED`; any
- * other is `NOT_FOUND`, as is an id that names none.
- *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *

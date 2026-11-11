@@ -8,16 +8,7 @@ use SineMacula\Laravel\Authentication\Contracts\IdentifierNormalizer;
 
 /**
  * The default normaliser for phone numbers: accepts only a number already in
- * E.164 form (`+`, a country code that does not start with 0, and at most 15
- * digits in all), with any surrounding whitespace removed.
- *
- * It does not parse numbers: spaces, dashes, brackets, a national format or a
- * leading `00` are refused rather than guessed at, since turning a number a
- * person types into E.164 depends on their country and on numbering plans that
- * change. An application that accepts mobile or free-form numbers binds a
- * normaliser of its own under `phone` in `authentication.identifiers`, backed
- * by `giggsey/libphonenumber-for-php` (suggested in `composer.json`, not
- * required), which returns the E.164 form or `null`.
+ * E.164 form, with any surrounding whitespace removed.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

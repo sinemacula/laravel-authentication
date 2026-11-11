@@ -11,14 +11,6 @@ use SineMacula\Laravel\Authentication\ClientCredentials\Enums\ClientAuthenticati
  * What a client credentials token request presented: the client's id and
  * secret, the scope it asked for, and how it authenticated the client.
  *
- * `ClientCredentialsRequest::extract()` builds one from a token request, and is
- * the way a controller should take one. An application may instead build one as
- * its trusted description of a request it read itself, as a `ClientContext`
- * built from plain values is; the exchange judges it on the facts given (a
- * `client_secret_post` the application does not allow is refused), but cannot
- * see facts left out, such as Basic credentials sent beside the body ones,
- * which `extract()` refuses.
- *
  * @api
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -26,7 +18,7 @@ use SineMacula\Laravel\Authentication\ClientCredentials\Enums\ClientAuthenticati
  */
 final readonly class PresentedClient
 {
-    /** @var \SensitiveParameterValue The client secret: the API key's secret, kept out of every dump and stack trace. */
+    /** @var \SensitiveParameterValue The API key's secret, kept out of dumps and stack traces. */
     private \SensitiveParameterValue $clientSecret;
 
     /**
@@ -66,10 +58,8 @@ final readonly class PresentedClient
     }
 
     /**
-     * The client id as events may report it: as given when it is an API key's
-     * public part in form, otherwise `null`. A client that sends its whole key
-     * as the id, or swaps the id and the secret, would otherwise have the
-     * secret written to every listener that records failures.
+     * The client id when it is a well-formed public part, else `null`, so a
+     * secret sent as the id is never reported.
      *
      * @return ?string
      */

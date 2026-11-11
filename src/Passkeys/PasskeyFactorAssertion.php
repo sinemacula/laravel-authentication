@@ -9,16 +9,7 @@ use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
 
 /**
  * What a verified factor assertion showed, for the factor package to build its
- * proof from: which passkey (its id and its credential id, canonical unpadded
- * base64url), what this assertion's authenticator data reported, when, and the
- * passkey's summary as its use left it.
- *
- * The observed properties are this assertion's own: user presence, user
- * verification, backup eligibility and backup state as its flags showed them,
- * resistance to phishing (the origin and the relying party id were verified),
- * and no key protection. What the ceremony asked for is never reported as
- * observed: an assertion made under `preferred` user verification without it
- * reports `userVerification` as `false`.
+ * proof from.
  *
  * @api
  *

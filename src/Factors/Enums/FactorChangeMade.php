@@ -5,15 +5,8 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Factors\Enums;
 
 /**
- * A change the factor package made to an identity's factors, once it is made,
- * for which it judges the session the change was made from again
- * (`SessionService::factorChanged()`). The factor-change gate's `FactorChange`
- * names a change before it is made, by the freshness operation it must be fresh
- * for; this names it after, for the judgement. A change that removes a factor,
- * a replacement included, goes through `factorRemoved()` for the factor it
- * removes, which judges the session itself. The case decides only the reason a
- * revocation of the session records: `factor_removed` for `FACTOR_REMOVED`,
- * `factor_changed` for every other case.
+ * A change the factor package made to an identity's factors, for which it
+ * judges the session again.
  *
  * @api
  *

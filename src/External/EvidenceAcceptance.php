@@ -15,18 +15,7 @@ use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 
 /**
  * Decides whether an external provider's evidence is accepted at all, and so
- * whether it is recorded and counts: the bound `ExternalEvidencePolicy`'s
- * `accepts()` is asked, whatever the evidence's age, for multifactor
- * authentication, then an additional verification, then phishing resistance,
- * then a minimum assurance level (the lowest, AAL1, so evidence credible for
- * any level is accepted, and the level a requirement asks for is `meets()`'s to
- * judge), stopping at the first it accepts. Evidence it accepts for none (as
- * the default policy answers) is insufficient, and nothing is recorded.
- *
- * Each is asked inside `WriteConnection::during()` for the identity and for no
- * tenant: acceptance is the application's, and each requirement it is later
- * judged against is `meets()`'s. Evidence dated after the time it is judged at
- * (the clocks disagree) is judged as of that time.
+ * whether it is recorded and counts.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -41,11 +30,8 @@ final class EvidenceAcceptance
     private function __construct() {}
 
     /**
-     * The evaluation of the evidence once accepted (accepted; multifactor when
-     * the policy accepts it for multifactor authentication; an additional
-     * verification when it accepts it for that or for multifactor
-     * authentication, not when only for phishing resistance or a level), or
-     * `null` when it is insufficient.
+     * The evaluation of the evidence once accepted, or `null` when it is
+     * insufficient.
      *
      * @param  \SineMacula\Laravel\Authentication\External\ExternalEvidence  $evidence
      * @param  \SineMacula\Laravel\Authentication\External\EvidenceSubject  $subject
@@ -81,8 +67,8 @@ final class EvidenceAcceptance
     }
 
     /**
-     * The evidence as it is judged at the subject's time: unchanged, unless it
-     * is dated after that time, when it is dated then.
+     * The evidence as it is judged at the subject's time, dated no later than
+     * that time.
      *
      * @param  \SineMacula\Laravel\Authentication\External\ExternalEvidence  $evidence
      * @param  \SineMacula\Laravel\Authentication\External\EvidenceSubject  $subject

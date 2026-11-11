@@ -7,11 +7,8 @@ namespace SineMacula\Laravel\Authentication\ApiKeys;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
 
 /**
- * A key the service just issued: the one place its plaintext exists. Show it to
- * whoever asked for it once; only its digest is stored, so it cannot be shown
- * again. The key is a `Secret`, read through `key()` and revealed only into the
- * response that shows it, so no dump of the object (Laravel's VarDumper,
- * `print_r`, `var_export`) shows it, and serialising the object throws.
+ * A key the service just issued, the one place its plaintext exists; show it
+ * once, as only its digest is stored.
  *
  * @api
  *
@@ -48,8 +45,8 @@ final readonly class IssuedApiKey
     }
 
     /**
-     * The key a client presents, `<prefix>_<public>_<secret>`: reveal it once,
-     * into the response that shows it.
+     * The key a client presents, to reveal once into the response that shows
+     * it.
      *
      * @return \SineMacula\Laravel\Authentication\Secrets\Secret
      */

@@ -32,41 +32,7 @@ use SineMacula\Laravel\Authentication\Scopes\Scopes;
 
 /**
  * A `jwt` guard's OAuth 2.0 client credentials exchange (RFC 6749 section 4.4),
- * `Auth::clientCredentials($guard)`: a non-human identity's API key, presented
- * as a client id (its public part) and secret, exchanged for a short-lived
- * access token of the guard. No session is created and no refresh token issued.
- * It is off unless the guard's application lists `client_credentials`, and a
- * client authenticates with HTTP Basic, or in the body only where the
- * application sets `client_secret_post`. The grant is the client's own
- * authentication, so `invalid_grant` is never answered: a client that fails to
- * authenticate is `invalid_client`, always 401 with a Basic challenge.
- *
- * A token request `ClientCredentialsRequest::extract()` read is first refused
- * for its own form, before anything else is checked: `invalid_request` for one
- * not in form or authenticating the client both ways, `unsupported_grant_type`
- * for another grant, and `invalid_client` for client authentication that is
- * missing, malformed, or in the body where the application does not set
- * `client_secret_post`. Then, in order: the guard's application must list
- * `client_credentials` (`unauthorized_client`); the IP address must not have
- * used up its failures for now, nor the client id when the guard limits it,
- * which it does not by default, as a client id is no secret (`slow_down`, 429
- * with `Retry-After`); the key must be this guard's, live, its secret right,
- * and its owner and principal admitted as on an `api_key` guard
- * (`invalid_client`, or `unauthorized_client` for a principal
- * `ApplicationAccess` refuses, which is `principal_ineligible`); the requested
- * scope, space-separated, must be granted to the key (none asks for every
- * granted scope; else `invalid_scope`). The token then carries the key's id in
- * `cid` and the scopes in `scope`, lives the guard's access lifetime and never
- * past the key's expiry, and is checked against its key on every request, so
- * revoking the key, or the end of its rotation's overlap, ends it at once. Only
- * failures to authenticate the client are counted. Every failure dispatches
- * `AuthenticationFailed` (flow `client_credentials`) with the client id when it
- * is a key's public part in form, and none otherwise, so a secret sent as the
- * id is never reported; a grant dispatches `ClientCredentialsGranted`.
- *
- * Reads the provider, resolver and dispatcher from the guard's context each
- * time it runs, so it keeps nothing between calls; the client is the one each
- * call is given.
+ * `Auth::clientCredentials($guard)`.
  *
  * @api
  *
@@ -92,28 +58,13 @@ final readonly class ClientCredentialsExchange
         /** The context of the guard the access tokens are for. */
         private GuardContext $context,
 
-        /** Container the application policy, the attempt limiter and the token services are resolved from. */
+        /** Container the application policy, attempt limiter and token services are resolved from. */
         private Container $container,
     ) {}
 
     /**
-     * Exchange what a token request presented for an access token granting the
-     * requested scope (every granted scope for none), for the client given:
-     * what `ClientCredentialsRequest::extract()` answered (a `PresentedClient`
-     * recording how the request authenticated the client, or the RFC 6749 error
-     * it refused the request with), or a `PresentedClient` the application
-     * built as its trusted description of a request it read itself, with the
-     * request's `ClientContext`. Nothing is read from the guard's request.
-     *
-     * An error handed in is refused with it (`invalid_request`,
-     * `unsupported_grant_type`, `invalid_client`), reported as
-     * `invalid_credentials`, before any query and without counting it; any
-     * other string is the caller's error (`InvalidArgumentException`, whose
-     * message never repeats it, as it may be a credential), nothing dispatched.
-     * A client authenticated in the body (`client_secret_post`) is refused as
-     * `invalid_client` the same way unless the application allows it. Then the
-     * exchange runs in the order the class describes, its limits counting the
-     * client's IP address and its events carrying the client.
+     * Exchange what a token request presented, or the error `extract()` refused
+     * it with, for an access token granting the requested scope.
      *
      * @param  \SineMacula\Laravel\Authentication\ClientCredentials\PresentedClient|string  $presented
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
@@ -139,8 +90,7 @@ final readonly class ClientCredentialsExchange
     }
 
     /**
-     * The error an error `extract()` answered is refused with: the error itself
-     * when it is one `extract()` answers, else a caller's error.
+     * The error `extract()` answered, refusing any string it never answers.
      *
      * @param  string  $error
      * @return string
@@ -161,8 +111,7 @@ final readonly class ClientCredentialsExchange
     }
 
     /**
-     * Why the way the client authenticated is refused, or `null` when it may:
-     * in the body (`client_secret_post`) only where the application allows it.
+     * Why the way the client authenticated is refused, or `null` when it may.
      *
      * @param  \SineMacula\Laravel\Authentication\ClientCredentials\PresentedClient  $presented
      * @return ?string
@@ -301,10 +250,8 @@ final readonly class ClientCredentialsExchange
     }
 
     /**
-     * Refuse a client that failed to authenticate: `unauthorized_client` for a
-     * principal `ApplicationAccess` refuses (`principal_ineligible`),
-     * `invalid_client` for any other reason, with the context established by
-     * then.
+     * Refuse a client that failed to authenticate, with the context established
+     * by then.
      *
      * @param  \SineMacula\Laravel\Authentication\ApiKeys\ApiKeyOutcome  $outcome
      * @param  \SineMacula\Laravel\Authentication\ClientCredentials\PresentedClient  $presented
@@ -344,9 +291,7 @@ final readonly class ClientCredentialsExchange
 
     /**
      * The realm of the Basic challenge an error answers with: the guard's for
-     * `invalid_client`, which RFC 6749 section 5.2 answers with 401 and a 401
-     * always carries a challenge (RFC 7235 section 3.1), whichever way the
-     * client authenticated; none for any other error.
+     * `invalid_client`, whose 401 must carry one (RFC 7235 section 3.1).
      *
      * @param  string  $error
      * @param  string  $guard
@@ -369,10 +314,8 @@ final readonly class ClientCredentialsExchange
     }
 
     /**
-     * The scopes a request for the scope string may be granted: every granted
-     * scope for none or an empty one, else the requested ones when the key
-     * grants them all, or `null` when the request is malformed or asks for
-     * more.
+     * The scopes a request for the scope string may be granted, or `null` when
+     * it is malformed or asks for more than the key grants.
      *
      * @param  ?string  $scope
      * @param  list<string>  $granted

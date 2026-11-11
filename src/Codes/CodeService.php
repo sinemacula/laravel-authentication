@@ -30,47 +30,8 @@ use SineMacula\Laravel\Authentication\Verification\Enums\IdentifierVerification;
 use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
 
 /**
- * The one-time code service of a JWT guard (`Auth::codes($guard)`): sends
- * sign-in codes for the code sign-in methods, sends and checks codes that
- * verify an identity's identifier, and sends and checks a factor package's
- * further-factor and enrolment codes.
- *
- * Every code is a challenge: the request answers its id (`CodeRequest::
- * $challengeId`), which the check must name, and a resend within the delivery
- * window keeps it, with its attempts, while it is live (see
- * `authentication.codes`).
- *
- * Sending a sign-in code does no work that depends on whether an identity has
- * the identifier: the guard must allow the method, the identifier must be one
- * its type's normaliser accepts, the identifier and the IP address must have
- * code requests left (`code_request` limits, counted on every request), and no
- * code may have been issued for the identifier within the resend cooldown;
- * then a code is issued and its delivery queued, once the code is committed.
- * The result (a challenge id among it), the statements run and the time taken
- * are the same for an identifier no one has, and the queued job alone decides,
- * later, whether anyone receives the code. The code signs in through
- * `Auth::sessions($guard)->signIn($method, ...)`, with its challenge id.
- *
- * Verifying by code is the code form of the verification helpers: a code bound
- * to the guard, the identity and its current identifier of the type, which,
- * checked with `verify()`, records the verification through
- * `IdentifierVerifier`. It never signs anyone in. Checks count against the
- * identity's account and the IP address (`identifier_verification`).
- *
- * A factor package's codes (`sendFactorCode()`, `verifyFactorCode()`) are bound
- * to a `FactorCodeBinding`: the identity, this guard, the session, the factor
- * and its purpose (`mfa` for a sign-in or a step-up, `enrollment` for the
- * confirmation of a factor being enrolled, with its grant). The bound
- * `FactorCodeCounters` is asked before each delivery and each check, inside one
- * transaction on the storage connection, and told the outcome of every attempt
- * counted, in the transaction that counts it; its default refuses every code.
- * This service keeps the per-challenge counts and the per-IP limits.
- *
- * Failures are results, reported by `AuthenticationFailed`; exceptions are kept
- * for misconfiguration and server errors. The service keeps no state between
- * calls: it reads the request and dispatcher from the guard's context, and
- * resolves the methods, policies, limiter and engine from the container, each
- * time.
+ * The one-time code service of a JWT guard (`Auth::codes($guard)`), for
+ * sign-in, verification and further-factor codes.
  *
  * @api
  *
@@ -96,9 +57,7 @@ final readonly class CodeService
 
     /**
      * Send a sign-in code for the named code sign-in method to the identifier
-     * the input names under the method's identifier type (for `phone_code`,
-     * `['phone' => '+447700900123']`). A method that does not sign in with
-     * codes is a misconfiguration (`InvalidArgumentException`).
+     * the input names under the method's identifier type.
      *
      * @param  string  $method
      * @param  array<array-key, mixed>  $input
@@ -129,12 +88,8 @@ final readonly class CodeService
     }
 
     /**
-     * Send a code that verifies the identity's current identifier of the type,
-     * read on the write connection, to that identifier. An identity that cannot
-     * verify identifiers (`LogicException`), or that is a machine identity,
-     * which has none to verify (`InvalidArgumentException`), is a
-     * misconfiguration; one with no identifier of the type, or one its type's
-     * normaliser rejects, is `identifier_invalid`.
+     * Send a code that verifies the identity's current identifier of the type
+     * to that identifier.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $type
@@ -161,24 +116,8 @@ final readonly class CodeService
     }
 
     /**
-     * Check a verification code, sent for the challenge named, for the
-     * identity's current identifier of the type, and record the identifier
-     * verified when it is accepted: `verified` or `already_verified`, as
-     * `IdentifierVerifier::verify()` answers it. Otherwise why not (`invalid`,
-     * `expired`, `exhausted` or `rate_limited`; not concealed, since the caller
-     * already holds the identity), reported by `AuthenticationFailed` as
-     * `invalid_credentials`, `code_expired`, `code_exhausted` or
-     * `rate_limited`, the last with the wait on the result. Every check counts
-     * against the identity's account and the IP address
-     * (`identifier_verification`) before the code, the challenge id and the
-     * identity's identifier are judged, so a malformed check, or one for a type
-     * with no identifier, uses up its slots and, once they are used up, answers
-     * `rate_limited`; only an accepted code gives them back. A rate-limited
-     * refusal is still reported, so the volume of events is bounded by the
-     * application's own request throttling. A code sent before the identifier
-     * changed is bound to the old one, so it verifies nothing; one whose
-     * identifier changed after the identity was loaded is used up and answers
-     * `mismatch`, with nothing recorded or reported, as the verifier gives it.
+     * Check a verification code sent for the challenge named, and record the
+     * identifier verified when it is accepted.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $type
@@ -226,23 +165,7 @@ final readonly class CodeService
 
     /**
      * Send a further factor's code, or an enrolment's, to the destination of
-     * the binding's channel, for the identity, the session and the factor it
-     * names. A binding for another application than this guard is a
-     * misconfiguration (`InvalidArgumentException`), as are malformed settings,
-     * refused before anything is counted.
-     *
-     * The request counts under `code_request` on the destination, the
-     * identity's account and the IP address; then, in one transaction on the
-     * storage connection (a savepoint of the caller's), the bound
-     * `FactorCodeCounters` is asked first (`locked` or `refused`, nothing
-     * written), and the code is issued: a resend of the live challenge for the
-     * same session, factor and purpose (or grant) keeps its id and its
-     * attempts, anything else is a new challenge, and the destination's
-     * cooldown and delivery cap hold whichever factor or grant the binding
-     * names. The delivery is queued once the transaction commits, through the
-     * application's `OneTimeCodeSender`, with the purpose `mfa` or `enrollment`
-     * and the channel's kind as the type. Every refusal is reported by
-     * `AuthenticationFailed` (flow `factor_code`).
+     * the binding's channel.
      *
      * @param  \SineMacula\Laravel\Authentication\Codes\FactorCodeBinding  $binding
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
@@ -262,33 +185,7 @@ final readonly class CodeService
 
     /**
      * Check a further factor's code, or an enrolment's, sent for the challenge
-     * named, against the binding: the same identity, guard, session, factor and
-     * purpose (or grant) the code was sent for, or it is `not_found`. A binding
-     * for another application than this guard is a misconfiguration
-     * (`InvalidArgumentException`).
-     *
-     * A check counts per IP address (`factor_code`) before the challenge id and
-     * the code are judged, so once the limit is used up every check is
-     * `rate_limited`, a malformed one included, and a malformed one uses up its
-     * slot. A malformed challenge id is `not_found` and a malformed code
-     * `invalid` (the id first, when both are), with no attempt counted and
-     * nothing reported to the factor package. A rate-limited refusal is still
-     * reported, so the volume of events is bounded by the application's own
-     * request throttling. Then, for a well-formed check, in one transaction on
-     * the storage connection (a savepoint of the caller's): asks the bound
-     * `FactorCodeCounters` first (`locked` or `refused`, the challenge
-     * untouched, nothing reported); locks the challenge's row; answers a
-     * challenge that is unknown, replaced, or of another binding or transaction
-     * as `not_found`, so another binding's is indistinguishable from an absent
-     * one even when it was used; the binding's own used challenge as `used`,
-     * even once expired; an expired or exhausted one as such, without counting
-     * or reporting; otherwise counts the attempt, compares the code, uses the
-     * challenge up when it matches, and reports the attempt to the counters
-     * exactly once, whose answer stands: a matching code is `verified` only
-     * when they admit it, and `locked` or `refused` otherwise (the challenge
-     * stays used up); a wrong one is `invalid`, carrying any lock they
-     * reported. A verified code gives its IP slot back. Every refusal is
-     * reported by `AuthenticationFailed` (flow `factor_code`).
+     * named, against the binding.
      *
      * @param  \SineMacula\Laravel\Authentication\Codes\FactorCodeBinding  $binding
      * @param  string  $challengeId
@@ -309,8 +206,7 @@ final readonly class CodeService
 
     /**
      * Take a code request from the subject's limits, issue the code and queue
-     * its delivery (see `QueuedDelivery`); malformed settings, the code key and
-     * the delivery queue among them, fail closed before anything is counted.
+     * its delivery.
      *
      * @param  \SineMacula\Laravel\Authentication\Codes\CodeBinding  $binding
      * @param  \SineMacula\Laravel\Authentication\Events\EventContext  $context
@@ -344,8 +240,7 @@ final readonly class CodeService
     }
 
     /**
-     * Validate every setting a code request reads (the codes, their key and the
-     * delivery queue), failing closed before anything is counted, and answer
+     * Validate every setting a code request reads, failing closed, and answer
      * the delivery they configure.
      *
      * @return \SineMacula\Laravel\Authentication\Delivery\QueuedDelivery
@@ -367,8 +262,7 @@ final readonly class CodeService
 
     /**
      * The verification binding of the identity's current identifier of the
-     * type, read on the write connection, in its normal form; `null` when it
-     * has none the type's normaliser accepts.
+     * type, or `null` when it has none the type's normaliser accepts.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $type

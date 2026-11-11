@@ -8,38 +8,8 @@ use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 
 /**
- * A result an external identity provider verified: the connection (the
- * configured provider) it came through, the issuer and the subject the provider
- * asserted, the connection's tenant, when the provider authenticated the
- * identity, the provider's own deadline for its session (SAML
- * `SessionNotOnOrAfter`), the version of the enforcement or policy the adapter
- * checked, the evidence the provider asserted of how it authenticated the
- * identity, which counts only once the evidence contract accepts it, the id of
- * the link the adapter redeemed the result through, when it names one, and the
- * public reference of the authorisation request the result answers, when the
- * result has one: opaque, kept as given, and carried on the redemption's events
- * (`ExternalResultRedeemed`, and its failures), so they correlate with the
- * provider-side completion that reported the same reference. It may also carry
- * a provider context (`ProviderContext`): details of how the provider
- * established the session, for the adapter's own authentication-context
- * contributor, stored once with the session's provenance at sign-in, never
- * rewritten (a reauthentication's is not recorded), and never interpreted,
- * logged or reported by this package.
- *
- * Only a trusted server-side adapter builds one, from a result it verified
- * itself (a redeemed handoff, say), never from what a client sent: the session
- * service takes it as proof the provider authenticated whoever the link
- * contract maps the connection, issuer and subject to. The connection, issuer
- * and subject are kept exactly as given, and times to the whole second. The
- * provider's time is when the result says it authenticated the identity, and
- * times the proof; the evidence's own time is what its acceptance and any
- * requirement judged on it age. Evidence is never for a later authentication
- * than the result's: evidence dated after the provider's time, when the result
- * gives one, is refused. The link the session is recorded under is always the
- * one the link contract answers; a result that names a link id is refused as
- * `link_mismatch` unless that answer is exactly that link, so a link removed
- * and made again for the same subject since the adapter redeemed the result
- * never takes its place.
+ * A result an external identity provider verified, built only by a trusted
+ * server-side adapter.
  *
  * @api
  *
@@ -118,7 +88,7 @@ final readonly class ExternalResult
         /** The public reference of the authorisation request the result answers, if it has one, opaque. */
         public ?string $requestReference = null,
 
-        /** Details of how the provider established the session, for the adapter's own context contributor, if any: opaque, stored with the provenance at sign-in. */
+        /** Details of how the provider established the session, for the adapter's own context contributor, if any. */
         public ?ProviderContext $providerContext = null,
     ) {
         self::assertText($connectionId, self::ID_MAX_LENGTH, 'connection id');

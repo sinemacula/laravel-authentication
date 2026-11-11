@@ -33,12 +33,10 @@ enum PasskeyRegistrationStatus: string
     // The credential is already registered
     case ALREADY_REGISTERED = 'already_registered';
 
-    // The pending credential handed in names no live pending session of this
-    // identity on this guard (or none that the challenge was bound to): the
-    // check does not say which
+    // The pending credential names no live pending session the challenge was
+    // bound to
     case PENDING_INVALID = 'pending_invalid';
 
-    // A cookie application's request that did not come from a page of its own
-    // site, refused before the pending session was read
+    // A cookie application's request did not come from its own site
     case CROSS_SITE_REQUEST = 'cross_site_request';
 }

@@ -9,25 +9,7 @@ use SineMacula\Laravel\Authentication\Codes\Enums\CodeRequestStatus;
 use SineMacula\Laravel\Authentication\Codes\Enums\FactorCodeRefusal;
 
 /**
- * How a request for a one-time code ended: sent, with the challenge it was
- * delivered for, when the code expires and when another may be requested; rate
- * limited, or out of deliveries for the destination's window, with the seconds
- * until another may be requested; refused because the guard does not allow the
- * method or the identifier is not one; or, for a factor code, locked or refused
- * by the factor package.
- *
- * A sign-in code, and a password reset link or code, is sent whether or not any
- * identity has the identifier, so the result is the same for an identifier no
- * one has: answer it the same way. A reset is refused as `method_not_allowed`
- * when the guard does not allow passwords. A code is checked with the challenge
- * id it was sent for, which a resend keeps; a reset link's token is its own
- * challenge and carries none.
- *
- * The time another may be requested is the destination's: the resend cooldown
- * after this delivery, or the end of its delivery window when the window would
- * refuse one before then. It is worked out from the destination's deliveries
- * alone, so it is the same for an identifier no one has; the `code_request`
- * rate limits can still refuse a request made after it.
+ * How a request for a one-time code ended.
  *
  * @api
  *
@@ -73,8 +55,7 @@ final readonly class CodeRequest
 
     /**
      * A code was issued and its delivery queued, for the challenge given (none
-     * for a reset link, whose token is its own); another may be requested for
-     * the destination from the time given.
+     * for a reset link).
      *
      * @param  \Carbon\CarbonImmutable  $expiresAt
      * @param  \Carbon\CarbonImmutable  $resendAvailableAt

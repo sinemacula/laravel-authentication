@@ -17,12 +17,6 @@ use SineMacula\Laravel\Authentication\Contracts\IdentifierChangeNotifier;
  * Tells an identity's old identifier that a change replaced it, through the
  * application's `IdentifierChangeNotifier`, once the change has committed.
  *
- * The payload carries both identifiers, so it is encrypted with the application
- * key on the queue. The change stands whatever happens here: an exception from
- * the notifier fails the job and the application's retry policy applies, and an
- * unbound notifier is a `BindingResolutionException`. A job whose identity was
- * deleted before it ran is dropped, not failed.
- *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *

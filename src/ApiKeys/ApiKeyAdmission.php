@@ -20,18 +20,7 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
  * Admits the owner of a live key as the principal it was issued for, on the
- * guard it authenticates for, each failure with its own reason: the owner,
- * reloaded through the guard's provider, must be the very identity the key
- * records (`identity_unknown`), a non-human one (`credential_invalid`: keys are
- * a machine's credential only) and active (`identity_inactive`); the principal
- * must resolve exactly to the one the key records (`principal_mismatch`) and be
- * active (`principal_inactive`) in an active tenant (`tenant_inactive`); the
- * key's binding to its owner, principal and tenant must hold
- * (`CredentialBinding`); and `ApplicationAccess` must let the principal use the
- * application (`principal_ineligible`).
- *
- * Built for one use with the guard's current collaborators, so it keeps nothing
- * between requests.
+ * guard it authenticates for.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -114,9 +103,8 @@ final readonly class ApiKeyAdmission
     }
 
     /**
-     * Admit the owner as the active principal within its tenant (`false` for
-     * one that is inactive or cannot be loaded), once the key's binding holds
-     * and `ApplicationAccess` lets the principal use the application.
+     * Admit the owner as the active principal within its tenant, `false` for
+     * one that is inactive or cannot be loaded.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\ApiKey  $key
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity

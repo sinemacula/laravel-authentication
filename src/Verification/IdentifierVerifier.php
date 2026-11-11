@@ -19,20 +19,7 @@ use SineMacula\Laravel\Authentication\Identifiers\IdentifierType;
 use SineMacula\Laravel\Authentication\Verification\Enums\IdentifierVerification;
 
 /**
- * Records that an identity has proven an identifier of a type, once a proof (a
- * signed link today, a one-time code later) has been checked.
- *
- * The proven identifier must be the identity's current one: both are compared
- * in their canonical form, through the type's normaliser when one is
- * registered, so a proof for an old address can never verify a new one. The
- * record itself is conditional on the identifier as it was read (see
- * `HasVerifiableIdentifiers::markIdentifierAsVerified()`), so an address
- * changed while the proof was checked is not verified either.
- *
- * Verifying never signs anyone in: it binds no guard, issues no token and
- * creates no session. `IdentifierVerified` is dispatched only by the call that
- * recorded the verification, once the record is committed on the identity's
- * connection.
+ * Records that an identity has proven its current identifier of a type.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -87,9 +74,8 @@ final readonly class IdentifierVerifier
     }
 
     /**
-     * The identifier in its canonical form: as the type's normaliser returns it
-     * when one is registered (`null` when it rejects the value), otherwise as
-     * given.
+     * The identifier in its canonical form, or `null` when the type's
+     * normaliser rejects it.
      *
      * @param  string  $type
      * @param  string  $identifier
@@ -152,9 +138,8 @@ final readonly class IdentifierVerifier
     }
 
     /**
-     * After a verification that recorded nothing, whether the identity, read
-     * again from the write connection, still has the same identifier and has it
-     * verified; otherwise the identifier changed meanwhile.
+     * Whether the identity, read again, still has the identifier and has it
+     * verified.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\HasVerifiableIdentifiers&\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $type

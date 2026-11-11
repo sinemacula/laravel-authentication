@@ -5,16 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Passkeys;
 
 /**
- * How removing one of an identity's passkeys ended: removed by this call, or
- * not removed, because the identity has no passkey by that id for the guard's
- * relying party (none was ever stored, or it was removed already, concurrently
- * included).
- *
- * `completion` is set only for a removal, and is opaque to the package: the
- * factor package's own answer (for one, the judgement of the current session
- * again once a passkey factor is gone, carrying a new pending credential), for
- * the caller to hand to its client. A removal that is not made commits nothing
- * of the gate's, so its completion is dropped with it.
+ * How removing one of an identity's passkeys ended.
  *
  * @api
  *
@@ -39,8 +30,7 @@ final readonly class PasskeyRemoval
     ) {}
 
     /**
-     * This call removed the passkey, the factor gate answering the completion
-     * given, if any.
+     * This call removed the passkey.
      *
      * @param  ?object  $completion
      * @return self
@@ -51,8 +41,7 @@ final readonly class PasskeyRemoval
     }
 
     /**
-     * The identity has no passkey by that id for the guard's relying party, so
-     * nothing was removed.
+     * The identity has no passkey by that id, so nothing was removed.
      *
      * @return self
      */

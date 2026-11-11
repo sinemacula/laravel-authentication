@@ -14,13 +14,8 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
- * Holds a machine credential to what it was issued for: one owner, one
- * principal, one tenant. The recorded type and identifier of each must equal
- * those of what was loaded for the request; matching identifiers alone never
- * suffice, since two types may share them. One check serves an API key on its
- * guard, a client credentials exchange, and the access tokens that exchange
- * issued, so a principal moved to another tenant, or another type under the
- * same identifiers, is refused the same way on every path.
+ * Holds a machine credential to the owner, principal and tenant it was issued
+ * for, by type as well as identifier, since two types may share identifiers.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -36,8 +31,7 @@ final class CredentialBinding
 
     /**
      * Why the key may not authenticate as the loaded identity, principal and
-     * tenant, or `null` when it may: `credential_invalid` for another owner,
-     * `principal_mismatch` for another principal or tenant.
+     * tenant, or `null` when it may.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\ApiKey  $key
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -60,8 +54,7 @@ final class CredentialBinding
     }
 
     /**
-     * Whether the key records the identity as its owner: the same type and
-     * identifier.
+     * Whether the key records the identity as its owner.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\ApiKey  $key
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity

@@ -8,9 +8,8 @@ use SineMacula\Laravel\Authentication\Codes\Enums\FactorCodeRefusal;
 use SineMacula\Laravel\Authentication\Contracts\FactorCodeCounters;
 
 /**
- * The default factor code counters: no factor package is bound, so no factor's
- * type is enabled, and every factor code is refused before it is sent or
- * checked (`type_not_enabled`). Fail closed.
+ * The default factor code counters, which refuse every factor code as
+ * `type_not_enabled`.
  *
  * @api
  *

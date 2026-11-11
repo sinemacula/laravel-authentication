@@ -14,20 +14,8 @@ use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
 
 /**
- * Queues the package's delivery jobs, so a delivery is never part of the
- * request that asked for it: its response and timing then say nothing about
- * whether anyone receives it.
- *
- * A job is pushed with the `authentication.delivery.queue` connection and queue
- * once the writes on its anchor's connection (the row the delivery reports, a
- * code's, say) have committed, and never when they roll back. A connection that
- * would run the job during its dispatch gets it after the response instead: a
- * `sync` one runs it then, and a `failover` one that can fall back to `sync` is
- * pushed to then. No job uses Laravel's `afterCommit`, which would follow the
- * default connection's transaction rather than the anchor's.
- *
- * It keeps no state between calls: the settings, the dispatcher and the
- * transactions manager are resolved from the container each time.
+ * Queues the package's delivery jobs, so a response's timing says nothing about
+ * whether anyone receives the delivery.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -48,8 +36,7 @@ final readonly class QueuedDelivery
     ) {}
 
     /**
-     * The delivery settings, validated, so a caller fails closed on them before
-     * it counts or writes anything.
+     * The delivery settings, validated.
      *
      * @return \SineMacula\Laravel\Authentication\Delivery\DeliverySettings
      *
@@ -66,8 +53,8 @@ final readonly class QueuedDelivery
     }
 
     /**
-     * Push the job once the anchor's connection commits. The job must use
-     * Laravel's `Queueable`, which carries its connection and queue.
+     * Push the job once the anchor's connection commits, after the response
+     * when the connection could run it during dispatch.
      *
      * @param  \Illuminate\Contracts\Queue\ShouldQueue  $job
      * @param  \Illuminate\Database\Eloquent\Model  $anchor
@@ -99,9 +86,8 @@ final readonly class QueuedDelivery
     }
 
     /**
-     * Set the job's connection and queue from the validated settings, and mark
-     * it to dispatch before commit: the package waits for its anchor's commit
-     * itself. A job that cannot carry them is refused.
+     * Set the job's connection and queue, and mark it to dispatch before commit
+     * since the package waits for its anchor's own commit.
      *
      * @param  \Illuminate\Contracts\Queue\ShouldQueue  $job
      * @param  \SineMacula\Laravel\Authentication\Delivery\DeliverySettings  $settings

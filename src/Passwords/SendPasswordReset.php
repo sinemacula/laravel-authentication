@@ -23,18 +23,7 @@ use SineMacula\Laravel\Authentication\Runtime\JwtGuardContexts;
 
 /**
  * Delivers a password reset link or code outside the request that asked for it,
- * so the request's response and timing say nothing about whether anyone holds
- * the identifier.
- *
- * The payload carries the token or code and the identifier, so it is encrypted
- * with the application key on the queue. When the job runs it first checks, on
- * the write connection, that the token or code is still the binding's live
- * issuance, and sends nothing otherwise; a retry checks again. Then it finds
- * the recipient (see `ResetRecipient`): for anyone else, or no one, nothing is
- * sent and nothing says so. A link goes through the bound
- * `PasswordResetLinkSender`, a code through the `OneTimeCodeSender` with the
- * purpose `password_reset`. An exception from a sender fails the job, and the
- * application's retry policy applies.
+ * so its response and timing do not reveal whether anyone holds the identifier.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

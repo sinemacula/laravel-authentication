@@ -9,9 +9,7 @@ use SineMacula\Laravel\Authentication\Requirements\Requirement;
 
 /**
  * The default external evidence policy: no provider's evidence is accepted or
- * meets any requirement, so an external sign-in or reauthentication never
- * counts for a further factor or multifactor authentication until the
- * application binds a policy that trusts its providers. Fail closed.
+ * meets any requirement.
  *
  * @api
  *

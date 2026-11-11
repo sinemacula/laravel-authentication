@@ -12,28 +12,8 @@ use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Secrets\SecretResponse;
 
 /**
- * How a client credentials exchange ended: an access token with its lifetime
- * and scopes (RFC 6749 section 5.1), or an error (section 5.2) with the reason
- * the server-side event carries. As a response it answers in RFC 6749's shapes
- * with `Cache-Control: no-store` and `Pragma: no-cache`: 200 with the token;
- * 400 for `invalid_request`, `unsupported_grant_type`, `unauthorized_client`
- * and `invalid_scope`; 401 for `invalid_client`, with the
- * `WWW-Authenticate: Basic` challenge of the realm it was given, however the
- * client authenticated; and 429 with `Retry-After` for `slow_down`, the
- * package's own answer to a client past its limit, outside RFC 6749, which
- * defines no rate-limit error (the code is a registered OAuth one, from RFC
- * 8628). An error body is `{"error": "<code>"}` alone: RFC 6749 makes
- * `error_description` optional, and the package words nothing a client reads.
- * No refresh token is ever issued.
- *
- * Routes are the application's: return the result from a controller, or read
- * its parts. The access token is a `Secret`: `toResponse()` reveals it into the
- * body, and `toArray()` reveals it into the body's fields for a response the
- * application builds itself, which it must not let be stored. Encoding a
- * granted result as JSON any other way (`json_encode()`, `response()->json()`)
- * throws `SecretNotRevealedException` rather than send the token without
- * `no-store`; a failed one encodes as its error body. Either way the reason the
- * server-side event carries never reaches the client.
+ * How a client credentials exchange ended: an access token (RFC 6749 section
+ * 5.1) or an error (section 5.2), answered as a `no-store` response.
  *
  * @api
  *
@@ -110,8 +90,7 @@ final readonly class ClientCredentialsResult implements \JsonSerializable, Respo
 
     /**
      * An exchange that failed with the reason and the error the client is
-     * answered with, the wait for `slow_down`, and the realm of the Basic
-     * challenge for `invalid_client`.
+     * answered with.
      *
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
      * @param  string  $error
@@ -135,10 +114,8 @@ final readonly class ClientCredentialsResult implements \JsonSerializable, Respo
     }
 
     /**
-     * The response body, the access token revealed: RFC 6749 section 5.1 for a
-     * token, section 5.2 for an error. A token granting no scope has no `scope`
-     * member, since RFC 6749 section 3.3 defines a scope value as one or more
-     * scope tokens. A response carrying it must not be stored.
+     * The response body with the access token revealed, for a response that
+     * must not be stored.
      *
      * @return array{access_token: string, token_type: string, expires_in: ?int, scope?: string}|array{error: ?string}
      */
@@ -150,9 +127,8 @@ final readonly class ClientCredentialsResult implements \JsonSerializable, Respo
     }
 
     /**
-     * The result as JSON serialises it: the response body with the access token
-     * unrevealed, so a granted result refuses to encode
-     * (`SecretNotRevealedException`) and a failed one encodes as its error.
+     * The response body with the access token unrevealed, so a granted result
+     * refuses to encode.
      *
      * @return array{access_token: \SineMacula\Laravel\Authentication\Secrets\Secret, token_type: string, expires_in: ?int, scope?: string}|array{error: ?string}
      */
@@ -185,7 +161,7 @@ final readonly class ClientCredentialsResult implements \JsonSerializable, Respo
     }
 
     /**
-     * The response body, the access token held as the secret it is.
+     * The response body, with the access token still a secret.
      *
      * @return array{access_token: \SineMacula\Laravel\Authentication\Secrets\Secret, token_type: string, expires_in: ?int, scope?: string}|array{error: ?string}
      */

@@ -9,12 +9,8 @@ use SineMacula\Laravel\Authentication\Config\IntegerSetting;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordViolation;
 
 /**
- * The password policy settings in `authentication.passwords`, read on every
- * call and validated as they are read: each length an integer, or the digit
- * string `env()` returns for one, within its range; each composition rule a
- * boolean; the breached-check mode `reject` or `allow`; and the reset link
- * lifetime an integer within its range. Anything else fails closed with an
- * `InvalidArgumentException` naming the key; `authentication:check` reports it.
+ * The password policy settings in `authentication.passwords`, validated as they
+ * are read.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

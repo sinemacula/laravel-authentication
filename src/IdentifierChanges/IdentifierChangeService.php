@@ -44,43 +44,8 @@ use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
 
 /**
- * The identifier change service of a JWT guard
- * (`Auth::identifierChanges($guard)`): changes an identity's email address or
- * phone number once the new one is proven, keeping the current one until then.
- *
- * A request (`requestByCode()`, `requestByLink()`) must prove that the identity
- * authenticated recently (see `Reauthentication`), names the new identifier,
- * which must be one the type's normaliser accepts and not the current one, and
- * is limited by the `identifier_change` rate limits, counted on the new
- * identifier, on the identity and on the IP address. It replaces any change the
- * identity had pending for the type, through any guard, so the code and link of
- * an earlier request stop working at once. The proof goes to the new
- * identifier: a one-time code, delivered by a queued job through the
- * application's `OneTimeCodeSender`, or a signed link to a route of the
- * application's, returned for the application to send. Whether another identity
- * holds the new identifier is not checked here, so the answer says nothing
- * about it.
- *
- * A confirmation (`confirmByCode()`, `confirmByLink()`) proves the pending
- * change of this guard and makes it, in one transaction on the identity's
- * connection (see `ChangeConfirmation`): a refused code's attempt is counted
- * and kept, but a change refused once its proof is accepted (another identity
- * holds the identifier, the identifier changed by another path) rolls back
- * whole, proof included. The identity's sessions are not revoked: the change
- * was proven and recently authenticated, and its old identifier is notified,
- * through the application's `IdentifierChangeNotifier`, once it commits. The
- * change stands if that notice fails.
- *
- * A confirmation writes the proof, the pending change and the identity in one
- * transaction, so the identity must be an Eloquent model on the storage
- * connection (see `SharedConnection`), where the codes and the pending changes
- * are kept; a machine identity has no identifiers to change. Misconfiguration
- * throws before anything is counted or written; every refusal is a result,
- * reported by `AuthenticationFailed` (flow `identifier_change`), and is not
- * concealed, since the caller holds the identity. The service keeps no state
- * between calls: it reads the request and dispatcher from the guard's context,
- * and resolves the settings, limiter, engine and delivery from the container,
- * each time.
+ * The identifier change service of a JWT guard: changes an identity's email
+ * address or phone number once the new one is proven.
  *
  * @api
  *
@@ -109,11 +74,7 @@ final readonly class IdentifierChangeService
 
     /**
      * Start a change of the identity's identifier of the type to the one given,
-     * proven by a one-time code sent to it: the code's delivery is queued once
-     * the request commits, through the application's `OneTimeCodeSender` with
-     * the purpose `change_identifier` (none bound is a misconfiguration,
-     * refused before anything is counted). The answer says until when the code
-     * confirms the change.
+     * proven by a one-time code sent to it.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $type
@@ -148,11 +109,7 @@ final readonly class IdentifierChangeService
 
     /**
      * Start a change of the identity's identifier of the type to the one given,
-     * proven by a signed link to the named route of the application's (its own
-     * parameters are kept), which the answer carries in `link()` for the
-     * application to send to the new identifier, and only there. The route's
-     * parameters may not use, nor its path take as placeholders, the names the
-     * link sets (`InvalidArgumentException`).
+     * proven by a signed link to the named route.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $type
@@ -191,15 +148,8 @@ final readonly class IdentifierChangeService
     }
 
     /**
-     * Confirm the identity's pending change of the type, requested through this
-     * guard, with the code sent to the new identifier for the challenge named,
-     * and make it, while the identity is active. Every confirmation counts
-     * against the identity's account and the IP address (`identifier_change`)
-     * before the code and challenge id are judged, so a malformed one uses up
-     * its slots too; they are given back once the change is made, and once
-     * either is used up the confirmation is `rate_limited`, with the wait,
-     * which is still reported, so the volume of events is bounded by the
-     * application's own request throttling.
+     * Confirm the identity's pending change of the type with the code sent to
+     * the new identifier, and make it.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $type
@@ -241,8 +191,7 @@ final readonly class IdentifierChangeService
             return new LimitedOutcome($this->refuseConfirmation(IdentifierChangeOutcome::INVALID, FailureReason::INVALID_CREDENTIALS, $context, $challenge));
         }
 
-        // `#[\SensitiveParameter]` does not cover what a closure captures,
-        // which a dump of the trace shows.
+        // `#[\SensitiveParameter]` does not cover what a closure captures.
         $secret = new \SensitiveParameterValue($code);
 
         $prove = static function (IdentifierChange $change, CarbonImmutable $now) use ($changeable, $challengeId, $secret, $codes): ?ChangeRefused {
@@ -270,14 +219,7 @@ final readonly class IdentifierChangeService
 
     /**
      * Confirm the pending change a change link names, as
-     * `SignedLink::fromRequest()` captured it from the request to it, and make
-     * it. The link's signature and expiry are checked again from those values;
-     * it must be validly signed, unexpired, for this guard, and name the
-     * identity's pending change of its type as it stands: the same request and
-     * the same new identifier; and the identity must be active. Call it from a
-     * form the link's page posts back to the same signed address, not from the
-     * link's `GET` itself, which mail scanners and link previews fetch unasked.
-     * Every refusal and the change describe the client given.
+     * `SignedLink::fromRequest()` captured it, and make it.
      *
      * @param  \SineMacula\Laravel\Authentication\Http\SignedLink  $signed
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
@@ -316,9 +258,8 @@ final readonly class IdentifierChangeService
     }
 
     /**
-     * The identity's change of the identifier of the type pending through this
-     * guard, read on the write connection, or `null` when it has none, or one
-     * that expired or was requested through another guard.
+     * The identity's unexpired change of the identifier of the type pending
+     * through this guard, or `null`.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $type
@@ -343,11 +284,7 @@ final readonly class IdentifierChangeService
 
     /**
      * Cancel the identity's change of the identifier of the type pending
-     * through this guard, so its code and link stop working; returns whether
-     * there was one to cancel (an expired one is cancelled too). A change
-     * requested through another guard is left alone. The identity's row is
-     * locked first (see `IdentityLock`), so a confirmation or a request racing
-     * the cancellation waits for it rather than deadlocks.
+     * through this guard, returning whether there was one.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $type
@@ -387,16 +324,8 @@ final readonly class IdentifierChangeService
     }
 
     /**
-     * In one transaction on the identity's connection: lock the identity's row
-     * (see `IdentityLock`), read its pending change of the type (of this guard,
-     * unexpired), check the proof against it, and make it. A refused proof
-     * commits, so a code's attempt is counted; a change refused after the proof
-     * was accepted rolls back whole. An identity no longer stored, or not
-     * active (see `ActivationPolicy`) as its row reads under the lock, whatever
-     * the instance given says, is refused first, with nothing else read or
-     * counted: a link needs no session, so no guard has checked it, and a
-     * suspended account must not have its identifier moved by a change
-     * requested before the suspension.
+     * Prove and make the pending change in one transaction on the identity's
+     * connection.
      *
      * @formatter:off
      *
@@ -441,9 +370,8 @@ final readonly class IdentifierChangeService
     }
 
     /**
-     * Inside the confirmation's transaction, once the identity's row is locked:
-     * read its pending change of the type (of this guard, unexpired), check the
-     * proof against it, and make it; the refusal, or `null` once made.
+     * Check the proof against the pending change and make it: the refusal, or
+     * `null` once made.
      *
      * @formatter:off
      *
@@ -492,9 +420,8 @@ final readonly class IdentifierChangeService
     }
 
     /**
-     * Lock the identity's row (see `IdentityLock`) and refuse a confirmation
-     * for it when the row is no longer stored, or reads as not active; `null`
-     * otherwise.
+     * Lock the identity's row and refuse a confirmation when it is gone or not
+     * active.
      *
      * @param  \Illuminate\Database\Eloquent\Model  $identity
      * @return ?\SineMacula\Laravel\Authentication\IdentifierChanges\ChangeRefused
@@ -512,9 +439,7 @@ final readonly class IdentifierChangeService
 
     /**
      * The identity as one whose identifier of the type can be changed through
-     * this guard, once every setting a change reads is checked, the guard's
-     * freshness for the change included: misconfiguration fails here, before
-     * anything is counted or written.
+     * this guard, once every setting a change reads is checked.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $type
@@ -569,9 +494,7 @@ final readonly class IdentifierChangeService
     }
 
     /**
-     * The identity as an Eloquent model whose identifiers can be changed; a
-     * machine identity, which has none, and any other identity are a
-     * misconfiguration.
+     * The identity as an Eloquent model whose identifiers can be changed.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @return \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\HasChangeableIdentifiers&\SineMacula\Laravel\Authentication\Contracts\Identity
@@ -593,8 +516,7 @@ final readonly class IdentifierChangeService
     }
 
     /**
-     * Report a refused confirmation with `AuthenticationFailed`, with the id of
-     * the challenge a code confirmation checked, and answer it.
+     * Report a refused confirmation with `AuthenticationFailed` and answer it.
      *
      * @param  \SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeOutcome  $outcome
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
@@ -622,8 +544,7 @@ final readonly class IdentifierChangeService
     }
 
     /**
-     * The context of the identity's change through this guard, for the client
-     * given.
+     * The event context of the identity's change through this guard.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
@@ -635,8 +556,7 @@ final readonly class IdentifierChangeService
     }
 
     /**
-     * Resolve a collaborator from the container, so the binding in effect when
-     * it is needed is the one used.
+     * Resolve a collaborator from the container at the time it is needed.
      *
      * @template TCollaborator of object
      *

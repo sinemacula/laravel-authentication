@@ -9,16 +9,7 @@ use Illuminate\Routing\UrlGenerator;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 
 /**
- * The signed links that confirm identifier changes: a link to a route of the
- * application's, signed by Laravel's URL generator, whose query carries the
- * guard, the identity, the identifier type, the purpose `change_identifier`,
- * the change request and the SHA-256 digest of the new identifier in its normal
- * form, so it confirms that one request of that identity and nothing else, and
- * stops working when a newer request replaces it. It expires with the request.
- *
- * Every field must reach the confirmation in the query string, so the route's
- * own parameters may not take a reserved name, and its path may not take one as
- * a placeholder; both are checked before a change is requested.
+ * The signed links that confirm identifier changes.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -45,10 +36,7 @@ final readonly class ChangeLinks
     ) {}
 
     /**
-     * Check that the named route can carry a change link: the application's
-     * parameters use no reserved name, and a URL of the route carries every
-     * reserved name in its query string. A route that does not exist throws as
-     * Laravel's URL generator does.
+     * Check that the named route can carry a change link in its query string.
      *
      * @param  string  $route
      * @param  array<string, mixed>  $parameters
@@ -98,9 +86,7 @@ final readonly class ChangeLinks
     }
 
     /**
-     * The fields of a request to a change link, or why it is not one: a link
-     * whose signature is correct but whose time has passed is `link_expired`;
-     * any other bad signature, purpose or field is `invalid_credentials`.
+     * The fields of a request to a change link, or why it is not one.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\IdentifierChanges\PresentedChangeLink

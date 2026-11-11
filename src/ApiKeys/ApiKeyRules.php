@@ -10,9 +10,7 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 
 /**
- * What issuing or rotating a key accepts: the principal, the name, the expiry
- * and the rotation overlap. Each is a trusted caller's choice, so one out of
- * bounds is an `InvalidArgumentException`.
+ * What issuing or rotating a key accepts; a value out of bounds throws.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -30,8 +28,7 @@ final class ApiKeyRules
     private function __construct() {}
 
     /**
-     * The principal a key may be issued for: the one the resolver returned,
-     * which the application admitted.
+     * The principal a key may be issued for: the resolved one, once admitted.
      *
      * @param  string  $guard
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $resolved
@@ -118,7 +115,7 @@ final class ApiKeyRules
 
     /**
      * Whether the name is 1 to 255 characters of valid UTF-8 without a NUL
-     * byte; PostgreSQL would store a name cut short at its first NUL byte.
+     * byte, at which PostgreSQL would cut it short.
      *
      * @param  string  $name
      * @return bool

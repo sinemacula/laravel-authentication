@@ -37,20 +37,6 @@ use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
  * Sends password reset links and codes for a guard, doing the same work for
  * every identifier: no identity is looked up.
  *
- * In order: the settings (codes, their key, the delivery queue and, for a link,
- * its lifetime) fail closed, and the provider's configured model must live on
- * the storage connection, as a reset needs (see `SharedConnection`); the guard
- * must allow the password method; the identifier must be one its type's
- * normaliser accepts (as given, for a link whose type has none); the identifier
- * and the IP address must have reset requests left (`password_reset_request`,
- * counted on every request and never given back); no link or code may have been
- * issued for the identifier within the codes' resend cooldown, and its delivery
- * window must allow another delivery. Then the link's token or the code is
- * issued, for any identifier, and its delivery queued once it is committed; a
- * code's answer carries the challenge id its reset names. The job alone
- * decides, later, whether anyone receives it (see `SendPasswordReset`).
- * Refusals are reported by `AuthenticationFailed` (`password_reset`).
- *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
@@ -75,8 +61,7 @@ final readonly class ResetRequests
 
     /**
      * Send a reset link to the identifier the input names under the guard's
-     * password identifier. While the default sender, Laravel's notification, is
-     * bound, that identifier must be `email`.
+     * password identifier.
      *
      * @param  array<array-key, mixed>  $input
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
@@ -97,9 +82,7 @@ final readonly class ResetRequests
     }
 
     /**
-     * Send a reset code to the identifier the input names under the type, which
-     * must have a registered normaliser, through the bound `OneTimeCodeSender`
-     * (none bound is a misconfiguration, refused before anything is counted).
+     * Send a reset code to the identifier the input names under the type.
      *
      * @param  string  $type
      * @param  array<array-key, mixed>  $input
@@ -121,9 +104,8 @@ final readonly class ResetRequests
     }
 
     /**
-     * Take a request from the identifier's and the IP address's limits, issue
-     * the token or code, and queue its delivery; malformed settings fail closed
-     * before anything is counted.
+     * Take a request from the limits, issue the token or code, and queue its
+     * delivery.
      *
      * @param  \SineMacula\Laravel\Authentication\Codes\Enums\CodePurpose  $purpose
      * @param  string  $type
@@ -166,9 +148,7 @@ final readonly class ResetRequests
 
     /**
      * The identifier given, in canonical form, when the request may go on;
-     * otherwise why not, with the answer: the guard does not allow passwords,
-     * the identifier is not one, or the identifier or the IP address has no
-     * reset requests left (a request that gets this far is counted).
+     * otherwise why not, with the answer.
      *
      * @param  string  $type
      * @param  ?string  $given
@@ -215,8 +195,7 @@ final readonly class ResetRequests
     }
 
     /**
-     * Refuse a link the bound sender cannot deliver: while Laravel's
-     * notification is the sender, the password identifier must be `email`.
+     * Refuse a link the bound sender cannot deliver.
      *
      * @param  string  $type
      * @return void
@@ -241,10 +220,8 @@ final readonly class ResetRequests
     }
 
     /**
-     * Validate every setting a request reads, the delivery queue included, and
-     * refuse a guard whose provider's model is on another connection than the
-     * storage connection, whose resets could never run, before anything is
-     * counted; then answer the link lifetime.
+     * Validate the settings and the provider model's connection before anything
+     * is counted, and return the link lifetime.
      *
      * @param  \SineMacula\Laravel\Authentication\Delivery\QueuedDelivery  $delivery
      * @return int

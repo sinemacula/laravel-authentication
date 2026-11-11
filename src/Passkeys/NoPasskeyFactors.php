@@ -11,10 +11,7 @@ use SineMacula\Laravel\Authentication\Proofs\ProofBinding;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
 
 /**
- * The package's default passkey factor gate: no passkey is a factor, so there
- * is nothing to gate. Every passkey registered is a sign-in credential only,
- * and every removal goes ahead, completing nothing. Bind a factor package's
- * gate to change that.
+ * The default passkey factor gate, under which no passkey is a factor.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

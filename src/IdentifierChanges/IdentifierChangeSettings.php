@@ -9,10 +9,7 @@ use SineMacula\Laravel\Authentication\Config\IntegerSetting;
 
 /**
  * The identifier change settings in `authentication.identifier_changes`, read
- * on every call and validated as they are read: each number an integer, or the
- * digit string `env()` returns for one, within its range. Anything else fails
- * closed with an `InvalidArgumentException` naming the key;
- * `authentication:check` reports it.
+ * and validated on every call.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -54,8 +51,7 @@ final readonly class IdentifierChangeSettings
     }
 
     /**
-     * Read every setting, failing closed on the first that is malformed;
-     * `authentication:check` runs it.
+     * Read every setting, failing closed on the first that is malformed.
      *
      * @return void
      *
@@ -67,8 +63,7 @@ final readonly class IdentifierChangeSettings
     }
 
     /**
-     * Read a numeric setting: an integer, or the canonical digit string of one,
-     * from its least to its greatest value.
+     * Read a numeric setting within its range.
      *
      * @param  string  $key
      * @return int
