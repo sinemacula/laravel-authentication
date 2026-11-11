@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace Tests\Feature\Callers;
 
+use Illuminate\Auth\Events\Login;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Foundation\Application;
@@ -20,6 +21,8 @@ use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Guards\ApiKeyGuard;
+use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingAction;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
@@ -174,6 +177,231 @@ final class CallerCredentialsTest extends TestCase
         self::assertSame(self::OTHERS, $caller->guard);
         self::assertSame($session->record->getKey(), $caller->session?->getSessionIdentifier());
         self::assertCount(0, $this->failures);
+    }
+
+    /**
+     * A bind or sign-out has the next ask read the guard as it is now.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testABindOrSignOutForgetsTheCallerReadBefore(): void
+    {
+        [$ada, [$adas]] = $this->seedMember('ada@example.test');
+
+        $machine = MachineClient::query()->create(['email' => 'robot@example.test']);
+        $request = $this->request('GET');
+        $callers = self::callers();
+        $guard   = Auth::manager()->guard(self::MEMBERS);
+
+        self::assertInstanceOf(JwtGuard::class, $guard);
+        self::assertNull($callers->caller($request));
+
+        $guard->login($ada, $adas);
+
+        self::assertSame($ada, $callers->caller($request)?->identity);
+
+        $guard->setUser($machine);
+
+        self::assertSame($machine, $callers->caller($request)?->identity);
+
+        $guard->logout();
+
+        self::assertNull($callers->caller($request));
+    }
+
+    /**
+     * Switching the principal or session has the next ask carry the new one.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testSwitchingThePrincipalOrSessionForgetsTheCallerReadBefore(): void
+    {
+        [$ada, [$first, $second]] = $this->seedMember('ada@example.test', 2);
+
+        $session = $this->signedIn('ada@example.test', $first);
+        $request = $this->request('GET');
+        $callers = self::callers();
+        $guard   = Auth::manager()->guard(self::MEMBERS);
+
+        self::assertInstanceOf(JwtGuard::class, $guard);
+
+        $guard->login($ada, $first);
+
+        self::assertSame($first, $callers->caller($request)?->principal);
+
+        $guard->setPrincipal($second);
+
+        self::assertSame($second, $callers->caller($request)?->principal);
+
+        $guard->setSession($session->record);
+
+        self::assertSame($session->record, $callers->caller($request)?->session);
+    }
+
+    /**
+     * What a `Login` listener read is not kept once the sign-in binds.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testALoginListenersReadIsNotKeptOnceTheSignInBinds(): void
+    {
+        [$ada, [$adas]] = $this->seedMember('ada@example.test');
+
+        $request = $this->request('GET');
+        $callers = self::callers();
+        $guard   = Auth::manager()->guard(self::MEMBERS);
+
+        /** @var \ArrayObject<int, ?\SineMacula\Laravel\Authentication\Callers\Caller> $read */
+        $read = new \ArrayObject;
+
+        self::assertInstanceOf(JwtGuard::class, $guard);
+
+        Event::listen(Login::class, static function () use ($callers, $request, $read): void {
+            $read->append($callers->caller($request));
+        });
+
+        $guard->login($ada, $adas);
+
+        self::assertSame([null], $read->getArrayCopy());
+        self::assertSame($ada, $callers->caller($request)?->identity);
+    }
+
+    /**
+     * An access caller on any request is read again once its guard changes.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnAccessCallerKeptOnAnyRequestIsReadAgainOnceTheGuardChanges(): void
+    {
+        [$ada, [$adas]] = $this->seedMember('ada@example.test');
+
+        $this->request('GET');
+
+        $callers = self::callers();
+        $guard   = Auth::manager()->guard(self::MEMBERS);
+        $other   = Request::create('/other');
+
+        self::assertInstanceOf(JwtGuard::class, $guard);
+
+        $guard->login($ada, $adas);
+
+        self::assertSame($ada, $callers->caller($other)?->identity);
+
+        $guard->logout();
+
+        self::assertNull($callers->caller($other));
+
+        $first = $this->request('GET');
+        $guard = Auth::manager()->guard(self::MEMBERS);
+
+        self::assertInstanceOf(JwtGuard::class, $guard);
+
+        $guard->login($ada, $adas);
+
+        self::assertSame($ada, $callers->caller($first)?->identity);
+
+        $guard->setRequest(Request::create('/next'));
+
+        self::assertNull($callers->caller($first));
+    }
+
+    /**
+     * A refresh caller is kept, not proven again, when its guard is bound.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARefreshCallerIsKeptWhenItsGuardIsBound(): void
+    {
+        [$ada, [$adas]] = $this->seedMember('ada@example.test');
+
+        $session = $this->signedIn('ada@example.test', $adas);
+        $request = $this->request('POST', body: ['refresh_token' => $session->tokens->refreshToken?->reveal()]);
+        $callers = self::callers();
+        $guard   = Auth::manager()->guard(self::MEMBERS);
+
+        self::assertInstanceOf(JwtGuard::class, $guard);
+
+        DeclaredCredential::refresh(null)->declareOn($request);
+
+        $caller = $callers->caller($request);
+
+        self::assertNotNull($caller);
+
+        $guard->login($ada, $adas);
+
+        $queries = 0;
+
+        DB::listen(static function () use (&$queries): void {
+            $queries++;
+        });
+
+        self::assertSame($caller, $callers->caller($request));
+        self::assertSame(0, $queries);
+        self::assertCount(0, $this->failures);
+    }
+
+    /**
+     * The same machine bound again with other scopes is read afresh.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheSameMachineBoundWithOtherScopesIsReadAfresh(): void
+    {
+        $machine = MachineClient::query()->create(['email' => 'robot@example.test']);
+        $request = $this->request('GET');
+        $callers = self::callers();
+        $guard   = Auth::manager()->guard('machine');
+
+        self::assertInstanceOf(ApiKeyGuard::class, $guard);
+
+        Auth::shouldUse('machine');
+
+        $guard->authenticateAs($machine, $machine, scopes: ['read']);
+
+        self::assertSame(['read'], $callers->caller($request)?->scopes);
+
+        $guard->authenticateAs($machine, $machine, scopes: ['write']);
+
+        self::assertSame(['write'], $callers->caller($request)?->scopes);
+    }
+
+    /**
+     * Forgetting the request's callers has them read afresh, then kept again.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testForgettingTheCallersHasThemReadAfresh(): void
+    {
+        $this->seedMember('ada@example.test');
+
+        $session = $this->signedIn('ada@example.test');
+        $request = $this->request('GET', ['HTTP_AUTHORIZATION' => 'Bearer ' . $session->tokens->accessToken->reveal()]);
+        $callers = self::callers();
+        $caller  = $callers->caller($request);
+
+        self::assertNotNull($caller);
+
+        CallerCredentials::forget($request);
+
+        $again = $callers->caller($request);
+
+        self::assertNotSame($caller, $again);
+        self::assertSame($caller->session?->getSessionIdentifier(), $again?->session?->getSessionIdentifier());
+        self::assertSame($again, $callers->caller($request));
     }
 
     /**

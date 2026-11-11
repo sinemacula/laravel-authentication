@@ -142,4 +142,11 @@ interface GuardBinding
      * @return void
      */
     public function forgetAuthenticationContext(Session $session): void;
+
+    /**
+     * The bound state's version, replaced whenever that state changes.
+     *
+     * @return int
+     */
+    public function boundStateVersion(): int;
 }

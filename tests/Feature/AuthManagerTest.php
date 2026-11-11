@@ -306,6 +306,41 @@ final class AuthManagerTest extends TestCase
     }
 
     /**
+     * `forgetGuardState()` forgets the callers kept on the current request.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testForgetGuardStateForgetsTheCallersOfTheCurrentRequest(): void
+    {
+        $this->configureJwtGuard();
+
+        config()->set('auth.defaults.guard', 'test_jwt');
+
+        /** @var \SineMacula\Laravel\Authentication\AuthManager $manager */
+        $manager = app('auth');
+        $request = Request::create('/worker', 'POST', ['refresh_token' => 'not-a-refresh-token']);
+
+        DeclaredCredential::refresh(null)->declareOn($request);
+
+        app()->instance('request', $request);
+
+        Event::fake([AuthenticationFailed::class]);
+
+        self::assertNull($manager->caller());
+        self::assertNull($manager->caller());
+
+        Event::assertDispatchedTimes(AuthenticationFailed::class, 1);
+
+        $manager->forgetGuardState();
+
+        self::assertNull($manager->caller());
+
+        Event::assertDispatchedTimes(AuthenticationFailed::class, 2);
+    }
+
+    /**
      * `caller()` reads the caller of the request being served.
      *
      * @return void

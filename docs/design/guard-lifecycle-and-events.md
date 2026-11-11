@@ -105,9 +105,10 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - A new request (`setRequest()`, which the `request` rebind calls) resets the guard: the bound context, the last
   retrieved identity and whether the request was resolved. A queue worker keeps the application between jobs, so the
   package resets each resolved package guard to the current request when a job starts (`JobProcessing`,
-  `AuthManager::forgetGuardState()`), without creating guards or registering rebinding callbacks. A job on the `sync`
-  connection (the `sync` driver, or `dispatchSync()` whatever the default) runs inside the request or command that
-  dispatched it and is skipped, so a session that request started stays bound and one it signed out stays signed out.
+  `AuthManager::forgetGuardState()`), and forgets the callers `Auth::caller()` kept on that request, without creating
+  guards or registering rebinding callbacks. A job on the `sync` connection (the `sync` driver, or `dispatchSync()`
+  whatever the default) runs inside the request or command that dispatched it and is skipped, so a session that request
+  started stays bound and one it signed out stays signed out.
 - `logout()` resolves the request if nothing has yet, emits Laravel's `Logout` event only when an identity is bound,
   then clears contextual state. On a JWT guard it signs the session out through the guard's `SessionRevocations`, as
   the session service's `signOut()` does: the bound persisted session is revoked first (`signed_out`, `SessionRevoked`

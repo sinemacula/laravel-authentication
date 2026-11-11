@@ -59,6 +59,12 @@ trait BindsContextualState
     /** @var ?\SineMacula\Laravel\Authentication\Context\Enums\CredentialKind The kind of credential the request presented, when the guard authenticated one. */
     protected ?CredentialKind $credentialKind = null;
 
+    /** @var int The last version handed out to any guard's bound state. */
+    private static int $boundStateVersions = 0;
+
+    /** @var ?int The bound state's version, once asked for since it changed. */
+    private ?int $boundStateVersion = null;
+
     /**
      * Return the authenticated identity, if any, resolving the request on first
      * access.
@@ -137,6 +143,18 @@ trait BindsContextualState
     }
 
     /**
+     * The bound state's version, unique across guards and replaced on change.
+     *
+     * @return int
+     *
+     * @internal
+     */
+    public function boundStateVersion(): int
+    {
+        return $this->boundStateVersion ??= ++self::$boundStateVersions;
+    }
+
+    /**
      * Bind the active principal for the current request and fire
      * `PrincipalAssigned`.
      *
@@ -153,8 +171,9 @@ trait BindsContextualState
     {
         $this->user();
 
-        $this->principal             = $principal;
-        $this->authenticationContext = null;
+        $this->principal = $principal;
+
+        $this->forgetDerivedState();
 
         $this->bindTenant(self::trustedTenant($principal, $this->session));
 
@@ -180,8 +199,9 @@ trait BindsContextualState
     {
         $this->user();
 
-        $this->session               = $session;
-        $this->authenticationContext = null;
+        $this->session = $session;
+
+        $this->forgetDerivedState();
 
         if ($this->principal !== null) {
             $this->bindTenant(self::trustedTenant($this->principal, $session));
@@ -253,22 +273,34 @@ trait BindsContextualState
     }
 
     /**
-     * Clear identity, principal, session and credential state, and the
-     * authentication context built from them, without firing events.
+     * Clear identity, principal, session and credential state, and what was
+     * read from them, without firing events.
      *
      * @return void
      */
     protected function clearContextualState(): void
     {
-        $this->identity              = null;
-        $this->principal             = null;
-        $this->session               = null;
-        $this->credentialId          = null;
-        $this->credentialKind        = null;
-        $this->scopes                = null;
-        $this->activeTenant          = null;
-        $this->unavailableTenant     = null;
+        $this->identity          = null;
+        $this->principal         = null;
+        $this->session           = null;
+        $this->credentialId      = null;
+        $this->credentialKind    = null;
+        $this->scopes            = null;
+        $this->activeTenant      = null;
+        $this->unavailableTenant = null;
+
+        $this->forgetDerivedState();
+    }
+
+    /**
+     * Forget the authentication context and version of the bound state.
+     *
+     * @return void
+     */
+    private function forgetDerivedState(): void
+    {
         $this->authenticationContext = null;
+        $this->boundStateVersion     = null;
     }
 
     /**
@@ -400,6 +432,9 @@ trait BindsContextualState
         $this->scopes ??= $identity instanceof MachineIdentity ? [] : null;
 
         $this->bindTenant($tenant);
+
+        // A `Login` listener may have read the cleared state.
+        $this->forgetDerivedState();
 
         $context = $this->boundContext($this->activeTenant, $method, $client);
 

@@ -1155,6 +1155,23 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     }
 
     /**
+     * The `setIdentity()` hook replaces the bound state's version.
+     *
+     * @return void
+     */
+    public function testTheIdentityHookReplacesTheBoundStateVersion(): void
+    {
+        $guard   = new StubCredentialGuard(self::GUARD_NAME, $this->provider, $this->resolver, $this->events, $this->request, $this->timebox);
+        $version = $guard->boundStateVersion();
+
+        $this->recordEvents();
+
+        $guard->bindIdentity($this->mockIdentity());
+
+        self::assertNotSame($version, $guard->boundStateVersion());
+    }
+
+    /**
      * The `bindVerifiedContext()` hook binds a credential's context without
      * `Login`, limited to and reporting its scopes.
      *

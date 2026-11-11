@@ -793,6 +793,57 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
     }
 
     /**
+     * Every change of the bound state hands out a version never used before.
+     *
+     * @return void
+     */
+    public function testEveryChangeOfTheBoundStateReplacesItsVersion(): void
+    {
+        $this->events = \Mockery::mock(Dispatcher::class);
+
+        $guard = $this->makeGuard();
+
+        /** @var \ArrayObject<int, int> $duringLogin */
+        $duringLogin = new \ArrayObject;
+
+        $this->events->shouldReceive('dispatch')->andReturnUsing(static function (object $event) use ($guard, $duringLogin): void {
+            if (!$event instanceof Login) {
+                return;
+            }
+
+            $duringLogin->append($guard->boundStateVersion());
+        });
+
+        $versions = [$guard->boundStateVersion(), $guard->boundStateVersion()];
+
+        $guard->login($this->identity, $this->principal);
+
+        $versions[] = $duringLogin[0];
+        $versions[] = $guard->boundStateVersion();
+
+        $guard->setPrincipal($this->principal);
+
+        $versions[] = $guard->boundStateVersion();
+
+        $guard->setSession($this->session);
+
+        $versions[] = $guard->boundStateVersion();
+
+        $guard->forgetUser();
+
+        $versions[] = $guard->boundStateVersion();
+        $versions[] = $this->makeGuard()->boundStateVersion();
+
+        $changed = array_slice($versions, 1);
+        $ordered = $changed;
+
+        sort($ordered);
+
+        self::assertSame($versions[0], $versions[1]);
+        self::assertSame($ordered, array_values(array_unique($changed)));
+    }
+
+    /**
      * Build a guard whose `user()` binds the context on its first call, as a
      * request-resolving guard does.
      *

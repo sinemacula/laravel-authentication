@@ -266,8 +266,8 @@ class AuthManager extends IlluminateAuthManager
     }
 
     /**
-     * Reset every resolved package guard to the current request, so nothing one
-     * queued job bound carries into the next.
+     * Reset every resolved package guard to the current request and forget the
+     * request's callers, so nothing one queued job bound carries into the next.
      *
      * @return void
      *
@@ -275,7 +275,10 @@ class AuthManager extends IlluminateAuthManager
      */
     public function forgetGuardState(): void
     {
+        /** @var \Illuminate\Http\Request $request */
         $request = $this->app->make('request');
+
+        CallerCredentials::forget($request);
 
         foreach ($this->guards as $guard) {
 

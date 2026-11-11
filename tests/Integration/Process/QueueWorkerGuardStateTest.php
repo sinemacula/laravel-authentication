@@ -17,6 +17,7 @@ use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Listeners\ForgetGuardStateBeforeJob;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\ObserveGuardJob;
+use Tests\Integration\Fixtures\ReadCallerJob;
 use Tests\Integration\Fixtures\SignInOnGuardJob;
 use Tests\TestCase;
 
@@ -98,6 +99,23 @@ final class QueueWorkerGuardStateTest extends TestCase
     }
 
     /**
+     * The caller one job read is not the next job's.
+     *
+     * @return void
+     */
+    public function testEachJobReadsItsOwnCaller(): void
+    {
+        $identity = $this->seedIdentity();
+
+        dispatch(new ReadCallerJob((int) $identity->getKey())); // @phpstan-ignore cast.int
+        dispatch(new ReadCallerJob);
+
+        $this->runJobs(2);
+
+        self::assertSame([$identity->getKey(), null], $this->app?->make('observed.callers'));
+    }
+
+    /**
      * Configure the guards and a database queue.
      *
      * @param  mixed  $app
@@ -133,15 +151,27 @@ final class QueueWorkerGuardStateTest extends TestCase
         dispatch(new SignInOnGuardJob((int) $identity->getKey())); // @phpstan-ignore cast.int
         dispatch(new ObserveGuardJob);
 
+        $this->runJobs(2);
+
+        return $identity->getKey();
+    }
+
+    /**
+     * Run the given number of queued jobs through one worker.
+     *
+     * @param  int  $jobs
+     * @return void
+     */
+    private function runJobs(int $jobs): void
+    {
         $worker = $this->app?->make('queue.worker');
 
         self::assertInstanceOf(Worker::class, $worker);
 
         $options = new WorkerOptions(sleep: 0, maxTries: 1);
 
-        $worker->runNextJob('database', 'default', $options);
-        $worker->runNextJob('database', 'default', $options);
-
-        return $identity->getKey();
+        for ($run = 0; $run < $jobs; $run++) {
+            $worker->runNextJob('database', 'default', $options);
+        }
     }
 }
