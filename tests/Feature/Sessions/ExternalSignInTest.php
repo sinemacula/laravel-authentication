@@ -10,6 +10,7 @@ use Illuminate\Auth\Events\Attempting;
 use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Validated;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -403,6 +404,46 @@ final class ExternalSignInTest extends TestCase
         self::assertSame([AuthenticationFailed::class], $this->recordedClasses());
         self::assertSame('connection-7', $this->recordedEvent(AuthenticationFailed::class)->context->connectionId);
         self::assertSame(RevocationReason::IDENTITY_DEACTIVATED->value, Session::query()->sole()->getRawOriginal('revoked_reason'));
+        self::assertTrue(Auth::guard('api')->guest());
+    }
+
+    /**
+     * A redemption whose check fails to read the identity throws rather than
+     * signing in, issuing no tokens.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARedemptionWhoseCheckFailsThrowsWithoutSigningIn(): void
+    {
+        $identity = $this->seedIdentity();
+
+        $armed = new \ArrayObject(['on' => false]);
+
+        DB::listen(static function (QueryExecuted $query) use ($armed): void {
+            if ($armed['on'] && str_contains($query->sql, 'integration_identities')) {
+                throw new \RuntimeException('The identity read failed.');
+            }
+        });
+
+        app()->instance(AdditionalFactorPolicy::class, new InterruptingFactorPolicy(static function () use ($armed): void {
+            $armed['on'] = true;
+        }));
+
+        $this->recordEvents([SessionCreated::class, SignedIn::class, ExternalResultRedeemed::class]);
+
+        try {
+            $this->sessions()->signInExternally($this->linkedResult($identity), self::requestContext());
+
+            self::fail('Expected the check to throw.');
+        } catch (\RuntimeException $exception) {
+            self::assertSame('The identity read failed.', $exception->getMessage());
+        } finally {
+            $armed['on'] = false;
+        }
+
+        self::assertSame([], $this->recordedClasses());
         self::assertTrue(Auth::guard('api')->guest());
     }
 

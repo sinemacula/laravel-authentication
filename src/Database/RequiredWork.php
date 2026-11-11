@@ -4,6 +4,9 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Database;
 
+use Illuminate\Contracts\Container\Container;
+use Illuminate\Contracts\Debug\ExceptionHandler;
+
 /**
  * The work `AfterCommit` holds for a commit that must run whatever the reports
  * of that commit do.
@@ -17,6 +20,17 @@ final class RequiredWork
 {
     /** @var array<int, array{0: \Closure(): bool, 1: \Closure(): void}> The work held, by number: whether it is due, and the work. */
     private array $held = [];
+
+    /**
+     * Constructor.
+     *
+     * @param  \Illuminate\Contracts\Container\Container  $container
+     */
+    public function __construct(
+
+        /** Container the exception handler is resolved from. */
+        private readonly Container $container,
+    ) {}
 
     /**
      * Hold the work, returning a closure that runs it once.
@@ -38,24 +52,17 @@ final class RequiredWork
 
     /**
      * Run every work held that is due, each once, in the order it was held,
-     * swallowing their exceptions.
+     * reporting what each throws since no caller is left to receive it.
      *
      * @return void
      */
     public function runDue(): void
     {
         foreach (array_keys($this->held) as $number) {
-
-            $work = $this->takeDue($number);
-
-            if ($work === null) {
-                continue;
-            }
-
             try {
-                $work();
-            } catch (\Throwable) {
-                continue;
+                $this->takeDue($number)?->__invoke();
+            } catch (\Throwable $exception) {
+                $this->container->make(ExceptionHandler::class)->report($exception);
             }
         }
     }
