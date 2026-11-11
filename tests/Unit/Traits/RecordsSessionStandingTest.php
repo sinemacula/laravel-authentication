@@ -4,6 +4,11 @@ declare(strict_types = 1);
 
 namespace Tests\Unit\Traits;
 
+use Illuminate\Database\ConnectionResolver;
+use Illuminate\Database\ConnectionResolverInterface;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
+use Illuminate\Database\SQLiteConnection;
 use Illuminate\Support\Facades\Facade;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -26,6 +31,9 @@ use Tests\Unit\Stubs\StubUncastSession;
 #[CoversTrait(RecordsSessionStanding::class)]
 final class RecordsSessionStandingTest extends TestCase
 {
+    /** @var ?\Illuminate\Database\ConnectionResolverInterface The resolver an earlier test left. */
+    private ?ConnectionResolverInterface $resolver = null;
+
     /**
      * Unset the facade application so the shipped model resolves no
      * configuration an earlier test left behind.
@@ -39,6 +47,30 @@ final class RecordsSessionStandingTest extends TestCase
 
         Facade::clearResolvedInstances();
         Facade::setFacadeApplication(null);
+
+        $this->resolver = Model::getConnectionResolver();
+
+        $resolver = new ConnectionResolver(['default' => new SQLiteConnection(new \PDO('sqlite::memory:'))]);
+        $resolver->setDefaultConnection('default');
+
+        Model::setConnectionResolver($resolver);
+    }
+
+    /**
+     * Restore the connection resolver a test before this one left.
+     *
+     * @return void
+     */
+    #[\Override]
+    protected function tearDown(): void
+    {
+        if ($this->resolver === null) {
+            Model::unsetConnectionResolver();
+        } else {
+            Model::setConnectionResolver($this->resolver);
+        }
+
+        parent::tearDown();
     }
 
     /**
@@ -54,6 +86,8 @@ final class RecordsSessionStandingTest extends TestCase
             'pending_key'           => 'digest',
             'tenant_id'             => '42',
             'tenant_policy_version' => 'v3',
+            'principal_type'        => 'member',
+            'principal_id'          => 7,
         ]);
 
         self::assertSame(SessionStatus::PENDING, $session->getStatus());
@@ -61,23 +95,78 @@ final class RecordsSessionStandingTest extends TestCase
         self::assertSame('digest', $session->getPendingKey());
         self::assertSame('42', $session->getTenantId());
         self::assertSame('v3', $session->getTenantPolicyVersion());
+        self::assertSame('member', $session->getPrincipalType());
+        self::assertSame('7', $session->getPrincipalId());
+    }
+
+    /**
+     * A principal that is not a model is read by its stored class name.
+     *
+     * @return void
+     */
+    public function testReadsAPrincipalThatIsNotAModel(): void
+    {
+        $session = (new StubUncastSession)->forceFill(['principal_type' => \stdClass::class, 'principal_id' => 'p-1']);
+
+        self::assertSame(\stdClass::class, $session->getPrincipalType());
+        self::assertSame('p-1', $session->getPrincipalId());
+    }
+
+    /**
+     * The principal is read from the columns the `principal()` relation names.
+     *
+     * @return void
+     */
+    public function testReadsThePrincipalFromTheRelationsColumns(): void
+    {
+        $session = new class extends StubUncastSession {
+            /**
+             * Polymorphic relation to the principal, over remapped columns.
+             *
+             * @formatter:off
+             *
+             * @return \Illuminate\Database\Eloquent\Relations\MorphTo<\Illuminate\Database\Eloquent\Model, \Illuminate\Database\Eloquent\Model>
+             *
+             * @formatter:on
+             */
+            #[\Override]
+            public function principal(): MorphTo
+            {
+                return $this->morphTo('actor'); // @phpstan-ignore return.type
+            }
+        };
+
+        $session->forceFill(['actor_type' => 'member', 'actor_id' => '9']);
+
+        self::assertSame('member', $session->getPrincipalType());
+        self::assertSame('9', $session->getPrincipalId());
     }
 
     /**
      * An active session waits on nothing and holds no pending digest, active
-     * tenant or version.
+     * tenant, version or principal.
      *
      * @return void
      */
     public function testReadsAnActiveSessionAndTheShippedModelsCasts(): void
     {
-        $active = (new StubUncastSession)->forceFill(['status' => 'active', 'requires' => null, 'pending_key' => null, 'tenant_id' => null, 'tenant_policy_version' => null]);
+        $active = (new StubUncastSession)->forceFill([
+            'status'                => 'active',
+            'requires'              => null,
+            'pending_key'           => null,
+            'tenant_id'             => null,
+            'tenant_policy_version' => null,
+            'principal_type'        => null,
+            'principal_id'          => null,
+        ]);
 
         self::assertSame(SessionStatus::ACTIVE, $active->getStatus());
         self::assertSame([], $active->getRequires());
         self::assertNull($active->getPendingKey());
         self::assertNull($active->getTenantId());
         self::assertNull($active->getTenantPolicyVersion());
+        self::assertNull($active->getPrincipalType());
+        self::assertNull($active->getPrincipalId());
 
         $cast = (new Session)->forceFill(['requires' => ['principal']]);
 
@@ -157,6 +246,8 @@ final class RecordsSessionStandingTest extends TestCase
         yield 'pending digest' => [static fn (StubSession $session): mixed => $session->getPendingKey(), 'getPendingKeyName'];
         yield 'active tenant' => [static fn (StubSession $session): mixed => $session->getTenantId(), 'getTenantIdName'];
         yield 'policy version' => [static fn (StubSession $session): mixed => $session->getTenantPolicyVersion(), 'getTenantPolicyVersionName'];
+        yield 'principal type' => [static fn (StubSession $session): mixed => $session->getPrincipalType(), 'principal'];
+        yield 'principal id' => [static fn (StubSession $session): mixed => $session->getPrincipalId(), 'principal'];
     }
 
     /**

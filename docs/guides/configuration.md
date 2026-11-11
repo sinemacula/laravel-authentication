@@ -456,7 +456,7 @@ every column when it creates a session (see [Signing in](signing-in.md#signing-i
 bearer path and refresh honour a session only for the guard it records, refresh only while that guard still allows the
 method it records, and a switch admits its destination principal with the identifier type it records (`null` for a
 sign-in that used none, which is held to no type), so a session written outside the session service must record all
-three.
+three. `getPrincipalType()` and `getPrincipalId()` read the stored principal columns, or `null` while it acts as none.
 
 Subclass the model or swap `session.model` entirely - custom models must implement the `EloquentSession` contract and
 live on the storage connection (see [Storage](#storage)). A session's identifier is always its primary key: tokens carry

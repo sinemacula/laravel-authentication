@@ -10,9 +10,9 @@ signs in again on the same device gets a new session, so the device and the reco
 
 ## Invariants
 
-- The record is a session in every name the package gives it: the contracts (`Session`, `EloquentSession`,
-  `EloquentSessionOrigin`, `EloquentSessionStanding`, `HasSessions`, `ValidatesSessionKey`), the model
-  (`Models\Session`), its traits, the `SessionRecords\` helpers, the service methods, events, failure reasons,
+- The record is a session in every name the package gives it: the contracts (`Session`, `SessionStanding`,
+  `EloquentSession`, `EloquentSessionOrigin`, `EloquentSessionStanding`, `HasSessions`, `ValidatesSessionKey`), the
+  model (`Models\Session`), its traits, the `SessionRecords\` helpers, the service methods, events, failure reasons,
   listeners, testing helpers, configuration (`authentication.session.*`, `AUTHENTICATION_SESSION_*`), the table and the
   pending session's columns (`supersedes_session_id`, `supersedes_refresh_key`). "Device" is left only where it means
   the physical client, and in Laravel's own `logoutOtherDevices()` and `OtherDeviceLogout`.

@@ -145,6 +145,28 @@ final class StubBareSession extends Model implements Session
     }
 
     /**
+     * Inert principal type accessor.
+     *
+     * @return ?string
+     */
+    #[\Override]
+    public function getPrincipalType(): ?string
+    {
+        return null;
+    }
+
+    /**
+     * Inert principal id accessor.
+     *
+     * @return ?string
+     */
+    #[\Override]
+    public function getPrincipalId(): ?string
+    {
+        return null;
+    }
+
+    /**
      * Inert tenant policy version accessor.
      *
      * @return ?string

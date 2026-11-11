@@ -13,6 +13,7 @@ use SineMacula\Laravel\Authentication\Callers\Caller;
 use SineMacula\Laravel\Authentication\Callers\CallerCredentials;
 use SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsExchange;
 use SineMacula\Laravel\Authentication\Codes\CodeService;
+use SineMacula\Laravel\Authentication\Config\JwtGuards;
 use SineMacula\Laravel\Authentication\Context\AuthenticationContext;
 use SineMacula\Laravel\Authentication\Contracts\AuthenticationContexts;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
@@ -112,7 +113,7 @@ class AuthManager extends IlluminateAuthManager
      */
     public function sessions(?string $guard = null): SessionService
     {
-        $resolved = $this->jwtGuard($guard, 'session service');
+        $resolved = JwtGuard::from($this, $guard, 'session service');
         $app      = $this->app;
 
         return new SessionService(
@@ -126,6 +127,18 @@ class AuthManager extends IlluminateAuthManager
     }
 
     /**
+     * Return the names of the `jwt` guards, which keep sessions, unresolved.
+     *
+     * @return list<string>
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function sessionGuards(): array
+    {
+        return JwtGuards::names($this->app->make(Repository::class));
+    }
+
+    /**
      * Return the one-time code service of the named JWT guard, or of the
      * default guard.
      *
@@ -136,7 +149,7 @@ class AuthManager extends IlluminateAuthManager
      */
     public function codes(?string $guard = null): CodeService
     {
-        return new CodeService($this->jwtGuard($guard, 'one-time code service')->context(), $this->app);
+        return new CodeService(JwtGuard::from($this, $guard, 'one-time code service')->context(), $this->app);
     }
 
     /**
@@ -151,7 +164,7 @@ class AuthManager extends IlluminateAuthManager
      */
     public function passwords(?string $guard = null): PasswordService
     {
-        $context = $this->jwtGuard($guard, 'password service')->context();
+        $context = JwtGuard::from($this, $guard, 'password service')->context();
 
         return new PasswordService($context, SessionRevocations::forContext($context, $this->app), $this->app);
     }
@@ -167,7 +180,7 @@ class AuthManager extends IlluminateAuthManager
      */
     public function refreshTransport(?string $guard = null): RefreshTokenTransport
     {
-        return $this->jwtGuard($guard, 'refresh token transport')->refreshTransport();
+        return JwtGuard::from($this, $guard, 'refresh token transport')->refreshTransport();
     }
 
     /**
@@ -181,7 +194,7 @@ class AuthManager extends IlluminateAuthManager
      */
     public function passkeys(?string $guard = null): PasskeyService
     {
-        return new PasskeyService($this->jwtGuard($guard, 'passkey service')->context(), $this->app);
+        return new PasskeyService(JwtGuard::from($this, $guard, 'passkey service')->context(), $this->app);
     }
 
     /**
@@ -195,7 +208,7 @@ class AuthManager extends IlluminateAuthManager
      */
     public function identifierChanges(?string $guard = null): IdentifierChangeService
     {
-        return new IdentifierChangeService($this->jwtGuard($guard, 'identifier change service')->context(), $this->app);
+        return new IdentifierChangeService(JwtGuard::from($this, $guard, 'identifier change service')->context(), $this->app);
     }
 
     /**
@@ -229,7 +242,7 @@ class AuthManager extends IlluminateAuthManager
      */
     public function clientCredentials(?string $guard = null): ClientCredentialsExchange
     {
-        return new ClientCredentialsExchange($this->jwtGuard($guard, 'client credentials exchange')->context(), $this->app);
+        return new ClientCredentialsExchange(JwtGuard::from($this, $guard, 'client credentials exchange')->context(), $this->app);
     }
 
     /**
@@ -374,25 +387,5 @@ class AuthManager extends IlluminateAuthManager
         $guard = $this->guard();
 
         return $guard instanceof ContextualGuard ? $guard->scopes() : null;
-    }
-
-    /**
-     * Resolve the named or default guard as a JWT guard.
-     *
-     * @param  ?string  $guard
-     * @param  string  $service
-     * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
-     *
-     * @throws \InvalidArgumentException
-     */
-    private function jwtGuard(?string $guard, string $service): JwtGuard
-    {
-        $resolved = $this->guard($guard);
-
-        if (!$resolved instanceof JwtGuard) {
-            throw new \InvalidArgumentException(sprintf('Auth guard [%s] is not a jwt guard, so it has no %s.', $guard ?? $this->getDefaultDriver(), $service));
-        }
-
-        return $resolved;
     }
 }
