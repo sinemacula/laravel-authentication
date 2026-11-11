@@ -10,7 +10,6 @@ use Illuminate\Contracts\Container\Container;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
-use SineMacula\Laravel\Authentication\Contracts\GuardBinding;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
 use SineMacula\Laravel\Authentication\Database\GrammarExpression;
@@ -41,7 +40,6 @@ final readonly class ConnectionRevocations
      * Constructor.
      *
      * @param  \SineMacula\Laravel\Authentication\Runtime\GuardContext  $context
-     * @param  \SineMacula\Laravel\Authentication\Contracts\GuardBinding  $binding
      * @param  \SineMacula\Laravel\Authentication\Sessions\RevocationWriter  $writer
      * @param  \SineMacula\Laravel\Authentication\Database\AfterCommit  $afterCommit
      * @param  \Illuminate\Contracts\Container\Container  $container
@@ -51,13 +49,10 @@ final readonly class ConnectionRevocations
         /** The context of the guard acting; its client is the events'. */
         private GuardContext $context,
 
-        /** The guard's bound state, forgotten when the session it is bound to is revoked. */
-        private GuardBinding $binding,
-
         /** Revokes each session and reports it once committed. */
         private RevocationWriter $writer,
 
-        /** Defers forgetting the guard's binding until the revocation commits. */
+        /** Defers forgetting the guards' bindings until the revocation commits. */
         private AfterCommit $afterCommit,
 
         /** Container the configuration is resolved from. */
@@ -313,8 +308,9 @@ final readonly class ConnectionRevocations
     }
 
     /**
-     * Forget the guard's binding to any revoked session once the revocation
-     * commits, before any is reported, answering the list they are added to.
+     * Have every resolved guard forget a binding to any revoked session once
+     * the revocation commits, before any is reported, answering the list they
+     * are added to.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $model
      * @return \ArrayObject<int, \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession>
@@ -322,13 +318,10 @@ final readonly class ConnectionRevocations
     private function forgetOnCommit(EloquentSession&Model $model): \ArrayObject
     {
         /** @var \ArrayObject<int, \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession> $ended */
-        $ended   = new \ArrayObject;
-        $binding = $this->binding;
+        $ended = new \ArrayObject;
 
-        $this->afterCommit->run($model, static function () use ($binding, $ended): void {
-            foreach ($ended as $session) {
-                $binding->forgetSession($session);
-            }
+        $this->afterCommit->run($model, static function () use ($ended): void {
+            BindingForgetting::sessions($ended->getArrayCopy());
         });
 
         return $ended;

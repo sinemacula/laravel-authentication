@@ -240,6 +240,28 @@ trait InteractsWithSessions
     }
 
     /**
+     * Resolve the guards of the sessions given afresh, each bound to its
+     * session.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  ...$sessions
+     * @return list<\SineMacula\Laravel\Authentication\Guards\JwtGuard>
+     */
+    protected function boundGuards(SignedInSession ...$sessions): array
+    {
+        Auth::forgetGuards();
+
+        return array_values(array_map(static function (SignedInSession $signedIn): JwtGuard {
+            $guard = app('auth')->guard((string) $signedIn->record->getGuard());
+
+            self::assertInstanceOf(JwtGuard::class, $guard);
+
+            $guard->login($signedIn->identity, $signedIn->principal, $signedIn->record);
+
+            return $guard;
+        }, $sessions));
+    }
+
+    /**
      * Start a cross-site request from another address and resolve the named
      * guard afresh for it.
      *

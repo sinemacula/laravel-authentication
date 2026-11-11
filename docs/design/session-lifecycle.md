@@ -102,11 +102,9 @@ session that ended is deleted. Starting a session is in `session-service.md`; re
   ends all of them in one transaction on the session connection, with one `SignedOutEverywhere` each. `factorRemoved()`
   and `factorReset()` are mandatory: no setting turns them off, and the factor package calls them synchronously inside
   the transaction that makes its change (a savepoint here, reported after the outermost commit), never through a
-  listener; each forgets the request's binding once it commits, before anything is reported, when the binding is to a
-  session it ended or took back to pending (`factorRemoved()` with a current session) or to the identity
-  (`factorReset()`, and `factorRemoved()` with none, since both end every session of it, through
-  `GuardBinding::forgetIdentity()`). `credentialRemoved()` stays per event, the optional listener's or the
-  application's.
+  listener; once it commits, before anything is reported, every resolved guard bound to the identity forgets it
+  (`Sessions\BindingForgetting`, through `GuardBinding::forgetIdentity()`), except one bound to the current session
+  `factorRemoved()` kept. `credentialRemoved()` stays per event, the optional listener's or the application's.
 - After an addition to an identity's factors made from the current session (a further factor's enrolment confirmed, a
   passkey associated as a factor, or any other change that removes no factor), the factor package calls
   `factorChanged($identity, FactorChangeMade $change, $current)` the same way: synchronously, inside its transaction,
@@ -137,7 +135,7 @@ session that ended is deleted. Starting a session is in `session-service.md`; re
   index, a link's through the identity's own sessions and then their provenance by key), each chunk locked in key order
   and revoked in one transaction. A connection's chunks follow the session keys' own order (an integer key's numeric
   one, though the provenance holds it as a string), so its locks are taken in one key order across chunks. After the
-  commit the request's binding to any session ended is forgotten (`GuardBinding::forgetSession()`), then one
+  commit every resolved guard's binding to any session ended is forgotten (`GuardBinding::forgetSession()`), then one
   `SessionRevoked` reports each, so a listener that throws cannot leave the binding. They move no cutoff, since the
   scope is the provenance rather than the identity. The first three can each be turned off under
   `authentication.revocation.*` (`Sessions\RevocationSettings`), which `authentication:check` validates;
@@ -334,7 +332,7 @@ session that ended is deleted. Starting a session is in `session-service.md`; re
   `src/Concerns/PrunesSessions.php`, `src/Database/SessionRetention.php`, `src/Models/Session.php`
 - `src/Sessions/FactorRevocations.php` (behind `factorRemoved()`, `factorReset()` and `factorChanged()`),
   `src/Sessions/FactorRemoval.php`, `src/Sessions/FactorChangeResult.php`, `src/Sessions/Enums/FactorChangeStatus.php`,
-  `src/Factors/Enums/FactorChangeMade.php`
+  `src/Factors/Enums/FactorChangeMade.php`, `src/Sessions/BindingForgetting.php`
 - `src/Sessions/SessionRevocations.php` (the security changes), `src/Sessions/Concerns/EndsSessionsOnDeletion.php`
   (`identityDeleted()` and `principalDeleted()` on the service), `src/Listeners/RevokeSessionsOn*.php`,
   `src/Listeners/Concerns/RevokesOnceCommitted.php`, `src/Sessions/Methods/Rehashing.php`,

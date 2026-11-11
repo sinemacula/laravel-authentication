@@ -221,7 +221,7 @@ trait BindsContextualState
     #[\Override]
     public function forgetSession(Session $session): void
     {
-        if ($this->session === null || !IdentifierCoercion::matches($this->session->getSessionIdentifier(), $session->getSessionIdentifier())) {
+        if (!$this->isBoundToSession($session)) {
             return;
         }
 
@@ -230,17 +230,22 @@ trait BindsContextualState
 
     /**
      * Forget the bound identity, principal and session when the bound identity
-     * is the one given.
+     * is the one given and the bound session is not the one kept.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $kept
      * @return void
      */
     #[\Override]
-    public function forgetIdentity(Identity $identity): void
+    public function forgetIdentity(Identity $identity, ?Session $kept = null): void
     {
         $bound = $this->identity;
 
         if ($bound === null || $bound::class !== $identity::class || !IdentifierCoercion::matches($bound->getAuthIdentifier(), $identity->getAuthIdentifier())) {
+            return;
+        }
+
+        if ($kept !== null && $this->isBoundToSession($kept)) {
             return;
         }
 
@@ -430,5 +435,16 @@ trait BindsContextualState
             credentialId: $this->credentialId,
             scopes: $this->scopes,
         );
+    }
+
+    /**
+     * Whether the guard is bound to the session given.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @return bool
+     */
+    private function isBoundToSession(Session $session): bool
+    {
+        return $this->session !== null && IdentifierCoercion::matches($this->session->getSessionIdentifier(), $session->getSessionIdentifier());
     }
 }

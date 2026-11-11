@@ -11,7 +11,6 @@ use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Context\ContextForgetting;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
-use SineMacula\Laravel\Authentication\Contracts\GuardBinding;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
@@ -51,7 +50,6 @@ final readonly class FactorRevocations
      * Constructor.
      *
      * @param  \SineMacula\Laravel\Authentication\Runtime\GuardContext  $context
-     * @param  \SineMacula\Laravel\Authentication\Contracts\GuardBinding  $binding
      * @param  \SineMacula\Laravel\Authentication\Sessions\SessionRevocations  $revocations
      * @param  \SineMacula\Laravel\Authentication\Sessions\RevocationWriter  $writer
      * @param  \SineMacula\Laravel\Authentication\Sessions\PendingTransitions  $transitions
@@ -61,9 +59,6 @@ final readonly class FactorRevocations
 
         /** The context of the guard whose current session is judged again. */
         private GuardContext $context,
-
-        /** The guard's bound state, forgotten when the current session stops being active. */
-        private GuardBinding $binding,
 
         /** Ends the identity's other sessions. */
         private SessionRevocations $revocations,
@@ -103,12 +98,12 @@ final readonly class FactorRevocations
         return SessionLookup::model()->getConnection()->transaction(function () use ($identity, $factor, $session, $now): FactorRemoval {
 
             if ($session === null) {
-                return new FactorRemoval($this->revocations->revokeSessions($identity, RevocationReason::FACTOR_REMOVED, null, $this->forgetting($identity)));
+                return new FactorRemoval($this->revocations->revokeSessions($identity, RevocationReason::FACTOR_REMOVED, null, self::forgetting($identity)));
             }
 
             /** @var \ArrayObject<int, \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession> $ended */
             $ended   = new \ArrayObject;
-            $revoked = $this->revocations->revokeSessions($identity, RevocationReason::FACTOR_REMOVED, $session, $this->forgettingEach($ended));
+            $revoked = $this->revocations->revokeSessions($identity, RevocationReason::FACTOR_REMOVED, $session, self::forgetting($identity, $session, $ended));
 
             return $this->recheck($identity, $session, $factor, $revoked, $ended, $now);
         });
@@ -143,7 +138,7 @@ final readonly class FactorRevocations
             /** @var \ArrayObject<int, \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession> $ended */
             $ended = new \ArrayObject;
 
-            $this->afterCommit()->run($locked, $this->forgettingEach($ended));
+            $this->afterCommit()->run($locked, self::forgettingEach($ended));
 
             return $this->judge($identity, $locked, $reason, $ended, $now);
         });
@@ -165,39 +160,37 @@ final readonly class FactorRevocations
     {
         $this->assertStored($identity, 'A reset of factors');
 
-        return $this->revocations->revokeSessions($identity, RevocationReason::FACTOR_RESET, null, $this->forgetting($identity));
+        return $this->revocations->revokeSessions($identity, RevocationReason::FACTOR_RESET, null, self::forgetting($identity));
     }
 
     /**
-     * What forgets the guard's binding to the identity once the change commits.
+     * What has every resolved guard forget the identity once the change
+     * commits, but one bound to the session kept unless that session ended.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $kept
+     * @param  \ArrayObject<int, \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession>  $ended
      * @return \Closure(): void
      */
-    private function forgetting(Identity $identity): \Closure
+    private static function forgetting(Identity $identity, ?Session $kept = null, \ArrayObject $ended = new \ArrayObject): \Closure
     {
-        $binding = $this->binding;
-
-        return static function () use ($binding, $identity): void {
-            $binding->forgetIdentity($identity);
+        return static function () use ($identity, $kept, $ended): void {
+            BindingForgetting::identity($identity, $kept);
+            BindingForgetting::sessions($ended->getArrayCopy());
         };
     }
 
     /**
-     * What forgets the guard's binding to any of the ended sessions once the
-     * change commits.
+     * What has every resolved guard forget a binding to any of the ended
+     * sessions once the change commits.
      *
      * @param  \ArrayObject<int, \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession>  $ended
      * @return \Closure(): void
      */
-    private function forgettingEach(\ArrayObject $ended): \Closure
+    private static function forgettingEach(\ArrayObject $ended): \Closure
     {
-        $binding = $this->binding;
-
-        return static function () use ($binding, $ended): void {
-            foreach ($ended as $session) {
-                $binding->forgetSession($session);
-            }
+        return static function () use ($ended): void {
+            BindingForgetting::sessions($ended->getArrayCopy());
         };
     }
 
