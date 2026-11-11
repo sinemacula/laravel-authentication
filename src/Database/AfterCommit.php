@@ -57,7 +57,7 @@ final readonly class AfterCommit
 
     /**
      * Run the required callback once the writes made on each model's connection
-     * have committed, in the order given.
+     * have committed, in the order given; never once any of them rolled back.
      *
      * @param  list<\Illuminate\Database\Eloquent\Model>  $models
      * @param  \Closure(): void  $callback
@@ -67,30 +67,22 @@ final readonly class AfterCommit
      */
     public function runAcross(array $models, \Closure $callback): void
     {
-        $model = array_shift($models);
+        $flag = new \ArrayObject(['dropped' => false]);
 
-        if ($model === null) {
+        foreach ($models as $model) {
+            $this->runIfRolledBack($model, static function () use ($flag): void {
+                $flag['dropped'] = true;
+            });
+        }
+
+        $this->runInTurn($models, static function () use ($flag, $callback): void {
+
+            if ($flag['dropped']) {
+                return;
+            }
 
             $callback();
-
-            return;
-        }
-
-        $next    = fn () => $this->runAcross($models, $callback);
-        $pending = $this->pending($model);
-
-        if ($pending === null) {
-
-            $next();
-
-            return;
-        }
-
-        [$run, $drop] = self::required()->hold(fn (): bool => $this->pending($model) === null, $next);
-
-        $pending->addCallback(self::guarded($run));
-
-        $this->runIfRolledBack($model, $drop);
+        });
     }
 
     /**
@@ -124,7 +116,7 @@ final readonly class AfterCommit
             return;
         }
 
-        [$run] = self::required()->hold(fn (): bool => $this->outermost($model) === null, $next);
+        $run = self::required()->hold(fn (): bool => $this->outermost($model) === null, $next);
 
         $outermost->addCallback(self::guarded($run));
         $outermost->addCallbackForRollback(self::guarded($run));
@@ -169,6 +161,41 @@ final readonly class AfterCommit
     public function defers(Model $model): bool
     {
         return $this->pending($model) !== null;
+    }
+
+    /**
+     * Run the callback once each model's connection has committed, in turn.
+     *
+     * @param  list<\Illuminate\Database\Eloquent\Model>  $models
+     * @param  \Closure(): void  $callback
+     * @return void
+     *
+     * @imperative
+     */
+    private function runInTurn(array $models, \Closure $callback): void
+    {
+        $model = array_shift($models);
+
+        if ($model === null) {
+
+            $callback();
+
+            return;
+        }
+
+        $next    = fn () => $this->runInTurn($models, $callback);
+        $pending = $this->pending($model);
+
+        if ($pending === null) {
+
+            $next();
+
+            return;
+        }
+
+        $run = self::required()->hold(fn (): bool => $this->pending($model) === null, $next);
+
+        $pending->addCallback(self::guarded($run));
     }
 
     /**

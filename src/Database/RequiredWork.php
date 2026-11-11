@@ -19,27 +19,21 @@ final class RequiredWork
     private array $held = [];
 
     /**
-     * Hold the work, returning a closure that runs it once and one that lets it
-     * go unrun.
+     * Hold the work, returning a closure that runs it once.
      *
      * @param  \Closure(): bool  $due
      * @param  \Closure(): void  $work
-     * @return array{0: \Closure(): void, 1: \Closure(): void}
+     * @return \Closure(): void
      */
-    public function hold(\Closure $due, \Closure $work): array
+    public function hold(\Closure $due, \Closure $work): \Closure
     {
         $this->held[] = [$due, $work];
 
         $number = array_key_last($this->held);
 
-        return [
-            function () use ($number): void {
-                $this->take($number)?->__invoke();
-            },
-            function () use ($number): void {
-                unset($this->held[$number]);
-            },
-        ];
+        return function () use ($number): void {
+            $this->take($number)?->__invoke();
+        };
     }
 
     /**
@@ -68,7 +62,7 @@ final class RequiredWork
 
     /**
      * Let go of the work held under the number and return it when it is due, or
-     * `null` when it is not, already ran or was let go.
+     * `null` when it is not or already ran.
      *
      * @param  int  $number
      * @return ?\Closure(): void
@@ -86,7 +80,7 @@ final class RequiredWork
 
     /**
      * Let go of the work held under the number and return it, or `null` when it
-     * already ran or was let go.
+     * already ran.
      *
      * @param  int  $number
      * @return ?\Closure(): void

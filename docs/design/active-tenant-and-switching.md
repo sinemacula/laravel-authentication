@@ -84,7 +84,8 @@ session held back by the policy waits as `pending-sessions.md` describes; the pe
   answered, neither `null`, is skipped; an active one that falls short is revoked (`tenant_policy_changed`) and one that
   meets it records the version; a pending one is revoked only when it would need another connection, since its
   activation judges a further factor itself. Each revocation is one conditional update on the session still acting in
-  the tenant and unrevoked, reported by `SessionRevoked` once committed.
+  the tenant and unrevoked, reported by `SessionRevoked` once committed. Inside a transaction on the session model's
+  connection or the tenant's own, the same pass runs again once they commit; its revocations are reported, not counted.
 - `tenantDeactivated()` ends every session acting in the tenant, whatever its principal, as well as the sessions of the
   principals listed for it, each session counted once.
 
@@ -107,10 +108,12 @@ session held back by the policy waits as `pending-sessions.md` describes; the pe
 - Two context changes in one second move the floor one second past the recorded one (`SwitchFloor::after()`): no token
   from before the second change is accepted, and its own tokens are refused until the client refreshes after that
   second.
-- A policy published while a sign-in is in flight: a session that enters the tenant after the helper's scan, having
-  read the old policy, is judged at its first refresh, which always asks the policy, so the window is at most one
-  access-token lifetime. For a strict cut-off, call the helper again once the publishing transaction commits; it is
-  idempotent, skipping every session it recorded at the new version.
+- A policy published while a sign-in is in flight: called inside the publishing transaction, the helper judges the
+  tenant's sessions again once that commits (`AfterCommit::runAcross()`, at the time then), skipping every session it
+  recorded at the new version, so a session that entered the tenant during the first scan is judged too. The race is
+  narrowed, not closed: a sign-in that read the old policy and commits after that second pass is judged at its first
+  refresh, which always asks the policy (the sign-in's own admission check does not), so the window is at most one
+  access-token lifetime.
 - A `null` version is never taken as already checked: the helper judges every session whose recorded or answered
   version is `null`.
 - A switch that races the helper either wins (the helper's conditional revocation then finds the session acting

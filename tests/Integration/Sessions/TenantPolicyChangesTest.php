@@ -54,6 +54,9 @@ final class TenantPolicyChangesTest extends TestCase
     /** @var string The frozen time every change is applied at. */
     private const string NOW = '2027-01-15 10:00:00';
 
+    /** @var string A second connection to the test database, which a tenant may live on. */
+    private const string ELSEWHERE = 'elsewhere';
+
     /** @var \Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy The policy tenants answer with. */
     private ScriptedTenantAuthenticationPolicy $policy;
 
@@ -226,6 +229,179 @@ final class TenantPolicyChangesTest extends TestCase
     }
 
     /**
+     * A session entering before the commit is revoked after it, uncounted.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASessionThatEntersTheTenantBeforeTheCommitIsRevokedAfterIt(): void
+    {
+        [$member, $membership, $tenant] = $this->seedMember();
+
+        $this->insertSessions($member, $membership, $tenant, 1);
+
+        $this->policy->requirement = new TenantRequirement('v1', connections: ['conn-a']);
+
+        $this->recordEvents([SessionRevoked::class]);
+
+        DB::transaction(function () use ($member, $membership, $tenant): void {
+
+            self::assertSame(1, $this->sessions('members')->tenantPolicyChanged($tenant));
+
+            $this->insertSessions($member, $membership, $tenant, 1);
+
+            self::assertSame(1, DB::table('authentication_sessions')->whereNull('revoked_at')->count());
+        });
+
+        self::assertSame(2, DB::table('authentication_sessions')->where('revoked_reason', RevocationReason::TENANT_POLICY_CHANGED->value)->count());
+        self::assertCount(2, $this->recorded);
+    }
+
+    /**
+     * A session that falls short by the commit is revoked by the second pass.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASessionThatFallsShortBeforeTheCommitIsRevokedAfterIt(): void
+    {
+        [$member, $membership, $tenant] = $this->seedMember();
+
+        $this->insertSessions($member, $membership, $tenant, 1);
+
+        $this->policy->requirement = new TenantRequirement('v1');
+
+        DB::transaction(function () use ($tenant): void {
+
+            self::assertSame(0, $this->sessions('members')->tenantPolicyChanged($tenant));
+            self::assertSame('v1', DB::table('authentication_sessions')->value('tenant_policy_version'));
+
+            $this->policy->requirement = new TenantRequirement('v2', connections: ['conn-a']);
+        });
+
+        self::assertSame(RevocationReason::TENANT_POLICY_CHANGED->value, DB::table('authentication_sessions')->value('revoked_reason'));
+    }
+
+    /**
+     * The second pass judges at the time of the commit.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheSecondPassJudgesAtTheTimeOfTheCommit(): void
+    {
+        [$member, $membership, $tenant] = $this->seedMember();
+
+        $this->policy->requirement = new TenantRequirement('v1', connections: ['conn-a']);
+
+        DB::transaction(function () use ($member, $membership, $tenant): void {
+
+            self::assertSame(0, $this->sessions('members')->tenantPolicyChanged($tenant));
+
+            $this->insertSessions($member, $membership, $tenant, 2);
+
+            DB::table('authentication_sessions')->limit(1)->update(['idle_expires_at' => '2027-01-15 10:30:00']);
+
+            Carbon::setTestNow(CarbonImmutable::parse(self::NOW)->addHour());
+            CarbonImmutable::setTestNow(CarbonImmutable::parse(self::NOW)->addHour());
+        });
+
+        self::assertNull(DB::table('authentication_sessions')->where('idle_expires_at', '2027-01-15 10:30:00')->value('revoked_at'));
+        self::assertSame(1, DB::table('authentication_sessions')->where('revoked_reason', RevocationReason::TENANT_POLICY_CHANGED->value)->count());
+    }
+
+    /**
+     * Outside a transaction the sessions are judged once.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testOutsideATransactionTheSessionsAreJudgedOnce(): void
+    {
+        [$member, $membership, $tenant] = $this->seedMember();
+
+        $this->insertSessions($member, $membership, $tenant, 1);
+
+        $this->policy->requirement = new TenantRequirement('v1');
+
+        $asked = count($this->policy->asked);
+
+        self::assertSame(0, $this->sessions('members')->tenantPolicyChanged($tenant));
+        self::assertCount($asked + 1, $this->policy->asked);
+        self::assertSame('v1', DB::table('authentication_sessions')->whereNull('revoked_at')->value('tenant_policy_version'));
+    }
+
+    /**
+     * A rolled-back savepoint runs no second pass.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARolledBackSavepointRunsNoSecondPass(): void
+    {
+        [$member, $membership, $tenant] = $this->seedMember();
+
+        $this->insertSessions($member, $membership, $tenant, 1);
+
+        $this->policy->requirement = new TenantRequirement('v1', connections: ['conn-a']);
+        $this->policy->asked       = [];
+
+        $this->recordEvents([SessionRevoked::class]);
+
+        DB::transaction(function () use ($member, $membership, $tenant): void {
+
+            DB::beginTransaction();
+
+            self::assertSame(1, $this->sessions('members')->tenantPolicyChanged($tenant));
+
+            DB::rollBack();
+
+            $this->insertSessions($member, $membership, $tenant, 1);
+        });
+
+        self::assertSame(2, DB::table('authentication_sessions')->whereNull('revoked_at')->count());
+        self::assertCount(1, $this->policy->asked);
+        self::assertSame([], $this->recorded);
+    }
+
+    /**
+     * The second pass waits for a transaction on the tenant's connection alone.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheSecondPassWaitsForTheTenantsConnection(): void
+    {
+        [$member, $membership, $tenant] = $this->seedMember();
+
+        $changed = clone $tenant;
+
+        $changed->setConnection(self::ELSEWHERE);
+
+        $this->policy->requirement = new TenantRequirement('v1', connections: ['conn-a']);
+
+        $elsewhere = DB::connection(self::ELSEWHERE);
+
+        $elsewhere->beginTransaction();
+
+        self::assertSame(0, $this->sessions('members')->tenantPolicyChanged($changed));
+
+        $this->insertSessions($member, $membership, $tenant, 1);
+
+        self::assertNull(DB::table('authentication_sessions')->value('revoked_at'));
+
+        $elsewhere->commit();
+
+        self::assertSame(RevocationReason::TENANT_POLICY_CHANGED->value, DB::table('authentication_sessions')->value('revoked_reason'));
+    }
+
+    /**
      * A refresh losing to a policy change that revokes it fails as
      * `session_revoked`.
      *
@@ -371,7 +547,11 @@ final class TenantPolicyChangesTest extends TestCase
 
         assert($app instanceof Application);
 
-        self::configureSessionGuards($app->make(ConfigRepository::class));
+        $config = $app->make(ConfigRepository::class);
+
+        self::configureSessionGuards($config);
+
+        $config->set('database.connections.' . self::ELSEWHERE, $config->get('database.connections.' . $config->string('database.default')));
     }
 
     /**
@@ -440,7 +620,7 @@ final class TenantPolicyChangesTest extends TestCase
             'status'               => 'active',
             'guard'                => 'members',
             'sign_in_method'       => 'password',
-            'refresh_key'          => hash('sha256', 'refresh-' . $index),
+            'refresh_key'          => hash('sha256', 'refresh-' . $index . '-' . Str::uuid7()),
             'signed_in_at'         => '2027-01-15 09:00:00',
             'idle_expires_at'      => '2027-02-15 09:00:00',
             'absolute_expires_at'  => '2027-07-15 09:00:00',

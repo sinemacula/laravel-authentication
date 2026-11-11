@@ -291,8 +291,9 @@ session that ended is deleted. Starting a session is in `session-service.md`; re
   again by key 500 at a time and judging each on its proofs and provenance read current; skips one recorded at the very
   version answered (neither `null`); revokes an active one that falls short, and a pending one only when it needs
   another connection, as `tenant_policy_changed` with a conditional update on `tenant_id` and `revoked_at IS NULL`; and
-  records the version on an active one that meets it. `SessionRevoked` follows each revocation's commit. A session that
-  enters the tenant after the scan is bounded by its first refresh, which always asks the policy.
+  records the version on an active one that meets it. `SessionRevoked` follows each revocation's commit. Inside a
+  caller's transaction (on that connection or the tenant's) it runs again once that commits; a session that enters the
+  tenant after that second scan is bounded by its first refresh, which always asks the policy.
 
 ## Success Path
 

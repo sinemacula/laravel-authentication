@@ -330,7 +330,8 @@ trait EndsSessions
 
     /**
      * Apply a change of the tenant's authentication policy to the live sessions
-     * acting in it, returning how many were revoked.
+     * acting in it, returning how many were revoked. Inside a transaction it
+     * runs again after the commit; that pass is not counted.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @return int

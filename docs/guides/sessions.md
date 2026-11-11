@@ -1420,13 +1420,16 @@ an active one that no longer meets it as `tenant_policy_changed`, and a pending 
 connection (a pending one that lacks a factor is judged when it activates); and records the version on an active one
 that meets it. It returns how many it revoked, and `SessionRevoked` reports each once committed. Call it inside the
 transaction that publishes the change, on the storage connection, so the two commit or roll back together (it runs as a
-savepoint and never commits on its own), and, for a strict cut-off, once more after that transaction commits: a session
-that entered the tenant while the first call ran is then judged too. Change the policy's version whenever anything its
-answer depends on changes, so the helper never skips a session it should judge. On MySQL and MariaDB at REPEATABLE READ
-it holds the shared locks of every session it judged until your transaction commits, so a sign-in that starts meanwhile
-waits when one of them is the newest session, as does a step-up of a session next to one; keep that transaction short.
-It holds the keys of the tenant's live sessions in memory for the call (about 70 KB for a thousand), and the sessions
-only a chunk at a time.
+savepoint and never commits on its own). Called inside a transaction on the storage connection or the tenant's own, it
+judges the tenant's sessions once more after that commits, at that time, skipping those the first pass recorded and
+reporting each it revokes without counting it; a rollback runs no second pass. This narrows the race with a sign-in into
+the tenant but does not close it: a sign-in that read the old policy and commits after the second pass is judged at its
+first refresh, which always asks the policy (a sign-in's own check after your commit does not). Change the policy's
+version whenever anything its answer depends on changes, so the helper never skips a session it should judge. On MySQL
+and MariaDB at REPEATABLE READ it holds the shared locks of every session it judged until your transaction commits, so a
+sign-in that starts meanwhile waits when one of them is the newest session, as does a step-up of a session next to one;
+keep that transaction short. It holds the keys of the tenant's live sessions in memory for the call (about 70 KB for a
+thousand), and the sessions only a chunk at a time.
 
 ### Revocation reasons
 
