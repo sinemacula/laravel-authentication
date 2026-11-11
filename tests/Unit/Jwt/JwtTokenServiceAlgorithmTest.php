@@ -16,11 +16,6 @@ use Tests\Concerns\InteractsWithJwtTokens;
 /**
  * Algorithm allow-list tests for `JwtTokenService`.
  *
- * Proves every allow-listed HMAC algorithm signs and verifies end to end: the
- * service signs under its keyring's algorithm, so a token issued over a keyring
- * for the algorithm carries it in the JWT header and parses back to the issued
- * claims.
- *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
@@ -36,7 +31,7 @@ final class JwtTokenServiceAlgorithmTest extends JwtTokenServiceTestCase
     private const string LONG_SECRET = 'algorithm-round-trip-secret-with-at-least-sixty-four-bytes-of-key';
 
     /**
-     * Data provider listing every allow-listed signing algorithm.
+     * Every allow-listed signing algorithm.
      *
      * @return iterable<string, array{0: string}>
      */
@@ -50,8 +45,8 @@ final class JwtTokenServiceAlgorithmTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * Asserts a token issued over a keyring for each allow-listed algorithm
-     * names that algorithm in its header and parses back to the issued claims.
+     * A token issued under each allowed algorithm names it in its header and
+     * parses back.
      *
      * @param  string  $algorithm
      * @return void

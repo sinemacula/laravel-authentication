@@ -49,9 +49,8 @@ final class TenantSelectionTest extends TestCase
     }
 
     /**
-     * A tenant named by an integer or a string is carried as the string a
-     * session records, up to the column's 255 characters, multibyte ones
-     * counted as one.
+     * A tenant named by an integer or a string is carried as a string of up to
+     * 255 characters, multibyte ones counted as one.
      *
      * @return void
      */

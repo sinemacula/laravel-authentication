@@ -11,9 +11,7 @@ use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Passkeys\RelyingParty;
 
 /**
- * Unit tests for a guard's relying party: the guard's `passkeys` block over the
- * package's defaults, and the validation that fails closed naming the guard and
- * the key.
+ * Unit tests for reading a guard's relying party over the package defaults.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -29,8 +27,7 @@ final class RelyingPartyTest extends TestCase
         . ' set `authentication.passkeys.relying_party.origins` or the guard\'s `passkeys.origins` override.';
 
     /**
-     * The package's relying party applies to a guard that sets none, with the
-     * application's name when it names none.
+     * The package's relying party applies to a guard that sets none.
      *
      * @return void
      */
@@ -42,8 +39,7 @@ final class RelyingPartyTest extends TestCase
     }
 
     /**
-     * Each key the guard's block sets wins over the package's, and the others
-     * are the package's.
+     * Each key the guard's block sets wins over the package's.
      *
      * @return void
      */
@@ -135,8 +131,7 @@ final class RelyingPartyTest extends TestCase
     }
 
     /**
-     * The longest host name a label pattern allows, 63 characters a label and
-     * 253 in all, is accepted.
+     * The longest host name a label pattern allows is accepted.
      *
      * @return void
      */
@@ -149,8 +144,8 @@ final class RelyingPartyTest extends TestCase
     }
 
     /**
-     * Rows of `[name, application name]`: names that leave the relying party
-     * without one.
+     * Rows of `[name, application name]` that leave the relying party without a
+     * name.
      *
      * @return iterable<string, array{0: mixed, 1: mixed}>
      */
@@ -186,8 +181,8 @@ final class RelyingPartyTest extends TestCase
     }
 
     /**
-     * Rows of `[origin]`: secure origins under the relying party id whose host
-     * is not a valid host name.
+     * Rows of `[origin]`: origins under the relying party id with an invalid
+     * host.
      *
      * @return iterable<string, array{0: string}>
      */
@@ -202,8 +197,8 @@ final class RelyingPartyTest extends TestCase
     }
 
     /**
-     * An origin under the relying party id fails closed when its host is not a
-     * valid host name, though it ends in the id.
+     * An origin with an invalid host fails closed, though it ends in the
+     * relying party id.
      *
      * @param  string  $origin
      * @return void
@@ -218,8 +213,8 @@ final class RelyingPartyTest extends TestCase
     }
 
     /**
-     * Rows of `[origins]`: origin lists that are not exact, secure origins on
-     * the relying party id.
+     * Rows of `[origins]` that are not exact secure origins on the relying
+     * party id.
      *
      * @return iterable<string, array{0: mixed}>
      */
@@ -253,8 +248,8 @@ final class RelyingPartyTest extends TestCase
     }
 
     /**
-     * Origins that are missing, not a list of exact secure origins, or not on
-     * the relying party id fail closed.
+     * Origins that are not exact secure origins on the relying party id fail
+     * closed.
      *
      * @param  mixed  $origins
      * @return void
@@ -295,8 +290,7 @@ final class RelyingPartyTest extends TestCase
     }
 
     /**
-     * Rows of `[package block, guard block, message]`: blocks that are not
-     * arrays, or that set a key the relying party does not know.
+     * Rows of `[package block, guard block, message]` for malformed blocks.
      *
      * @return iterable<string, array{0: mixed, 1: mixed, 2: string}>
      */
@@ -321,8 +315,7 @@ final class RelyingPartyTest extends TestCase
     }
 
     /**
-     * A block that is not an array, or that sets an unknown key, fails closed
-     * naming the guard, the block and the key.
+     * A malformed block fails closed, naming the guard, the block and the key.
      *
      * @param  mixed  $package
      * @param  mixed  $guard
@@ -339,8 +332,7 @@ final class RelyingPartyTest extends TestCase
     }
 
     /**
-     * Configuration with the package's relying party block, a `web` guard and,
-     * when given, its `passkeys` block.
+     * Configuration with the package's relying party block and a `web` guard.
      *
      * @param  mixed  $package
      * @param  mixed  $guard

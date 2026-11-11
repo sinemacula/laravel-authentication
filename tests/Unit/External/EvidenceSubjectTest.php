@@ -23,9 +23,8 @@ use Tests\Unit\Stubs\PlainTenantFixture;
 final class EvidenceSubjectTest extends TestCase
 {
     /**
-     * The subject names the identity, the application, the connection that
-     * asserted the evidence, the time it is judged at and the tenant whose
-     * requirement it is judged against, as given; no tenant unless one is.
+     * The subject names whose evidence is judged, for which tenant and when, as
+     * given.
      *
      * @return void
      */

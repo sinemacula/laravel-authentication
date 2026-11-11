@@ -11,8 +11,8 @@ use SineMacula\Laravel\Authentication\IdentifierChanges\ChangeRefused;
 use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeOutcome;
 
 /**
- * Unit tests for the refusal a confirmation throws to roll its transaction
- * back.
+ * Unit tests for the refusal a confirmation throws to roll back its
+ * transaction.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -23,8 +23,8 @@ use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeOu
 final class ChangeRefusedTest extends TestCase
 {
     /**
-     * It carries the outcome and the reason, and names the reason, nothing
-     * more, in its message.
+     * It carries the outcome and the reason, and names only the reason in its
+     * message.
      *
      * @return void
      */

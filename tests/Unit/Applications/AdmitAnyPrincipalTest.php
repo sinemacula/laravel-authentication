@@ -23,9 +23,7 @@ use Tests\Unit\Stubs\PlainTenantFixture;
 final class AdmitAnyPrincipalTest extends TestCase
 {
     /**
-     * A principal in a tenant, a platform principal and an inactive one all may
-     * use every application: activity is the package's own check, not the
-     * contract's.
+     * Any principal, active or not, may use every application.
      *
      * @return void
      */

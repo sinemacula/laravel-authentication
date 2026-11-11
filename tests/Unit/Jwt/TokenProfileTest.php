@@ -14,9 +14,7 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\TokenProfile;
 
 /**
- * Unit tests for the token profile's shape rules: the type a header `typ`
- * names, and what an access token's claims must say about its subject, its
- * session and its tenant.
+ * Unit tests for the token profile's shape rules.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -63,8 +61,8 @@ final class TokenProfileTest extends TestCase
     }
 
     /**
-     * A header type names its token type without regard to case and with or
-     * without the `application/` prefix; anything else names none.
+     * A header type names its token type, ignoring case and the `application/`
+     * prefix.
      *
      * @param  mixed  $typ
      * @param  ?\SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $expected
@@ -123,7 +121,7 @@ final class TokenProfileTest extends TestCase
 
     /**
      * An access token keeps the profile's shape, or the first rule it breaks is
-     * named, in the order key, subject type, authentication, tenant.
+     * named.
      *
      * @param  array<string, mixed>  $claims
      * @param  ?string  $expected
@@ -136,8 +134,7 @@ final class TokenProfileTest extends TestCase
     }
 
     /**
-     * The leeway the shape is judged with is the one given: an `auth_time` a
-     * second after the issue time fails without leeway and passes with it.
+     * The shape is judged with the leeway given.
      *
      * @return void
      */
@@ -150,9 +147,7 @@ final class TokenProfileTest extends TestCase
     }
 
     /**
-     * A tenant is named only for a principal that acts within it: a principal
-     * acting within none is refused one, as one within another tenant is, and
-     * one within it gets the identifier given back.
+     * A tenant is named only for a principal that acts within it.
      *
      * @return void
      */
@@ -181,10 +176,7 @@ final class TokenProfileTest extends TestCase
     }
 
     /**
-     * A token of a session may name only the tenant the session records, or
-     * none for a session that records none; any other tenant, or none for a
-     * session in a tenant, is refused, so a session's tokens always name its
-     * active tenant.
+     * A session's token may name only the tenant the session records.
      *
      * @return void
      */

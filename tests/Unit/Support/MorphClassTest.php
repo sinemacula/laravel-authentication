@@ -12,9 +12,7 @@ use Tests\Unit\Stubs\StubAuthenticatableModel;
 use Tests\Unit\Stubs\StubModel;
 
 /**
- * Unit tests for the type an identity, principal or tenant is reported by: an
- * Eloquent model's morph class, any other object's class name, and the class
- * name of a model an enforced morph map leaves out.
+ * Unit tests for the type an identity, principal or tenant is reported by.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -68,9 +66,7 @@ final class MorphClassTest extends TestCase
     }
 
     /**
-     * The class holds no state and cannot be instantiated: its constructor is
-     * private. Reflection invokes it so the line is covered while still
-     * documenting the access modifier.
+     * The constructor is private.
      *
      * @return void
      *

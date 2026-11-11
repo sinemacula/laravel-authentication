@@ -28,9 +28,8 @@ final class AdditionalFactorContextTest extends TestCase
     use MockeryPHPUnitIntegration;
 
     /**
-     * The context carries everything it was given, the first factor's whole
-     * proof among it, and names no principal or tenant: the policy is asked
-     * about the identity, before any principal is chosen.
+     * The context carries everything it was given and names no principal or
+     * tenant.
      *
      * @return void
      */

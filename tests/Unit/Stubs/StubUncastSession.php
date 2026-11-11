@@ -10,11 +10,8 @@ use SineMacula\Laravel\Authentication\Concerns\ActsAsSession;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 
 /**
- * Eloquent session using `ActsAsSession` with no casts, so every attribute
- * holds exactly the value it was given, as a raw database value or an object.
- *
- * Non-`final` so tests can override a column-name accessor in an anonymous
- * subclass.
+ * Eloquent session with no casts, left non-final so tests can override a
+ * column-name accessor.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

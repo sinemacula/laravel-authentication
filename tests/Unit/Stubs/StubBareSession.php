@@ -10,10 +10,8 @@ use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
 
 /**
- * Eloquent `Session` fixture that intentionally does NOT satisfy the explicit
- * `EloquentSession` persistence boundary. Used by configuration validation
- * tests to prove refresh and last-use flows fail fast for unsupported Eloquent
- * session implementations.
+ * Eloquent `Session` that does not implement the `EloquentSession` persistence
+ * boundary.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

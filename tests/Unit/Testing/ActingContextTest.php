@@ -25,11 +25,7 @@ use Tests\Unit\Stubs\PlainSessionFixture;
 use Tests\Unit\Stubs\PlainTenantFixture;
 
 /**
- * Unit tests for the acting context the testing helpers keep in the container:
- * one context per guard, bound again on each request rebinding after the
- * guard's own reset, ended per guard by `forget()` or a `Logout` for it, tied
- * to the guard instance acted on, and the comparison behind the bound-context
- * assertions.
+ * Unit tests for the acting context the testing helpers keep in the container.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -204,9 +200,8 @@ final class ActingContextTest extends TestCase
     }
 
     /**
-     * Acting is tied to the guard instance acted on: a guard created afresh
-     * under the same name is not bound by the earlier instance's rebinding, and
-     * acting on the new one stops binding the old one.
+     * Acting is tied to the guard instance acted on; a fresh guard under the
+     * same name is not bound by it.
      *
      * @return void
      */
@@ -234,9 +229,8 @@ final class ActingContextTest extends TestCase
     }
 
     /**
-     * Acting in a tenant binds it as the active tenant of the context the guard
-     * is acted as, now and on every request after, and acting again in no
-     * tenant leaves the session's or the principal's own.
+     * Acting in a tenant binds it as the context's active tenant on every
+     * request; acting in none leaves the session's or principal's own.
      *
      * @return void
      */
@@ -315,9 +309,8 @@ final class ActingContextTest extends TestCase
     }
 
     /**
-     * The bound-context comparison passes for nothing against nothing, the same
-     * instance, or the same class with the same identifier, and fails
-     * otherwise.
+     * The bound-context comparison passes for two nulls, the same instance, or
+     * the same class and identifier.
      *
      * @param  ?object  $expected
      * @param  mixed  $expectedIdentifier

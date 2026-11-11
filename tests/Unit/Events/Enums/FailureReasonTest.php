@@ -93,9 +93,8 @@ final class FailureReasonTest extends TestCase
     }
 
     /**
-     * The reasons a sign-in method may give: a refused input, an identifier the
-     * input proved possession of but that is not verified, and the code and
-     * passkey outcomes; every other one is the session service's to decide.
+     * The reasons a sign-in method may give; every other is the session
+     * service's to decide.
      *
      * @return void
      */
@@ -116,9 +115,8 @@ final class FailureReasonTest extends TestCase
     }
 
     /**
-     * The reasons only the server-side event carries, so a sign-in's result
-     * reveals neither an account nor a code, and a reset's result says an
-     * expired link is invalid.
+     * The reasons only the server-side event carries, so a result reveals
+     * neither account nor code.
      *
      * @return void
      */

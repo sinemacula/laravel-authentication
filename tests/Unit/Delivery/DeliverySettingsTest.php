@@ -11,9 +11,7 @@ use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Delivery\DeliverySettings;
 
 /**
- * Unit tests for the delivery queue settings: their defaults, the names they
- * accept, the key each malformed one is reported under, and whether the
- * connection they name would run a job during its dispatch.
+ * Unit tests for the delivery queue settings.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -123,10 +121,8 @@ final class DeliverySettingsTest extends TestCase
     }
 
     /**
-     * A `failover` delivery connection falls back to `sync` when it lists a
-     * `sync` connection, directly or through other `failover` connections; a
-     * connection already on the path is not followed again, and a name that is
-     * not a configured connection leads nowhere.
+     * A `failover` delivery connection falls back to `sync` when it reaches a
+     * `sync` connection, directly or through others.
      *
      * @param  string  $connection
      * @param  bool  $fallsBack

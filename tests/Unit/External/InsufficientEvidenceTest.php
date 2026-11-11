@@ -27,9 +27,7 @@ use Tests\Unit\Stubs\PlainIdentityFixture;
 final class InsufficientEvidenceTest extends TestCase
 {
     /**
-     * The default meets no requirement with any evidence, even the strongest a
-     * provider can assert for the weakest requirement, so a provider's evidence
-     * counts for nothing until a policy that trusts it is bound.
+     * The default meets no requirement with any evidence.
      *
      * @return void
      */

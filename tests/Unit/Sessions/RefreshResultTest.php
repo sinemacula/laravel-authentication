@@ -77,10 +77,8 @@ final class RefreshResultTest extends TestCase
     }
 
     /**
-     * A refresh that found the session short of a further factor returned it to
-     * pending: it carries the pending session and the credential it now holds,
-     * is pending and neither refreshed nor failed, and keeps both when it says
-     * where its token was read from.
+     * A refresh short of a further factor returns the session to pending with
+     * its credential.
      *
      * @return void
      */

@@ -20,18 +20,7 @@ use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
 
 /**
- * Claim-policy unit tests for `JwtTokenService`: the header `typ` that tells
- * the token types apart, the `client_id` claim that binds every token to its
- * issuing guard, the claims each token type must carry, and the access token's
- * shape.
- *
- * Every service here shares one keyring, so a token from another guard is
- * signed with a key the verifier holds and only the guard claim rejects it.
- * Both token types require `iss`, `aud`, `client_id`, `jti`, `iat` and `exp`;
- * access tokens also require `sub`, `sub_type` and `principal`, and refresh
- * tokens `sid`. Each required-claim row starts from a correctly signed token
- * that parses, then removes or blanks one claim, so a rejection can only come
- * from that claim.
+ * Claim policy tests for `JwtTokenService`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -48,8 +37,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     private const string KEY_ID = '0196a1d2-7c3e-7b8a-9f10-2a3b4c5d6e7f';
 
     /**
-     * A complete token of each type parses, so the rejections below come only
-     * from the claim each row removes.
+     * A complete token of each type parses.
      *
      * @return void
      */
@@ -60,8 +48,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * Parsed claims are keyed by name, so a claim whose name is numeric, which
-     * decodes to an integer key, is left out of them.
+     * A claim whose name is numeric is left out of the parsed claims.
      *
      * @return void
      */
@@ -74,9 +61,8 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * Every token the service issues is a secret, revealed only where it is
-     * sent, and the service parses a token held as a secret as it parses one a
-     * request carried as a string.
+     * Issued tokens are secrets, and a token held as a secret parses as a
+     * string does.
      *
      * @return void
      *
@@ -96,10 +82,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * The debug logger is never handed a token, nor any part of one: every
-     * parse that fails and logs (a bad signature, an expired token, the wrong
-     * header type, another guard's token, a missing claim) logs only why, and a
-     * successful parse logs nothing.
+     * The debug logger is never handed a token or any part of one.
      *
      * @return void
      *
@@ -214,8 +197,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * Rows of `[type, claim]` for the required string claims that can be sent
-     * empty.
+     * Rows of `[type, claim]` for the required string claims.
      *
      * @return iterable<string, array{0: \SineMacula\Laravel\Authentication\Jwt\Enums\TokenType, 1: \SineMacula\Laravel\Authentication\Jwt\Enums\Claims}>
      */
@@ -252,9 +234,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * `sid` stays optional on access tokens (access-only mode), whether absent
-     * or `null`, so long as the token then carries no `auth_time` or `amr`;
-     * and `principal` stays optional on refresh tokens.
+     * `sid` is optional on access tokens and `principal` on refresh tokens.
      *
      * @return void
      */
@@ -275,9 +255,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * Without an expected type, the token's own header type selects the
-     * required claims: a refresh token without `sid` is rejected even though an
-     * access token needs no `sid`.
+     * Without an expected type, the header type selects the required claims.
      *
      * @return void
      */
@@ -291,9 +269,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * Rows of `[header typ, the type it names or null]`: the two types, in any
-     * case and with or without the `application/` media type prefix, and the
-     * values that name neither.
+     * Rows of `[header typ, the type it names or null]`.
      *
      * @return iterable<string, array{0: mixed, 1: ?\SineMacula\Laravel\Authentication\Jwt\Enums\TokenType}>
      */
@@ -320,12 +296,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * A token parses only when its header type names its type: with an expected
-     * type it must name that type, and without one it may name either, whose
-     * own claims are then required. An access token's claims hold every claim a
-     * refresh token requires, so under a refresh header they parse as one: the
-     * header, not the claims, names the type. A header type that names neither
-     * is rejected, whatever the claims.
+     * A token parses only when its header type names its type.
      *
      * @param  mixed  $typ
      * @param  ?\SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $named
@@ -350,8 +321,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * A correctly signed token whose header has no `typ` at all is rejected:
-     * the profile has no default type.
+     * A token whose header has no `typ` is rejected.
      *
      * @return void
      */
@@ -364,8 +334,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * A token whose header type is not the one expected is rejected, and the
-     * expected and received types are debug-logged, an unknown one included.
+     * A header type mismatch is rejected and debug-logged with both types.
      *
      * @return void
      */
@@ -386,9 +355,8 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * A header type mismatch with no type expected is rejected without raising
-     * a PHP warning: inside a Laravel application a warning becomes an
-     * exception, which would turn a rejected token into an error.
+     * A header type mismatch with no expected type is rejected without a PHP
+     * warning.
      *
      * @return void
      */
@@ -409,9 +377,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * A token that lacks a claim its type requires is reported as missing it,
-     * before the profile's shape is judged, so a token without `sub_type` is
-     * logged as missing the claim rather than as a subject type mismatch.
+     * A missing claim is reported before the profile's shape is judged.
      *
      * @return void
      */
@@ -430,9 +396,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * A token in the profile the package used before (a `typ` claim, `pid`,
-     * `did` and `grd`, and php-jwt's default header type) is rejected: no
-     * compatibility path exists.
+     * A token in the old profile is rejected.
      *
      * @return void
      */
@@ -475,9 +439,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * A guard, issuer or audience mismatch is reported before a missing claim,
-     * so a token from another guard is logged as such even when it also lacks a
-     * claim this guard's tokens require.
+     * A guard, issuer or audience mismatch is reported before a missing claim.
      *
      * @return void
      */
@@ -498,8 +460,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
 
     /**
      * Rows of `[claim, value]` for a guard, issuer or audience that is not the
-     * service's: another string, one that differs only in case, and an array
-     * holding the service's own value.
+     * service's.
      *
      * @return iterable<string, array{0: \SineMacula\Laravel\Authentication\Jwt\Enums\Claims, 1: mixed}>
      */
@@ -516,9 +477,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * A token of either type whose guard, issuer or audience is not the
-     * service's is rejected, an array audience holding the service's own
-     * included.
+     * A token whose guard, issuer or audience is not the service's is rejected.
      *
      * @param  \SineMacula\Laravel\Authentication\Jwt\Enums\Claims  $claim
      * @param  mixed  $value
@@ -537,8 +496,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * Access and refresh tokens both carry the issuing guard's name in
-     * `client_id`, and the service's issuer and audience.
+     * Both token types carry the issuing guard, the issuer and the audience.
      *
      * @return void
      *
@@ -562,8 +520,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * Issuing never reads the principal's tenant: the token needs only the
-     * principal's identifier, and the tenant comes from the caller.
+     * Issuing never reads the principal's tenant.
      *
      * @return void
      *
@@ -582,8 +539,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * An access token issued for another guard with the same key is rejected,
-     * whether or not a token type is expected.
+     * An access token issued for another guard is rejected.
      *
      * @return void
      *
@@ -611,8 +567,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * A correctly signed token with every other claim but no `client_id` is
-     * rejected.
+     * A token without a `client_id` claim is rejected.
      *
      * @return void
      */
@@ -660,8 +615,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * A service cannot be built without an issuer or an audience to write into
-     * every token and check on every parse: either one empty is refused.
+     * A service cannot be built with an empty issuer or audience.
      *
      * @return void
      */
@@ -682,8 +636,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
 
     /**
      * A refresh token offered as proof of a session is accepted after it has
-     * expired, with the same claims `parse()` returns for a live one, while
-     * `parse()` itself rejects it.
+     * expired.
      *
      * @return void
      */
@@ -705,13 +658,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * Every check but expiry still applies to a proof: a token that is not a
-     * refresh token, that another guard issued, that is signed with another
-     * key, that is issued in the future, that lacks a claim a refresh token
-     * requires, or that is not a JWT at all, proves nothing; and a failure is
-     * logged as `parse()` logs it. Its header and binding are checked on an
-     * expired one too: an expired token with an access header, another guard's,
-     * issuer's or audience's proves nothing either.
+     * Every check but expiry still applies to a proof.
      *
      * @return void
      *
@@ -755,8 +702,8 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * Checking a proof applies the service's leeway only while it decodes, and
-     * restores the leeway set before, whether the proof is accepted or not.
+     * Checking a proof restores the leeway set before, whether it is accepted
+     * or not.
      *
      * @return void
      */
@@ -782,8 +729,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * The service exposes the lifetimes it issues with, for code that stamps a
-     * new session's deadlines.
+     * The service exposes the lifetimes it issues with.
      *
      * @return void
      */
@@ -797,8 +743,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * A refresh token expires at the session's stored idle deadline, not the
-     * idle lifetime from now: the row decides how long the session lasts.
+     * A refresh token expires at the session's stored idle deadline.
      *
      * @return void
      */
@@ -812,12 +757,12 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * A refresh token of a session with no absolute deadline expires at its
-     * idle deadline, however far ahead.
+     * A refresh token of a session without an absolute deadline expires at its
+     * idle deadline.
      *
      * @return void
      */
-    public function testRefreshTokenOfASessionWithoutAnAbsoluteDeadlineExpiresAtItsIdleDeadline(): void
+    public function testRefreshTokenWithoutAbsoluteDeadlineExpiresAtIdleDeadline(): void
     {
         $record = $this->mockSessionEndingAt('session-42', $this->now->copy()->addDays(400), null);
 
@@ -827,8 +772,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * A refresh token never expires after the session's absolute deadline, even
-     * when the stored idle deadline lies beyond it.
+     * A refresh token never expires after the session's absolute deadline.
      *
      * @return void
      */
@@ -842,8 +786,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * A caller that judged the session at a given time issues at that time:
-     * `iat` and the access lifetime count from it, cut to the whole second.
+     * Tokens are issued at the time given, cut to the whole second.
      *
      * @return void
      *
@@ -868,8 +811,8 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * Rows of `[seconds from now to the idle deadline or null, seconds from
-     * now to the absolute deadline or null]` for sessions that have ended.
+     * Rows of `[seconds to the idle deadline or null, seconds to the absolute
+     * one or null]`.
      *
      * @return iterable<string, array{0: ?int, 1: ?int}>
      */
@@ -888,8 +831,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
 
     /**
      * No access token is issued for a session that has ended or has no idle
-     * deadline: it could never be used, and a token must not outlive its
-     * session.
+     * deadline.
      *
      * @param  ?int  $idleIn
      * @param  ?int  $absoluteIn
@@ -910,7 +852,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
 
     /**
      * No refresh token is issued for a session that has ended or has no idle
-     * deadline, so issuing cannot extend a session that is over.
+     * deadline.
      *
      * @param  ?int  $idleIn
      * @param  ?int  $absoluteIn
@@ -928,9 +870,8 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * A session-less access token carries exactly the access claims, and a
-     * client credentials token those and its `cid` and `scope`, with no session
-     * and the subject type `machine`.
+     * A client credentials token adds only its `cid` and `scope` to the access
+     * claims.
      *
      * @return void
      *
@@ -958,8 +899,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * A client credentials token carries the tenant the exchange's admission
-     * loaded, stringified.
+     * A client credentials token carries its tenant, stringified.
      *
      * @return void
      *
@@ -989,8 +929,8 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * Rows of `[claims to merge into a session's access token, claims to
-     * remove]` that break the access token's shape.
+     * Rows of `[claims to merge, claims to remove]` that break the access
+     * token's shape.
      *
      * @return iterable<string, array{0: array<string, mixed>, 1: list<string>}>
      */
@@ -1013,8 +953,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * An access token that breaks the profile's shape is rejected, whether or
-     * not a type is expected.
+     * An access token that breaks the profile's shape is rejected.
      *
      * @param  array<string, mixed>  $merge
      * @param  list<string>  $remove
@@ -1034,8 +973,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * A session-less access token carries neither `auth_time` nor `amr`: one
-     * that does is rejected.
+     * A session-less access token carrying `auth_time` or `amr` is rejected.
      *
      * @return void
      */
@@ -1049,9 +987,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * The well-formed edges of the shape parse: an empty `amr`, an `auth_time`
-     * at the leeway's edge after the issue time, and a tenant; an `auth_time` a
-     * second past that edge does not.
+     * The well-formed edges of the shape parse.
      *
      * @return void
      */
@@ -1093,8 +1029,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * A refresh token naming an API key is rejected: a key's token has no
-     * session, and a refresh token always names one.
+     * A refresh token naming an API key is rejected.
      *
      * @return void
      */
@@ -1111,8 +1046,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * A token whose credential claims are out of form is debug-logged with the
-     * claims that must agree.
+     * Malformed credential claims are debug-logged.
      *
      * @return void
      */
@@ -1152,8 +1086,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * Build a complete, valid claim set for the token type: a session's access
-     * token, or a refresh token naming its principal.
+     * A complete, valid claim set for the token type.
      *
      * @param  \SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $type
      * @return array<string, mixed>
@@ -1184,8 +1117,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * The claims without the session and the authentication that comes with it,
-     * as an access-only token carries them.
+     * The claims without the session and its authentication.
      *
      * @param  array<string, mixed>  $claims
      * @return array<string, mixed>
@@ -1210,8 +1142,8 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * Sign the claims with the shared test key under exactly the given header,
-     * which php-jwt would otherwise give a `typ` of its own.
+     * Sign the claims under exactly the given header, which php-jwt would
+     * otherwise give a `typ` of its own.
      *
      * @param  array<string, mixed>  $header
      * @param  array<string, mixed>  $claims

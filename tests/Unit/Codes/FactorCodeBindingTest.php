@@ -16,9 +16,7 @@ use SineMacula\Laravel\Authentication\Proofs\ProofBinding;
 use Tests\Unit\Stubs\PlainIdentityFixture;
 
 /**
- * Unit tests for what a further factor's code, or an enrolment's, is bound to:
- * the purpose each proof purpose makes it, and the bindings refused before any
- * code is sent or checked.
+ * Unit tests for what a further factor's or an enrolment's code is bound to.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -32,9 +30,8 @@ final class FactorCodeBindingTest extends TestCase
     private const string PHONE = '+447700900123';
 
     /**
-     * Rows of `[proof purpose, grant, challenge purpose]`: a sign-in's and a
-     * step-up's factor code is an `mfa` challenge; an enrolment's, with its
-     * grant, an `enrollment` one.
+     * Rows of `[proof purpose, grant, challenge purpose]`: sign-in and step-up
+     * codes are `mfa`, an enrolment's `enrollment`.
      *
      * @return iterable<string, array{0: \SineMacula\Laravel\Authentication\Proofs\Enums\Purpose, 1: ?string, 2: \SineMacula\Laravel\Authentication\Codes\Enums\CodePurpose}>
      */

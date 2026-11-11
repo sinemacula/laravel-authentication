@@ -20,8 +20,7 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\SubjectType;
 final class SubjectTypeTest extends TestCase
 {
     /**
-     * A subject is a person or a machine, carried in `sub_type` by those names,
-     * and nothing else.
+     * A subject is a person or a machine, carried in `sub_type` by those names.
      *
      * @return void
      */

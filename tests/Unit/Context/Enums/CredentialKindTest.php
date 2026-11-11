@@ -20,9 +20,8 @@ use SineMacula\Laravel\Authentication\Context\Enums\CredentialKind;
 final class CredentialKindTest extends TestCase
 {
     /**
-     * A request presents a person's access token, an API key or a client
-     * credentials token, by those names, which the authentication context's
-     * `credential` key carries and which are stable once released.
+     * A credential is an access token, an API key or a client credentials
+     * token, by stable names.
      *
      * @return void
      */

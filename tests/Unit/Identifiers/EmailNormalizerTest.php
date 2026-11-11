@@ -40,8 +40,7 @@ final class EmailNormalizerTest extends TestCase
     }
 
     /**
-     * An address is trimmed and lower-cased in full, local part included, and
-     * is otherwise left alone: format checks belong to validation.
+     * An address is trimmed and lower-cased in full, and otherwise left alone.
      *
      * @param  string  $given
      * @param  string  $normal
@@ -54,8 +53,7 @@ final class EmailNormalizerTest extends TestCase
     }
 
     /**
-     * Normalising a normal form returns it unchanged, so normalising twice is
-     * the same as once.
+     * Normalising a normal form returns it unchanged.
      *
      * @param  string  $given
      * @param  string  $normal

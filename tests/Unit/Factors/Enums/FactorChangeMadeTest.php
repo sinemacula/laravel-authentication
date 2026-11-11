@@ -21,9 +21,7 @@ use SineMacula\Laravel\Authentication\Factors\Enums\FactorChangeMade;
 final class FactorChangeMadeTest extends TestCase
 {
     /**
-     * A factor confirmed, a passkey registered as a factor, a factor removed
-     * and any other change, named by these values, none of them a freshness
-     * operation's.
+     * Each change made carries its value, none of them a freshness operation's.
      *
      * @return void
      */

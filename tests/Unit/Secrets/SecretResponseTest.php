@@ -26,9 +26,8 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 final class SecretResponseTest extends TestCase
 {
     /**
-     * Every secret in the data, at any depth of arrays, is revealed into the
-     * body, and every other value is kept as it is, keys and order included;
-     * given no status, the response is `200 OK`.
+     * Every secret in the data, at any depth, is revealed into the body, and
+     * every other value is kept as it is.
      *
      * @return void
      */
@@ -53,9 +52,8 @@ final class SecretResponseTest extends TestCase
     }
 
     /**
-     * The response keeps the status and headers given, and is never stored:
-     * `Cache-Control: no-store` and `Pragma: no-cache` replace any caching
-     * headers given.
+     * The response keeps the status and headers given, and its caching headers
+     * are replaced with `no-store`.
      *
      * @return void
      */

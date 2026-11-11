@@ -29,8 +29,7 @@ final class SignedInTest extends TestCase
 {
     /**
      * The event keeps its context and whether a refresh renewed the session,
-     * and nothing else: every sign-in creates its session, so there is no flag
-     * saying so.
+     * and nothing else.
      *
      * @return void
      */
@@ -52,11 +51,8 @@ final class SignedInTest extends TestCase
     }
 
     /**
-     * The event holds no model, serialises as it is for queued listeners and
-     * survives a round trip. It does not ask the dispatcher to wait for a
-     * transaction: that would wait for whichever transaction is open last on
-     * any connection, so the package dispatches it once the written row's own
-     * connection commits.
+     * The event holds no model, survives a round trip and leaves its dispatch
+     * to the package.
      *
      * @return void
      */

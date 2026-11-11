@@ -11,8 +11,7 @@ use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Http\ConsumerMessages;
 
 /**
- * Unit tests for the translation of the messages the package answers a client
- * with.
+ * Unit tests for translating the messages the package answers a client with.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -23,8 +22,8 @@ use SineMacula\Laravel\Authentication\Http\ConsumerMessages;
 final class ConsumerMessagesTest extends TestCase
 {
     /**
-     * The messages are the English text Laravel itself answers with, so an
-     * application translating Laravel's translates the package's.
+     * The messages are Laravel's own English text, so Laravel's translations
+     * apply.
      *
      * @return void
      */
@@ -35,8 +34,8 @@ final class ConsumerMessagesTest extends TestCase
     }
 
     /**
-     * A message is translated by its JSON line in the current locale, and kept
-     * as it is in a locale without one.
+     * A message is translated by its JSON line in the current locale, if it has
+     * one.
      *
      * @return void
      */
@@ -55,8 +54,8 @@ final class ConsumerMessagesTest extends TestCase
     }
 
     /**
-     * A message naming a translation file, for which the translator answers
-     * with the whole file, is kept as it is.
+     * A message for which the translator answers with a whole file is kept as
+     * it is.
      *
      * @return void
      */
@@ -69,9 +68,7 @@ final class ConsumerMessagesTest extends TestCase
     }
 
     /**
-     * `ConsumerMessages` is a static utility; instantiation is disallowed
-     * through the private constructor. Reflection invokes it so the line is
-     * covered while still documenting the access modifier.
+     * The constructor is private; reflection invokes it for coverage.
      *
      * @return void
      *
@@ -90,8 +87,8 @@ final class ConsumerMessagesTest extends TestCase
     }
 
     /**
-     * A translator in English with a French JSON line for `Too Many
-     * Attempts.` and an `auth` translation file.
+     * An English translator with a French JSON line and an `auth` translation
+     * file.
      *
      * @return \Illuminate\Translation\Translator
      */

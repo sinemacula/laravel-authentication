@@ -13,10 +13,7 @@ use SineMacula\Laravel\Authentication\Context\Enums\CredentialKind;
 use SineMacula\Laravel\Authentication\Jwt\Enums\SubjectType;
 
 /**
- * Unit tests for the authentication context as a value: its keys as plain
- * values by namespace, the package's under `authentication`; a key read by
- * `namespace.key`, present even with a `null` value; and contributed keys
- * refused unless a contributor could have given them.
+ * Unit tests for the authentication context as a value.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -27,9 +24,8 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\SubjectType;
 final class AuthenticationContextTest extends TestCase
 {
     /**
-     * The context gives the package's keys under `authentication`, the enums as
-     * their values and `auth_time` as Unix seconds, then each contributor's
-     * namespace as given.
+     * The context gives the package's keys under `authentication`, then each
+     * contributor's namespace.
      *
      * @return void
      */
@@ -97,9 +93,8 @@ final class AuthenticationContextTest extends TestCase
     }
 
     /**
-     * A key is read by its namespace and name, the package's and a
-     * contributor's alike; one held with a `null` value is present and reads
-     * `null`, never the default; one not held reads the default.
+     * A key is read by namespace and name; one held as `null` reads `null` and
+     * one not held reads the default.
      *
      * @return void
      */

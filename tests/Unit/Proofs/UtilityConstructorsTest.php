@@ -14,9 +14,8 @@ use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
 use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
 
 /**
- * The proof utility classes hold no state and cannot be instantiated: each
- * constructor is private. Reflection invokes it so the line is covered while
- * still documenting the access modifier.
+ * Each proof utility class has a private constructor; reflection invokes it for
+ * coverage.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

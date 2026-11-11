@@ -13,8 +13,7 @@ use SineMacula\Laravel\Authentication\Passwords\PasswordCheck;
 use SineMacula\Laravel\Authentication\Passwords\PasswordResult;
 
 /**
- * Unit tests for the password results and the values their enums carry, which
- * applications store and branch on.
+ * Unit tests for the password results and their enum values.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -26,8 +25,8 @@ use SineMacula\Laravel\Authentication\Passwords\PasswordResult;
 final class PasswordResultTest extends TestCase
 {
     /**
-     * A password set reports how many sessions its flow revoked and no
-     * violation; one rejected reports its violations, nothing revoked.
+     * A set password reports the sessions revoked; a rejected one its
+     * violations.
      *
      * @return void
      */
@@ -42,8 +41,7 @@ final class PasswordResultTest extends TestCase
     }
 
     /**
-     * A refused change or establishment carries why, and for a rate limit the
-     * wait, with nothing set, violated or revoked.
+     * A refused change carries why, and for a rate limit the wait.
      *
      * @return void
      */

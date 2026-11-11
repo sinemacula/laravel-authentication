@@ -53,11 +53,8 @@ final class ClientCredentialsRequestTest extends TestCase
     }
 
     /**
-     * The extraction records how the request authenticated the client: Basic as
-     * `client_secret_basic`, body credentials, whole, as `client_secret_post`,
-     * which the exchange judges against the application; body credentials in
-     * part authenticate no client (`invalid_client`), and Basic with body
-     * credentials is `invalid_request`.
+     * The extraction records whether Basic or body credentials authenticated
+     * the client.
      *
      * @return void
      */
@@ -77,8 +74,7 @@ final class ClientCredentialsRequestTest extends TestCase
 
     /**
      * A parameter sent without a value is treated as omitted (RFC 6749 section
-     * 3.1): an empty grant type names no grant, and an empty client id or
-     * secret beside Basic credentials is no body credential.
+     * 3.1).
      *
      * @return void
      */
@@ -98,9 +94,8 @@ final class ClientCredentialsRequestTest extends TestCase
     }
 
     /**
-     * Basic credentials are read, each part form-url-decoded, whatever the
-     * scheme's case, with a charset on the media type; a secret may hold a
-     * colon.
+     * Basic credentials are read form-url-decoded, whatever the scheme's case,
+     * and a secret may hold a colon.
      *
      * @return void
      */
@@ -141,9 +136,8 @@ final class ClientCredentialsRequestTest extends TestCase
     }
 
     /**
-     * A request in form presents its client and scope; the media type is
-     * matched without regard to case or spaces, and anything outside the four
-     * parameters is ignored.
+     * A form request presents its client and scope, ignoring any other
+     * parameter.
      *
      * @param  string  $body
      * @param  array<string, string>  $server
@@ -256,9 +250,8 @@ final class ClientCredentialsRequestTest extends TestCase
     }
 
     /**
-     * Rows of `[separator, body, parameters, result]`: bodies read where
-     * `arg_separator.input` is the separator, with the parameters PHP's form
-     * parser, which splits only on `&`, reads from them.
+     * Rows of `[separator, body, parameters, result]` for bodies read under
+     * another `arg_separator.input`.
      *
      * @return iterable<string, array{0: string, 1: string, 2: array<string, string>, 3: string}>
      */
@@ -298,11 +291,7 @@ final class ClientCredentialsRequestTest extends TestCase
     }
 
     /**
-     * Every name a pair can be given from these parts, up to four of them, is
-     * compared as PHP's own parser reads it: the pair is refused as a repeat
-     * exactly when PHP reads its name as one of the parameters the body then
-     * carries. The pair comes first, so a list it makes is overwritten and only
-     * the repeat can refuse it.
+     * Every name a pair can be given is compared as PHP's own parser reads it.
      *
      * @return void
      */
@@ -321,9 +310,7 @@ final class ClientCredentialsRequestTest extends TestCase
     }
 
     /**
-     * A parameter whose value is `null` (an empty one after Laravel's
-     * middleware) is absent, and anything outside the four parameters is
-     * ignored.
+     * A `null` parameter is absent and any other parameter is ignored.
      *
      * @return void
      */

@@ -14,11 +14,7 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 
 /**
- * Parse-side unit tests for `JwtTokenService` - `parse()` and the issuer /
- * audience / header `typ` / leeway / logger surface.
- *
- * Split out of the original `JwtTokenServiceTest` so each class stays focused
- * on a single behavioural slice.
+ * Parse tests for `JwtTokenService`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -35,8 +31,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
     private const string ISSUER_B = 'https://issuer-b.example.test';
 
     /**
-     * Asserts parsing a token signed with a different secret returns null
-     * rather than raising an exception.
+     * A token signed with a different secret parses to `null`.
      *
      * @return void
      *
@@ -63,7 +58,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * Asserts parsing a token whose `exp` claim has passed returns null.
+     * A token whose `exp` has passed parses to `null`.
      *
      * @return void
      *
@@ -83,8 +78,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * A refresh token presented to `parse()` with `expectedType = access` is
-     * rejected - the header `typ` check prevents token-type confusion.
+     * A refresh token is rejected where an access token is expected.
      *
      * @return void
      */
@@ -99,8 +93,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * An access token presented to `parse()` with `expectedType = refresh` is
-     * rejected - the header `typ` check prevents token-type confusion.
+     * An access token is rejected where a refresh token is expected.
      *
      * @return void
      *
@@ -118,8 +111,8 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * Every token carries the service's issuer and audience, and parses cleanly
-     * on that service.
+     * Every token carries the service's issuer and audience and parses on that
+     * service.
      *
      * @return void
      *
@@ -140,8 +133,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * A token whose issuer claim does not match the verifier's issuer is
-     * rejected, of either type.
+     * A token of either type with another issuer is rejected.
      *
      * @return void
      *
@@ -157,8 +149,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * A token whose audience claim does not match the verifier's audience is
-     * rejected, of either type.
+     * A token of either type with another audience is rejected.
      *
      * @return void
      *
@@ -174,8 +165,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * Clock-skew leeway lets a token that is at most `leewaySeconds` past its
-     * `exp` still decode cleanly.
+     * A token at most `leewaySeconds` past its `exp` still parses.
      *
      * @return void
      *
@@ -208,10 +198,8 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * After `parse()` returns, `JWT::$leeway` is restored to whatever value the
-     * consumer had set before the call - not hard-reset to `0`. This regression
-     * guards against the package clobbering consumer-configured clock-skew
-     * tolerance across our decode window.
+     * `parse()` restores the `JWT::$leeway` the consumer had set before the
+     * call.
      *
      * @return void
      *
@@ -245,9 +233,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * When a PSR-3 logger is supplied to the constructor, parse failures are
-     * debug-logged with the underlying exception class so consumer error
-     * reporters can attribute the failure mode.
+     * A parse failure is debug-logged with the exception class.
      *
      * @return void
      */
@@ -262,8 +248,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * Issuer-mismatch failures are also debug-logged with the expected vs
-     * received issuer.
+     * An issuer mismatch is debug-logged with the expected and received issuer.
      *
      * @return void
      *
@@ -285,8 +270,8 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * Audience-mismatch failures are debug-logged with the expected vs received
-     * audience, an array audience included.
+     * An audience mismatch is debug-logged with the expected and received
+     * audience.
      *
      * @return void
      */
@@ -315,8 +300,8 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * Build a service with the test keyring and lifetimes and the supplied
-     * issuer, audience and logger.
+     * Build a service with the test keyring and the issuer, audience and logger
+     * given.
      *
      * @param  string  $issuer
      * @param  string  $audience
@@ -339,8 +324,8 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * An access token the service issues for mock identity and principal
-     * context objects, with no session.
+     * An access token the service issues for mock context objects, with no
+     * session.
      *
      * @param  \SineMacula\Laravel\Authentication\Jwt\JwtTokenService  $service
      * @return string

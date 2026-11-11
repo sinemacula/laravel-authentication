@@ -13,9 +13,7 @@ use SineMacula\Laravel\Authentication\Console\Enums\FindingSeverity;
 use Tests\Fixtures\Console\FixedConfigurationCheck;
 
 /**
- * Unit tests for the registry of configuration checks: registered once, in
- * order; run in a stable order whatever the checks answer; a check that fails
- * reported and the rest still run; messages cleaned of control characters.
+ * Unit tests for the registry of configuration checks.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -55,9 +53,8 @@ final class ConfigurationChecksTest extends TestCase
     }
 
     /**
-     * Findings are in the order the checks were registered, then package-wide
-     * first and the guards in the order checked (any other last), then the
-     * order the check gave them; each check is asked the guards.
+     * Findings are in registration order, then by guard, then in the order each
+     * check gave them.
      *
      * @return void
      */

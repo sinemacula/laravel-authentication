@@ -23,9 +23,8 @@ use SineMacula\Laravel\Authentication\Codes\Enums\FactorCodeRefusal;
 final class CodeRequestTest extends TestCase
 {
     /**
-     * A sent request carries when its code expires, when another may be
-     * requested and the challenge it was sent for, and no wait; a reset link's
-     * carries no challenge.
+     * A sent request carries its expiry, resend time and challenge, and no
+     * wait.
      *
      * @return void
      */

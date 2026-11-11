@@ -20,9 +20,7 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 final class ClaimsTest extends TestCase
 {
     /**
-     * Every claim keeps the wire name of the package's profile: RFC 9068's
-     * names where it borrows them (`client_id`, `sid`, `auth_time`, `amr`), and
-     * its own (`sub_type`, `principal`, `tenant_id`, `cid`), in order.
+     * Every claim keeps its wire name, in order.
      *
      * @return void
      */

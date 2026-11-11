@@ -14,12 +14,6 @@ use SineMacula\Laravel\Authentication\Jwt\JwtKeyring;
 /**
  * Unit tests for the `JwtKeyring` value object.
  *
- * Asserts the fail-closed validation surface (empty key maps, unknown active
- * kids, malformed entries, short keys, unsupported algorithms) and the shape
- * contracts the token service relies on: `verificationKeys()` returns a
- * `kid → Key` map and `activeKid()` returns the kid embedded in every issued
- * token.
- *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
@@ -41,8 +35,7 @@ final class JwtKeyringTest extends TestCase
     private const string OLD_KID = '2026-03';
 
     /**
-     * Asserts `fromKeyMap()` rejects an empty map with the typed configuration
-     * exception.
+     * `fromKeyMap()` rejects an empty map.
      *
      * @return void
      */
@@ -55,8 +48,7 @@ final class JwtKeyringTest extends TestCase
     }
 
     /**
-     * Asserts `fromKeyMap()` rejects an active kid that does not appear in the
-     * supplied key map.
+     * `fromKeyMap()` rejects an active kid missing from the key map.
      *
      * @return void
      */
@@ -74,8 +66,7 @@ final class JwtKeyringTest extends TestCase
     }
 
     /**
-     * Asserts `fromKeyMap()` rejects an empty active-kid string even when the
-     * supplied map is non-empty.
+     * `fromKeyMap()` rejects an empty active kid.
      *
      * @return void
      */
@@ -91,10 +82,7 @@ final class JwtKeyringTest extends TestCase
     }
 
     /**
-     * Asserts `fromKeyMap()` rejects a `kid -> secret` map containing an
-     * empty-string kid alongside a valid one. The active-kid presence check at
-     * the top of the factory passes (the active kid is the non-empty entry), so
-     * the iteration in `buildKeyMap()` surfaces the empty-kid guard.
+     * `fromKeyMap()` rejects an empty kid inside the key map.
      *
      * @return void
      */
@@ -115,8 +103,7 @@ final class JwtKeyringTest extends TestCase
     }
 
     /**
-     * Asserts `fromKeyMap()` rejects an entry whose secret material is the
-     * empty string - every kid must map to real material.
+     * `fromKeyMap()` rejects empty key material.
      *
      * @return void
      */
@@ -136,10 +123,8 @@ final class JwtKeyringTest extends TestCase
     }
 
     /**
-     * Asserts `fromKeyMap()` rejects an entry whose secret material is `null`
-     * - `env()` returns `null` for unset variables, so the runtime guard must
-     * catch this case as well as the empty string to fail closed with a
-     * friendly message naming the offending kid.
+     * `fromKeyMap()` rejects `null` key material, as `env()` returns for an
+     * unset variable.
      *
      * @return void
      */
@@ -148,9 +133,6 @@ final class JwtKeyringTest extends TestCase
         $this->expectException(InvalidJwtConfigurationException::class);
         $this->expectExceptionMessage(sprintf('JWT key \'%s\' has empty material', self::NEW_KID));
 
-        // `fromKeyMap` is declared `array<array-key, mixed>` precisely so the
-        // fail-closed guard can reject the null payload at runtime rather than
-        // via a static-analysis hint.
         JwtKeyring::fromKeyMap(
             [self::NEW_KID => null],
             self::NEW_KID,
@@ -159,9 +141,7 @@ final class JwtKeyringTest extends TestCase
     }
 
     /**
-     * Asserts `fromKeyMap()` rejects a signing algorithm that is not on the
-     * supported allow-list - typos and weak settings must fail at boot rather
-     * than at the first encode/decode call.
+     * `fromKeyMap()` rejects a signing algorithm outside the allow-list.
      *
      * @return void
      */
@@ -174,8 +154,7 @@ final class JwtKeyringTest extends TestCase
     }
 
     /**
-     * Data provider listing signing algorithms outside the HMAC allow-list,
-     * including the asymmetric families that were previously accepted.
+     * Signing algorithms outside the HMAC allow-list.
      *
      * @return iterable<string, array{0: string}>
      */
@@ -194,9 +173,7 @@ final class JwtKeyringTest extends TestCase
     }
 
     /**
-     * Asserts `fromKeyMap()` accepts only HMAC algorithms: one key per kid both
-     * signs and verifies, which an asymmetric key pair cannot do, so every
-     * other algorithm is rejected with the allow-list in the message.
+     * `fromKeyMap()` rejects every algorithm but HMAC, naming the allow-list.
      *
      * @param  string  $algorithm
      * @return void
@@ -211,8 +188,7 @@ final class JwtKeyringTest extends TestCase
     }
 
     /**
-     * Data provider pairing each allow-listed algorithm with its minimum key
-     * length in bytes (the HMAC digest size).
+     * Each allow-listed algorithm with its minimum key length in bytes.
      *
      * @return iterable<string, array{0: string, 1: int}>
      */
@@ -226,7 +202,7 @@ final class JwtKeyringTest extends TestCase
     }
 
     /**
-     * Asserts a key exactly at the algorithm's minimum length is accepted.
+     * A key exactly at the algorithm's minimum length is accepted.
      *
      * @param  string  $algorithm
      * @param  int  $minimumBytes
@@ -243,8 +219,8 @@ final class JwtKeyringTest extends TestCase
     }
 
     /**
-     * Asserts a key one byte shorter than the algorithm's minimum is rejected
-     * with a message naming the kid, the algorithm, and the minimum length.
+     * A key one byte short of the minimum is rejected, naming the kid,
+     * algorithm and minimum.
      *
      * @param  string  $algorithm
      * @param  int  $minimumBytes
@@ -266,8 +242,7 @@ final class JwtKeyringTest extends TestCase
     }
 
     /**
-     * Asserts every kid is held to the minimum length, not just the active one,
-     * so a short retired key cannot linger in the verification map.
+     * Every kid is held to the minimum length, the inactive ones included.
      *
      * @return void
      */
@@ -287,8 +262,7 @@ final class JwtKeyringTest extends TestCase
     }
 
     /**
-     * Asserts key length is measured in bytes, matching the HMAC key size: 16
-     * two-byte characters make a 32-byte key, which HS256 accepts.
+     * Key length is measured in bytes.
      *
      * @return void
      */
@@ -302,8 +276,7 @@ final class JwtKeyringTest extends TestCase
     }
 
     /**
-     * Asserts a multi-kid keyring reports the configured active kid so the
-     * token service can embed it in the JWT header.
+     * A multi-kid keyring reports the configured active kid.
      *
      * @return void
      */
@@ -322,8 +295,8 @@ final class JwtKeyringTest extends TestCase
     }
 
     /**
-     * Asserts a purely numeric kid, which PHP stores as an integer array key,
-     * is accepted and resolved by its string form as the active kid.
+     * A numeric kid, which PHP stores as an integer key, is accepted as the
+     * active kid.
      *
      * @return void
      */
@@ -336,8 +309,7 @@ final class JwtKeyringTest extends TestCase
     }
 
     /**
-     * Asserts `verificationKeys()` returns a `kid → Key` map so php-jwt picks
-     * the correct key from each token's `kid` header.
+     * `verificationKeys()` returns a map of kid to `Key`.
      *
      * @return void
      */
@@ -362,8 +334,7 @@ final class JwtKeyringTest extends TestCase
     }
 
     /**
-     * Asserts `activeKey()` returns the `Key` keyed by the configured active
-     * kid (not some other entry in the map).
+     * `activeKey()` returns the key of the configured active kid.
      *
      * @return void
      */

@@ -29,9 +29,7 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
 use Tests\Unit\Stubs\StubVerifiableIdentity;
 
 /**
- * Unit tests for the checks every sign-in passes once its identity is known:
- * their order, the reason each failure reports, and the context a refusal
- * carries.
+ * Unit tests for the checks every sign-in passes once its identity is known.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -102,11 +100,8 @@ final class SignInAdmissionTest extends TestCase
     }
 
     /**
-     * An active identity, principal and tenant are admitted together, in the
-     * principal's own tenant: the policy is asked with the guard and the
-     * identifier type, `ApplicationAccess` with the guard and the principal,
-     * and `TenantAccess` with the principal and its own tenant, and the
-     * resolver is never asked for the principal's own tenant.
+     * An active identity, principal and tenant are admitted together in the
+     * principal's own tenant.
      *
      * @return void
      */
@@ -157,9 +152,8 @@ final class SignInAdmissionTest extends TestCase
     }
 
     /**
-     * A non-human identity is refused as `machine_identity` first, active or
-     * not, before the policy is asked or any principal resolved: whatever
-     * method proved it, it has no interactive sign-in.
+     * A non-human identity is refused as `machine_identity` before the policy
+     * is asked or a principal resolved.
      *
      * @return void
      */
@@ -185,10 +179,8 @@ final class SignInAdmissionTest extends TestCase
     }
 
     /**
-     * Whatever policy is bound, its refusal of the identity with the identifier
-     * type comes before any principal is resolved, so the answer is the same
-     * whether the identity has a principal or not, and the policy is never
-     * asked about one.
+     * A policy's refusal of the identity comes before any principal is
+     * resolved.
      *
      * @return void
      */
@@ -214,11 +206,8 @@ final class SignInAdmissionTest extends TestCase
     }
 
     /**
-     * With the package's policy and a guard that requires a verified
-     * identifier, an identity whose identifier is unverified is refused as
-     * `identifier_unverified` before its principal is resolved, so the answer
-     * is the same whether it has a principal or not; a verified one goes on to
-     * its principal, and a sign-in that used no identifier is not held to it.
+     * With a guard that requires a verified identifier, an unverified one is
+     * refused before its principal is resolved.
      *
      * @return void
      */
@@ -255,9 +244,8 @@ final class SignInAdmissionTest extends TestCase
     }
 
     /**
-     * A principal that does not resolve is refused with the reason the caller
-     * gave for it: unresolved for a default principal, a mismatch for a pinned
-     * one.
+     * An unresolved principal is refused with the reason the caller gave for
+     * it.
      *
      * @return void
      */
@@ -325,9 +313,7 @@ final class SignInAdmissionTest extends TestCase
 
     /**
      * A principal `ApplicationAccess` refuses is refused as
-     * `principal_ineligible`, with the whole context: identity, principal and
-     * the principal's own tenant, which the sign-in would have acted in; no
-     * tenant is asked about.
+     * `principal_ineligible` with the whole context.
      *
      * @return void
      */
@@ -353,8 +339,7 @@ final class SignInAdmissionTest extends TestCase
 
     /**
      * A selected tenant `TenantAccess` refuses is refused as
-     * `tenant_ineligible`, whether it is the principal's default or another
-     * tenant the resolver finds, and the refusal names no tenant.
+     * `tenant_ineligible`, naming no tenant.
      *
      * @return void
      */
@@ -383,9 +368,8 @@ final class SignInAdmissionTest extends TestCase
     }
 
     /**
-     * A sign-in that names another tenant is admitted in it once the resolver
-     * finds it, `TenantAccess` lets the principal act in it and it is active;
-     * one that names none is admitted in no tenant.
+     * A sign-in is admitted in the tenant it names, or in no tenant when it
+     * names none.
      *
      * @return void
      */

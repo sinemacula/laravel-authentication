@@ -10,9 +10,7 @@ use SineMacula\Laravel\Authentication\Verification\Enums\IdentifierVerification;
 use SineMacula\Laravel\Authentication\Verification\Enums\VerificationLinkOutcome;
 
 /**
- * Pins the values a verification link's outcome is answered with: the three the
- * verifier gives an accepted link, under the values the verifier's own outcome
- * has, then the two a refused link gives.
+ * Pins the values a verification link's outcome is answered with.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

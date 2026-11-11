@@ -68,8 +68,7 @@ final class SessionDeadlinesTest extends TestCase
 
     /**
      * A session has ended from the second either deadline names, or when it has
-     * no idle deadline; one with no absolute deadline ends only when it goes
-     * idle. Fractions of a second do not count.
+     * no idle deadline.
      *
      * @param  ?int  $idleIn
      * @param  ?int  $absoluteIn
@@ -88,9 +87,8 @@ final class SessionDeadlinesTest extends TestCase
     }
 
     /**
-     * Rows of `[seconds from now to the idle deadline, seconds from now to the
-     * absolute deadline or null, seconds from now to the end]` for live
-     * sessions.
+     * Rows of `[seconds to the idle deadline, seconds to the absolute deadline
+     * or null, seconds to the end]`.
      *
      * @return iterable<string, array{0: int, 1: ?int, 2: int}>
      */
@@ -139,9 +137,7 @@ final class SessionDeadlinesTest extends TestCase
     }
 
     /**
-     * `SessionDeadlines` is a static utility; reflection invokes the private
-     * constructor so the line is covered while still documenting the access
-     * modifier.
+     * The constructor is private.
      *
      * @return void
      *

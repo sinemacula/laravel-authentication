@@ -21,8 +21,8 @@ use SineMacula\Laravel\Authentication\Passkeys\CeremonyOptions;
 final class CeremonyOptionsTest extends TestCase
 {
     /**
-     * The array and JSON forms give the challenge id, the options as they are,
-     * and the expiry in ISO-8601.
+     * The array and JSON forms carry the challenge id, the options and the
+     * expiry.
      *
      * @return void
      *

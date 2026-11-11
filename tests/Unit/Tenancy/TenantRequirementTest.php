@@ -140,9 +140,8 @@ final class TenantRequirementTest extends TestCase
     }
 
     /**
-     * A sign-in's evidence is its first factor, under the id the session
-     * records it with, and the connection an external provider established it
-     * through, if one did.
+     * A sign-in's evidence is its first factor and the connection it was
+     * established through, if any.
      *
      * @return void
      */

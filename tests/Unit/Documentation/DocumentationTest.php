@@ -20,14 +20,8 @@ use SineMacula\Laravel\Authentication\Passkeys\Enums\PasskeyRegistrationStatus;
 use SineMacula\Laravel\Authentication\Verification\Enums\VerificationLinkOutcome;
 
 /**
- * A drift guard for the README and the guides in docs/guides: every failure
- * reason, flow and revocation reason, every outcome of a passkey registration
- * and of a verification by code or link, every package event, every
- * configuration key and every method of the package's auth manager is
- * documented, and every `Auth::` call they show exists.
- *
- * It catches an omission or a rename, not wrong prose: what the documentation
- * says about each of them is held to the code by review.
+ * A drift guard that the README and docs/guides name every enum value, event,
+ * configuration key and manager method.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -44,9 +38,7 @@ final class DocumentationTest extends TestCase
     private static ?string $documentation = null;
 
     /**
-     * Rows of `[enum value, enum]`: every failure reason, authentication flow,
-     * revocation reason, passkey registration status and outcome of a
-     * verification by code or link.
+     * Rows of `[enum value, enum]` for every enum the documentation covers.
      *
      * @return iterable<string, array{0: string, 1: string}>
      */
@@ -201,10 +193,8 @@ final class DocumentationTest extends TestCase
     }
 
     /**
-     * The dotted paths of the configuration's settings: every key whose value
-     * is not a map of further settings, a list and an empty array included,
-     * each data map as a whole, and each rate limit (`max` and `decay_seconds`)
-     * as one setting.
+     * The dotted paths of the configuration's settings, each rate limit counted
+     * as one.
      *
      * @param  array<array-key, mixed>  $config
      * @param  string  $prefix

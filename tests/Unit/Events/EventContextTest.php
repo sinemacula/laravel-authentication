@@ -21,9 +21,7 @@ use Tests\Unit\Stubs\StubPrincipal;
 use Tests\Unit\Stubs\StubTenant;
 
 /**
- * EventContext unit tests: the plain values it keeps, the identity, principal,
- * tenant and session named by type and identifier when it is built and never
- * kept as models, and the values as scalars.
+ * Unit tests for the event context's plain values and their scalar form.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -73,9 +71,7 @@ final class EventContextTest extends TestCase
     }
 
     /**
-     * The context holds plain values only: no property can hold a model, and
-     * every value it holds is a scalar, a list of them, `null`, the time or the
-     * client.
+     * The context holds plain values only, never a model.
      *
      * @return void
      */
@@ -123,9 +119,8 @@ final class EventContextTest extends TestCase
     }
 
     /**
-     * The credential's identifier and the scopes it grants are kept as given;
-     * `[]` (a credential granting no scope) stays distinct from `null` (no
-     * credential limit).
+     * The credential's identifier and scopes are kept as given, `[]` distinct
+     * from `null`.
      *
      * @return void
      */
@@ -164,9 +159,7 @@ final class EventContextTest extends TestCase
     }
 
     /**
-     * The identifiers are snapshotted as strings, and the identity, principal
-     * and tenant by their class as well: the identity's auth identifier, the
-     * principal's and the tenant's identifiers, and the session's.
+     * Every reference is snapshotted as a string, with its class.
      *
      * @return void
      */
@@ -232,9 +225,8 @@ final class EventContextTest extends TestCase
     }
 
     /**
-     * Under an enforced morph map, an identity, principal or tenant the map
-     * leaves out is recorded by its class name rather than failing the flow the
-     * event reports, and one the map names by its alias.
+     * Under an enforced morph map, a model the map leaves out is recorded by
+     * its class name.
      *
      * @return void
      */
@@ -328,10 +320,8 @@ final class EventContextTest extends TestCase
     }
 
     /**
-     * `toArray()` is every value as scalars: the time as an ISO 8601 UTC string
-     * to the microsecond whatever the clock's timezone, and the client as its
-     * IP address and user agent alone, never its same-site facts. It encodes as
-     * JSON.
+     * `toArray()` is every value as scalars, the time as an ISO 8601 UTC
+     * string, and encodes as JSON.
      *
      * @return void
      */

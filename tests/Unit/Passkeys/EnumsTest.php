@@ -10,9 +10,7 @@ use SineMacula\Laravel\Authentication\Passkeys\Enums\ChallengePurpose;
 use SineMacula\Laravel\Authentication\Passkeys\Enums\PasskeyRegistrationStatus;
 
 /**
- * Pins the values the passkey enums are stored and reported with: a challenge
- * row records its purpose, and an application answers a registration by its
- * status's value.
+ * Pins the values the passkey enums are stored and reported with.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

@@ -24,9 +24,8 @@ use SineMacula\Laravel\Authentication\External\ProviderContext;
 final class ExternalResultTest extends TestCase
 {
     /**
-     * A result keeps the connection, issuer and subject exactly as given, the
-     * provider's times cut to the whole second, and the evidence, the link id
-     * and the provider context as given; nothing else is required.
+     * A result keeps what the adapter verified, its times cut to the whole
+     * second.
      *
      * @return void
      */
@@ -63,10 +62,7 @@ final class ExternalResultTest extends TestCase
     }
 
     /**
-     * Evidence may be dated at the provider's time, before it, or with a result
-     * that gives no time; evidence dated in a later second than the provider's
-     * time is refused, while a later instant within the same second is the same
-     * time once both are cut to the second.
+     * Evidence dated in a later second than the provider's time is refused.
      *
      * @return void
      */

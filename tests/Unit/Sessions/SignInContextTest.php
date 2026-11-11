@@ -53,9 +53,8 @@ final class SignInContextTest extends TestCase
     }
 
     /**
-     * The client name and platform are made safe to store: invalid UTF-8
-     * replaced, control and bidirectional formatting characters removed, cut to
-     * 255 characters, and empty read as `null`.
+     * The client name and platform are sanitised, cut to 255 characters, and
+     * read as `null` when empty.
      *
      * @param  ?string  $given
      * @param  ?string  $stored
@@ -97,9 +96,8 @@ final class SignInContextTest extends TestCase
     }
 
     /**
-     * The tenant a sign-in asks to act in is carried as given, through a capped
-     * deadline too, and through the request's context when the application
-     * passes it; the request itself never supplies one.
+     * The tenant a sign-in asks to act in is carried as given; the request
+     * itself never supplies one.
      *
      * @return void
      */
@@ -131,9 +129,8 @@ final class SignInContextTest extends TestCase
     }
 
     /**
-     * Rows of `[seconds from now to the context's deadline or null, seconds
-     * from now to the deadline given or null, seconds from now to the deadline
-     * kept or null]`.
+     * Rows of `[seconds to the context's deadline, seconds to the deadline
+     * given, seconds to the deadline kept]`, each or null.
      *
      * @return iterable<string, array{0: ?int, 1: ?int, 2: ?int}>
      */
@@ -151,9 +148,8 @@ final class SignInContextTest extends TestCase
     }
 
     /**
-     * `withNotAfter()` keeps the earlier of the context's deadline and the one
-     * given, either alone when the other is absent, and none for neither, so it
-     * only ever lowers a deadline; the rest of the context is kept.
+     * `withNotAfter()` keeps the earlier of the two deadlines and the rest of
+     * the context.
      *
      * @param  ?int  $contextIn
      * @param  ?int  $givenIn
@@ -254,9 +250,7 @@ final class SignInContextTest extends TestCase
     }
 
     /**
-     * The refresh token is held as a secret: one given as a secret is kept as
-     * it is, a string is wrapped, and an empty string is no token, so a dump of
-     * the context never shows it.
+     * The refresh token is held as a secret, and an empty string is no token.
      *
      * @return void
      */

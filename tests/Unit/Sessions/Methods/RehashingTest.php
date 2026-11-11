@@ -96,10 +96,8 @@ final class RehashingTest extends TestCase
     }
 
     /**
-     * The package's own rehash drops a save of its user that re-encodes the
-     * password it was given, through any instance, and no other save, only
-     * while the callback runs, and the callback's result is returned; what it
-     * drops is not held for a forced rehash.
+     * The package's own rehash drops a save of its user that re-encodes its
+     * password, only while the callback runs.
      *
      * @return void
      */
@@ -130,11 +128,7 @@ final class RehashingTest extends TestCase
     }
 
     /**
-     * A forced rehash inside the package's own rehash, by a listener of the
-     * rehash's save that signs the user's other sessions out, runs the save it
-     * held: the save the package's rehash takes is held, not dropped, until the
-     * rehash returns, and a save held before the rehash, which a forced rehash
-     * around it may be waiting for, is held again.
+     * A forced rehash inside the package's own rehash runs the save it held.
      *
      * @return void
      */
@@ -223,12 +217,8 @@ final class RehashingTest extends TestCase
     }
 
     /**
-     * Once a change of the user's password has run inside the package's own
-     * rehash, that rehash takes no save of the user: a change back to the
-     * password it was given, through the instance it saved, still holding the
-     * hash it replaced, is a change too. A rehash of another user running
-     * around it, or one of the user started after the change, still takes its
-     * save.
+     * Once the user's password changes inside the package's own rehash, that
+     * rehash takes no save of the user.
      *
      * @return void
      */
@@ -259,11 +249,8 @@ final class RehashingTest extends TestCase
     }
 
     /**
-     * A guard's attempt marks the very instance it validated, from the
-     * validation until an end for that instance: a save of another user, or of
-     * the same key of another class, is a change, and an end for another
-     * instance (another user's, or another instance of the same user, as a
-     * session user resolved inside a callback carries) leaves it open.
+     * A guard's attempt marks the instance it validated until an end for that
+     * instance.
      *
      * @return void
      */
@@ -299,10 +286,8 @@ final class RehashingTest extends TestCase
     }
 
     /**
-     * A save of the user through another instance is a change, and from then on
-     * the attempt takes no save for its rehash: a change back to its password
-     * through the instance it validated, still holding the hash from before the
-     * change, is a change too.
+     * A save of the user through another instance is a change, after which the
+     * attempt takes no save for its rehash.
      *
      * @return void
      */
@@ -347,9 +332,8 @@ final class RehashingTest extends TestCase
     }
 
     /**
-     * A validation outside an attempt, or by another guard than the one
-     * attempting, marks nothing; nor does a second validation within an
-     * attempt, as a callback's `validate()` of another user makes.
+     * Only the attempting guard's first validation within an attempt marks an
+     * instance.
      *
      * @return void
      */
@@ -391,9 +375,8 @@ final class RehashingTest extends TestCase
     }
 
     /**
-     * A save of the instance an attempt validated is taken for its rehash only
-     * when the hash it replaced and the hash it saved both verify the password
-     * the attempt was made with.
+     * A save of the validated instance is taken for its rehash only when both
+     * hashes verify the attempt's password.
      *
      * @param  ?string  $saved
      * @param  ?string  $replaced
@@ -439,11 +422,8 @@ final class RehashingTest extends TestCase
     }
 
     /**
-     * An attempt made inside another attempt's callback on the same guard ends
-     * without ending the attempt around it, whether it validated another user,
-     * found no one, was refused for the same user, or signed in another
-     * instance of the same user with `Login` and then `Authenticated`: the
-     * outer attempt's own rehash is still taken for one, until it ends.
+     * An attempt inside another attempt's callback on the same guard ends
+     * without ending the outer one.
      *
      * @return void
      */
@@ -488,9 +468,8 @@ final class RehashingTest extends TestCase
     }
 
     /**
-     * An attempt's end closes the innermost attempt for its instance, past an
-     * attempt inside it for another instance, which stays open; validating an
-     * instance again lets go of the guard's earlier attempt for it.
+     * An attempt's end closes the innermost attempt for its instance, leaving
+     * one for another instance open.
      *
      * @return void
      */
@@ -525,11 +504,7 @@ final class RehashingTest extends TestCase
 
     /**
      * A new attempt of a guard lets go of every attempt of the guard that
-     * cannot be running around it: one that validated no one, and one made
-     * without a password. An attempt that may still be running around it stays
-     * open, and a save held for it stays held: a forced rehash's save, whose
-     * `OtherDeviceLogout` follows only after the save's other listeners (which
-     * may make an attempt) have run, still runs.
+     * cannot be running around it.
      *
      * @return void
      */
@@ -615,9 +590,8 @@ final class RehashingTest extends TestCase
     }
 
     /**
-     * A held save is let go of rather than kept for the rest of the request or
-     * job once a forced rehash runs it, and, for the package's own rehash, once
-     * that rehash returns.
+     * A held save is let go of once a forced rehash runs it or the package's
+     * own rehash returns.
      *
      * @return void
      */
@@ -654,9 +628,7 @@ final class RehashingTest extends TestCase
 
     /**
      * Nothing a listener of the forced save may do before `OtherDeviceLogout`
-     * drops the held save: end the attempt for the instance saved (binding it
-     * to a guard fires `Authenticated`), make another attempt, or change the
-     * password in a transaction it then rolls back.
+     * drops the held save.
      *
      * @return void
      */
@@ -718,9 +690,8 @@ final class RehashingTest extends TestCase
     }
 
     /**
-     * A change of the user's password through another instance leaves the save
-     * held for an attempt held, since that change may yet be rolled back: a
-     * later forced rehash still runs it.
+     * A change through another instance leaves the save held, since that change
+     * may yet be rolled back.
      *
      * @return void
      */
@@ -744,9 +715,8 @@ final class RehashingTest extends TestCase
     }
 
     /**
-     * The instance an attempt validated, once it stands for another user (its
-     * key changed, as an Eloquent model moved to another connection does), is
-     * that other user: its save is a change.
+     * Once the validated instance stands for another user, its save is a
+     * change.
      *
      * @return void
      */
@@ -764,12 +734,8 @@ final class RehashingTest extends TestCase
     }
 
     /**
-     * A change held as an open attempt's rehash runs when the user's password
-     * is then forced (`logoutOtherDevices()`) through any instance of the user,
-     * and only once; that sign-out is a change, so a save of the instance the
-     * attempt validated is a change from then on. A forced rehash of another
-     * user, or with nothing held, runs nothing, and a later attempt's rehash,
-     * held to the end of the request or job, runs at a later sign-out too.
+     * A held rehash runs once when the user's password is forced through any
+     * instance of the user.
      *
      * @return void
      */
@@ -814,9 +780,8 @@ final class RehashingTest extends TestCase
     }
 
     /**
-     * Only the latest change held for a user runs, even when an earlier one is
-     * held by another attempt, and a held change of one user neither replaces
-     * nor runs another's.
+     * Only the latest change held for a user runs, and one user's held change
+     * never touches another's.
      *
      * @return void
      */
@@ -896,9 +861,8 @@ final class RehashingTest extends TestCase
     }
 
     /**
-     * A hash the application's hasher refuses to check, as a bcrypt hasher with
-     * `verify` refuses a hash of another algorithm, verifies nothing: the
-     * change is answered as one rather than failing the save.
+     * A hash the hasher refuses to check verifies nothing, so the save is a
+     * change rather than a failure.
      *
      * @param  bool  $saved
      * @return void
@@ -920,10 +884,8 @@ final class RehashingTest extends TestCase
     }
 
     /**
-     * How the mark answers a save of the user's password over the replaced hash
-     * (by default, a hash of the attempts' password): run at once (`change`),
-     * or not (`kept`: held as an open attempt's rehash, or dropped as the
-     * package's own).
+     * How the mark answers a save of the user's password over the replaced
+     * hash: `change` or `kept`.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\Methods\Rehashing  $rehashing
      * @param  \Illuminate\Contracts\Auth\Authenticatable  $user

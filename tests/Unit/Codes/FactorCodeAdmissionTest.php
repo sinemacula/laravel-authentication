@@ -12,9 +12,7 @@ use SineMacula\Laravel\Authentication\Codes\Enums\FactorCodeStanding;
 use SineMacula\Laravel\Authentication\Codes\FactorCodeAdmission;
 
 /**
- * Unit tests for the factor package's answer for a factor code: admitted,
- * locked until a time it may name, or refused with a reason, and the values
- * each standing and refusal carries, which are the factor package's own.
+ * Unit tests for the factor package's answer for a factor code.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

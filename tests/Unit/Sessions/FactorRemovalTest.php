@@ -19,9 +19,7 @@ use SineMacula\Laravel\Authentication\Sessions\PendingSession;
 use Tests\Fixtures\Proofs\UndescribedSignInProof;
 
 /**
- * Unit tests for what a factor's removal did to the identity's sessions: how
- * many it revoked, whether the current session was among them, and the pending
- * session and credential the current session returned to.
+ * Unit tests for what a factor's removal did to the identity's sessions.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

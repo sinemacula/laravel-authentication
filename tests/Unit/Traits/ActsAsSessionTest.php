@@ -16,10 +16,6 @@ use Tests\Unit\Stubs\StubUncastSession;
 /**
  * Unit tests for the package ActsAsSession trait.
  *
- * Exercises the trait through a cast-free Eloquent session, and anonymous
- * subclasses of it, because the trait is defined against Eloquent's attribute
- * accessors.
- *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
@@ -121,8 +117,7 @@ final class ActsAsSessionTest extends TestCase
     }
 
     /**
-     * A timestamp stored without a `datetime` cast (the raw value the database
-     * returns, as a string or a Unix timestamp) is converted to a Carbon
+     * A timestamp stored without a `datetime` cast is converted to a Carbon
      * instance rather than read as `null`.
      *
      * @param  \Closure(\Tests\Unit\Stubs\StubUncastSession): mixed  $getter
@@ -147,10 +142,7 @@ final class ActsAsSessionTest extends TestCase
 
     /**
      * Rows of `[timezone, stored value, the instant it reads as]` around the
-     * hour that repeats when the clocks go back. PHP reads such a wall-clock
-     * time as the first pass in New York and as the second in London, Berlin
-     * and Lord Howe (where the shift is 30 minutes); it always reads as the
-     * first. Times outside the repeated hour read as they are.
+     * hour that repeats when the clocks go back.
      *
      * @return iterable<string, array{0: string, 1: \Carbon\CarbonInterface|string, 2: string}>
      */
@@ -170,9 +162,8 @@ final class ActsAsSessionTest extends TestCase
     }
 
     /**
-     * A stored time in the hour that repeats when the clocks go back reads as
-     * the earlier of the two instants it could be, in the application timezone
-     * and as the kind of Carbon instance it was stored or cast as.
+     * A stored time in the repeated hour reads as the earlier of its two
+     * instants, as the Carbon class it was stored or cast as.
      *
      * @param  string  $timezone
      * @param  \Carbon\CarbonInterface|string  $stored
@@ -260,10 +251,8 @@ final class ActsAsSessionTest extends TestCase
     }
 
     /**
-     * A session selected without one of its refresh or revocation state columns
-     * is a misconfiguration: the getter throws, naming the model, the column,
-     * and the accessor to override, rather than reading the missing value as
-     * `null`.
+     * A session selected without a refresh or revocation state column throws
+     * instead of reading it as `null`.
      *
      * @param  \Closure(\Tests\Unit\Stubs\StubUncastSession): mixed  $getter
      * @param  string  $column
@@ -303,9 +292,7 @@ final class ActsAsSessionTest extends TestCase
     }
 
     /**
-     * A session that renames a state column is checked for that column: the
-     * renamed column loaded reads normally without the default one, and the
-     * renamed column missing is reported by its own name.
+     * A session that renames a state column is checked for the renamed column.
      *
      * @return void
      */
@@ -337,8 +324,7 @@ final class ActsAsSessionTest extends TestCase
     }
 
     /**
-     * The public column-name accessors return the documented defaults, so the
-     * last-use listener and the refresh exchange write the columns the shipped
+     * The public column-name accessors return the defaults the shipped
      * migration creates.
      *
      * @return void
@@ -360,9 +346,8 @@ final class ActsAsSessionTest extends TestCase
     }
 
     /**
-     * Both refresh digests are left out of `toArray()` and `toJson()`, while
-     * the rest of the session, and the model's own hidden attributes, are kept
-     * as they were.
+     * Both refresh digests are left out of `toArray()` and `toJson()`, and the
+     * rest is kept.
      *
      * @return void
      *

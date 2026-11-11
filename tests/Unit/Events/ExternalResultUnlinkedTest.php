@@ -25,8 +25,7 @@ use SineMacula\Laravel\Authentication\Http\ClientContext;
 final class ExternalResultUnlinkedTest extends TestCase
 {
     /**
-     * The event keeps its context, which names the connection, and the issuer,
-     * and has no property for the subject or anything else the provider
+     * The event keeps its context and issuer, and nothing else the provider
      * asserted.
      *
      * @return void

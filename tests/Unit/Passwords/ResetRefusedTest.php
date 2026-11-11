@@ -10,8 +10,8 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Passwords\ResetRefused;
 
 /**
- * Unit tests for the refusal a password reset throws to roll its transaction
- * back.
+ * Unit tests for the refusal a password reset throws to roll back its
+ * transaction.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -22,8 +22,7 @@ use SineMacula\Laravel\Authentication\Passwords\ResetRefused;
 final class ResetRefusedTest extends TestCase
 {
     /**
-     * It carries the reason it is reported with, and names the reason, nothing
-     * more, in its message.
+     * It carries the reason, and names only the reason in its message.
      *
      * @return void
      */

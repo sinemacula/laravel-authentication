@@ -72,10 +72,8 @@ final class SignInResultTest extends TestCase
     }
 
     /**
-     * A started session says nothing about whether it is new: every sign-in
-     * creates one, so the session carries exactly who, as whom, its record, its
-     * tokens and how, and, for the session service alone, the slots a pending
-     * sign-in held, none unless given.
+     * A started session carries what the sign-in produced and says nothing
+     * about whether it is new.
      *
      * @return void
      */
@@ -91,10 +89,8 @@ final class SignInResultTest extends TestCase
     }
 
     /**
-     * A sign-in whose session waits on requirements is pending: it carries the
-     * pending session and the credential the call issued, and neither a session
-     * nor a reason; an action on a pending session that leaves it pending
-     * carries no credential, the client keeping the one it holds.
+     * A sign-in whose session waits on requirements is pending, carrying the
+     * pending session and any credential issued.
      *
      * @return void
      */
@@ -170,10 +166,8 @@ final class SignInResultTest extends TestCase
     }
 
     /**
-     * A concealed reason (the account's own limit, an expired or exhausted
-     * code, a passkey counter that did not advance) is answered as invalid
-     * credentials with no wait, so the result never reveals that the account or
-     * a code exists.
+     * A concealed reason is answered as invalid credentials with no wait, so
+     * the result reveals nothing.
      *
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
      * @return void

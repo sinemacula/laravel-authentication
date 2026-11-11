@@ -94,9 +94,8 @@ final class FakeIdentifierChangeNotifierTest extends TestCase
     }
 
     /**
-     * The notices for an identity are those about that very identity: an
-     * Eloquent one by its class, table and key, any other by its class and auth
-     * identifier.
+     * The notices for an identity are those about that very identity, matched
+     * by class and key.
      *
      * @return void
      */

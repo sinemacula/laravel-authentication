@@ -21,8 +21,7 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 final class TokenTypeTest extends TestCase
 {
     /**
-     * Each type's value is its JOSE header type: RFC 9068's `at+jwt` for an
-     * access token and the private `refresh+jwt` for a refresh token.
+     * Each type's value is its JOSE header type.
      *
      * @return void
      */
@@ -33,8 +32,7 @@ final class TokenTypeTest extends TestCase
     }
 
     /**
-     * Both types require `iss`, `aud`, `client_id`, `jti`, `iat` and `exp`, in
-     * that order.
+     * Both types require the common claims, in order.
      *
      * @return void
      */

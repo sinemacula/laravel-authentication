@@ -37,9 +37,8 @@ final class SwitchFloorTest extends TestCase
     }
 
     /**
-     * A change moves the floor to its own second unless the floor already
-     * reaches it, and then one second past the recorded floor, so no token from
-     * before the change, whatever its second, is accepted after it.
+     * A change moves the floor past every token from before it, whatever its
+     * second.
      *
      * @param  ?int  $recorded
      * @param  int  $expected

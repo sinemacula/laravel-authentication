@@ -10,9 +10,8 @@ use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
- * Unit tests for the shipped session model built before the Config facade is
- * bootstrapped, as a data provider builds one: it takes the default table and
- * the default connection rather than failing.
+ * Unit tests for the session model built before the Config facade is
+ * bootstrapped.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

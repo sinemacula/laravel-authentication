@@ -45,9 +45,7 @@ final class ExternalResultRedeemedTest extends TestCase
     }
 
     /**
-     * The event survives a round trip for queued listeners as the values it
-     * holds; it is dispatched when the package dispatches it, once the
-     * redemption committed.
+     * The event survives a round trip and leaves its dispatch to the package.
      *
      * @return void
      */

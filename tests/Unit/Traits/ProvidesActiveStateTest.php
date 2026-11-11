@@ -52,9 +52,8 @@ final class ProvidesActiveStateTest extends TestCase
     }
 
     /**
-     * A model selected without its active column is a misconfiguration: the
-     * trait throws rather than reading the missing attribute as active or
-     * inactive.
+     * A model selected without its active column throws instead of reading as
+     * active or inactive.
      *
      * @return void
      */
@@ -73,9 +72,8 @@ final class ProvidesActiveStateTest extends TestCase
     }
 
     /**
-     * A subclass overriding the protected `getActiveAttributeName()` hook, here
-     * deriving its column from the parent's, remaps the column the trait reads
-     * and checks for.
+     * A subclass overriding `getActiveAttributeName()` remaps the column the
+     * trait reads and checks for.
      *
      * @return void
      */

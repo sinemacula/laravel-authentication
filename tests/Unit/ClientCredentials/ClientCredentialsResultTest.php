@@ -94,11 +94,8 @@ final class ClientCredentialsResultTest extends TestCase
     }
 
     /**
-     * Encoded as JSON, a grant refuses: its token is a secret, which only
-     * `toResponse()` (never stored) or `toArray()` reveals, so neither
-     * `json_encode()` nor a JSON response built from the result can send the
-     * token without `no-store`; nor does the result offer itself as an
-     * `Arrayable`, which a JSON response would read without asking.
+     * A grant refuses to encode as JSON, since its token may only leave with
+     * `no-store`.
      *
      * @return void
      */
@@ -127,9 +124,7 @@ final class ClientCredentialsResultTest extends TestCase
     }
 
     /**
-     * Encoded as JSON, every failure of a client is the same `invalid_client`
-     * body, so the reason only the server-side event carries never reaches the
-     * client, alone or nested in another body.
+     * Encoded as JSON, every client failure is the same `invalid_client` body.
      *
      * @return void
      */

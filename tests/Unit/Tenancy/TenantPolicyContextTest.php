@@ -12,9 +12,7 @@ use Tests\Unit\Stubs\PlainPrincipalFixture;
 use Tests\Unit\Stubs\PlainTenantFixture;
 
 /**
- * Unit tests for what a tenant authentication policy is asked about: the
- * connection is found only when asked, once, and is `null` for a context built
- * without a way to find it.
+ * Unit tests for what a tenant authentication policy is asked about.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

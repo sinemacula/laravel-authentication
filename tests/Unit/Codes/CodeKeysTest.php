@@ -19,9 +19,7 @@ use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use Tests\Unit\Stubs\PlainIdentityFixture;
 
 /**
- * Unit tests for the keyed digests behind one-time codes: what each digest is
- * made of (a factor code's transaction among them), the key it is made with,
- * and the keys that fail closed.
+ * Unit tests for the keyed digests behind one-time codes.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -39,10 +37,8 @@ final class CodeKeysTest extends TestCase
     private const string CODES_KEY = '0123456789abcdef0123456789abcdef';
 
     /**
-     * A sign-in binding's digest is the HMAC-SHA256 of `binding`, the purpose,
-     * guard, type, identifier and an empty identity joined by NUL bytes, under
-     * a key derived from the application key for bindings: the same on every
-     * call, and not the plain digest anyone could recompute.
+     * A sign-in binding's digest is a keyed HMAC-SHA256 of its parts, the same
+     * on every call.
      *
      * @return void
      */
@@ -60,9 +56,8 @@ final class CodeKeysTest extends TestCase
     }
 
     /**
-     * A verification binding names the identity it is for, as the account
-     * attempts name it, so its digest differs from a sign-in's and from another
-     * identity's for the same identifier.
+     * A verification binding names its identity, so its digest differs from a
+     * sign-in's and another identity's.
      *
      * @return void
      */
@@ -89,9 +84,7 @@ final class CodeKeysTest extends TestCase
     }
 
     /**
-     * A reset code and a reset link's token are bound to the identifier alone,
-     * with no identity, and each under a purpose of its own: neither digest is
-     * a sign-in code's, nor the other's, for the same identifier.
+     * Reset bindings carry no identity and a purpose of their own.
      *
      * @return void
      */
@@ -116,9 +109,7 @@ final class CodeKeysTest extends TestCase
     }
 
     /**
-     * A change code is bound to the identity and to its change request, so
-     * every request, and every identity, has a binding of its own for the same
-     * new identifier.
+     * A change code is bound to the identity and its change request.
      *
      * @return void
      */
@@ -174,9 +165,8 @@ final class CodeKeysTest extends TestCase
     }
 
     /**
-     * A code's hash is the HMAC-SHA256 of `code`, the binding digest, the
-     * issuance and the code under a key derived separately from the binding
-     * key, so the same digits hash differently in another issuance.
+     * A code's hash is keyed separately from the binding and bound to its
+     * issuance.
      *
      * @return void
      */
@@ -267,12 +257,8 @@ final class CodeKeysTest extends TestCase
     }
 
     /**
-     * A further factor's binding is keyed on its purpose, the guard, the
-     * channel's kind, the destination and the identity, as a verification is,
-     * and names its session, factor and proof purpose (for an enrolment, its
-     * grant) as its transaction, which the key leaves out: an enrolment
-     * restarted with a new factor, grant or session keeps its key, and a
-     * sign-in's and a step-up's `mfa` challenges share one.
+     * A further factor's binding is keyed on its destination and owner, leaving
+     * its transaction out of the key.
      *
      * @return void
      */
@@ -310,8 +296,7 @@ final class CodeKeysTest extends TestCase
     }
 
     /**
-     * Rows of `[another factor binding]`: one differing from the `mfa` binding
-     * of session `session-1` and factor `factor-1` in each part of its
+     * Rows of `[another factor binding]`, each differing in one part of the
      * transaction.
      *
      * @return iterable<string, array{0: \Closure(): \SineMacula\Laravel\Authentication\Codes\FactorCodeBinding}>

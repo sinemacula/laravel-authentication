@@ -58,10 +58,8 @@ final class RequirementTest extends TestCase
     }
 
     /**
-     * The strictest of several requirements has every part any of them has, the
-     * shortest maximum age any gives it (any age only when none gives one), and
-     * the highest level asked for; a part only one of them has is that one's
-     * own, and none given asks for nothing.
+     * The strictest of several requirements takes every part, the shortest
+     * maximum age and the highest level.
      *
      * @return void
      */

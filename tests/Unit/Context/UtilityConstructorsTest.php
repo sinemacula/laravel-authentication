@@ -12,9 +12,7 @@ use SineMacula\Laravel\Authentication\Context\ContextForgetting;
 use SineMacula\Laravel\Authentication\Context\ContextKeys;
 
 /**
- * The context utility classes hold no state and cannot be instantiated: each
- * constructor is private. Reflection invokes it so the line is covered while
- * still documenting the access modifier.
+ * The context utility classes cannot be instantiated.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

@@ -24,9 +24,7 @@ use Tests\Unit\Stubs\StubTenant;
 final class TenantUnavailableExceptionTest extends TestCase
 {
     /**
-     * The exception is for a tenant model of the named class holding the named
-     * key under the named attribute, compared as identifiers are, and for no
-     * other.
+     * The exception is for the tenant of the named class and key, and no other.
      *
      * @return void
      */

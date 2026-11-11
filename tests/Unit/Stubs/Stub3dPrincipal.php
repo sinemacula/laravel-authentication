@@ -9,9 +9,8 @@ use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 
 /**
- * Eloquent stub implementing Principal via the ActsAsPrincipal trait without
- * also implementing Identity. Exercises the 3D code path where the identity
- * relation must be loaded explicitly.
+ * Eloquent principal that is not also its identity, so the identity relation is
+ * loaded explicitly.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

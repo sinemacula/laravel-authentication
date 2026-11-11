@@ -15,8 +15,7 @@ use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Http\BearerForms;
 
 /**
- * Unit tests for telling the two bearer credential forms apart and for which
- * guard a route that lists both leaves a credential to.
+ * Unit tests for telling the two bearer credential forms apart on a route.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -64,8 +63,8 @@ final class BearerFormsTest extends TestCase
     }
 
     /**
-     * Rows of `[credential, jwt form]`: anything with a dot is a JWT's,
-     * anything without one an API key's, however malformed.
+     * Rows of `[credential, jwt form]`: a credential with a dot is a JWT's,
+     * however malformed.
      *
      * @return iterable<string, array{0: string, 1: bool}>
      */
@@ -100,7 +99,7 @@ final class BearerFormsTest extends TestCase
 
     /**
      * On a route listing a guard of each kind, each guard leaves the other
-     * kind's credential to it and keeps its own.
+     * kind's credential to it.
      *
      * @return void
      */
@@ -128,8 +127,7 @@ final class BearerFormsTest extends TestCase
     }
 
     /**
-     * A route listing guards of one kind only, however many, leaves nothing to
-     * anyone: each guard reads every credential.
+     * A route listing guards of one kind only leaves nothing to anyone.
      *
      * @return void
      */
@@ -140,8 +138,7 @@ final class BearerFormsTest extends TestCase
     }
 
     /**
-     * A request no `auth` middleware recorded guards for, or one recording
-     * something other than a list, leaves nothing.
+     * A request without a recorded list of guards leaves nothing.
      *
      * @return void
      */
@@ -157,10 +154,8 @@ final class BearerFormsTest extends TestCase
     }
 
     /**
-     * The configuration is read only for a credential of the other kind's form
-     * on a request the `auth` middleware recorded guards for: a guard reading
-     * its own kind's credential, or one on a request with no record, needs no
-     * configuration bound at all.
+     * The configuration is read only when a credential of the other kind's form
+     * needs deciding.
      *
      * @return void
      */
@@ -198,8 +193,8 @@ final class BearerFormsTest extends TestCase
     }
 
     /**
-     * A name that is not configured, a guard of another driver, or a guards
-     * configuration that is not a map, leaves nothing.
+     * An unknown guard, a guard of another driver or a malformed guards map
+     * leaves nothing.
      *
      * @return void
      */
@@ -214,8 +209,7 @@ final class BearerFormsTest extends TestCase
     }
 
     /**
-     * A guard name containing a dot is read as one name, not as a path into the
-     * configuration.
+     * A guard name containing a dot is read as one name.
      *
      * @return void
      */
@@ -227,9 +221,8 @@ final class BearerFormsTest extends TestCase
     }
 
     /**
-     * Only a string names a guard: a recorded name or a default guard that is
-     * not one leaves nothing, even where the guards configuration holds a guard
-     * of the other kind under that key.
+     * Only a string names a guard, even where the configuration holds one under
+     * that key.
      *
      * @return void
      */
@@ -245,9 +238,7 @@ final class BearerFormsTest extends TestCase
     }
 
     /**
-     * The class holds no state and cannot be instantiated: its constructor is
-     * private. Reflection invokes it so the line is covered while still
-     * documenting the access modifier.
+     * The constructor is private; reflection invokes it for coverage.
      *
      * @return void
      *
@@ -283,9 +274,8 @@ final class BearerFormsTest extends TestCase
     }
 
     /**
-     * Bind a configuration of `jwt` guards `api` (the default) and `console`,
-     * an `api_key` guard `machine`, a session guard `web`, and a malformed
-     * `broken`, with the overrides, in a container of its own.
+     * Bind a configuration of `jwt`, `api_key`, session and malformed guards,
+     * with the overrides.
      *
      * @param  array<string, mixed>  $overrides
      * @return void

@@ -115,8 +115,7 @@ final class ActsAsPrincipalTest extends TestCase
 
     /**
      * A subclass can build its attribute and relation names on the trait's
-     * defaults, and the identifier, identity and tenant are read through the
-     * names it builds.
+     * defaults.
      *
      * @return void
      *
@@ -138,9 +137,8 @@ final class ActsAsPrincipalTest extends TestCase
     }
 
     /**
-     * A persisted principal with no identity relation throws the trait's own
-     * `LogicException` under Eloquent's strict missing-attribute mode, rather
-     * than the `MissingAttributeException` reading the absent key would raise.
+     * A persisted principal with no identity relation throws the trait's
+     * `LogicException` under strict mode.
      *
      * @return void
      */
@@ -209,8 +207,7 @@ final class ActsAsPrincipalTest extends TestCase
         $relation = \Mockery::mock(BelongsTo::class);
         $relation->shouldReceive('getResults')->once()->andReturn($identity);
 
-        // A subclass of its own, so the resolved relation stays off the shared
-        // stub class.
+        // A subclass, so the resolved relation stays off the shared stub class.
         $principal = new class extends Stub3dPrincipal {};
 
         $principal::resolveRelationUsing('identity', static fn (): Relation => $relation);
@@ -247,9 +244,8 @@ final class ActsAsPrincipalTest extends TestCase
     }
 
     /**
-     * A principal with no tenant relation, attribute, or loaded relation acts
-     * within no tenant, and reading it does not trip Eloquent's strict
-     * missing-attribute mode on a persisted model.
+     * A principal with no tenant acts within no tenant, without tripping
+     * Eloquent's strict missing-attribute mode.
      *
      * @return void
      */
@@ -302,10 +298,8 @@ final class ActsAsPrincipalTest extends TestCase
     }
 
     /**
-     * A principal whose `BelongsTo` tenant key names a tenant that opts into
-     * activation (`Tenant` and `CanBeActive`) throws when that tenant cannot be
-     * loaded (deleted, soft-deleted, or scoped out) instead of reading as no
-     * tenant.
+     * A `BelongsTo` key naming an activatable tenant that cannot be loaded
+     * throws instead of reading as no tenant.
      *
      * @return void
      */
@@ -397,9 +391,8 @@ final class ActsAsPrincipalTest extends TestCase
     }
 
     /**
-     * A principal loaded without the key of a tenant that opts into activation
-     * (a partial select) is reported instead of being read as acting within no
-     * tenant.
+     * A principal loaded without the key of an activatable tenant is reported
+     * instead of read as no tenant.
      *
      * @return void
      */
@@ -428,8 +421,7 @@ final class ActsAsPrincipalTest extends TestCase
 
     /**
      * Only a `BelongsTo` key names a tenant: another relation that loads
-     * nothing reads as no tenant, even when the key it would be read from is
-     * set.
+     * nothing reads as no tenant.
      *
      * @return void
      */
@@ -458,9 +450,8 @@ final class ActsAsPrincipalTest extends TestCase
     }
 
     /**
-     * The unsaved placeholder a `withDefault()` relation returns for a missing
-     * row of a tenant that opts into activation is not a present tenant: with
-     * the key set, the tenant cannot be loaded.
+     * The unsaved `withDefault()` placeholder for an activatable tenant's
+     * missing row is not a present tenant.
      *
      * @return void
      */
@@ -506,9 +497,8 @@ final class ActsAsPrincipalTest extends TestCase
     }
 
     /**
-     * A tenant that is not an Eloquent model (a custom `Tenant`) is never a
-     * placeholder, even on a relation to a tenant that opts into activation:
-     * only an unsaved model stands in for a missing row.
+     * A tenant that is not an Eloquent model is never a placeholder, even on an
+     * activatable relation.
      *
      * @return void
      */
@@ -553,9 +543,8 @@ final class ActsAsPrincipalTest extends TestCase
     }
 
     /**
-     * A principal loaded without the type column of a polymorphic tenant
-     * relation is reported: without the type, the tenant cannot be told apart
-     * from one that opts into activation.
+     * A principal loaded without a polymorphic tenant's type column is
+     * reported.
      *
      * @return void
      */
@@ -615,10 +604,8 @@ final class ActsAsPrincipalTest extends TestCase
     }
 
     /**
-     * A polymorphic tenant that cannot say which model it names is reported
-     * before its relation is lazy-loaded: Eloquent would build that load
-     * against the principal's own model with an empty type column, which
-     * PostgreSQL and MySQL reject.
+     * A polymorphic tenant with no type is reported before Eloquent lazy-loads
+     * it against the principal's own model.
      *
      * @param  array<string, mixed>  $attributes
      * @param  class-string<\Throwable>  $exception
@@ -667,9 +654,8 @@ final class ActsAsPrincipalTest extends TestCase
     }
 
     /**
-     * A polymorphic tenant whose type names a tenant that opts into activation
-     * is checked like a `BelongsTo` one: a set key that loads nothing cannot be
-     * loaded.
+     * A polymorphic tenant whose type names an activatable tenant is checked
+     * like a `BelongsTo` one.
      *
      * @return void
      */
@@ -726,8 +712,7 @@ final class ActsAsPrincipalTest extends TestCase
 
     /**
      * Build a `MorphTo` relation double typed by `tenant_type` whose related
-     * model is the supplied model (the principal's own model when the type is
-     * empty, as Eloquent builds it).
+     * model is the one given.
      *
      * @param  \Illuminate\Database\Eloquent\Model  $related
      * @return \Illuminate\Database\Eloquent\Relations\MorphTo<\Illuminate\Database\Eloquent\Model, \Illuminate\Database\Eloquent\Model>&\Mockery\MockInterface
@@ -758,8 +743,7 @@ final class ActsAsPrincipalTest extends TestCase
         $relation->shouldReceive('getForeignKeyName')->andReturn('tenant_id');
         $relation->shouldReceive('getOwnerKeyName')->andReturn('id');
 
-        // A subclass of its own, so the resolved relation stays off the shared
-        // stub class.
+        // A subclass, so the resolved relation stays off the shared stub class.
         $principal = new class extends Stub3dPrincipal {};
 
         $principal::resolveRelationUsing('tenant', static fn (): Relation => $relation);

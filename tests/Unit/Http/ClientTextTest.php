@@ -21,9 +21,8 @@ use SineMacula\Laravel\Authentication\Http\ClientText;
 final class ClientTextTest extends TestCase
 {
     /**
-     * Any client-supplied value is cleaned to the length asked for, counted in
-     * characters, with NUL bytes removed and invalid UTF-8 replaced, and
-     * nothing left reads as `null`.
+     * A value is cut to the given length in characters; nothing left reads as
+     * `null`.
      *
      * @return void
      */
@@ -73,9 +72,8 @@ final class ClientTextTest extends TestCase
     }
 
     /**
-     * The C0 controls (NUL, tab and escape among them), DEL, the C1 controls
-     * and every bidirectional mark, embedding, override and isolate are
-     * removed, wherever they stand; the characters around them are kept.
+     * Control and bidirectional formatting characters are removed wherever they
+     * stand.
      *
      * @param  string  $given
      * @param  ?string  $cleaned
@@ -88,8 +86,7 @@ final class ClientTextTest extends TestCase
     }
 
     /**
-     * Removed characters never use up the length kept: the cut counts only what
-     * is left.
+     * Removed characters never use up the length kept.
      *
      * @return void
      */
@@ -99,9 +96,7 @@ final class ClientTextTest extends TestCase
     }
 
     /**
-     * `ClientText` is a static utility; instantiation is disallowed through the
-     * private constructor. Reflection invokes it so the line is covered while
-     * still documenting the access modifier.
+     * The constructor is private; reflection invokes it for coverage.
      *
      * @return void
      *

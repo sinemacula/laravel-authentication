@@ -48,9 +48,7 @@ final class SessionGenerationTest extends TestCase
     }
 
     /**
-     * Two rows are one session only when both record a generation and it is the
-     * same one: a row that records none is never the same as any row, another
-     * that records none included.
+     * Two rows are one session only when both record the same generation.
      *
      * @param  ?string  $first
      * @param  ?string  $second
@@ -111,10 +109,8 @@ final class SessionGenerationTest extends TestCase
     }
 
     /**
-     * The row stored under a session's key is that session only when the
-     * session given is an Eloquent session of the row's generation: a session
-     * of another generation, a session that is not an Eloquent model, one that
-     * is no Eloquent session, and a key that holds no row are not.
+     * The row under a session's key is that session only when it is an Eloquent
+     * session of the row's generation.
      *
      * @param  \Closure(): \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  bool  $stored
@@ -128,9 +124,7 @@ final class SessionGenerationTest extends TestCase
     }
 
     /**
-     * `SessionGeneration` is a static utility; instantiation is disallowed
-     * through the private constructor. Reflection invokes it so the line is
-     * covered while still documenting the access modifier.
+     * The constructor is private.
      *
      * @return void
      *

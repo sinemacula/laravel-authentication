@@ -14,13 +14,7 @@ use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use Tests\Concerns\InteractsWithJwtTokens;
 
 /**
- * Kid behavioural tests for `JwtTokenService`.
- *
- * Drives the keyring through the token service's public surface to prove the
- * rotation contract: tokens issued under the active kid carry the kid in their
- * JWT header, the service decodes tokens signed under any kid present in its
- * verification map (so old keys stay valid until they expire), and tokens
- * signed under a kid that is not in the verifier's map are rejected.
+ * Key rotation tests for `JwtTokenService`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -45,9 +39,7 @@ final class JwtTokenServiceKidTest extends JwtTokenServiceTestCase
     private const string NEW_KID = '2026-04';
 
     /**
-     * Asserts an issued token embeds the active kid in its JWT header. Decodes
-     * the header bytes manually so the assertion does not depend on the
-     * verifier path.
+     * An issued token embeds the active kid in its JWT header.
      *
      * @return void
      *
@@ -69,10 +61,8 @@ final class JwtTokenServiceKidTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * Asserts the token service accepts a token signed under an old kid as long
-     * as that kid is still present in its verification map. This is the core
-     * graceful-rotation contract: live tokens keep working until their `exp`
-     * passes.
+     * A token signed under an old kid parses while that kid is still in the
+     * verification map.
      *
      * @return void
      *
@@ -105,9 +95,7 @@ final class JwtTokenServiceKidTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * Asserts a token signed under a kid the verifier does not know is rejected
-     * - operators who fully retire a kid should see tokens signed under it stop
-     * working.
+     * A token signed under a kid the verifier does not know is rejected.
      *
      * @return void
      *
@@ -134,8 +122,7 @@ final class JwtTokenServiceKidTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * Asserts the default test service also stamps its kid into every issued
-     * token - there is no headerless token shape.
+     * The default test service embeds its kid in every issued token.
      *
      * @return void
      *
@@ -154,8 +141,7 @@ final class JwtTokenServiceKidTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * Asserts a token signed with valid key material but carrying no `kid`
-     * header is rejected, so a headerless token can never verify.
+     * A token without a `kid` header is rejected.
      *
      * @return void
      */
@@ -183,8 +169,8 @@ final class JwtTokenServiceKidTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * Construct a `JwtTokenService` configured with a keyring built from the
-     * supplied map and active kid.
+     * Build a `JwtTokenService` over a keyring of the given keys and active
+     * kid.
      *
      * @param  array<string, string>  $keys
      * @param  string  $activeKid

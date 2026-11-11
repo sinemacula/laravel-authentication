@@ -105,8 +105,7 @@ final class PendingStateTest extends TestCase
 
     /**
      * The pending credential is read from the configured body field,
-     * `pending_credential` when the configuration names none, read from its own
-     * key.
+     * `pending_credential` by default.
      *
      * @param  mixed  $configured
      * @param  string  $field
@@ -186,9 +185,8 @@ final class PendingStateTest extends TestCase
     }
 
     /**
-     * Filling sets the columns as stored without marking them persisted;
-     * mirroring sets them as stored and as persisted, leaving every other
-     * column as it was.
+     * Filling sets the columns without marking them persisted; mirroring marks
+     * them persisted too.
      *
      * @return void
      */

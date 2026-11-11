@@ -15,9 +15,7 @@ use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalizers;
 use SineMacula\Laravel\Authentication\Passwords\ResetInput;
 
 /**
- * Unit tests for how a reset request's and submission's input is read: only
- * strings (and, for an identifier, integers and `Stringable`s) reach a lookup
- * or a hash, and a code is bound only to a type with a normaliser.
+ * Unit tests for reading a reset request's and submission's input.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -46,8 +44,8 @@ final class ResetInputTest extends TestCase
     }
 
     /**
-     * The identifier is read as a string from a string, an integer or a
-     * `Stringable`; anything else, or nothing, is `null`.
+     * The identifier is read from a string, an integer or a `Stringable`, else
+     * `null`.
      *
      * @param  mixed  $value
      * @param  ?string  $expected
@@ -93,9 +91,7 @@ final class ResetInputTest extends TestCase
     }
 
     /**
-     * `ResetInput` is a utility container, not to be instantiated: its
-     * constructor is private. Reflection invokes it so the line is covered
-     * while still documenting the access modifier.
+     * The constructor is private; reflection invokes it for coverage.
      *
      * @return void
      *

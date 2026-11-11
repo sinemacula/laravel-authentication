@@ -25,13 +25,8 @@ use Symfony\Component\HttpFoundation\Exception\ConflictingHeadersException;
 use Tests\Unit\Stubs\PlainSessionFixture;
 
 /**
- * Unit tests for an application's refresh token transport: every carrier is
- * inspected whatever the transport, a token carried twice is a conflict, one
- * carried by another transport than the application's is a mismatch, and the
- * extraction leaves the same-site judgement out; the judgement of a presented
- * token from plain values, under which a cookie must pass the cross-site checks
- * on its client; and for delivering a cookie application's pair with its
- * refresh token in the cookie, and the cookie that clears it.
+ * Unit tests for extracting, judging and delivering an application's refresh
+ * token.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -65,8 +60,7 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * A request that carries no token in any carrier presents nothing, by
-     * either transport.
+     * A request that carries no token presents nothing, by either transport.
      *
      * @return void
      */
@@ -79,9 +73,7 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * Rows of `[the request, the source it carries the token in]`: the body
-     * field and the header of a body application, the cookie of a cookie
-     * application.
+     * Rows of `[the request, the source it carries the token in]`.
      *
      * @return iterable<string, array{0: \Closure(): \Illuminate\Http\Request, 1: \SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource}>
      */
@@ -95,8 +87,8 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * A token in the one carrier of the application's transport is extracted,
-     * as a secret, with where it was carried, that carrier alone.
+     * A token in the transport's one carrier is extracted as a secret, with
+     * that carrier.
      *
      * @param  \Closure(): \Illuminate\Http\Request  $request
      * @param  \SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource  $source
@@ -117,9 +109,8 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * A token `extract()` answers from a request of the API's own site passes
-     * the judgement with the request's client: the plain values a controller
-     * hands on from a request it read are judged as the request was.
+     * A token extracted from a same-site request passes the judgement with its
+     * client.
      *
      * @param  \Closure(): \Illuminate\Http\Request  $request
      * @param  \SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource  $source
@@ -152,8 +143,7 @@ final class RefreshTokenTransportTest extends TestCase
 
     /**
      * A token where no application reads one is not presented, by either
-     * transport: never the query string, another field or another application's
-     * cookie.
+     * transport.
      *
      * @param  \Closure(): \Illuminate\Http\Request  $request
      * @return void
@@ -168,8 +158,7 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * A body application without a header reads the body field only: a token in
-     * a header is not seen, beside the body or alone.
+     * A body application without a header reads the body field only.
      *
      * @return void
      */
@@ -218,10 +207,8 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * A token in more than one carrier is a conflict, whether or not the tokens
-     * are equal and whatever the transport, before the cross-site checks: a
-     * cookie arriving with a body credential is never read, and the server
-     * never picks one.
+     * A token in more than one carrier is a conflict, before the cross-site
+     * checks.
      *
      * @param  \Closure(): \Illuminate\Http\Request  $request
      * @param  \SineMacula\Laravel\Authentication\Http\Enums\Transport  $transport
@@ -235,8 +222,8 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * Rows of `[the request, the transport]` that carry one token by a carrier
-     * that is not the application's transport.
+     * Rows of `[the request, the transport]` that carry one token by another
+     * transport.
      *
      * @return iterable<string, array{0: \Closure(): \Illuminate\Http\Request, 1: \SineMacula\Laravel\Authentication\Http\Enums\Transport}>
      */
@@ -251,10 +238,8 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * A token carried only by a carrier that is not the application's transport
-     * is a mismatch, before its value or the cross-site checks are looked at: a
-     * body application never reads its cookie, and a cookie application never
-     * reads a token its scripts could see.
+     * A token carried only by another transport is a mismatch, before its value
+     * is read.
      *
      * @param  \Closure(): \Illuminate\Http\Request  $request
      * @param  \SineMacula\Laravel\Authentication\Http\Enums\Transport  $transport
@@ -269,7 +254,7 @@ final class RefreshTokenTransportTest extends TestCase
 
     /**
      * Rows of `[the request's Cookie headers]` that carry the refresh cookie
-     * twice, under its own name or one PHP files under it.
+     * twice.
      *
      * @return iterable<string, array{0: list<string>}>
      */
@@ -290,11 +275,8 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * A request that carries the refresh cookie twice is a conflict, as PHP
-     * keeps only the first of them and a browser sends a cookie another host of
-     * the site planted before the API's own: the server never picks one,
-     * whatever the application's transport and whether or not the request is
-     * same-site.
+     * A request that carries the refresh cookie twice is a conflict, whatever
+     * the transport.
      *
      * @param  list<string>  $headers
      * @return void
@@ -315,7 +297,7 @@ final class RefreshTokenTransportTest extends TestCase
 
     /**
      * Rows of `[the request's Cookie header]` that carry the refresh cookie
-     * once, beside others whose names only look like it.
+     * once.
      *
      * @return iterable<string, array{0: string}>
      */
@@ -334,8 +316,8 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * A request that carries the refresh cookie once, whatever other cookies it
-     * carries, presents it to a cookie application.
+     * A request that carries the refresh cookie once presents it to a cookie
+     * application.
      *
      * @param  string  $header
      * @return void
@@ -351,8 +333,8 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * Rows of `[the request, the transport]` that carry something other than
-     * one non-empty string by the application's transport.
+     * Rows of `[the request, the transport]` that carry no single non-empty
+     * string.
      *
      * @return iterable<string, array{0: \Closure(): \Illuminate\Http\Request, 1: \SineMacula\Laravel\Authentication\Http\Enums\Transport}>
      */
@@ -405,11 +387,8 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * The extraction leaves the same-site judgement out: a cross-site cookie is
-     * extracted with its token, and an empty one answers `token_invalid`; the
-     * judgement of the extracted token with the request's client refuses it as
-     * cross-site, without the request's own or an allowed origin, or without
-     * the custom header.
+     * The extraction leaves the same-site judgement out; judging the token then
+     * refuses it.
      *
      * @param  ?string  $origin
      * @param  ?string  $csrf
@@ -429,10 +408,8 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * A request from the API's own site, or an allowed origin, with the custom
-     * header is a same-site request; any other is not, whether or not it
-     * carries a token, so a route that sets the cookie can hold its request to
-     * the same checks.
+     * Only a request from the own site or an allowed origin, with the custom
+     * header, is same-site.
      *
      * @param  ?string  $origin
      * @param  ?string  $csrf
@@ -451,9 +428,7 @@ final class RefreshTokenTransportTest extends TestCase
 
     /**
      * Rows of `[client context, whether it is same-site]`, each fact failing
-     * alone: the own origin and the allowed origin pass only with the custom
-     * header carried with a value, and only an origin that is the request's own
-     * or allowed passes.
+     * alone.
      *
      * @return iterable<string, array{0: \SineMacula\Laravel\Authentication\Http\ClientContext, 1: bool}>
      */
@@ -476,9 +451,8 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * A client is same-site only when it carried the custom header with a value
-     * and presented the request's own origin or an allowed one; a fact it lacks
-     * fails the check.
+     * A client is same-site only with the custom header and its own or an
+     * allowed origin.
      *
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @param  bool  $sameSite
@@ -491,9 +465,7 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * The configured header is judged as the header bag files names, so one
-     * configured with `_` for `-` or in any case matches the header a request
-     * sent, and only that header counts.
+     * The configured header is matched as the header bag files names.
      *
      * @return void
      */
@@ -508,8 +480,7 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * The request's check and the client's agree on the same request, for the
-     * requests a cookie refresh is refused for and for same-site ones.
+     * The request's check and the client's agree on the same request.
      *
      * @param  ?string  $origin
      * @param  ?string  $csrf
@@ -526,11 +497,8 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * The check and a cookie's extraction leave the IP address unread: a
-     * same-site request from a trusted proxy whose forwarded client addresses
-     * conflict is judged same-site however often it is checked, its token is
-     * extracted, and the request still refuses those addresses to the
-     * application afterwards.
+     * The check and a cookie's extraction leave conflicting forwarded addresses
+     * unread.
      *
      * @return void
      */
@@ -557,8 +525,7 @@ final class RefreshTokenTransportTest extends TestCase
 
     /**
      * A request whose host Symfony refuses is not same-site, and checking it
-     * throws nothing, though it carries the header and an origin naming that
-     * host.
+     * throws nothing.
      *
      * @return void
      */
@@ -572,8 +539,7 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * The application's own body field, header and cookie names are the ones
-     * extracted from.
+     * The application's own body field, header and cookie names are read.
      *
      * @return void
      */
@@ -607,8 +573,7 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * The transport of a guard is built from the configuration, and says
-     * whether it travels by cookie.
+     * The transport of a guard is built from the configuration.
      *
      * @return void
      */
@@ -634,8 +599,7 @@ final class RefreshTokenTransportTest extends TestCase
 
     /**
      * Rows of `[seconds to the idle deadline, seconds to the absolute one or
-     * null]`: the cookie expires at whichever comes first, the idle one when
-     * the session has no absolute deadline.
+     * null]`.
      *
      * @return iterable<string, array{0: int, 1: ?int}>
      */
@@ -647,11 +611,8 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * A cookie application's pair is delivered with its refresh token moved
-     * into the cookie, which carries it `HttpOnly`, `Secure`,
-     * `SameSite=Strict`, host-only, with the application's name and path, and
-     * expires when the session ends; the access token and its expiry are kept
-     * as they were.
+     * A cookie application's refresh token moves into a cookie that expires
+     * with the session.
      *
      * @param  int  $idle
      * @param  ?int  $absolute
@@ -697,8 +658,8 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * A body application's pair is delivered as it is, and so is a pair already
-     * delivered.
+     * A body application's pair, and a pair already delivered, are kept as they
+     * are.
      *
      * @return void
      */
@@ -715,7 +676,7 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * A session that has ended, or that has no idle deadline, is delivered no
+     * A session that has ended, or has no idle deadline, is delivered no
      * cookie.
      *
      * @return void
@@ -731,8 +692,7 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * The clearing cookie has the same name and path, no domain and no value,
-     * is URL-encoded as the cookie it clears is, and has already expired.
+     * The clearing cookie matches the cookie it clears and has already expired.
      *
      * @return void
      */
@@ -753,8 +713,7 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * A body application has no cookie to clear, even with a path configured: a
-     * cookie it never reads must not be set.
+     * A body application has no cookie to clear, even with a path configured.
      *
      * @return void
      */
@@ -767,10 +726,8 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * A body application whose guard's name makes no cookie name looks for no
-     * cookie: it reads its body field and header as any body application, a
-     * cookie beside them is neither a mismatch nor a conflict, and it has no
-     * cookie to clear.
+     * A body application whose guard name makes no cookie name looks for no
+     * cookie.
      *
      * @return void
      */
@@ -794,9 +751,7 @@ final class RefreshTokenTransportTest extends TestCase
 
     /**
      * Rows of `[the transport, the source, the carriers]` whose carriers are
-     * not the source alone: more than one carrier, the cookie twice, none, a
-     * carrier that is not the source, or a list with another key, each a
-     * conflict before its source is judged against the transport.
+     * not the source alone.
      *
      * @formatter:off
      *
@@ -821,10 +776,7 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * A presented token whose carriers are not its source alone is judged a
-     * conflict, from the same-site client too and before a mismatch, as the
-     * extraction judges a request that carries more than one: a value an
-     * application built is never trusted to have been the only one.
+     * A presented token whose carriers are not its source alone is a conflict.
      *
      * @param  \SineMacula\Laravel\Authentication\Http\Enums\Transport  $transport
      * @param  \SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource  $source
@@ -840,8 +792,8 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * Rows of `[the transport, the header the application configured, the
-     * source]` that is not one of the application's carriers.
+     * Rows of `[the transport, the configured header, the source]` the
+     * application does not read.
      *
      * @return iterable<string, array{0: \SineMacula\Laravel\Authentication\Http\Enums\Transport, 1: ?string, 2: \SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource}>
      */
@@ -855,11 +807,7 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * A presented token whose source is not one the application's transport
-     * reads is judged a mismatch, from the same-site client too: a body
-     * application never takes its cookie, a cookie application never takes a
-     * token its scripts could see, and a body application without a header
-     * takes none from one.
+     * A presented token whose source the transport does not read is a mismatch.
      *
      * @param  \SineMacula\Laravel\Authentication\Http\Enums\Transport  $transport
      * @param  ?string  $header
@@ -876,8 +824,7 @@ final class RefreshTokenTransportTest extends TestCase
 
     /**
      * A token presented in the cookie is judged by the client's same-site
-     * facts, each failing alone, as `isSameSiteClient()` judges them: a context
-     * built without them is cross-site.
+     * facts.
      *
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @param  bool  $sameSite
@@ -892,9 +839,8 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * A token presented in a body application's body field or header is never
-     * judged same-site: a client with no facts at all passes, since a browser
-     * never sends either by itself.
+     * A token from a body application's body field or header is never judged
+     * same-site.
      *
      * @return void
      */
@@ -908,8 +854,8 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * A transport of the given kind with the default names, the cookie scoped
-     * to `/auth` and one allowed origin besides the request's own.
+     * A transport of the given kind with the cookie scoped to `/auth` and one
+     * allowed origin.
      *
      * @param  \SineMacula\Laravel\Authentication\Http\Enums\Transport  $transport
      * @param  ?string  $header
@@ -921,8 +867,7 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * A client from the API's own origin with the custom header, built from
-     * plain values.
+     * A client from the API's own origin with the custom header.
      *
      * @return \SineMacula\Laravel\Authentication\Http\ClientContext
      */
@@ -963,8 +908,8 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * A refresh request carrying the cookie with the value, from the origin
-     * with the custom header (each omitted when `null`), and the form body.
+     * A refresh request carrying the cookie from the origin with the custom
+     * header.
      *
      * @param  mixed  $value
      * @param  ?string  $origin
@@ -980,8 +925,7 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * The request with its `Origin` and custom header removed, as a cross-site
-     * page sends it.
+     * The request with its `Origin` and custom header removed.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\Request
@@ -996,8 +940,8 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * A sign-in request, carrying no token, from the origin with the custom
-     * header (each omitted when `null`).
+     * A sign-in request carrying no token, from the origin with the custom
+     * header.
      *
      * @param  ?string  $origin
      * @param  ?string  $csrf
@@ -1011,8 +955,7 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * A request of the method whose parsed form body holds the token, as a
-     * server that parses the body of any method produces.
+     * A request of the method whose parsed form body holds the token.
      *
      * @param  string  $method
      * @return \Illuminate\Http\Request

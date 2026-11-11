@@ -13,9 +13,8 @@ use SineMacula\Laravel\Authentication\Freshness\Operations;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 
 /**
- * The operations the package names: each is an operation's name, and the
- * shipped configuration gives each a requirement. The class holds constants
- * only, so its constructor is private.
+ * The operations the package names, each given a requirement by the shipped
+ * configuration.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -57,9 +56,8 @@ final class OperationsTest extends TestCase
     }
 
     /**
-     * The shipped configuration takes only a fresh step-up for a factor change,
-     * and only a fresh reauthentication, never the sign-in itself, for an
-     * identity's first additional factor, each within 15 minutes.
+     * The shipped factor operations require a fresh step-up or reauthentication
+     * within 15 minutes.
      *
      * @return void
      */

@@ -16,11 +16,7 @@ use SineMacula\Laravel\Authentication\Runtime\CredentialTimebox;
 use Tests\Fixtures\Passwords\RecordingTimebox;
 
 /**
- * Unit tests for the credential timebox of a guard: the box is told before
- * every call that it may not return early, so one call's early return never
- * carries over to the next, and each call's budget is read from the
- * configuration then, with the default for a missing, non-positive or
- * unreadable value.
+ * Unit tests for the credential timebox of a guard.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -225,9 +221,7 @@ final class CredentialTimeboxTest extends TestCase
      */
     private static function configure(array $settings): void
     {
-        // Laravel clears resolved facades on set up, not on tear down, so a
-        // Testbench test run just before would otherwise leave its config
-        // repository behind the facade.
+        // A prior Testbench test leaves its config behind the facade.
         Facade::clearResolvedInstances();
 
         $app = new Application;

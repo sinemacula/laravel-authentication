@@ -11,9 +11,7 @@ use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeRe
 use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeRequest;
 
 /**
- * Unit tests for the answer to a request to change an identifier: each status
- * carries only what it says, and a link is never exposed by a dump or
- * serialised.
+ * Unit tests for the answer to a request to change an identifier.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -27,8 +25,7 @@ final class IdentifierChangeRequestTest extends TestCase
     private const string LINK = 'https://app.example.test/email/confirm?request=r&signature=secret-signature';
 
     /**
-     * A sent change carries when it expires and, for a link, the link; nothing
-     * else.
+     * A sent change carries its expiry and, for a link, the link.
      *
      * @return void
      */
@@ -64,8 +61,7 @@ final class IdentifierChangeRequestTest extends TestCase
     }
 
     /**
-     * No dump of a request shows its link, nor does JSON, and it cannot be
-     * serialised.
+     * No dump or JSON of a request shows its link, and it cannot be serialised.
      *
      * @return void
      */

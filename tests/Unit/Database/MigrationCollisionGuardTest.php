@@ -26,9 +26,8 @@ final class MigrationCollisionGuardTest extends TestCase
     use MockeryPHPUnitIntegration;
 
     /**
-     * Asserts the guard throws when the table already exists in the schema,
-     * naming the table, the connection and the configuration key that renames
-     * the table.
+     * The guard throws when the table exists, naming the table, connection and
+     * configuration key.
      *
      * @return void
      */
@@ -61,8 +60,7 @@ final class MigrationCollisionGuardTest extends TestCase
     }
 
     /**
-     * Asserts the guard returns silently when the table is not present in the
-     * schema.
+     * The guard returns silently when the table is missing.
      *
      * @return void
      */
@@ -76,16 +74,13 @@ final class MigrationCollisionGuardTest extends TestCase
 
         $guard = new MigrationCollisionGuard($schema);
 
-        // ensureNotExists is `void` and the assertion lives in the Mockery
-        // `->once()` expectation: if hasTable was not called exactly once,
-        // Mockery will fail the test in tearDown.
+        // Mockery checks the `->once()` expectation on tear down.
         $guard->ensureNotExists('authentication_sessions', 'session.table');
     }
 
     /**
-     * Asserts the exception message echoes the table name and configuration key
-     * supplied at runtime, and names the default connection when the connection
-     * has no name.
+     * The message names the given table and key, and the default connection
+     * when the connection has no name.
      *
      * @return void
      */

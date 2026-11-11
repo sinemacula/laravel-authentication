@@ -11,9 +11,7 @@ use SineMacula\Laravel\Authentication\Secrets\Plaintext;
 use SineMacula\Laravel\Authentication\Secrets\SecretResponse;
 
 /**
- * The secret utility classes hold no state and cannot be instantiated: each
- * constructor is private. Reflection invokes it so the line is covered while
- * still documenting the access modifier.
+ * Unit tests for the private constructors of the secret utility classes.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

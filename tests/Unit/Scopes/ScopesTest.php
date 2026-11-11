@@ -15,9 +15,8 @@ use SineMacula\Laravel\Authentication\Scopes\Scopes;
 use Tests\Unit\Stubs\PlainPrincipalFixture;
 
 /**
- * Unit tests for the scope convention: the RFC 6749 scope-token syntax, the
- * stored list form, the space-separated string form, subsets, and the scope
- * registry a credential's scopes are held to.
+ * Unit tests for the scope convention: token syntax, the list and string forms,
+ * subsets and the scope registry.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -62,8 +61,7 @@ final class ScopesTest extends TestCase
 
     /**
      * A list of scopes is accepted up to 8,192 bytes written space-separated,
-     * duplicates not counted; one byte more refuses the scopes from the first
-     * that does not fit.
+     * duplicates not counted.
      *
      * @return void
      */
@@ -270,10 +268,8 @@ final class ScopesTest extends TestCase
     }
 
     /**
-     * The registry is asked about the normalised scopes for the guard and the
-     * principal, and any answer but `[]` refuses them: the given scopes it
-     * names are named, or every given scope when it names none of them as
-     * given.
+     * The registry is asked about the normalised scopes, and any answer but
+     * `[]` refuses them.
      *
      * @param  list<string>  $scopes
      * @param  list<string>  $answer
@@ -344,9 +340,8 @@ final class ScopesTest extends TestCase
     }
 
     /**
-     * Distinct scopes that, written space-separated, take exactly the most
-     * bytes a list may: 31 of 255 bytes, one of 128 and one of 127, mostly
-     * slashes, which JSON escapes, so the stored form is as long as it gets.
+     * Distinct scopes filling the most bytes a list may, mostly slashes so the
+     * JSON-escaped stored form is longest.
      *
      * @return list<string>
      */

@@ -13,9 +13,7 @@ use SineMacula\Laravel\Authentication\Codes\CodeDelivery;
 use SineMacula\Laravel\Authentication\Codes\CodeKeys;
 
 /**
- * Unit tests for one delivery the engine is about to write: the issuance and
- * challenge it draws, the hash its secret is stored as, and the columns each
- * way of writing it sets.
+ * Unit tests for one delivery the engine is about to write.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -51,10 +49,7 @@ final class CodeDeliveryTest extends TestCase
     }
 
     /**
-     * A resend writes a new code and issuance, one more delivery, and when it
-     * was issued and expires; a new challenge also writes its id and
-     * transaction and starts with no attempts and unused; a new window starts
-     * its first challenge now, as its first delivery.
+     * Each way of writing a delivery sets its own columns.
      *
      * @return void
      */
