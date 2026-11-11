@@ -20,8 +20,11 @@ uses for the caller's own instance, are the application's: the package binds no 
   once the kernel is resolved, so the declaration is in place before any parameter binds.
 - `Auth::caller()` (`AuthManager::caller()`, `Callers\CallerCredentials`) reads the request being served, as the guards
   do, only when it is asked, and at most once per request for a guard, a credential and an action: the caller is kept
-  on the request's attributes under that key, so asking again reads the credential once, a guard changed later in the
-  request is read afresh, and nothing outlives the request (no static state; Octane-safe).
+  in one request attribute under that key, so asking again reads the credential once, a guard changed later in the
+  request is read afresh, and nothing outlives the request (no caller held in static state; Octane-safe). An access
+  caller is kept with its guard's `GuardBinding::boundStateVersion()`, which any bind, switch, sign-out or new request
+  replaces, so it is read again after one. A refresh or pending caller is proven from the request itself and kept for
+  the request. `AuthManager::forgetGuardState()` forgets every caller on the current request before each queued job.
   - access: the guard must be a package `ContextualGuard` (else `LogicException`); its identity, principal, active
     tenant and session (none for an access-only token or an API key). The guard reports its own failures. Its
     `scopes` are the guard's `scopes()`: an API key's granted list, or a client-credentials token's validated list
@@ -97,7 +100,9 @@ uses for the caller's own instance, are the application's: the package binds no 
 ## Authoritative Tests
 
 - `tests/Feature/Callers/CallerCredentialsTest.php`: each credential's caller, one read and one report per request,
-  the bearer's and the API key's admission
+  an access caller read again once its guard's state changes, a refresh caller kept across a bind, the bearer's and the
+  API key's admission;
+  `tests/Integration/Process/QueueWorkerGuardStateTest.php` `testEachJobReadsItsOwnCaller`
 - `tests/Feature/Callers/CallerTest.php`: what `owns()` holds for each credential and kind;
   `tests/Feature/Callers/CallerRouteBindingTest.php`: the guide's application binding over HTTP;
   `tests/Feature/AuthManagerTest.php` `testCallerReadsTheRequestBeingServed`;

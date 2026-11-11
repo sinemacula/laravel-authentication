@@ -67,13 +67,13 @@ worker serves, and the same registration in the next request throws as a duplica
 
 Outside Octane, each request rebinds Laravel's `request`, which resets every package guard already resolved: the
 identity, principal and session it bound, and whether it has resolved the request. A queue worker forgets only scoped
-instances between jobs, so the package resets its guards when each job a worker runs starts (on `JobProcessing`,
-through `AuthManager::forgetGuardState()`): a guard a job signs in with `login()` or `setUser()` is signed out again
-for the next job. Only jobs a worker runs are reset: a job on the `sync` connection (the `sync` driver, or
-`dispatchSync()` whatever the default connection) runs inside the request that dispatched it and leaves its guards as
-they are, so a session the request just started stays bound and a request that signed out stays signed out. A
-dispatcher or principal resolver swapped in after a guard resolved (`Event::fake()`, a rebinding of
-`PrincipalResolver`) reaches the guard and its session service (and, through it, a refresh, a switch and
+instances between jobs, so the package resets its guards when each job a worker runs starts (on `JobProcessing`, through
+`AuthManager::forgetGuardState()`): a guard a job signs in with `login()` or `setUser()` is signed out again for the
+next job, and the caller a job read with `Auth::caller()` is read afresh. Only jobs a worker runs are reset: a job on
+the `sync` connection (the `sync` driver, or `dispatchSync()` whatever the default connection) runs inside the request
+that dispatched it and leaves its guards as they are, so a session the request just started stays bound and a request
+that signed out stays signed out. A dispatcher or principal resolver swapped in after a guard resolved (`Event::fake()`,
+a rebinding of `PrincipalResolver`) reaches the guard and its session service (and, through it, a refresh, a switch and
 the revocations), which read the guard's collaborators each time they run.
 
 The package's singletons hold configuration only: the token service factory memoises each guard's signing configuration

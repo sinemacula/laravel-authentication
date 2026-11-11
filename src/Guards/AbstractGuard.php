@@ -416,9 +416,10 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
      */
     protected function setIdentity(Identity $identity): void
     {
-        $this->identity              = $identity;
-        $this->authenticationContext = null;
-        $this->credentialKind        = null;
+        $this->identity       = $identity;
+        $this->credentialKind = null;
+
+        $this->forgetDerivedState();
 
         $this->context->dispatch(new Authenticated($this->context->name(), $identity));
     }

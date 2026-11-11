@@ -11,6 +11,7 @@ use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Callers\Enums\CallerCredential;
 use SineMacula\Laravel\Authentication\Config\JwtGuards;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
+use SineMacula\Laravel\Authentication\Contracts\GuardBinding;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -23,8 +24,8 @@ use SineMacula\Laravel\Authentication\Sessions\PendingSession;
 use SineMacula\Laravel\Authentication\Sessions\RefreshCredential;
 
 /**
- * Reads a request's caller from the credential its route declares, at most once
- * per request, behind `Auth::caller()`.
+ * Reads a request's caller from the credential its route declares, behind
+ * `Auth::caller()`, re-reading an access caller once its guard's state changes.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -33,7 +34,7 @@ use SineMacula\Laravel\Authentication\Sessions\RefreshCredential;
  */
 final readonly class CallerCredentials
 {
-    /** @var string The prefix of the request attributes the callers are kept under. */
+    /** @var string The request attribute the callers are kept under. */
     private const string MEMO = 'authentication.caller';
 
     /**
@@ -65,16 +66,19 @@ final readonly class CallerCredentials
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \Throwable
+     *
+     * @phpstan-impure
      */
     public function caller(Request $request): ?Caller
     {
         $declared = DeclaredCredential::of($request);
         $guard    = $declared->guard ?? $this->auth->getDefaultDriver();
-        $key      = sprintf('%s.%s.%s.%s', self::MEMO, $declared->credential->value, $guard, $declared->action?->value);
-        $memo     = $request->attributes->get($key);
+        $key      = sprintf('%s.%s.%s', $declared->credential->value, $guard, $declared->action?->value);
+        $memo     = self::memo($request);
+        $kept     = $memo[$key] ?? null;
 
-        if ($memo instanceof Caller || $memo === false) {
-            return $memo ?: null;
+        if ($kept !== null && $kept[0] === $this->version($declared->credential, $guard)) {
+            return $kept[1] ?: null;
         }
 
         $caller = match ($declared->credential) {
@@ -83,9 +87,51 @@ final readonly class CallerCredentials
             CallerCredential::PENDING => $this->pending($request, $guard, $declared->action),
         };
 
-        $request->attributes->set($key, $caller ?? false);
+        // Resolving the request on first access changes the version.
+        $request->attributes->set(self::MEMO, [$key => [$this->version($declared->credential, $guard), $caller ?? false]] + $memo);
 
         return $caller;
+    }
+
+    /**
+     * Forget every caller kept on the request.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return void
+     */
+    public static function forget(Request $request): void
+    {
+        $request->attributes->remove(self::MEMO);
+    }
+
+    /**
+     * The callers kept on the request, each with the version it was read at.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return array<string, array{0: ?int, 1: false|\SineMacula\Laravel\Authentication\Callers\Caller}>
+     */
+    private static function memo(Request $request): array
+    {
+        /** @var array<string, array{0: ?int, 1: false|\SineMacula\Laravel\Authentication\Callers\Caller}> */
+        return $request->attributes->get(self::MEMO, []);
+    }
+
+    /**
+     * The guard's bound state version for an access caller, `null` for others.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Callers\Enums\CallerCredential  $credential
+     * @param  string  $guard
+     * @return ?int
+     */
+    private function version(CallerCredential $credential, string $guard): ?int
+    {
+        if ($credential !== CallerCredential::ACCESS) {
+            return null;
+        }
+
+        $resolved = $this->auth->guard($guard);
+
+        return $resolved instanceof GuardBinding ? $resolved->boundStateVersion() : null;
     }
 
     /**

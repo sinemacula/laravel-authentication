@@ -1501,11 +1501,12 @@ long as that list holds `SubstituteBindings`; one that replaces the list later m
 `SubstituteBindings` itself.
 
 The caller is read only when it is asked for, and once per request for a guard and a credential, so asking twice proves
-a refresh credential once. A refresh or pending credential the request carries and that is refused is reported once with
-`AuthenticationFailed`: flow `refresh` with the reason the refresh would give (`additional_factor_required` where the
-refresh would return the session to pending), or flow `sign_in` with `pending_invalid` or `pending_action_not_allowed`,
-never the credential; a request that carries none is not reported. A guard that is not one of the package's is a
-`LogicException`.
+a refresh credential once. The access credential's caller is read again once its guard signs in, signs out or switches;
+a refresh or pending caller is kept for the request. The start of the next job a queue worker runs forgets them all. A
+refresh or pending credential the request carries and that is refused is reported once with `AuthenticationFailed`: flow
+`refresh` with the reason the refresh would give (`additional_factor_required` where the refresh would return the
+session to pending), or flow `sign_in` with `pending_invalid` or `pending_action_not_allowed`, never the credential; a
+request that carries none is not reported. A guard that is not one of the package's is a `LogicException`.
 
 `$caller->owns($model)` says whether a session, identity or principal model is the caller's: a session of the caller's
 guard that its identity owns and, for a refresh or a pending credential, the very session the credential proves (with
