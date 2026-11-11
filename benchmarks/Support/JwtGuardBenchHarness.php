@@ -484,11 +484,7 @@ final class JwtGuardBenchHarness
 
     /**
      * Run each benchmarked path once and throw unless it reaches the outcome
-     * its name describes: every bearer authenticates, a session bearer binds
-     * its session, writing its last use only on the path that measures the
-     * write, a 3D bearer binds its principal, and a tenant-aware one its
-     * tenant. The write path runs on a session row of its own, outside the
-     * benchmark's pool.
+     * its name describes.
      *
      * @return void
      *

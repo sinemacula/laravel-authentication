@@ -40,14 +40,8 @@ use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 
 /**
- * Runtime benchmark fixtures for a sign-in that waits on a further factor: a
- * password sign-in the identity-level factor policy holds pending, then the
- * adapter's proof of the factor satisfying it, which activates the session in
- * place. Every package collaborator either step resolves (the sign-in method,
- * the application policy, the attempt limiter, which writes its counters, the
- * tenant policy and the requirement check) is the package's own, from the
- * container; only the factor policy is bound, to ask every sign-in for a
- * further factor. Passwords are checked with `PlainBenchHasher`.
+ * Runtime benchmark fixtures for a password sign-in held pending on a further
+ * factor, then activated by the factor's proof.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -76,9 +70,8 @@ final readonly class PendingSignInBenchHarness
     private Timebox $timebox;
 
     /**
-     * Seed the identity, ask every sign-in for a further factor that a stored
-     * accepted factor meets, and check that the path reaches the outcome it
-     * measures.
+     * Seed the identity, ask every sign-in for a further factor, and check that
+     * the path reaches the outcome it measures.
      *
      * @throws \LogicException
      */
@@ -141,9 +134,8 @@ final readonly class PendingSignInBenchHarness
     }
 
     /**
-     * Sign the identity in, which the factor policy holds pending, and satisfy
-     * the factor with an accepted proof bound to the pending session, each on a
-     * fresh guard.
+     * Sign the identity in, pending on the factor, then satisfy it with an
+     * accepted proof, each on a fresh guard.
      *
      * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
      *
@@ -175,9 +167,8 @@ final readonly class PendingSignInBenchHarness
     }
 
     /**
-     * The session service of a fresh `jwt` guard over the identities, serving a
-     * sign-in request from the benchmark's client, built as the auth manager
-     * builds one.
+     * The session service of a fresh `jwt` guard serving a sign-in request,
+     * built as the auth manager builds one.
      *
      * @return \SineMacula\Laravel\Authentication\Sessions\SessionService
      */

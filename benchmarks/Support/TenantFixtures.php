@@ -11,9 +11,6 @@ use Tests\Integration\Fixtures\TenantAware3dTenant;
 /**
  * Shared tenant-aware fixture seeding for the benchmark harnesses.
  *
- * Find-or-create helpers keyed by name so repeated harness boots reuse the same
- * tenant and principal rows.
- *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */

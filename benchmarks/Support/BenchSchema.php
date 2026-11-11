@@ -21,10 +21,6 @@ use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
 /**
  * Shared benchmark schema builder.
  *
- * Creates the tables the benchmark harnesses rely on, keyed by fixture shape,
- * skipping any table that already exists so repeated harness boots stay
- * idempotent.
- *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
@@ -168,8 +164,7 @@ final class BenchSchema
 
     /**
      * Create the proofs, provenance and connection guard tables, as the shipped
-     * migrations do: every session the package writes records its proofs, and
-     * every access token for a session derives `auth_time` and `amr` from them.
+     * migrations do.
      *
      * @return void
      */
@@ -334,12 +329,8 @@ final class BenchSchema
     }
 
     /**
-     * The state, generation, start and deadlines of a session that starts
-     * active now, with the package's default lifetimes: waiting on nothing,
-     * superseding nothing, never switched and acting in no tenant, with a new
-     * generation on every call, as the session service writes for every session
-     * it inserts. Every state column is set, so the saved session reads as the
-     * row would load.
+     * The state columns of a session that starts active now, with the package's
+     * default lifetimes and a new generation.
      *
      * @formatter:off
      *
@@ -370,10 +361,8 @@ final class BenchSchema
     }
 
     /**
-     * A session the guard's password sign-in started now: the guard and method
-     * a session records, which refresh and the bearer path check, and the
-     * tenant it acts in (the principal's own, as a sign-in records it), with
-     * the rest of `liveSession()`.
+     * A `liveSession()` started now by the guard's password sign-in, acting in
+     * the given tenant.
      *
      * @formatter:off
      *
@@ -393,10 +382,8 @@ final class BenchSchema
     }
 
     /**
-     * Record on a session a fixture saved itself the first-factor proof the
-     * password sign-in `signedIn()` describes would have recorded, at its
-     * `signed_in_at`, so the access tokens issued for it carry the `auth_time`
-     * and `amr` a real sign-in's would.
+     * Record the first-factor proof a `signedIn()` session's password sign-in
+     * would have, at its `signed_in_at`.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\Session  $session
      * @return void

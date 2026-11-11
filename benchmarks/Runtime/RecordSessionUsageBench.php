@@ -12,9 +12,6 @@ use PhpBench\Attributes\Warmup;
 /**
  * PHPBench suite for session timestamp persistence.
  *
- * Exercises the `RecordSessionUsage` listener across the throttle-skip path
- * (fresh timestamp) and the stale-write path.
- *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */

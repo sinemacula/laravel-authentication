@@ -338,9 +338,8 @@ final class RefreshTokenExchangeBenchHarness
     }
 
     /**
-     * Pre-issue a pool of refresh tokens, each bound to its own session row,
-     * which records the principal the token acts as and the principal's own
-     * tenant, as a sign-in records them.
+     * Pre-issue a pool of refresh tokens, each bound to its own session row in
+     * the principal's own tenant.
      *
      * @param  string  $prefix
      * @param  class-string  $ownerClass
@@ -464,8 +463,7 @@ final class RefreshTokenExchangeBenchHarness
      */
     private function seedFailureTokens(StubPrincipal $identity): void
     {
-        // A well-formed id that names no row, so the bench measures the lookup
-        // rather than the shape check that rejects malformed ids before it.
+        // A well-formed id naming no row passes the shape check to the lookup.
         $missingSession = new Session;
         $missingSession->forceFill([...BenchSchema::signedIn('api'), 'id' => '0190f1d2-7c4e-7a3b-9f10-000000000000']);
         $this->unknownSessionToken = $this->tokens->issueRefreshToken($missingSession, 'bench-missing-session-rotation')->reveal();
@@ -507,10 +505,7 @@ final class RefreshTokenExchangeBenchHarness
 
     /**
      * Run each benchmarked path once and throw unless it reaches the outcome
-     * its name describes: a successful refresh returns a pair (and a
-     * tenant-aware one binds its tenant), an unknown session fails as
-     * `session_unknown`, and a mismatched rotation id as `rotation_reuse`.
-     * Paths that use a token up run on tokens outside the benchmark's pools.
+     * its name describes.
      *
      * @return void
      *
@@ -579,9 +574,8 @@ final class RefreshTokenExchangeBenchHarness
     }
 
     /**
-     * The configuration the harness's guard reads: the `api` guard, the session
-     * model, the credential timebox, and the package's refresh transport
-     * defaults, from which every refresh builds the guard's transport.
+     * The configuration the harness's guard reads, including the package's
+     * refresh transport defaults.
      *
      * @return \Illuminate\Config\Repository
      */
@@ -610,9 +604,7 @@ final class RefreshTokenExchangeBenchHarness
     }
 
     /**
-     * Refresh through the guard's session service with the token a body
-     * application read, as its controller hands it on with the client of the
-     * request the guard serves.
+     * Refresh through the guard's session service with a body refresh token.
      *
      * @param  \SineMacula\Laravel\Authentication\Guards\JwtGuard  $guard
      * @param  string  $token
@@ -626,8 +618,7 @@ final class RefreshTokenExchangeBenchHarness
     }
 
     /**
-     * The session service of the guard, which a refresh goes through, built as
-     * the auth manager builds one.
+     * The guard's session service, built as the auth manager builds one.
      *
      * @param  \SineMacula\Laravel\Authentication\Guards\JwtGuard  $guard
      * @return \SineMacula\Laravel\Authentication\Sessions\SessionService

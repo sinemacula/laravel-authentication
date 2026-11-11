@@ -10,13 +10,8 @@ use PhpBench\Attributes\Revs;
 use PhpBench\Attributes\Warmup;
 
 /**
- * PHPBench suite for a sign-in that waits on a further factor: the sign-in
- * written pending, then satisfied with the factor's proof, which activates it.
- *
- * Each measured run is the whole path, so the attempt-limit slots the pending
- * sign-in holds are given back by its activation and the limiter never fills.
- * The password is checked with a hasher that costs next to nothing, so the
- * timings are the package's own work.
+ * PHPBench suite for a sign-in written pending on a further factor, then
+ * activated by the factor's proof.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

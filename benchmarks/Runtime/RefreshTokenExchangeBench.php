@@ -12,9 +12,6 @@ use PhpBench\Attributes\Warmup;
 /**
  * PHPBench suite for refresh-token exchange paths.
  *
- * Exercises the full refresh rotation pipeline across success, unknown-session
- * failure, rotation-mismatch failure, and tenant-aware 3D scenarios.
- *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */

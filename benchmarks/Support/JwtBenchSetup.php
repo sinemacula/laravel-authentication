@@ -50,10 +50,8 @@ final class JwtBenchSetup
     }
 
     /**
-     * Bind on a harness's own container the access, tenancy and requirement
-     * defaults the service provider registers, which the bearer and refresh
-     * paths resolve from the global container, and an auth manager that holds
-     * the guards the harness builds, and make it that container.
+     * Bind the package's access, tenancy and requirement defaults and a
+     * `BenchAuthManager` on the container, and make it the global one.
      *
      * @param  \Illuminate\Foundation\Application  $container
      * @return void
