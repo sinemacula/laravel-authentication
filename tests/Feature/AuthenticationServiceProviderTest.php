@@ -16,6 +16,7 @@ use Illuminate\Auth\Middleware\Authenticate as IlluminateAuthenticate;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Console\Application as ConsoleApplication;
 use Illuminate\Console\Events\CommandFinished;
+use Illuminate\Container\Container;
 use Illuminate\Contracts\Auth\Guard;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Contracts\Http\Kernel as HttpKernel;
@@ -358,6 +359,41 @@ final class AuthenticationServiceProviderTest extends TestCase
         $end($app);
 
         self::assertSame(['due'], $calls->getArrayCopy());
+    }
+
+    /**
+     * The end of a request, job or command runs the held work of the container
+     * current then, as in a sandbox cloned per request, leaving the booted
+     * application's alone.
+     *
+     * @param  \Closure(\Illuminate\Foundation\Application): mixed  $end
+     * @return void
+     */
+    #[DataProvider('provideEndsOfTheUnitOfWork')]
+    public function testTheEndOfTheUnitOfWorkRunsTheCurrentContainersHeldWork(\Closure $end): void
+    {
+        $app = $this->app;
+
+        assert($app instanceof Application);
+
+        /** @var \ArrayObject<int, string> $calls */
+        $calls   = new \ArrayObject;
+        $sandbox = clone $app;
+
+        Container::setInstance($sandbox);
+
+        try {
+            $sandbox->make(RequiredWork::class)->hold(static fn (): bool => true, static function () use ($calls): void {
+                $calls->append('due');
+            });
+
+            $end($sandbox);
+        } finally {
+            Container::setInstance($app);
+        }
+
+        self::assertSame(['due'], $calls->getArrayCopy());
+        self::assertFalse($app->resolved(RequiredWork::class));
     }
 
     /**

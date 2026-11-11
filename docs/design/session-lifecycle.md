@@ -217,9 +217,10 @@ session that ended is deleted. Starting a session is in `session-service.md`; re
   Laravel stops a commit's callbacks at the first that throws, so a listener on a report cannot skip them. An
   application's own commit callback that throws first stops them at the commit, so the provider also runs what is due
   when the request, job or command ends (`terminating`; `JobProcessed`, `JobExceptionOccurred` and `JobFailed`, before
-  the worker flushes scoped instances for the next job; `CommandFinished`), never creating `RequiredWork` there.
-  Required work that throws is reported through the exception handler, not thrown, so it stops no other callback.
-  Proof: let W be the call's commit, C its check (after W,
+  the worker flushes scoped instances for the next job; `CommandFinished`), resolving `RequiredWork` from the container
+  current then (an Octane sandbox) and never creating it there. Required work that throws from its own callback is
+  thrown, so a failed check fails closed; what `runDue()` runs has no caller to receive a failure, so it reports each
+  through the exception handler and runs the rest. Proof: let W be the call's commit, C its check (after W,
   reading committed state), D the change's commit, Rd the revocation's read (the observer's after D, or the second
   pass's after D). If Rd sees the session it is ended; otherwise Rd's snapshot predates W, so D committed before W,
   hence before C, and C sees the change, unless something undid it before C: then the revocation in between moved the
@@ -386,8 +387,9 @@ session that ended is deleted. Starting a session is in `session-service.md`; re
   deferral across connections, a check of a session moved on by a later switch, and a report that throws at the commit;
   `tests/Feature/Sessions/KeptSessionsTest.php`: the kept sessions' floor; `tests/Feature/Database/AfterCommitTest.php`:
   the required work a callback that throws runs, and that the end of the request runs once an earlier commit callback
-  threw; `tests/Feature/Database/RequiredWorkTest.php`: held work run once and its failure reported;
-  `tests/Feature/AuthenticationServiceProviderTest.php`: each end of a request, job or command running the work due;
+  threw; `tests/Feature/Database/RequiredWorkTest.php`: held work run once, its failure thrown from its closure and
+  reported once due; `tests/Feature/AuthenticationServiceProviderTest.php`: each end of a request, job or command
+  running the work due in the current container;
   `tests/Feature/Sessions/SessionRevocationsTest.php`, `tests/Feature/Sessions/RevocationWriterTest.php`: the second
   pass; `tests/Integration/Sessions/ConcurrentSignInAndDeactivationTest.php`: a sign-in, choice and switch racing a
   deactivation or deletion in two processes on PostgreSQL and MySQL, at READ COMMITTED and REPEATABLE READ, the change

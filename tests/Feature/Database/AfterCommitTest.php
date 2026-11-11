@@ -658,14 +658,14 @@ final class AfterCommitTest extends TestCase
     }
 
     /**
-     * Required work that throws at a commit is reported rather than thrown, and
-     * the commit's later callbacks still run.
+     * Required work that throws at its commit is thrown to the code that
+     * commits, after the rest of the required work due has run.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testRequiredWorkThatThrowsIsReportedAndTheLaterCallbacksRun(): void
+    public function testRequiredWorkThatThrowsAtItsCommitIsThrownOnceTheRestDueHasRun(): void
     {
         $session    = $this->record();
         $calls      = new \ArrayObject;
@@ -674,12 +674,12 @@ final class AfterCommitTest extends TestCase
         DB::beginTransaction();
 
         $this->afterCommit()->runAcross([$session], self::thrower('work'));
+        $this->afterCommit()->runAcross([$session], self::counter($calls));
 
-        DB::afterCommit(self::counter($calls));
-        DB::commit();
-
+        self::assertSame('work', self::thrown(static fn () => DB::commit()));
         self::assertCount(1, $calls);
-        self::assertSame(['work'], array_map(static fn (\Throwable $exception): string => $exception->getMessage(), $exceptions->reported()));
+
+        $exceptions->assertNothingReported();
     }
 
     /**

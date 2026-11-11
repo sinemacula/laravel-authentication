@@ -9,7 +9,7 @@ use Illuminate\Contracts\Debug\ExceptionHandler;
 
 /**
  * The work `AfterCommit` holds for a commit that must run whatever the reports
- * of that commit do, reporting what it throws.
+ * of that commit do.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -46,34 +46,24 @@ final class RequiredWork
         $number = array_key_last($this->held);
 
         return function () use ($number): void {
-            $this->run($this->take($number));
+            $this->take($number)?->__invoke();
         };
     }
 
     /**
-     * Run every work held that is due, each once, in the order it was held.
+     * Run every work held that is due, each once, in the order it was held,
+     * reporting what each throws since no caller is left to receive it.
      *
      * @return void
      */
     public function runDue(): void
     {
         foreach (array_keys($this->held) as $number) {
-            $this->run($this->takeDue($number));
-        }
-    }
-
-    /**
-     * Run the work, if any, reporting what it throws so the rest still runs.
-     *
-     * @param  ?\Closure(): void  $work
-     * @return void
-     */
-    private function run(?\Closure $work): void
-    {
-        try {
-            $work?->__invoke();
-        } catch (\Throwable $exception) {
-            $this->container->make(ExceptionHandler::class)->report($exception);
+            try {
+                $this->takeDue($number)?->__invoke();
+            } catch (\Throwable $exception) {
+                $this->container->make(ExceptionHandler::class)->report($exception);
+            }
         }
     }
 

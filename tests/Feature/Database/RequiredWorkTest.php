@@ -48,9 +48,10 @@ final class RequiredWorkTest extends TestCase
     public function testRunsTheWorkThatIsDueOnceInTheOrderHeld(): void
     {
         /** @var \ArrayObject<int, string> $calls */
-        $calls    = new \ArrayObject;
-        $required = new RequiredWork(app());
-        $due      = new \ArrayObject(['later' => false]);
+        $calls      = new \ArrayObject;
+        $exceptions = Exceptions::fake();
+        $required   = new RequiredWork(app());
+        $due        = new \ArrayObject(['later' => false]);
 
         $required->hold(static fn (): bool => true, self::recorder($calls, 'first'));
         $required->hold(static fn (): bool => $due['later'] === true, self::recorder($calls, 'later'));
@@ -68,15 +69,19 @@ final class RequiredWorkTest extends TestCase
         $required->runDue();
 
         self::assertSame(['ran', 'first', 'last', 'later'], $calls->getArrayCopy());
+
+        $exceptions->assertNothingReported();
     }
 
     /**
-     * Work that throws is reported once rather than thrown, whether run through
-     * its closure or once due, and the rest still runs.
+     * Work that throws through its closure is thrown, while work run once due
+     * is reported instead, once, and the rest still runs.
      *
      * @return void
+     *
+     * @throws \Throwable
      */
-    public function testWorkThatThrowsIsReportedOnceAndTheRestRuns(): void
+    public function testWorkThatThrowsIsThrownThroughItsClosureAndReportedOnceDue(): void
     {
         /** @var \ArrayObject<int, string> $calls */
         $calls      = new \ArrayObject;
@@ -88,13 +93,20 @@ final class RequiredWorkTest extends TestCase
         $required->hold(static fn (): bool => true, self::thrower('due'));
         $required->hold(static fn (): bool => true, self::recorder($calls, 'after'));
 
-        $run();
+        try {
+            $run();
+
+            self::fail('Expected the work to throw.');
+        } catch (\RuntimeException $exception) {
+            self::assertSame('closure', $exception->getMessage());
+        }
+
         $run();
         $required->runDue();
         $required->runDue();
 
         self::assertSame(['after'], $calls->getArrayCopy());
-        self::assertSame(['closure', 'due'], array_map(static fn (\Throwable $exception): string => $exception->getMessage(), $exceptions->reported()));
+        self::assertSame(['due'], array_map(static fn (\Throwable $exception): string => $exception->getMessage(), $exceptions->reported()));
     }
 
     /**

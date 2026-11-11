@@ -14,7 +14,6 @@ use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
-use Illuminate\Support\Facades\Exceptions;
 use Mockery\MockInterface;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -646,11 +645,13 @@ final class AdmissionRecheckTest extends TestCase
 
         RecheckedMember::query()->whereKey($member->getKey())->update(['is_active' => false]);
 
-        $exceptions = Exceptions::fake();
+        try {
+            DB::commit();
 
-        DB::commit();
-
-        self::assertSame(['listener'], array_map(static fn (\Throwable $exception): string => $exception->getMessage(), $exceptions->reported()));
+            self::fail('Expected the report to throw.');
+        } catch (\RuntimeException $exception) {
+            self::assertSame('listener', $exception->getMessage());
+        }
 
         self::assertSame(RevocationReason::IDENTITY_DEACTIVATED->value, self::revokedReasonOf($session));
         self::assertSame(['superseded', 'created'], $order->getArrayCopy());
@@ -1208,11 +1209,13 @@ final class AdmissionRecheckTest extends TestCase
 
         RecheckedMembership::query()->whereKey($membership->getKey())->update(['is_active' => false]);
 
-        $exceptions = Exceptions::fake();
+        try {
+            DB::commit();
 
-        DB::commit();
-
-        self::assertSame(['listener'], array_map(static fn (\Throwable $exception): string => $exception->getMessage(), $exceptions->reported()));
+            self::fail('Expected the report to throw.');
+        } catch (\RuntimeException $exception) {
+            self::assertSame('listener', $exception->getMessage());
+        }
 
         self::assertSame(RevocationReason::PRINCIPAL_DEACTIVATED->value, self::revokedReasonOf($session));
         self::assertSame([SessionRevoked::class], $this->recordedClasses());
@@ -1248,11 +1251,13 @@ final class AdmissionRecheckTest extends TestCase
             throw new \RuntimeException('listener');
         });
 
-        $exceptions = Exceptions::fake();
+        try {
+            DB::commit();
 
-        DB::commit();
-
-        self::assertSame(['listener'], array_map(static fn (\Throwable $exception): string => $exception->getMessage(), $exceptions->reported()));
+            self::fail('Expected the listener to throw.');
+        } catch (\RuntimeException $exception) {
+            self::assertSame('listener', $exception->getMessage());
+        }
 
         self::assertSame(RevocationReason::IDENTITY_DEACTIVATED->value, self::revokedReasonOf($session));
         self::assertNull($guard->session());

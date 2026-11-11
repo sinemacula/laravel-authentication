@@ -10,6 +10,7 @@ use Illuminate\Auth\Events\Attempting;
 use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Validated;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -403,6 +404,38 @@ final class ExternalSignInTest extends TestCase
         self::assertSame([AuthenticationFailed::class], $this->recordedClasses());
         self::assertSame('connection-7', $this->recordedEvent(AuthenticationFailed::class)->context->connectionId);
         self::assertSame(RevocationReason::IDENTITY_DEACTIVATED->value, Session::query()->sole()->getRawOriginal('revoked_reason'));
+        self::assertTrue(Auth::guard('api')->guest());
+    }
+
+    /**
+     * A redemption whose check fails to read the identity throws rather than
+     * signing in, issuing no tokens.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARedemptionWhoseCheckFailsThrowsWithoutSigningIn(): void
+    {
+        $identity = $this->seedIdentity();
+
+        $change = static fn (): bool => DB::statement('alter table integration_identities rename to unreadable_identities');
+
+        app()->instance(AdditionalFactorPolicy::class, new InterruptingFactorPolicy($change));
+
+        $this->recordEvents([SessionCreated::class, SignedIn::class, ExternalResultRedeemed::class]);
+
+        try {
+            $this->sessions()->signInExternally($this->linkedResult($identity), self::requestContext());
+
+            self::fail('Expected the check to throw.');
+        } catch (QueryException $exception) {
+            self::assertStringContainsString('integration_identities', $exception->getMessage());
+        } finally {
+            DB::statement('alter table unreadable_identities rename to integration_identities');
+        }
+
+        self::assertSame([], $this->recordedClasses());
         self::assertTrue(Auth::guard('api')->guest());
     }
 

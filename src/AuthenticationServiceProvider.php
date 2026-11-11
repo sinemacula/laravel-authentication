@@ -425,24 +425,24 @@ final class AuthenticationServiceProvider extends ServiceProvider
      */
     protected function registerListeners(): void
     {
-        $app = $this->app;
-
         Event::listen(SessionAuthenticated::class, RecordSessionUsage::class);
         Event::listen(JobProcessing::class, ForgetGuardStateBeforeJob::class);
         Event::listen([Attempting::class, Validated::class, Login::class, Authenticated::class, Failed::class, OtherDeviceLogout::class], TrackCredentialAttempts::class);
 
         // Held work whose commit's callbacks stopped early runs once the
-        // request, job or command ends
-        $runDue = static function () use ($app): void {
+        // request, job or command ends, in the container it was held in
+        $runDue = static function (): void {
 
-            if (!$app->resolved(RequiredWork::class)) {
+            $container = Container::getInstance();
+
+            if (!$container->resolved(RequiredWork::class)) {
                 return;
             }
 
-            $app->make(RequiredWork::class)->runDue();
+            $container->make(RequiredWork::class)->runDue();
         };
 
-        $app->terminating($runDue);
+        $this->app->terminating($runDue);
 
         Event::listen([JobProcessed::class, JobExceptionOccurred::class, JobFailed::class, CommandFinished::class], $runDue);
     }

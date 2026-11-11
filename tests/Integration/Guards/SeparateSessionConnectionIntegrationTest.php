@@ -14,7 +14,6 @@ use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
-use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -440,11 +439,14 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
             throw new \RuntimeException('listener');
         });
 
-        $exceptions = Exceptions::fake();
+        try {
+            DB::commit();
 
-        DB::commit();
+            self::fail('Expected the listener to throw.');
+        } catch (\RuntimeException $exception) {
+            self::assertSame('listener', $exception->getMessage());
+        }
 
-        self::assertSame(['listener'], array_map(static fn (\Throwable $exception): string => $exception->getMessage(), $exceptions->reported()));
         self::assertSame('identity_deleted', self::revokedReasonOf($ended->record->getKey()));
         self::assertNull($guard->session());
         self::assertNull($guard->principal());
