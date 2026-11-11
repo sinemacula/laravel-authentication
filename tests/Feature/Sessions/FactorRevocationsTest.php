@@ -876,6 +876,71 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
+     * Ending every session forgets every guard bound to the identity on commit.
+     *
+     * @param  \Closure(\SineMacula\Laravel\Authentication\Sessions\SignedInSession): mixed  $ending
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideEndingsOfEverySession')]
+    public function testAnEndingOfEverySessionForgetsEveryGuardBoundToTheIdentityOnceItCommits(\Closure $ending): void
+    {
+        $api   = $this->signedIn();
+        $admin = $this->signedIn('admin');
+
+        [$apiGuard, $adminGuard] = $this->boundGuards($api, $admin);
+
+        try {
+            DB::transaction(static function () use ($ending, $api): void {
+
+                $ending($api);
+
+                throw new \RuntimeException('rolled back');
+            });
+        } catch (\RuntimeException) {
+            self::assertTrue($apiGuard->check());
+            self::assertTrue($adminGuard->check());
+        }
+
+        DB::transaction(static function () use ($ending, $api, $adminGuard): void {
+
+            $ending($api);
+
+            self::assertTrue($adminGuard->check());
+        });
+
+        self::assertFalse($apiGuard->check());
+        self::assertFalse($adminGuard->check());
+        self::assertNull($adminGuard->session());
+    }
+
+    /**
+     * A removal keeps the current session's guard and forgets the others.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARemovalForgetsEveryOtherGuardBoundToTheIdentityButKeepsTheCurrentSessions(): void
+    {
+        $current = $this->signedIn();
+        $other   = $this->signedIn('admin');
+
+        [$currentGuard, $otherGuard] = $this->boundGuards($current, $other);
+
+        DB::transaction(static function () use ($current, $otherGuard): void {
+
+            self::assertSame(1, Auth::sessions('api')->factorRemoved($current->identity, 'factor-a', $current->record)->revoked);
+            self::assertTrue($otherGuard->check());
+        });
+
+        self::assertSame($current->record->getKey(), $currentGuard->session()?->getSessionIdentifier());
+        self::assertFalse($otherGuard->check());
+        self::assertSame(RevocationReason::FACTOR_REMOVED->value, $this->rowOf($other->record->getKey())->revoked_reason);
+    }
+
+    /**
      * A listener that throws leaves the guard unbound from the identity.
      *
      * @param  \Closure(\SineMacula\Laravel\Authentication\Sessions\SignedInSession): mixed  $ending

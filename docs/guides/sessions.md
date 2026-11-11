@@ -1165,16 +1165,15 @@ again, and then:
   tenant inactive or ineligible) or its tenant now requires a connection: nothing it could do in place would meet it.
 
 A current session that is pending has its proofs made with the factor voided too and stays pending: its next action
-(`satisfy()`, `choose()`) is judged without them. One that was meanwhile revoked or ended is left as it is. When the
-request's guard is bound to the current session and it returned to pending or was revoked, the guard forgets it once the
-transaction commits, before anything is reported, so the rest of the request is no longer authenticated as it, even when
-a listener throws. `factorReset()`, and `factorRemoved()` given no `$current`, do the same for a guard bound to the
-identity: every session it has ends, so the rest of the request is not authenticated as any of them.
-`FactorRemoval::$revoked` counts the sessions revoked, the current one included when it was (`$currentRevoked`).
-`$current`, when given, must be a session of this guard the identity owns, and the identity must live on the storage
-connection, so its cutoff moves and its sessions end in the factor package's transaction: otherwise nothing is written
-and an `InvalidArgumentException` or a `LogicException` is thrown. Everything runs in one transaction on the storage
-connection, a savepoint in the factor package's, and is reported once that commits.
+(`satisfy()`, `choose()`) is judged without them. One that was meanwhile revoked or ended is left as it is. Once the
+transaction commits, before anything is reported, every guard the request has resolved, of any name, that is bound to
+the identity forgets it, but one bound to a current session the removal kept, so the rest of the request is no longer
+authenticated as a session it ended, even when a listener throws. `factorReset()`, and `factorRemoved()` given no
+`$current`, keep none. `FactorRemoval::$revoked` counts the sessions revoked, the current one included when it was
+(`$currentRevoked`). `$current`, when given, must be a session of this guard the identity owns, and the identity must
+live on the storage connection, so its cutoff moves and its sessions end in the factor package's transaction: otherwise
+nothing is written and an `InvalidArgumentException` or a `LogicException` is thrown. Everything runs in one transaction
+on the storage connection, a savepoint in the factor package's, and is reported once that commits.
 
 A passkey the factor package associated as a factor is removed through `PasskeyService::remove()`, which asks the factor
 package's gate first (`PasskeyFactorGate::removing()`), and the factor package calls `factorRemoved()` from there. What
@@ -1291,10 +1290,10 @@ one transaction on the storage connection, a savepoint inside yours. Both are fo
 sign-in through the connection or link committed while your transaction waited for your lock on it is found even on
 MySQL's REPEATABLE READ, where a plain read would see your transaction's first snapshot. A link's read takes only the
 identity's sessions under `external_provider`, each of which has a provenance, so on MySQL it locks those rows (until
-your transaction ends) and no gap another identity's sign-in would write into. Once that commits, a request's guard
-bound to one of them forgets it, so the rest of the request is not authenticated as it even when a listener throws, and
-then `SessionRevoked` reports each. No cutoff moves and no `SignedOutEverywhere` is reported: the scope is how the
-sessions began, not the identity, whose other sessions stay.
+your transaction ends) and no gap another identity's sign-in would write into. Once that commits, every guard the
+request has resolved that is bound to one of them forgets it, so the rest of the request is not authenticated as it even
+when a listener throws, and then `SessionRevoked` reports each. No cutoff moves and no `SignedOutEverywhere` is
+reported: the scope is how the sessions began, not the identity, whose other sessions stay.
 
 On PostgreSQL at REPEATABLE READ or SERIALIZABLE even a locking read sees only your transaction's first snapshot, so a
 session a sign-in committed after it would be invisible. A sign-in through a link therefore writes its link's guard (one

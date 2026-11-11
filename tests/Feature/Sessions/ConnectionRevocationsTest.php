@@ -485,6 +485,35 @@ final class ConnectionRevocationsTest extends TestCase
     }
 
     /**
+     * A trigger has another guard bound to a session it ends forget it once it
+     * commits.
+     *
+     * @param  \Closure(\SineMacula\Laravel\Authentication\Sessions\SessionService, \SineMacula\Laravel\Authentication\Contracts\Identity): int  $trigger
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideEndingTriggers')]
+    public function testATriggerForgetsAnotherGuardBoundToASessionItEndsOnceItCommits(\Closure $trigger): void
+    {
+        $ada   = $this->seedIdentity();
+        $kept  = $this->started($ada, 'conn-b');
+        $ended = $this->started($ada, 'conn-a', 'admin');
+
+        [$keptGuard, $endedGuard] = $this->boundGuards($kept, $ended);
+
+        DB::transaction(static function () use ($trigger, $ada, $endedGuard): void {
+
+            self::assertSame(1, $trigger(Auth::sessions('api'), $ada));
+            self::assertTrue($endedGuard->check());
+        });
+
+        self::assertFalse($endedGuard->check());
+        self::assertNull($endedGuard->session());
+        self::assertSame($kept->record->getKey(), $keptGuard->session()?->getSessionIdentifier());
+    }
+
+    /**
      * Rows of `[the trigger, which ended session the guard is bound to]`.
      *
      * @formatter:off
@@ -775,17 +804,18 @@ final class ConnectionRevocationsTest extends TestCase
     }
 
     /**
-     * A session the identity started through the connection on the `api` guard.
+     * A session the identity started through the connection on the guard.
      *
      * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
      * @param  string  $connection
+     * @param  string  $guard
      * @return \SineMacula\Laravel\Authentication\Sessions\SignedInSession
      *
      * @throws \Throwable
      */
-    private function started(IntegrationIdentity $identity, string $connection): SignedInSession
+    private function started(IntegrationIdentity $identity, string $connection, string $guard = 'api'): SignedInSession
     {
-        $session = $this->sessions()->signInExternally($this->linkedResult($identity, $connection), self::requestContext())->session;
+        $session = $this->sessions($guard)->signInExternally($this->linkedResult($identity, $connection), self::requestContext())->session;
 
         self::assertNotNull($session);
 

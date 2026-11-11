@@ -758,6 +758,41 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
     }
 
     /**
+     * `forgetIdentity()` keeps a binding to the session kept only.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testForgetIdentityKeepsABindingToTheSessionKept(): void
+    {
+        $bound = new PlainIdentityFixture(1);
+        $same  = $this->mockSession();
+        $other = $this->mockSession();
+        $guard = $this->makeGuard();
+
+        $this->recordEvents();
+
+        $other->shouldReceive('getSessionIdentifier')->andReturn('session-2');
+
+        $guard->authenticateAs($bound, $this->principal, $this->session);
+        $guard->forgetIdentity($bound, $same);
+
+        self::assertSame($this->session, $guard->session());
+
+        $guard->forgetIdentity($bound, $other);
+
+        self::assertTrue($guard->guest());
+
+        $guard = $this->makeGuard();
+
+        $guard->authenticateAs($bound, $this->principal);
+        $guard->forgetIdentity($bound, $same);
+
+        self::assertTrue($guard->guest());
+    }
+
+    /**
      * Build a guard whose `user()` binds the context on its first call, as a
      * request-resolving guard does.
      *

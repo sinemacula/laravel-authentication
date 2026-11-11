@@ -4,11 +4,10 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Context;
 
-use Illuminate\Container\Container;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Facades\Config;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
+use SineMacula\Laravel\Authentication\Sessions\BindingForgetting;
 
 /**
  * Has every resolved package guard forget the authentication context it holds
@@ -63,12 +62,8 @@ final class ContextForgetting
     private static function forgetter(EloquentSession&Model $session): \Closure
     {
         return static function () use ($session): void {
-
-            /** @var \SineMacula\Laravel\Authentication\AuthManager $auth */
-            $auth = Container::getInstance()->make('auth');
-
-            foreach (array_keys(Config::array('auth.guards', [])) as $name) {
-                $auth->resolvedGuard((string) $name)?->forgetAuthenticationContext($session);
+            foreach (BindingForgetting::resolvedGuards() as $guard) {
+                $guard->forgetAuthenticationContext($session);
             }
         };
     }
