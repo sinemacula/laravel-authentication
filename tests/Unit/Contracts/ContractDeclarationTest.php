@@ -35,6 +35,7 @@ use SineMacula\Laravel\Authentication\Contracts\PasskeyFactorGate;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\ResolvesHintedPrincipal;
 use SineMacula\Laravel\Authentication\Contracts\Session;
+use SineMacula\Laravel\Authentication\Contracts\SessionStanding;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Contracts\TenantAccess;
@@ -97,22 +98,36 @@ final class ContractDeclarationTest extends TestCase
             'getGuard',
             'getIdleExpiresAt',
             'getLastUsedAt',
-            'getPendingKey',
             'getPreviousRefreshKey',
             'getRefreshKey',
             'getRefreshRotatedAt',
-            'getRequires',
             'getRevokedAt',
             'getRevokedReason',
             'getSessionIdentifier',
             'getSignInIdentifierType',
             'getSignInMethod',
             'getSignedInAt',
-            'getStatus',
             'getSwitchedAt',
+        ], self::declaredMethods(Session::class));
+        self::assertContains(SessionStanding::class, (new \ReflectionClass(Session::class))->getInterfaceNames());
+    }
+
+    /**
+     * `SessionStanding` declares exactly where a session stands.
+     *
+     * @return void
+     */
+    public function testSessionStandingDeclaresExactlyWhereASessionStands(): void
+    {
+        self::assertSame([
+            'getPendingKey',
+            'getPrincipalId',
+            'getPrincipalType',
+            'getRequires',
+            'getStatus',
             'getTenantId',
             'getTenantPolicyVersion',
-        ], self::declaredMethods(Session::class));
+        ], self::declaredMethods(SessionStanding::class));
     }
 
     /**

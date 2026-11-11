@@ -4,11 +4,13 @@ declare(strict_types = 1);
 
 namespace Tests\Feature\Guards;
 
+use Illuminate\Auth\AuthManager;
 use Illuminate\Auth\Events\Attempting;
 use Illuminate\Auth\Events\Authenticated;
 use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Validated;
+use Illuminate\Auth\RequestGuard;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -418,6 +420,49 @@ final class JwtGuardTest extends JwtGuardTestCase
 
         self::assertNull($before);
         self::assertInstanceOf(PresentedRefreshToken::class, $after);
+    }
+
+    /**
+     * A JWT guard resolves as itself, the named one or the default.
+     *
+     * @return void
+     */
+    public function testAJwtGuardResolves(): void
+    {
+        $guard = (new \ReflectionClass(JwtGuard::class))->newInstanceWithoutConstructor();
+        $auth  = \Mockery::mock(AuthManager::class);
+
+        $auth->shouldReceive('guard')->with('api')->andReturn($guard);
+        $auth->shouldReceive('guard')->with(null)->andReturn($guard);
+
+        self::assertSame($guard, JwtGuard::from($auth, 'api', 'session service'));
+        self::assertSame($guard, JwtGuard::from($auth, null, 'session service'));
+    }
+
+    /**
+     * A non-JWT guard is refused, naming the guard asked for or the default.
+     *
+     * @return void
+     */
+    public function testAGuardThatIsNotAJwtGuardIsRefused(): void
+    {
+        $guard = (new \ReflectionClass(RequestGuard::class))->newInstanceWithoutConstructor();
+        $auth  = \Mockery::mock(AuthManager::class);
+
+        $auth->shouldReceive('guard')->andReturn($guard);
+        $auth->shouldReceive('getDefaultDriver')->andReturn('web');
+
+        try {
+            JwtGuard::from($auth, 'keys', 'passkey service');
+            self::fail('Expected the guard to be refused.');
+        } catch (\InvalidArgumentException $exception) {
+            self::assertSame('Auth guard [keys] is not a jwt guard, so it has no passkey service.', $exception->getMessage());
+        }
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Auth guard [web] is not a jwt guard, so it has no session service.');
+
+        JwtGuard::from($auth, null, 'session service');
     }
 
     /**

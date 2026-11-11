@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Guards;
 
+use Illuminate\Auth\AuthManager;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Http\Request;
 use Illuminate\Support\Timebox;
@@ -75,6 +76,27 @@ final class JwtGuard extends AbstractGuard
         private readonly \Closure $transportFactory,
     ) {
         parent::__construct($name, $provider, $resolver, $events, $request, $timebox);
+    }
+
+    /**
+     * Resolve the named or default guard as a JWT guard.
+     *
+     * @param  \Illuminate\Auth\AuthManager  $auth
+     * @param  ?string  $guard
+     * @param  string  $service
+     * @return self
+     *
+     * @throws \InvalidArgumentException
+     */
+    public static function from(AuthManager $auth, ?string $guard, string $service): self
+    {
+        $resolved = $auth->guard($guard);
+
+        if (!$resolved instanceof self) {
+            throw new \InvalidArgumentException(sprintf('Auth guard [%s] is not a jwt guard, so it has no %s.', $guard ?? $auth->getDefaultDriver(), $service));
+        }
+
+        return $resolved;
     }
 
     /**

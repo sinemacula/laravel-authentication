@@ -196,6 +196,27 @@ final class AuthManagerTest extends TestCase
     }
 
     /**
+     * `sessionGuards()` names only the `jwt` guards, in order, unresolved.
+     *
+     * @return void
+     */
+    public function testSessionGuardsNamesOnlyTheJwtGuardsWithoutResolvingThem(): void
+    {
+        config()->set('auth.guards', [
+            'web'      => ['driver' => 'session', 'provider' => 'users'],
+            'mobile'   => ['driver' => 'jwt', 'provider' => 'missing'],
+            'machines' => ['driver' => 'api_key', 'provider' => 'users'],
+            'api'      => ['driver' => 'jwt', 'provider' => 'missing'],
+        ]);
+
+        /** @var \SineMacula\Laravel\Authentication\AuthManager $manager */
+        $manager = app('auth');
+
+        self::assertSame(['mobile', 'api'], $manager->sessionGuards());
+        self::assertSame([], self::readProperty($manager, 'guards'));
+    }
+
+    /**
      * `refreshTransport()` hands out the named or default JWT guard's
      * transport.
      *

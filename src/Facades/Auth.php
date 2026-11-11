@@ -23,6 +23,7 @@ use SineMacula\Laravel\Authentication\AuthManager;
  * @method static \SineMacula\Laravel\Authentication\Context\AuthenticationContext|null context()
  * @method static \SineMacula\Laravel\Authentication\Jwt\JwtTokenService jwt(?string $guard = null)
  * @method static \SineMacula\Laravel\Authentication\Sessions\SessionService sessions(?string $guard = null)
+ * @method static list<string> sessionGuards()
  * @method static \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport refreshTransport(?string $guard = null)
  * @method static \SineMacula\Laravel\Authentication\Codes\CodeService codes(?string $guard = null)
  * @method static \SineMacula\Laravel\Authentication\Passwords\PasswordService passwords(?string $guard = null)

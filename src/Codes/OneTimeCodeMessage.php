@@ -35,7 +35,7 @@ final readonly class OneTimeCodeMessage
         /** Guard the code was issued for. */
         public string $guard,
 
-        /** What the code is for: a sign-in, verifying the identifier, a password reset, or proving a new identifier. */
+        /** What the code is for: a sign-in, verifying the identifier, a further factor, a factor's enrolment, a password reset, or proving a new identifier. */
         public CodePurpose $purpose,
 
         /** Type of the identifier, for example `phone` or `email`. */

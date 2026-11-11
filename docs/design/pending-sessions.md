@@ -177,7 +177,8 @@ checked before it gets here is in `session-service.md`; the choice of principal 
   `src/Sessions/Enums/PendingRequirement.php`, `src/Sessions/Enums/PendingAction.php`.
 - `src/Proofs/ProofAcceptance.php`: `forPendingSession()`; `src/SessionRecords/OwnedSession.php`: `refusal()`;
   `src/Jwt/RefreshJudgment.php`: `classify()`.
-- `src/Concerns/RecordsSessionStanding.php` and `src/Contracts/EloquentSessionStanding.php`: the record's columns.
+- `src/Concerns/RecordsSessionStanding.php`, `src/Contracts/SessionStanding.php` and
+  `src/Contracts/EloquentSessionStanding.php`: the record's columns.
 - `src/Events/SessionPending.php`, `src/Events/SessionReturnedToPending.php`, `src/Events/SessionActivated.php`.
 - `src/Sessions/SessionService.php`: `satisfy()`, `choose()`; `src/Sessions/SessionPreconditions.php`: `crossSite()`,
   `pendingCredential()`; `src/Sessions/PendingCredential.php`: `extract()`.
