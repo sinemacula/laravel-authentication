@@ -6,18 +6,17 @@ namespace SineMacula\Laravel\Authentication\Guards\Concerns;
 
 use Illuminate\Auth\Events\Authenticated;
 use Illuminate\Auth\Events\Validated;
-use SineMacula\Laravel\Authentication\Admission\TenantAdmission;
 use SineMacula\Laravel\Authentication\Context\Enums\CredentialKind;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
-use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
+use SineMacula\Laravel\Authentication\Guards\TrustedTenant;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
@@ -175,7 +174,7 @@ trait BindsContextualState
 
         $this->forgetDerivedState();
 
-        $this->bindTenant(self::trustedTenant($principal, $this->session));
+        $this->bindTenant(TrustedTenant::of($principal, $this->session));
 
         $this->context->dispatch(new PrincipalAssigned($this->boundContext($this->activeTenant, $this->session?->getSignInMethod())));
 
@@ -204,7 +203,7 @@ trait BindsContextualState
         $this->forgetDerivedState();
 
         if ($this->principal !== null) {
-            $this->bindTenant(self::trustedTenant($this->principal, $session));
+            $this->bindTenant(TrustedTenant::of($this->principal, $session));
         }
 
         $this->context->dispatch(new SessionAuthenticated($this->boundContext($this->activeTenant, $session->getSignInMethod())));
@@ -301,77 +300,6 @@ trait BindsContextualState
     {
         $this->authenticationContext = null;
         $this->boundStateVersion     = null;
-    }
-
-    /**
-     * The tenant a principal bound without an activity check acts within,
-     * `null` when it names none, or why it cannot be loaded.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @return \SineMacula\Laravel\Authentication\Contracts\Tenant|\SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException|null
-     *
-     * @throws \LogicException
-     */
-    private static function boundTenant(Principal $principal): Tenant|TenantUnavailableException|null
-    {
-        try {
-            return WriteConnection::during($principal, static fn (): ?Tenant => $principal->getTenant());
-        } catch (TenantUnavailableException $exception) {
-            return $exception;
-        }
-    }
-
-    /**
-     * The active tenant of a trusted bind: the one the session records for the
-     * principal, or the principal's own without a session.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
-     * @return \SineMacula\Laravel\Authentication\Contracts\Tenant|\SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException|null
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
-     * @throws \LogicException
-     */
-    private static function trustedTenant(Principal $principal, ?Session $session): Tenant|TenantUnavailableException|null
-    {
-        return $session === null
-            ? self::boundTenant($principal)
-            : self::recordedTenant($principal, WriteConnection::during($session, static fn (): ?string => $session->getTenantId()));
-    }
-
-    /**
-     * The tenant a session records for the principal, unchecked, `null` when it
-     * records none, or why it cannot be loaded.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  ?string  $tenantId
-     * @return \SineMacula\Laravel\Authentication\Contracts\Tenant|\SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException|null
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
-     * @throws \LogicException
-     */
-    private static function recordedTenant(Principal $principal, ?string $tenantId): Tenant|TenantUnavailableException|null
-    {
-        if ($tenantId === null) {
-            return null;
-        }
-
-        $own    = self::boundTenant($principal);
-        $tenant = TenantAdmission::named($principal, $own instanceof Tenant ? $own : null, $tenantId);
-
-        return $tenant ?? ($own instanceof TenantUnavailableException ? $own : self::unresolvable($tenantId));
-    }
-
-    /**
-     * The reason a tenant a session records cannot be bound: it no longer
-     * resolves.
-     *
-     * @param  string  $tenantId
-     * @return \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
-     */
-    private static function unresolvable(string $tenantId): TenantUnavailableException
-    {
-        return new TenantUnavailableException(sprintf('The tenant %s the bound session records cannot be resolved.', $tenantId));
     }
 
     /**

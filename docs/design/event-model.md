@@ -181,8 +181,8 @@ to these events, so the shape and the timing are a contract.
   `src/Events/ExternalResultRedeemed.php`,
   `src/Events/Enums/FailureReason.php`, `src/Events/Enums/AuthenticationFlow.php`,
   `src/Events/Enums/RevocationReason.php`.
-- `src/Guards/Concerns/BindsContextualState.php`: `bindContext()`, `boundContext()`, `boundTenant()`, and the context
-  `setPrincipal()` and `setSession()` report.
+- `src/Guards/Concerns/BindsContextualState.php`: `bindContext()`, `boundContext()`, and the context `setPrincipal()`
+  and `setSession()` report; `src/Guards/TrustedTenant.php`: the tenant a trusted bind reports.
 - `src/Guards/AbstractGuard.php`: `bindVerifiedContext()`, `authenticateAs()`, and the `attempt()` failure.
 - `src/Sessions/SessionRefresh.php`: `refresh()`, `refuse()` and `report()`; `src/Guards/BearerAuthentication.php`:
   `failed()`, the bearer failure's context.
