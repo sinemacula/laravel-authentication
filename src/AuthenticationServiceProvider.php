@@ -13,6 +13,7 @@ use Illuminate\Auth\Events\OtherDeviceLogout;
 use Illuminate\Auth\Events\Validated;
 use Illuminate\Auth\Middleware\Authenticate as IlluminateAuthenticate;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Container\Container;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Contracts\Hashing\Hasher;
@@ -104,6 +105,28 @@ use SineMacula\Laravel\Authentication\Tenancy\ResolveNoTenant;
  */
 final class AuthenticationServiceProvider extends ServiceProvider
 {
+    /** @var array<class-string, class-string> Each bindable contract's default. */
+    private const array DEFAULTS = [
+        PrincipalResolver::class          => DefaultPrincipalResolver::class,
+        ApplicationPolicy::class          => GuardApplicationPolicy::class,
+        ApplicationAccess::class          => AdmitAnyPrincipal::class,
+        TenantAccess::class               => OwnTenantOnly::class,
+        TenantResolver::class             => ResolveNoTenant::class,
+        AttemptLimiter::class             => DatabaseAttemptLimiter::class,
+        AdditionalFactorPolicy::class     => NeverRequireAdditionalFactor::class,
+        PasskeyFactorGate::class          => NoPasskeyFactors::class,
+        TenantAuthenticationPolicy::class => RequireNothingOfTenants::class,
+        ExternalIdentityLinks::class      => NoExternalLinks::class,
+        RequirementCheck::class           => MeetNoRequirement::class,
+        ExternalEvidencePolicy::class     => InsufficientEvidence::class,
+        FactorCodeCounters::class         => RefuseFactorCodes::class,
+        FreshnessPolicy::class            => ConfiguredFreshness::class,
+        ScopeRegistry::class              => AcceptAnyScope::class,
+        BreachedPasswordChecker::class    => NoBreachedPasswordCheck::class,
+        PasswordResetLinkSender::class    => NotifyingResetLinkSender::class,
+        AuthenticationContexts::class     => GuardAuthenticationContexts::class,
+    ];
+
     /** @var list<string> The shipped migrations, published under `authentication-migrations`. */
     private const array MIGRATIONS = [
         '2026_04_06_000000_create_authentication_sessions_table.php',
@@ -130,31 +153,24 @@ final class AuthenticationServiceProvider extends ServiceProvider
             'authentication',
         );
 
-        $this->app->singletonIf(PrincipalResolver::class, DefaultPrincipalResolver::class);
-        $this->app->singletonIf(ApplicationPolicy::class, GuardApplicationPolicy::class);
-        $this->app->singletonIf(ApplicationAccess::class, AdmitAnyPrincipal::class);
-        $this->app->singletonIf(TenantAccess::class, OwnTenantOnly::class);
-        $this->app->singletonIf(TenantResolver::class, ResolveNoTenant::class);
+        // Laravel's own resolution of a class bound by name, kept protected
+        $resolve = \Closure::bind(
+            static fn (Container $container, string $class, array $parameters): object => $container->resolve($class, $parameters, raiseEvents: false),
+            null,
+            Container::class,
+        );
+
+        foreach (self::DEFAULTS as $contract => $default) {
+            $this->app->singletonIf($contract, static fn (Container $app, array $parameters = []): object => $resolve($app, $default, $parameters));
+        }
+
         $this->app->singletonIf(IdentifierNormalizers::class);
-        $this->app->singletonIf(AttemptLimiter::class, DatabaseAttemptLimiter::class);
         $this->app->singletonIf(SignInMethodManager::class);
         $this->app->scopedIf(Rehashing::class);
         $this->app->scopedIf(KeptSessions::class);
         $this->app->scopedIf(RequiredWork::class);
         $this->app->scopedIf(WatchedSessions::class);
-        $this->app->singletonIf(AdditionalFactorPolicy::class, NeverRequireAdditionalFactor::class);
-        $this->app->singletonIf(PasskeyFactorGate::class, NoPasskeyFactors::class);
-        $this->app->singletonIf(TenantAuthenticationPolicy::class, RequireNothingOfTenants::class);
-        $this->app->singletonIf(ExternalIdentityLinks::class, NoExternalLinks::class);
-        $this->app->singletonIf(RequirementCheck::class, MeetNoRequirement::class);
-        $this->app->singletonIf(ExternalEvidencePolicy::class, InsufficientEvidence::class);
-        $this->app->singletonIf(FactorCodeCounters::class, RefuseFactorCodes::class);
-        $this->app->singletonIf(FreshnessPolicy::class, ConfiguredFreshness::class);
         $this->app->singletonIf(WebAuthn::class);
-        $this->app->singletonIf(ScopeRegistry::class, AcceptAnyScope::class);
-        $this->app->singletonIf(BreachedPasswordChecker::class, NoBreachedPasswordCheck::class);
-        $this->app->singletonIf(PasswordResetLinkSender::class, NotifyingResetLinkSender::class);
-        $this->app->singletonIf(AuthenticationContexts::class, GuardAuthenticationContexts::class);
         $this->app->singletonIf(ContextContributors::class);
         $this->app->singletonIf(ConfigurationChecks::class);
         $this->app->bindIf(IlluminateAuthenticate::class, Authenticate::class);
@@ -182,6 +198,34 @@ final class AuthenticationServiceProvider extends ServiceProvider
         $this->registerMiddleware($this->app->make(Router::class));
         $this->registerPublishing();
         $this->registerCommands();
+    }
+
+    /**
+     * Whether the contract still resolves to the package's own default.
+     *
+     * @param  \Illuminate\Container\Container  $container
+     * @param  string  $contract
+     * @return bool
+     */
+    public static function isPackageDefault(Container $container, string $contract): bool
+    {
+        $default  = self::DEFAULTS[$contract]                        ?? null;
+        $concrete = $container->getBindings()[$contract]['concrete'] ?? null;
+
+        if ($default === null || !$concrete instanceof \Closure || $container->isAlias($contract)) {
+            return false;
+        }
+
+        if ((new \ReflectionFunction($concrete))->getClosureScopeClass()?->getName() !== self::class) {
+            return false;
+        }
+
+        // Laravel offers no public read of a binding's instance or extenders
+        $read = static fn (Container $container): array => [$container->instances[$contract] ?? null, $container->extenders[$contract] ?? []];
+
+        [$held, $extenders] = \Closure::bind($read, null, Container::class)($container);
+
+        return $extenders === [] && ($held === null || get_debug_type($held) === $default);
     }
 
     /**

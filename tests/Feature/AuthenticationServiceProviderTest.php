@@ -761,6 +761,239 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
+     * Each contract an application may bind, with the package's default.
+     *
+     * @return iterable<string, array{class-string, class-string}>
+     */
+    public static function providePackageDefaults(): iterable
+    {
+        yield 'principal resolver' => [PrincipalResolver::class, DefaultPrincipalResolver::class];
+        yield 'application policy' => [ApplicationPolicy::class, GuardApplicationPolicy::class];
+        yield 'application access' => [ApplicationAccess::class, AdmitAnyPrincipal::class];
+        yield 'tenant access' => [TenantAccess::class, OwnTenantOnly::class];
+        yield 'tenant resolver' => [TenantResolver::class, ResolveNoTenant::class];
+        yield 'attempt limiter' => [AttemptLimiter::class, DatabaseAttemptLimiter::class];
+        yield 'additional factor policy' => [AdditionalFactorPolicy::class, NeverRequireAdditionalFactor::class];
+        yield 'passkey factor gate' => [PasskeyFactorGate::class, NoPasskeyFactors::class];
+        yield 'tenant authentication policy' => [TenantAuthenticationPolicy::class, RequireNothingOfTenants::class];
+        yield 'external identity links' => [ExternalIdentityLinks::class, NoExternalLinks::class];
+        yield 'requirement check' => [RequirementCheck::class, MeetNoRequirement::class];
+        yield 'external evidence policy' => [ExternalEvidencePolicy::class, InsufficientEvidence::class];
+        yield 'factor code counters' => [FactorCodeCounters::class, RefuseFactorCodes::class];
+        yield 'freshness policy' => [FreshnessPolicy::class, ConfiguredFreshness::class];
+        yield 'scope registry' => [ScopeRegistry::class, AcceptAnyScope::class];
+        yield 'breached password checker' => [BreachedPasswordChecker::class, NoBreachedPasswordCheck::class];
+        yield 'password reset link sender' => [PasswordResetLinkSender::class, NotifyingResetLinkSender::class];
+        yield 'authentication contexts' => [AuthenticationContexts::class, GuardAuthenticationContexts::class];
+    }
+
+    /**
+     * Each default is the package's, resolved or not, and is a singleton.
+     *
+     * @param  class-string  $contract
+     * @param  class-string  $default
+     * @return void
+     */
+    #[DataProvider('providePackageDefaults')]
+    public function testEachDefaultIsThePackagesDefault(string $contract, string $default): void
+    {
+        $app = $this->app;
+
+        assert($app !== null);
+
+        self::assertTrue(AuthenticationServiceProvider::isPackageDefault($app, $contract));
+        self::assertTrue($app->isShared($contract));
+        self::assertSame($default, get_class($app->make($contract)));
+        self::assertSame($app->make($contract), $app->make($contract));
+        self::assertTrue(AuthenticationServiceProvider::isPackageDefault($app, $contract));
+    }
+
+    /**
+     * A binding made over a default is not the package's default.
+     *
+     * @return void
+     */
+    public function testARebindingIsNotThePackagesDefault(): void
+    {
+        $app = $this->app;
+
+        assert($app !== null);
+
+        $app->singleton(PrincipalResolver::class, StubReplacementPrincipalResolver::class);
+
+        self::assertFalse(AuthenticationServiceProvider::isPackageDefault($app, PrincipalResolver::class));
+
+        $app->singleton(PrincipalResolver::class, static fn (): PrincipalResolver => new StubReplacementPrincipalResolver);
+
+        self::assertFalse(AuthenticationServiceProvider::isPackageDefault($app, PrincipalResolver::class));
+    }
+
+    /**
+     * A closure bound outside any class is not the package's default.
+     *
+     * @return void
+     */
+    public function testAnUnscopedClosureIsNotThePackagesDefault(): void
+    {
+        $app = $this->app;
+
+        assert($app !== null);
+
+        $app->singleton(PrincipalResolver::class, \Closure::bind(static fn (): PrincipalResolver => new StubReplacementPrincipalResolver, null, null));
+
+        self::assertFalse(AuthenticationServiceProvider::isPackageDefault($app, PrincipalResolver::class));
+    }
+
+    /**
+     * An instance of another class is not the package's default.
+     *
+     * @return void
+     */
+    public function testAnInstanceOfAnotherClassIsNotThePackagesDefault(): void
+    {
+        $app = $this->app;
+
+        assert($app !== null);
+
+        $app->instance(PrincipalResolver::class, new StubReplacementPrincipalResolver);
+
+        self::assertFalse(AuthenticationServiceProvider::isPackageDefault($app, PrincipalResolver::class));
+    }
+
+    /**
+     * A default extended before it resolves is not the package's default.
+     *
+     * @return void
+     */
+    public function testAnExtenderOnAnUnresolvedDefaultIsNotThePackagesDefault(): void
+    {
+        $app = $this->app;
+
+        assert($app !== null);
+
+        $app->extend(ScopeRegistry::class, static fn (ScopeRegistry $registry): ScopeRegistry => $registry);
+
+        self::assertFalse(AuthenticationServiceProvider::isPackageDefault($app, ScopeRegistry::class));
+    }
+
+    /**
+     * A resolved default extended to another class is not the default.
+     *
+     * @return void
+     */
+    public function testAResolvedDefaultExtendedToAnotherClassIsNotThePackagesDefault(): void
+    {
+        $app = $this->app;
+
+        assert($app !== null);
+
+        $app->make(PrincipalResolver::class);
+        $app->extend(PrincipalResolver::class, static fn (): PrincipalResolver => new StubReplacementPrincipalResolver);
+
+        self::assertFalse(AuthenticationServiceProvider::isPackageDefault($app, PrincipalResolver::class));
+    }
+
+    /**
+     * A resolved default extended to its own class reads as the default.
+     *
+     * @return void
+     */
+    public function testAResolvedDefaultExtendedToItsOwnClassStillReadsAsThePackagesDefault(): void
+    {
+        $app = $this->app;
+
+        assert($app !== null);
+
+        $app->make(PrincipalResolver::class);
+        $app->extend(PrincipalResolver::class, static fn (PrincipalResolver $resolver): PrincipalResolver => $resolver);
+
+        self::assertTrue(AuthenticationServiceProvider::isPackageDefault($app, PrincipalResolver::class));
+    }
+
+    /**
+     * Parameters given to `makeWith()` reach the default's constructor.
+     *
+     * @return void
+     *
+     * @throws \ReflectionException
+     */
+    public function testParametersGivenToMakeWithReachTheDefault(): void
+    {
+        $app = $this->app;
+
+        assert($app !== null);
+
+        $config = new ConfigRepository;
+        $policy = $app->makeWith(FreshnessPolicy::class, ['config' => $config]);
+
+        self::assertSame(ConfiguredFreshness::class, $policy::class);
+        self::assertSame($config, $this->readObjectProperty($policy, 'config'));
+    }
+
+    /**
+     * A resolving callback runs once per construction of a default.
+     *
+     * @return void
+     */
+    public function testResolvingCallbacksRunOncePerConstructionOfADefault(): void
+    {
+        $app = $this->app;
+
+        assert($app !== null);
+
+        $runs = 0;
+
+        $app->resolving(PrincipalResolver::class, static function () use (&$runs): void {
+            $runs++;
+        });
+
+        $app->make(PrincipalResolver::class);
+        $app->make(PrincipalResolver::class);
+
+        $byPackage = $runs;
+
+        $app->singleton(PrincipalResolver::class, DefaultPrincipalResolver::class);
+        $app->make(PrincipalResolver::class);
+
+        self::assertSame(1, $byPackage);
+        self::assertSame(2, $runs);
+    }
+
+    /**
+     * A default reached through an alias is not the package's default.
+     *
+     * @return void
+     */
+    public function testAnAliasedDefaultIsNotThePackagesDefault(): void
+    {
+        $app = $this->app;
+
+        assert($app !== null);
+
+        $app->alias(StubReplacementPrincipalResolver::class, PrincipalResolver::class);
+
+        self::assertFalse(AuthenticationServiceProvider::isPackageDefault($app, PrincipalResolver::class));
+    }
+
+    /**
+     * An unbound contract or an internal binding is not a package default.
+     *
+     * @return void
+     */
+    public function testAnUnboundContractOrAnInternalBindingIsNotThePackagesDefault(): void
+    {
+        $app = $this->app;
+
+        assert($app !== null);
+
+        self::assertFalse(AuthenticationServiceProvider::isPackageDefault($app, JwtTokenServiceFactory::class));
+
+        unset($app[PrincipalResolver::class]);
+
+        self::assertFalse(AuthenticationServiceProvider::isPackageDefault($app, PrincipalResolver::class));
+    }
+
+    /**
      * Package guards follow later rebinds of the `events` dispatcher.
      *
      * @return void

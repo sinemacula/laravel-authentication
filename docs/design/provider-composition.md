@@ -17,6 +17,8 @@ binding and what it takes over from the manager it replaces.
   `ScopeRegistry` by `AcceptAnyScope`, whichever order the providers are listed in; a binding made after replaces the
   default, as any later binding does. The internals are conditional so the rule has no exceptions; they are not
   extension points.
+- Each bindable contract's default is bound through a closure the provider declares; `isPackageDefault()` checks that
+  closure's class, the contract's extenders and any instance held under it.
 - `Application::bound()` counts deferred services, so a deferred provider's service is never shadowed by a default the
   package binds once the deferred map is installed, and a default bound before it is replaced when the deferred provider
   loads on first resolution.
@@ -77,7 +79,7 @@ binding and what it takes over from the manager it replaces.
 
 ## Implementation Anchors
 
-- `src/AuthenticationServiceProvider.php`: `register()`, `ownAuthManager()`, `wireGuardRebinds()`.
+- `src/AuthenticationServiceProvider.php`: `register()`, `isPackageDefault()`, `ownAuthManager()`, `wireGuardRebinds()`.
 - `src/AuthManager.php`: `inheritStateFrom()`; `src/Support/ClosureRebinding.php`: `onto()`, the closures it rebinds.
 - `src/Sessions/SignInMethodManager.php`: `extend()`.
 
