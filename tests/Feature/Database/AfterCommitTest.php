@@ -164,6 +164,40 @@ final class AfterCommitTest extends TestCase
     }
 
     /**
+     * Work run across models never runs once any connection rolled back.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testRunsAcrossNoModelsConnectionOnceOneRolledBackFirst(): void
+    {
+        $session  = $this->record();
+        $separate = new SeparateConnectionSession;
+        $calls    = new \ArrayObject;
+        $count    = self::counter($calls);
+        $other    = DB::connection(SeparateConnectionSession::CONNECTION);
+
+        DB::beginTransaction();
+        $other->beginTransaction();
+
+        $this->afterCommit()->runAcross([$session, $separate], $count);
+
+        $other->rollBack();
+        DB::commit();
+
+        DB::beginTransaction();
+        $other->beginTransaction();
+
+        $this->afterCommit()->runAcross([$session, $separate], $count);
+
+        DB::rollBack();
+        $other->commit();
+
+        self::assertCount(0, $calls);
+    }
+
+    /**
      * Work run once ended waits for the outermost transaction on each model's
      * connection to end, whether it commits or rolls back.
      *

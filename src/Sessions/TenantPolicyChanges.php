@@ -58,6 +58,9 @@ final readonly class TenantPolicyChanges
      * Apply the tenant's changed policy to its sessions, returning how many
      * were revoked.
      *
+     * Inside a transaction it runs again after the commit, as the first pass
+     * may have read an earlier snapshot; that pass is not counted.
+     *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @param  \Carbon\CarbonImmutable  $now
      * @return int
@@ -73,6 +76,33 @@ final readonly class TenantPolicyChanges
             return 0;
         }
 
+        $models  = $tenant instanceof Model ? [$model, $tenant] : [$model];
+        $again   = array_filter($models, $this->afterCommit->defers(...)) !== [];
+        $revoked = $this->judge($model, $tenant, $tenantId, $now);
+
+        if ($again) {
+            $this->afterCommit->runAcross($models, function () use ($model, $tenant, $tenantId): void {
+                $this->judge($model, $tenant, $tenantId, CarbonImmutable::now()->startOfSecond());
+            });
+        }
+
+        return $revoked;
+    }
+
+    /**
+     * Judge the tenant's live sessions at `$now` in one transaction, returning
+     * how many were revoked.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $model
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
+     * @param  string  $tenantId
+     * @param  \Carbon\CarbonImmutable  $now
+     * @return int
+     *
+     * @throws \Throwable
+     */
+    private function judge(EloquentSession&Model $model, Tenant $tenant, string $tenantId, CarbonImmutable $now): int
+    {
         return $model->getConnection()->transaction(function () use ($model, $tenant, $tenantId, $now): int {
 
             $revoked = 0;

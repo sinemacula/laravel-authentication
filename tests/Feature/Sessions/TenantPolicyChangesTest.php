@@ -34,6 +34,7 @@ use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\TestCase;
+use Tests\Unit\Stubs\PlainTenantFixture;
 
 /**
  * Feature tests of the policy-change helper's edges through the session
@@ -49,6 +50,9 @@ use Tests\TestCase;
 final class TenantPolicyChangesTest extends TestCase
 {
     use InteractsWithExternalSignIns, InteractsWithSessions, MarksSharedLocks;
+
+    /** @var string A second connection to the test database, which a tenant may live on. */
+    private const string ELSEWHERE = 'elsewhere';
 
     /** @var \Carbon\CarbonImmutable Frozen clock reference. */
     private CarbonImmutable $now;
@@ -488,6 +492,89 @@ final class TenantPolicyChangesTest extends TestCase
     }
 
     /**
+     * The second pass waits for a transaction on the storage connection alone.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheSecondPassWaitsForTheStorageConnection(): void
+    {
+        [, , $tenant] = $this->seedMember();
+
+        $session = $this->signedIn()->record->getKey();
+        $changed = clone $tenant;
+
+        $changed->setConnection(self::ELSEWHERE);
+
+        DB::transaction(function () use ($changed, $session): void {
+
+            self::assertSame(0, $this->sessions('members')->tenantPolicyChanged($changed));
+
+            $this->policy->requirement = new TenantRequirement('v1', connections: ['conn-a']);
+
+            self::assertNull($this->rowOf($session)->getRevokedAt());
+        });
+
+        self::assertSame(RevocationReason::TENANT_POLICY_CHANGED->value, $this->rowOf($session)->getRevokedReason());
+    }
+
+    /**
+     * A plain tenant's second pass waits for the storage connection.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheSecondPassWaitsForTheStorageConnectionForAPlainTenant(): void
+    {
+        [, , $tenant] = $this->seedMember();
+
+        $session = $this->signedIn()->record->getKey();
+        $plain   = new PlainTenantFixture(IdentifierCoercion::stringify($tenant->getKey()) ?? '');
+
+        DB::transaction(function () use ($plain, $session): void {
+
+            self::assertSame(0, $this->sessions('members')->tenantPolicyChanged($plain));
+
+            $this->policy->requirement = new TenantRequirement('v1', connections: ['conn-a']);
+
+            self::assertNull($this->rowOf($session)->getRevokedAt());
+        });
+
+        self::assertSame(RevocationReason::TENANT_POLICY_CHANGED->value, $this->rowOf($session)->getRevokedReason());
+    }
+
+    /**
+     * The second pass waits for a transaction on the tenant's connection alone.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheSecondPassWaitsForTheTenantsConnection(): void
+    {
+        [, , $tenant] = $this->seedMember();
+
+        $session   = $this->signedIn()->record->getKey();
+        $changed   = clone $tenant;
+        $elsewhere = DB::connection(self::ELSEWHERE);
+
+        $changed->setConnection(self::ELSEWHERE);
+        $elsewhere->beginTransaction();
+
+        self::assertSame(0, $this->sessions('members')->tenantPolicyChanged($changed));
+
+        $this->policy->requirement = new TenantRequirement('v1', connections: ['conn-a']);
+
+        self::assertNull($this->rowOf($session)->getRevokedAt());
+
+        $elsewhere->commit();
+
+        self::assertSame(RevocationReason::TENANT_POLICY_CHANGED->value, $this->rowOf($session)->getRevokedReason());
+    }
+
+    /**
      * Register the session guards.
      *
      * @param  mixed  $app
@@ -500,7 +587,11 @@ final class TenantPolicyChangesTest extends TestCase
 
         assert($app instanceof Application);
 
-        self::configureSessionGuards($app->make(ConfigRepository::class));
+        $config = $app->make(ConfigRepository::class);
+
+        self::configureSessionGuards($config);
+
+        $config->set('database.connections.' . self::ELSEWHERE, $config->get('database.connections.' . $config->string('database.default')));
     }
 
     /**
