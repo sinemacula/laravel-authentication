@@ -25,12 +25,7 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Fixtures\Database\ShippedMigrations;
 
 /**
- * Shared helpers for tests of the proofs a session records: the proofs and
- * provenance a session holds, proofs written straight onto a session, and
- * adapter proofs to hand the session service.
- *
- * A trait rather than a base-class method because the session tests extend
- * different base cases (plain Testbench and the package `TestCase`).
+ * Shared helpers for tests of the proofs and provenance a session records.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -70,8 +65,7 @@ trait InteractsWithProofs
     }
 
     /**
-     * Run the shipped proofs and provenance migrations, for a test that builds
-     * its own schema rather than running every shipped migration.
+     * Run the shipped proofs and provenance migrations.
      *
      * @return void
      */
@@ -110,9 +104,7 @@ trait InteractsWithProofs
     }
 
     /**
-     * A further factor an adapter verified: accepted and multifactor, made now
-     * for the purpose on the application, for the session or pending sign-in
-     * given; each part may be changed.
+     * A further factor an adapter verified for the session or pending sign-in.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $application

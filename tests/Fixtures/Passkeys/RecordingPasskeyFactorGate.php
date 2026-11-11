@@ -15,11 +15,8 @@ use SineMacula\Laravel\Authentication\Proofs\ProofBinding;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
 
 /**
- * Passkey factor gate a factor package's adapter might bind: it keeps what it
- * was asked and answers as the test scripts it (by default associating every
- * passkey as factor `factor-<passkey id>` and letting every removal go ahead,
- * completing nothing), and, as the factor package requires, refuses to run
- * outside a transaction on the storage connection.
+ * Passkey factor gate that keeps what it was asked, answers as scripted and
+ * refuses to run outside a storage transaction.
  *
  * @phpstan-type Registration array{
  *     identity: \SineMacula\Laravel\Authentication\Contracts\Identity,

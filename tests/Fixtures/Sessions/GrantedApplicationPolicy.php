@@ -12,11 +12,8 @@ use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
- * Application policy an application rebinds to decide admission from rows of
- * its own, read through the query builder on the default connection as such a
- * policy would read them: an identity that signs in with an identifier is
- * admitted only once that identifier's type is recorded verified. Everything
- * else is the wrapped policy's.
+ * Application policy that admits an identifier sign-in only once that
+ * identifier's type is recorded verified.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

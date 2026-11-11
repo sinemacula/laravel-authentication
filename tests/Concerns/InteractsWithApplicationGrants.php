@@ -15,14 +15,8 @@ use Tests\Fixtures\Sessions\GrantedApplicationAccess;
 use Tests\Fixtures\Sessions\GrantedApplicationPolicy;
 
 /**
- * Binds an application policy and an application access that decide from rows
- * of their own (`GrantedApplicationPolicy`, `GrantedApplicationAccess`) over a
- * lagging read/write split, so a test can show which copy of those rows they
- * were asked against: a row written through the split connection exists on the
- * primary only, and one withdrawn on the primary is still on the replica.
- *
- * Used beside `InteractsWithLaggingReplica`, whose connections it writes
- * through.
+ * Binds an application policy and access that decide from their own rows over
+ * the lagging read/write split of `InteractsWithLaggingReplica`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -86,8 +80,7 @@ trait InteractsWithApplicationGrants
     }
 
     /**
-     * Copy the row to the replica, then delete it on the primary, as a replica
-     * that lags behind the withdrawal would still hold it.
+     * Copy the row to the replica, then delete it on the primary.
      *
      * @param  string  $table
      * @param  int  $id

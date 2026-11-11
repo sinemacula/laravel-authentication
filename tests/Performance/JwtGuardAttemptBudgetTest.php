@@ -20,20 +20,7 @@ use Tests\Integration\Fixtures\Coexist3dPrincipal;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 
 /**
- * Query-budget and timing contracts for credential sign-in through `attempt()`:
- * the reads each outcome costs, including the pinned principal's owner re-read
- * and the pinned session lookup, the writes of the shipped attempt limits, and
- * the timebox that keeps a failed attempt as slow as an unknown identifier.
- *
- * Every attempt first reserves a slot on the identifier's and the IP address's
- * counters. The first attempt of a window finds neither counter, so each
- * reservation is an update that changes nothing and the insert that creates the
- * counter: four writes. A later attempt in the window updates the two existing
- * counters: two writes. An attempt that finds an account reserves a slot on the
- * account's counter too before its password is checked (two writes on a fresh
- * window, one later) and gives it back when the password matches (one more). A
- * successful attempt then gives the first two slots back: two more. A failed
- * attempt keeps them.
+ * Query-budget and timing contracts for credential sign-in through `attempt()`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -127,10 +114,8 @@ final class JwtGuardAttemptBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A sign-in whose stored hash the hasher no longer produces (a lower bcrypt
-     * cost) costs one write on top of its limits: the rehashed password. The
-     * hash is made before the cost goes up, so the stored one is outdated. The
-     * next sign-in finds the counters and the new hash in place.
+     * A sign-in whose stored hash is outdated writes the rehash on top of its
+     * limits.
      *
      * @return void
      *
@@ -154,11 +139,8 @@ final class JwtGuardAttemptBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Rows of `[credentials, active, writes]`: rejected sign-ins, whether the
-     * seeded identity is active, and the writes each costs: an unknown
-     * identifier reserves only the identifier's and the IP address's slots, and
-     * a wrong password or an inactive identity the account's too, which a
-     * failure keeps whether or not the password matched.
+     * Rows of `[credentials, active, writes]`: rejected sign-ins and the writes
+     * each keeps.
      *
      * @return iterable<string, array{0: array<string, string>, 1: bool, 2: int}>
      */
@@ -173,8 +155,7 @@ final class JwtGuardAttemptBudgetTest extends PerformanceContractTestCase
 
     /**
      * A rejected sign-in reads the identity once and writes only the
-     * reservations it keeps, whether the identifier is unknown, the password is
-     * wrong, or the identity is inactive.
+     * reservations it keeps.
      *
      * @param  array<string, string>  $credentials
      * @param  bool  $active
@@ -195,9 +176,7 @@ final class JwtGuardAttemptBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A guard with no `application` block allows nothing, as the package
-     * default lists no method, so a sign-in with valid credentials is refused
-     * before it reads the identity or reserves a slot.
+     * A guard with no `application` block refuses a sign-in before any query.
      *
      * @return void
      *
@@ -216,10 +195,8 @@ final class JwtGuardAttemptBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A pinned live session costs one read on top of the identity, plus the
-     * first-use timestamp write besides the limits; a pinned revoked session
-     * costs the same reads, writes only its reservations, the account's
-     * included, and fails the attempt.
+     * A pinned session costs one more read; a live one also writes its first
+     * use.
      *
      * @return void
      *
@@ -278,11 +255,8 @@ final class JwtGuardAttemptBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Pinning another identity's principal misses the hinted lookup; the
-     * resolver falls back to the identity's default principal, whose id does
-     * not match the pin, so the attempt fails without any owner read and keeps
-     * its reservations, the one its password check took on the account
-     * included.
+     * Pinning another identity's principal fails without an owner read and
+     * keeps its reservations.
      *
      * @return void
      *
@@ -337,9 +311,8 @@ final class JwtGuardAttemptBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A sign-in to an account stored without a password hash is rejected like a
-     * wrong password: it reads the identity once, writes only the reservations
-     * it keeps, the account's included, and waits out the real timebox.
+     * A sign-in to an account with no password hash is rejected like a wrong
+     * password and waits out the timebox.
      *
      * @return void
      *
@@ -364,10 +337,7 @@ final class JwtGuardAttemptBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A successful sign-in returns as soon as it is done instead of waiting out
-     * the timebox. The fastest of a few sign-ins is compared, so one scheduler
-     * pause or slow query cannot fail the contract; the early return itself is
-     * pinned without timing in AbstractGuardAttemptLifecycleTest.
+     * A successful sign-in returns before the timebox.
      *
      * @return void
      *

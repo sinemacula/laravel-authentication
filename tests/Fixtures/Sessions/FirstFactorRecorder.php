@@ -20,10 +20,8 @@ use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
 use SineMacula\Laravel\Authentication\Sessions\SessionWriter;
 
 /**
- * Gives a session row a test inserts itself the first-factor proof the session
- * service records with every session it writes, so the tokens issued for it
- * carry the `auth_time` and `amr` a real sign-in's would. The package test case
- * runs it for every session row created outside the session writer.
+ * Gives a session row a test inserts itself the first-factor proof a real
+ * sign-in would record.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -60,15 +58,8 @@ final class FirstFactorRecorder
     }
 
     /**
-     * Record on a session row a test inserted itself the first-factor proof its
-     * sign-in would have recorded: at its `signed_in_at`, through its
-     * `sign_in_method` (a package method's channel and `amr` values, or an
-     * unknown channel and none), bound to its owner and guard. A row that
-     * records no sign-in time, guard or owner, a row whose owner type names no
-     * class (the proof writer builds its owner relation, which would
-     * instantiate it), the session writer's own insert (which records its own
-     * proofs), and a row on a database without the proofs table are left
-     * without one.
+     * Record the first-factor proof the row's sign-in would have recorded, when
+     * the row records enough to build one.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @return void
@@ -87,9 +78,8 @@ final class FirstFactorRecorder
         try {
             ProofWriter::record($session, $guard, $proof);
         } catch (\Throwable $exception) {
-            // A test that migrates its own tables may have no proofs table. On
-            // PostgreSQL the failed insert aborts any open transaction, so a
-            // test that runs inside one migrates the proofs table too.
+            // A test that migrates its own tables may have no proofs table; on
+            // PostgreSQL the failed insert aborts any open transaction.
             if (!$exception instanceof QueryException) {
                 throw $exception;
             }
@@ -114,10 +104,8 @@ final class FirstFactorRecorder
     }
 
     /**
-     * The first factor the row's sign-in would have recorded, or `null` for a
-     * row that records no sign-in time or owner, or whose owner type names no
-     * class. The owner's columns are named by a blank instance's relation, so
-     * the recorded type is never instantiated.
+     * The first factor the row's sign-in would have recorded, or `null` when
+     * the row records too little.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @return ?\SineMacula\Laravel\Authentication\Proofs\NewProof

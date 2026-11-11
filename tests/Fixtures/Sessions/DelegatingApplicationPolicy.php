@@ -10,9 +10,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 
 /**
- * Application policy of an application's own that wraps another and answers
- * everything as it does, as a policy that adds a rule of its own to the
- * package's starts out.
+ * Application policy that wraps another and answers everything as it does.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

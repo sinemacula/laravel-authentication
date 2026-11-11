@@ -29,13 +29,8 @@ use Tests\Integration\Fixtures\PasswordIdentity;
 use Tests\Integration\Fixtures\PasswordMachine;
 
 /**
- * Shared set-up for the password reset tests, built on the password helpers': a
- * frozen clock, the `password_identities` table, the guards (and a `lookalike`
- * one whose provider finds an email by any casing and accents, as a lenient
- * collation would, and a `mapped` one over identities whose email address is in
- * an `email_address` column), faked link and code senders, and the reset routes
- * an application would register (`/password/forgot`, `/password/forgot/code`,
- * `/password/reset`, `/password/reset/code`).
+ * Shared set-up for the password reset tests, with the reset routes an
+ * application would register.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -126,8 +121,7 @@ trait InteractsWithPasswordResets
     }
 
     /**
-     * Configure the guards, and one whose provider finds an email by any
-     * casing, as a case-insensitive collation would.
+     * Configure the guards, including look-alike and mapped-column ones.
      *
      * @param  mixed  $app
      * @return void
@@ -211,8 +205,8 @@ trait InteractsWithPasswordResets
     }
 
     /**
-     * Create the `mapped_email_identities` table and persist an identity whose
-     * email address, the seeded one, is in its `email_address` column.
+     * Create the `mapped_email_identities` table and persist an identity with
+     * the seeded email address.
      *
      * @return \Tests\Integration\Fixtures\MappedEmailIdentity
      */

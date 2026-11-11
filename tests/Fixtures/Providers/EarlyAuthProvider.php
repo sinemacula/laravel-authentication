@@ -14,11 +14,8 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\ServiceProvider;
 
 /**
- * Another package's provider that uses Laravel's auth manager, through the
- * facade, before the package's provider boots: it registers a guard driver
- * (`early`), a request guard driver (`early_request`), a user provider driver
- * (`early`) and a user resolver while registering, and resolves the default
- * guard while booting.
+ * Another package's provider that uses Laravel's auth manager through the
+ * facade before the package's provider boots.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

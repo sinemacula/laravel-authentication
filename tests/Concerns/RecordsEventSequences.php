@@ -27,20 +27,7 @@ use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 
 /**
  * Records every authentication event a flow dispatches, in order, as one line
- * each: the event, the guard, what the event says happened (a failure's flow
- * and reason, a revocation's reason, how a session was signed into, the
- * principal a switch left, a password's flow) and the identity, principal and
- * session it concerns.
- *
- * The events recorded are every package event (one listener on the
- * `AuthenticationEvent` contract) and Laravel's `Attempting`, `Validated`,
- * `Login`, `Authenticated`, `Failed` and `Logout`, the only Laravel auth events
- * the package dispatches. A test names the identities, principals and sessions
- * it expects (`i1`, `p1`, `d1`, ..., with `-` for none) before it records, so a
- * name in a line says which of them the event carried; a key the test did not
- * name takes the next name of its kind when it first appears (a session the
- * flow creates, or one it should not have carried), and keeps it from one flow
- * to the next.
+ * each naming the identity, principal and session it concerns.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -128,8 +115,7 @@ trait RecordsEventSequences
 
     /**
      * The name the session was given, or the next name of a session if it has
-     * none yet: a session a flow created is named when an event first carries
-     * it.
+     * none yet.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @return string
@@ -150,8 +136,7 @@ trait RecordsEventSequences
     }
 
     /**
-     * Describe one of Laravel's auth events: the event, the guard and, for all
-     * but `Attempting`, the identity it carries.
+     * Describe one of Laravel's auth events.
      *
      * @formatter:off
      *
@@ -172,8 +157,7 @@ trait RecordsEventSequences
     }
 
     /**
-     * Describe a package event: the event, the guard, what it says happened,
-     * and the identity, principal and session of its context.
+     * Describe a package event.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent  $event
      * @return string
@@ -192,9 +176,7 @@ trait RecordsEventSequences
     }
 
     /**
-     * What the event says happened, beyond its class (a switch's previous
-     * principal, what a pending session waits on, say): `null` when its class
-     * says it all.
+     * What the event says happened beyond its class.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent  $event
      * @return ?string
@@ -213,8 +195,7 @@ trait RecordsEventSequences
     }
 
     /**
-     * What a pending session's event says it waits on, and from which flow a
-     * session returned to pending: `null` for any other event.
+     * What a pending session's event says it waits on.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent  $event
      * @return ?string

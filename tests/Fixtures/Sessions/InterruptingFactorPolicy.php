@@ -9,10 +9,8 @@ use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 
 /**
- * A factor policy that asks for the requirement it was given (none unless one
- * is) and, the first time it is asked, runs the change it was given: a stand-in
- * for a deactivation or deletion that commits while a sign-in or a choice, past
- * its admission, has not yet written its session.
+ * A factor policy that asks for the given requirement and, the first time it is
+ * asked, runs the given change.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

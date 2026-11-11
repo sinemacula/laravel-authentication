@@ -24,15 +24,7 @@ use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 
 /**
- * Shared set-up for tests that sign in through the session service: a 2D guard
- * (`api`) over `IntegrationIdentity`, a second 2D guard (`admin`) over the same
- * identities, and a 3D guard (`members`) over `ActivatableTenantMember`, whose
- * memberships act within activatable tenants; the tables behind them; seeded
- * identities; the request a sign-in comes from; and a record of the events it
- * dispatches.
- *
- * A trait rather than a base class because the session tests extend different
- * base cases (the package `TestCase` and the performance contract case).
+ * Shared set-up for tests that sign in through the session service.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -134,10 +126,8 @@ trait InteractsWithSessions
     }
 
     /**
-     * Register the guards and providers, each guard allowing the password
-     * method, the `sso` and `trusted` methods the tests register and external
-     * sign-in, a cheap password hash, and a timebox short enough not to slow
-     * the suite.
+     * Register the guards and providers, a cheap password hash and a short
+     * timebox.
      *
      * @param  \Illuminate\Config\Repository  $config
      * @return void
@@ -200,8 +190,7 @@ trait InteractsWithSessions
     }
 
     /**
-     * Start a request from the test client and return the named guard's session
-     * service, on a guard resolved afresh for that request.
+     * Return the session service of a freshly resolved guard.
      *
      * @param  string  $guard
      * @return \SineMacula\Laravel\Authentication\Sessions\SessionService
@@ -226,9 +215,8 @@ trait InteractsWithSessions
     }
 
     /**
-     * Start a request from the test client, a page of the API's own site that
-     * sends the custom header, as a browser application's script does (a body
-     * application ignores both), and resolve the named guard afresh for it.
+     * Start a same-site request from the test client and resolve the named
+     * guard afresh for it.
      *
      * @param  string  $guard
      * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
@@ -252,10 +240,8 @@ trait InteractsWithSessions
     }
 
     /**
-     * Start a request from another site, as a cross-site form sends it: from
-     * another address, with no `Origin`, no custom header and no refresh token,
-     * and resolve the named guard afresh for it. A call that judged or reported
-     * this request, rather than the plain values it was given, would show it.
+     * Start a cross-site request from another address and resolve the named
+     * guard afresh for it.
      *
      * @param  string  $guard
      * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
@@ -277,9 +263,8 @@ trait InteractsWithSessions
     }
 
     /**
-     * A client built from plain values, as a controller copies it from a
-     * request a page of the API's own site sent with the custom header, from
-     * another address and user agent than the guard's request.
+     * A same-site client built from plain values, from another address than the
+     * guard's request.
      *
      * @return \SineMacula\Laravel\Authentication\Http\ClientContext
      */
@@ -300,8 +285,7 @@ trait InteractsWithSessions
     }
 
     /**
-     * The refresh token as a controller hands it on: presented from the source,
-     * that carrier alone unless others are given.
+     * The refresh token as a controller hands it on, presented from the source.
      *
      * @param  string  $token
      * @param  \SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource  $source

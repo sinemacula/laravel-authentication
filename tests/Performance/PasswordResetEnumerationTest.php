@@ -30,15 +30,7 @@ use Tests\Performance\Fixtures\SlowModelProvider;
 use Tests\Performance\Fixtures\SlowPasswordResetLinkSender;
 
 /**
- * The enumeration criteria for password resets, held as contracts: a request
- * for a link runs the same statements, gives the same answer and takes the same
- * time whether or not anyone holds the address, with its delivery never inside
- * it, against a slow identity store and a slow mail gateway; a failed reset
- * answers `invalid` and waits out the real credential timebox whatever failed,
- * running for a wrong token the statements it runs for an address no one holds,
- * and the lock of the holder's row besides, and taking as long by link and by
- * code whether or not anyone holds the address; and a successful one returns
- * early.
+ * Holds password resets to the enumeration criteria.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -120,10 +112,8 @@ final class PasswordResetEnumerationTest extends PerformanceContractTestCase
     }
 
     /**
-     * A request for a known address and one for an address no one has, each
-     * from a client of its own so their limits start alike, run the same
-     * statements, in the same order, with the same answer, and never look the
-     * address up; so do the requests that follow within the cooldown.
+     * A reset request runs the same statements with the same answer for any
+     * address, and never looks it up.
      *
      * @return void
      *
@@ -150,10 +140,8 @@ final class PasswordResetEnumerationTest extends PerformanceContractTestCase
     }
 
     /**
-     * Against a slow identity store and a slow gateway, a request takes as
-     * little time for a known address as for one no one has: it never looks the
-     * address up, and the delivery runs only after the response, where the
-     * known address's link then goes out and the unknown's does not.
+     * Against a slow identity store and gateway, a request for a known address
+     * takes no longer than for an unknown one.
      *
      * @return void
      *
@@ -178,12 +166,8 @@ final class PasswordResetEnumerationTest extends PerformanceContractTestCase
     }
 
     /**
-     * A reset for an address no one holds and one with a wrong token for the
-     * seeded identity run the same statements, in the same order, with the same
-     * answer, but for the one statement a holder adds: its row locked by key as
-     * the transaction starts, so a password write racing the reset waits rather
-     * than deadlocks (see `IdentityLock`). Inside the timebox, that statement
-     * takes no time a client can see.
+     * A failed reset runs the same statements for any address but the holder's
+     * row lock.
      *
      * @return void
      *
@@ -219,10 +203,8 @@ final class PasswordResetEnumerationTest extends PerformanceContractTestCase
     }
 
     /**
-     * A reset by code for an address no one holds and one with a wrong code,
-     * each naming the challenge its code was sent for, run the same statements
-     * in the same order with the same answer, but for the row lock a holder
-     * adds; each reaches the code's check, which counts the attempt.
+     * A failed code reset runs the same statements for any address but the
+     * holder's row lock.
      *
      * @return void
      *
@@ -319,11 +301,8 @@ final class PasswordResetEnumerationTest extends PerformanceContractTestCase
     }
 
     /**
-     * A failed reset for an address someone holds, its slow lookup and its row
-     * lock included, takes as long as one for an address no one holds, by link
-     * and by code: the fastest of each set of tries is within a quarter of the
-     * timebox of the other's, so any work a holder adds beyond the timebox, or
-     * outside it, shows.
+     * A failed reset for a held address takes as long as one for an unknown
+     * address, by link and by code.
      *
      * @param  string  $proof
      * @return void
@@ -547,9 +526,8 @@ final class PasswordResetEnumerationTest extends PerformanceContractTestCase
     }
 
     /**
-     * Issue a live reset code for the address on the slow guard, and return the
-     * challenge it was sent for with a well-formed code that is not it, as a
-     * reset's input names them, so the reset reaches the lookup and the check.
+     * Issue a live reset code for the address and return its challenge with a
+     * wrong code.
      *
      * @param  string  $email
      * @return array{challenge: string, code: string}

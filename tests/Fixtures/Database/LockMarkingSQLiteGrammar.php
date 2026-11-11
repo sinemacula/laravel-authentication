@@ -8,10 +8,8 @@ use Illuminate\Database\Query\Builder;
 use Illuminate\Database\Query\Grammars\SQLiteGrammar;
 
 /**
- * SQLite's query grammar, but writing a locking read's lock into its SQL as a
- * comment naming it (`for update`, `lock in share mode`) where SQLite's own
- * grammar drops it, so a test on SQLite can see which reads lock the row, as
- * the SQL of the other engines shows, while SQLite still runs them.
+ * SQLite's query grammar, writing a locking read's lock into its SQL as a
+ * comment where SQLite's own grammar drops it.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

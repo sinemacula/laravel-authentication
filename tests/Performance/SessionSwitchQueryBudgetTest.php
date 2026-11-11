@@ -46,20 +46,7 @@ use Tests\Integration\Fixtures\ChoosingMember;
 use Tests\Integration\Fixtures\ChoosingMembership;
 
 /**
- * Query-budget and timing contracts for choosing and switching principal: a
- * sign-in held for a choice reads the identity, its principals and their
- * tenants (in one read, however many there are, as does a sign-in that selects
- * the one admitted) and writes the attempt counters and the pending choice;
- * making the choice uses it up, writes the session and gives the slots back; a
- * switch reads the refresh counters and the session, writes the session's
- * issuance guard (one `UPDATE` by key, first in the switch's transaction),
- * reads the session again with a lock, its owner, the target, its tenant and
- * its owner, writes the one compare-and-swap, and then reads the session's
- * proofs for the new access token, while a switch its destination's policy
- * returns to pending reads the first factor once instead, a grace retry writes
- * only the guard and a refusal only the guard and the counters. The event names
- * the principal switched from by the type and identifier the session recorded,
- * so it is never read again.
+ * Query-budget and timing contracts for choosing and switching principal.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -106,12 +93,8 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A switch to another membership reads the refresh counters, the session
-     * (and again with a lock after the issuance guard), its owner, the target,
-     * its tenant and its owner, writes the issuance guard and the switch, reads
-     * the session's proofs for the new access token, and, once the switch is
-     * committed, reads the target and its tenant again to check they still
-     * stand; the membership it switched from is not read again.
+     * A switch to another membership costs its reads, its issuance guard and
+     * one update.
      *
      * @return void
      *
@@ -141,14 +124,8 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A switch of tenant alone, which keeps the membership the session acts as,
-     * reads the refresh counters, the session (twice, as every switch does),
-     * its owner, the membership, its tenant and its owner, and the tenant
-     * switched to, writes the issuance guard and the switch, reads the
-     * session's proofs for the new access token, and, once the switch is
-     * committed, reads the membership again, through which the tenant switched
-     * to is judged, its own tenant and the tenant switched to, though it does
-     * not judge the membership's own standing.
+     * A switch of tenant alone reads the membership again for the tenant
+     * switched to.
      *
      * @return void
      *
@@ -180,13 +157,8 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A switch whose destination's tenant now asks for a further factor reads
-     * the refresh counters, the session (twice, as every switch does), its
-     * owner, the target, its tenant and its owner, then the one first-factor
-     * proof the policy is judged on, which the identity's own requirement and
-     * the pending session reuse, writes the issuance guard and the one
-     * compare-and-swap that returns the session to pending instead of the
-     * switch, and reads the target and its tenant again once committed.
+     * A switch its destination's policy returns to pending reads the first
+     * factor once.
      *
      * @return void
      *
@@ -225,13 +197,8 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A switch of a session an external provider established, whose
-     * destination's tenant asks for a further factor, reads what a switch
-     * returning to pending reads, then the session's accepted evidence in one
-     * more read: met, it switches, reading the session's proofs for the new
-     * access token; not met, it returns the session to pending. Either way it
-     * writes the issuance guard and one compare-and-swap, and reads the target
-     * and its tenant again once committed.
+     * An external session's switch under a tenant's factor reads its accepted
+     * evidence once.
      *
      * @param  bool  $meets
      * @param  int  $reads
@@ -278,12 +245,8 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A sign-in held for a choice reads the identity, its memberships, their
-     * tenants together in one read however many there are, and what an earlier
-     * session left under the pending session's key (two reads, which find
-     * nothing), and writes the six attempt-counter statements a password
-     * sign-in makes, the pending session and its first proof; once committed,
-     * it reads the identity again (no principal is recorded yet to check).
+     * A sign-in held for a choice costs its reads, its counters and the pending
+     * session's insert.
      *
      * @param  int  $memberships
      * @return void
@@ -302,9 +265,8 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Reading a pending session waiting on a choice reads the session, its
-     * identity, the memberships, their tenants together in one read however
-     * many there are, and its first factor, and writes nothing.
+     * Reading a pending choice reads the tenants once however many memberships,
+     * and writes nothing.
      *
      * @param  int  $memberships
      * @return void
@@ -323,14 +285,7 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A sign-in that selects the one admitted membership of several reads the
-     * identity, its memberships, their tenants together in one read however
-     * many there are (the selected membership keeps the one it was judged by,
-     * so establishing the session reads it no more), what an earlier session
-     * left under the new session's key (two reads, which find nothing) and its
-     * proofs once for the access token, and writes the six attempt-counter
-     * statements, their three releases, the session and its first proof; once
-     * committed, it reads the identity, the membership and its tenant again.
+     * A sign-in selecting one of several memberships reads their tenants once.
      *
      * @param  int  $memberships
      * @return void
@@ -351,13 +306,8 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Choosing locks and reads the pending session and its identity, reads the
-     * chosen membership, its owner and its tenant, reads its first factor (the
-     * default factor policy asks nothing, so no other proof is read), activates
-     * the session with one update, reads its proofs, reads the chosen
-     * membership and its tenant again once committed, and gives each of the
-     * sign-in's three attempt slots back: the session and its first proof were
-     * written when the sign-in left it pending.
+     * Choosing activates the session with one update and gives the sign-in's
+     * slots back.
      *
      * @return void
      *
@@ -375,9 +325,8 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A cookie application's choice given a same-site client, though the
-     * guard's own request comes from another site, costs what a choice without
-     * a client costs: judging the client given reads nothing.
+     * A choice given a same-site client costs what a choice without a client
+     * does.
      *
      * @return void
      *
@@ -401,13 +350,8 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Choosing a membership whose tenant's policy asks for a further factor
-     * keeps the session pending on it: it locks and reads the session and its
-     * identity, reads the chosen membership, its owner and its tenant, and the
-     * one first-factor proof the tenant's verdict is judged on, which the
-     * identity's own requirement and the pending session reuse, records the
-     * choice and what it now waits on with one update, and reads the chosen
-     * membership and its tenant again once committed.
+     * Choosing into a tenant's further factor reads its first factor once and
+     * keeps the session pending.
      *
      * @return void
      *
@@ -428,10 +372,8 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Choosing the principal of the session the sign-in proved reads what a
-     * choice reads and the proven session again on the write connection, and
-     * revokes the proven session with one compare-and-swap before the
-     * activation's update.
+     * Choosing the proven session's principal revokes that session with one
+     * compare-and-swap.
      *
      * @return void
      *
@@ -480,10 +422,7 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A lost switch response retried inside the grace window reads the refresh
-     * counters, the session (twice, as every switch does), its owner, the
-     * target, its tenant and its owner, and the session's proofs, and writes
-     * nothing but the issuance guard: the current credential is handed back.
+     * A grace retry of a switch writes nothing but the issuance guard.
      *
      * @return void
      *
@@ -516,10 +455,8 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A switch to a principal of another identity reads the refresh counters,
-     * the session (twice, as every switch does), its owner and the identity's
-     * principals, is refused, and writes nothing but the issuance guard and the
-     * failure on the two refresh counters.
+     * A switch to another identity's principal is refused, writing only its
+     * guard and the counters.
      *
      * @return void
      *
@@ -578,9 +515,8 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Warmed switches, grace retries and refusals each stay far inside a
-     * generous time ceiling, so a pathological regression that adds no query,
-     * such as a key derivation per check, still fails.
+     * Warmed switches, retries and refusals each stay within a generous time
+     * ceiling.
      *
      * @return void
      *
@@ -680,8 +616,7 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Persist a chooser with the given number of memberships (two by default),
-     * each in its own active tenant, sign it in, and return the pending
+     * Persist a chooser with that many memberships, sign it in and return the
      * credential its choice waits on.
      *
      * @param  int  $memberships

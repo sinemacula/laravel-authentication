@@ -11,11 +11,8 @@ use SineMacula\Laravel\Authentication\Concerns\PrunesSessions;
 use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
- * Query-budget contracts for pruning sessions: each chunk reads the keys of up
- * to a chunk of prunable sessions and deletes, by those keys, their proofs,
- * their provenance and the sessions themselves, and the run ends with the one
- * read that finds nothing left, so N prunable sessions cost ceil(N / chunk) + 1
- * reads and three deletes per chunk.
+ * Query-budget contracts for pruning sessions: one read and three deletes per
+ * chunk, plus one final read.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

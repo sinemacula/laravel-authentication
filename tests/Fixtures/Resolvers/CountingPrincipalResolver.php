@@ -9,9 +9,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 
 /**
- * Principal resolver that resolves an identity which is its own principal to
- * itself and any other to none, and counts how often it was asked, so a test
- * can tell which resolver a flow used.
+ * Principal resolver that resolves an identity that is its own principal to
+ * itself and counts how often it was asked.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

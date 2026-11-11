@@ -21,21 +21,7 @@ use Tests\Fixtures\Sessions\FirstFactorRecorder;
 use Tests\Fixtures\Sessions\SessionGenerations;
 
 /**
- * Shared base test case for the package's integration tests.
- *
- * Boots a minimal Testbench application with the package service provider
- * registered, the database `DB_CONNECTION` names (in-memory SQLite when unset),
- * the package's default `laravel-authentication` config block seeded, and the
- * shipped tables created. Subclasses may override `defineEnvironment` to add
- * per-test config and `defineDatabaseMigrations` (or use `setUp`) to create
- * additional tables.
- *
- * A session row a test inserts itself is given the generation and the
- * first-factor proof the session service writes with every session it inserts
- * (see `SessionGenerations` and `FirstFactorRecorder`), so it is the session
- * its instance holds and tokens issued for it carry `auth_time` and `amr` as a
- * real sign-in's would; a test of a session without proofs turns the proof off
- * with `$recordsSessionProofs`.
+ * Base test case that boots the package with its config and shipped tables.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -64,23 +50,18 @@ abstract class TestCase extends OrchestraTestCase
     /** @var array<string, true> Worker databases this process has created. */
     private static array $workerDatabases = [];
 
-    /** @var array{key: string, connection: array<string, mixed>, tables: list<string>, schema: string} The package tables this process keeps migrated, the connection settings they were kept with, and their schema as migrated. */
+    /** @var array{key: string, connection: array<string, mixed>, tables: list<string>, schema: string} The tables this process keeps migrated, with the connection and schema they were kept with. */
     private static array $keptTables = ['key' => '', 'connection' => [], 'tables' => [], 'schema' => ''];
 
     /** @var array<string, mixed> The storage settings the shipped migrations ran with. */
     private array $storageSettings = [];
 
     /**
-     * Put the storage settings back as the shipped migrations ran with them,
-     * destroy the application, then close its database connections.
+     * Restore the storage settings, destroy the application, then close its
+     * database connections.
      *
-     * The settings are restored first so rolling the migrations back drops the
-     * tables where they were created. The application's objects reference each
-     * other, so a destroyed application's PDO is only closed once the cycles
-     * are collected. Without this, a long run against a persistent database
-     * holds dozens of connections at once, and parallel workers exhaust the
-     * server's limit. The connections are closed after every teardown callback,
-     * migration rollbacks included, so none of them finds its connection gone.
+     * A destroyed application's PDO only closes once its cycles are collected,
+     * so parallel workers would otherwise exhaust the server's connections.
      *
      * @return void
      */
@@ -120,10 +101,6 @@ abstract class TestCase extends OrchestraTestCase
     /**
      * Seed the database connection and package config defaults.
      *
-     * Reads `DB_CONNECTION` from the environment to select the driver. Defaults
-     * to in-memory SQLite when unset, so local development needs no extra
-     * configuration.
-     *
      * @param  mixed  $app
      * @return void
      */
@@ -151,23 +128,8 @@ abstract class TestCase extends OrchestraTestCase
     }
 
     /**
-     * Run the package's shipped migrations so the default
-     * `authentication_sessions`, `rate_limits`, `one_time_codes`, `passkeys`,
-     * `passkey_challenges`, `api_keys`, `identifier_changes`,
-     * `authentication_proofs`, `authentication_provenance` and
-     * `authentication_connection_guards` tables exist for tests that use the
-     * shipped models, on the connections the storage settings name when they
-     * run.
-     *
-     * A test may point the storage settings elsewhere once the tables exist;
-     * `tearDown()` puts them back before the migrations are rolled back. On a
-     * persistent database (MySQL, PostgreSQL) creating and dropping the tables
-     * costs more than most tests themselves, so tables on the worker's
-     * connection are kept from one test to the next. Each test starts by
-     * comparing their schema and migration records with what the migrations
-     * left: when they match it deletes their rows, otherwise it migrates them
-     * afresh. Tables on any other connection are migrated for the test and
-     * dropped when it ends.
+     * Run the shipped migrations, keeping the worker's tables between tests on
+     * a persistent database while their schema is unchanged.
      *
      * @return void
      */
@@ -219,8 +181,7 @@ abstract class TestCase extends OrchestraTestCase
 
     /**
      * Drop the kept tables before a test class that defines its own migrations
-     * sets up its database, so it starts without the package's tables, as it
-     * would on a fresh database.
+     * sets up its database.
      *
      * @param  \Closure(): void  $callback
      * @return void
@@ -239,8 +200,7 @@ abstract class TestCase extends OrchestraTestCase
 
     /**
      * Give each session row the test inserts itself a generation and the
-     * first-factor proof a sign-in records, unless the test turned the proof
-     * off.
+     * first-factor proof a sign-in records.
      *
      * @param  mixed  $app
      * @return void
@@ -279,10 +239,8 @@ abstract class TestCase extends OrchestraTestCase
     }
 
     /**
-     * Describe the given tables on the worker's connection as the database
-     * reports them (their options, columns, indexes, constraints and triggers)
-     * together with every run the migration repository records and its batch,
-     * so a change to any of them yields a different description.
+     * Describe the given tables' schema and the recorded migration runs on the
+     * worker's connection.
      *
      * @param  list<string>  $tables
      * @return string
@@ -305,10 +263,10 @@ abstract class TestCase extends OrchestraTestCase
     }
 
     /**
-     * Return the queries that read the options, columns, indexes, constraints
-     * and triggers of the tables the placeholders name, from PostgreSQL's
-     * catalogue, which answers far faster than its `information_schema` views,
-     * or from MySQL's `information_schema`.
+     * Return the queries that read the schema of the tables the placeholders
+     * name.
+     *
+     * PostgreSQL's catalogue answers far faster than its `information_schema`.
      *
      * @param  string  $driver
      * @param  string  $in
@@ -371,9 +329,8 @@ abstract class TestCase extends OrchestraTestCase
     }
 
     /**
-     * Drop the kept tables and the migration repository, through a connection
-     * built from the settings they were kept with, so they go from the worker's
-     * database whatever connections the current test configures.
+     * Drop the kept tables and the migration repository through a connection
+     * built from the settings they were kept with.
      *
      * @return void
      */
@@ -399,8 +356,8 @@ abstract class TestCase extends OrchestraTestCase
     }
 
     /**
-     * Drop the migration repository, so the migrations run as they would on a
-     * fresh database, with no record of any earlier run.
+     * Drop the migration repository so the migrations run as on a fresh
+     * database.
      *
      * @return void
      */
@@ -467,15 +424,8 @@ abstract class TestCase extends OrchestraTestCase
     }
 
     /**
-     * Return the database this process tests against.
-     *
-     * Tests create, empty and drop the same tables, and keep the package's
-     * tables when they end, so paratest workers sharing one database would
-     * collide. Each process gets its own database, named after its paratest
-     * `TEST_TOKEN` (`0` outside paratest) and created afresh on first use from
-     * a connection to the configured one, so nothing a previous or interrupted
-     * run left behind reaches the next, and the configured database holds only
-     * what tests on Testbench's own connections create.
+     * Return this process's own database, named after its paratest `TEST_TOKEN`
+     * and created afresh on first use.
      *
      * @param  array{driver: string, host: string, port: string, database: string, username: string, password: string}  $connection
      * @return string

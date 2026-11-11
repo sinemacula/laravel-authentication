@@ -12,8 +12,7 @@ use Tests\Fixtures\Auth\LaravelAuthManagerSubclass;
 
 /**
  * Another package's provider that binds `auth` to its own subclass of Laravel's
- * auth manager while registering, with a guard driver (`subclassed`) registered
- * on it.
+ * auth manager, with a `subclassed` guard driver.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

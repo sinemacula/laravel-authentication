@@ -18,8 +18,7 @@ use Tests\Fixtures\External\FakeExternalLinks;
 
 /**
  * Shared set-up for tests that sign in with results an external identity
- * provider verified: a fake link contract bound in the container, links made on
- * it, and results through those links.
+ * provider verified.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -32,8 +31,7 @@ trait InteractsWithExternalSignIns
     protected const string ISSUER = 'https://idp.example.test';
 
     /**
-     * The fake link contract, bound in the container the first time it is asked
-     * for.
+     * The fake link contract, bound the first time it is asked for.
      *
      * @return \Tests\Fixtures\External\FakeExternalLinks
      */
@@ -53,8 +51,7 @@ trait InteractsWithExternalSignIns
     }
 
     /**
-     * A sign-in context from no particular client that names the principal to
-     * act as.
+     * A sign-in context that names the principal to act as.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return \SineMacula\Laravel\Authentication\Sessions\SignInContext
@@ -65,8 +62,8 @@ trait InteractsWithExternalSignIns
     }
 
     /**
-     * Link the identity through the connection, its subject the identity's own
-     * key unless one is given, and answer a result through that link.
+     * Link the identity through the connection and answer a result through that
+     * link.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $connectionId

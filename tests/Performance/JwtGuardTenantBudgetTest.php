@@ -42,11 +42,6 @@ use Tests\Integration\Fixtures\UncheckedTenantUser;
  * Query-budget contracts for the tenant activity check on the bearer and
  * refresh paths.
  *
- * The check reads the tenant the principal acts within on every request. A
- * tenant the principal resolver eager-loads costs that eager load; one it does
- * not costs a lazy load, whether or not the tenant opts into activation,
- * because the check learns whether it opts in from the loaded model.
- *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
@@ -129,11 +124,8 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A bearer request on a member's session in the member's own tenant reads
-     * one row more than a token without a session, its session, and nothing for
-     * the tenant the session acts in, which is the one the activity check
-     * already loaded. On a session acting in a tenant below the member's own it
-     * reads one row more, the resolver's, and asks no access contract.
+     * A bearer request on a member's session reads the active tenant only when
+     * it is not the member's own.
      *
      * @return void
      *
@@ -172,9 +164,8 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A bearer request on a session whose active tenant, below the member's
-     * own, was deactivated is rejected once that tenant is read: the reads of a
-     * request on a session acting there, and no write.
+     * A session whose active tenant was deactivated is rejected once that
+     * tenant is read, with no write.
      *
      * @return void
      *
@@ -205,9 +196,8 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Rows of `[guard]`: a member of a tenant that opts into activation, with
-     * the tenant eager-loaded with the principal or lazily loaded by the check.
-     * Eloquent runs an eager load as a query of its own, so both cost the same.
+     * Rows of `[guard]`: an opted-in tenant eager-loaded or lazily loaded,
+     * which cost the same as Eloquent runs an eager load as its own query.
      *
      * @return iterable<string, array{0: string}>
      */
@@ -220,10 +210,8 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A bearer request for a member of a tenant that opts in reads the
-     * identity, the principal and the tenant once each while authenticating,
-     * and writes nothing. The tenant accessor then reuses the tenant the check
-     * loaded, so the check cannot leave that read to the accessor.
+     * A bearer request for a member of an opted-in tenant reads the identity,
+     * the principal and the tenant once each.
      *
      * @param  string  $guard
      * @return void
@@ -268,11 +256,8 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A refresh for a member of a tenant that opts in reads its refresh limits,
-     * the session (and again with a lock once its issuance guard is written),
-     * the owner, the principal, the tenant and the session's proofs once each,
-     * and writes only the session's issuance guard, which every refresh of a
-     * session it finds writes first, and the rotation.
+     * A refresh for a member of an opted-in tenant costs seven reads and writes
+     * the issuance guard and the rotation.
      *
      * @param  string  $guard
      * @return void
@@ -301,11 +286,8 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A refresh for a member of an inactive tenant spends the same six reads to
-     * reach the tenant check, is rejected, and leaves the rotation alone.
-     * Besides the session's issuance guard, its only writes count the failure
-     * against the session and the IP address: on a fresh window, an update that
-     * changes nothing and the insert that creates the counter, for each.
+     * A refresh for a member of an inactive tenant is rejected after six reads
+     * and counts the failure.
      *
      * @param  string  $guard
      * @return void

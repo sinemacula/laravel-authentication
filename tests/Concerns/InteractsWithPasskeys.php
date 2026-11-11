@@ -18,9 +18,8 @@ use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use Tests\Fixtures\Passkeys\VirtualAuthenticator;
 
 /**
- * Shared set-up for the passkey tests, on top of the session tests' guards: a
- * relying party for every guard, every guard allowing the `passkey` method, and
- * a virtual authenticator that registers and signs with real keys.
+ * Shared set-up for the passkey tests, with a virtual authenticator that
+ * registers and signs with real keys.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -112,9 +111,8 @@ trait InteractsWithPasskeys
     }
 
     /**
-     * Sign in through the guard's session service with the authenticator's
-     * answer to fresh sign-in options, after letting the test change it or hand
-     * it on as JSON.
+     * Sign in through the guard with the authenticator's answer to fresh
+     * sign-in options, which the test may tamper with.
      *
      * @param  string  $guard
      * @param  ?\Closure(array<string, mixed>): (array<string, mixed>|string)  $tamper
@@ -135,8 +133,8 @@ trait InteractsWithPasskeys
     }
 
     /**
-     * The binding a factor package gives a factor ceremony for the identity: a
-     * step-up on the guard, for one session.
+     * The step-up binding a factor package gives a factor ceremony for the
+     * identity.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $guard
@@ -148,10 +146,8 @@ trait InteractsWithPasskeys
     }
 
     /**
-     * Hand out the options of a factor ceremony for the identity, bound as
-     * `factorBinding()` binds it, allowing every passkey stored (the service
-     * keeps to the identity's own), as a factor package that associated them
-     * all would.
+     * Hand out the options of a factor ceremony for the identity, allowing
+     * every passkey stored.
      *
      * @param  \SineMacula\Laravel\Authentication\Passkeys\PasskeyService  $passkeys
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -170,8 +166,7 @@ trait InteractsWithPasskeys
     }
 
     /**
-     * Verify the answer to a factor ceremony for the identity on the guard,
-     * bound as `factorBinding()` binds it.
+     * Verify the answer to a factor ceremony for the identity on the guard.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $challenge

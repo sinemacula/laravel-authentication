@@ -31,15 +31,7 @@ use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\CutoffIdentity;
 
 /**
- * Query-budget contracts for signing out and revoking: a sign-out of a bound
- * session is one conditional `UPDATE`; revoking one session of a list is the
- * owner-scoped read and that `UPDATE`; a bulk revocation, which every security
- * change and a sign-out everywhere make, reads its sessions a chunk at a time
- * and writes one `UPDATE` per session, pending ones included, a principal's
- * after one read of its owner, a tenant's for each principal after reading its
- * tenant, and an identity's that keeps a cutoff after the one conditional
- * `UPDATE` that moves it; a deactivation or deletion made inside a transaction
- * reads its scopes' sessions once more when it commits.
+ * Query-budget contracts for signing out and revoking sessions.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -252,9 +244,7 @@ final class SessionRevocationQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A deleted principal costs what revoking its sessions costs, as a
-     * deactivated one does: its owner read afresh, one chunk and an update per
-     * session.
+     * A deleted principal costs what revoking its sessions costs.
      *
      * @return void
      *
@@ -275,9 +265,8 @@ final class SessionRevocationQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Ending a deleted identity's sessions again, as a force delete after a
-     * soft delete does, reads one chunk and writes nothing: no session is left
-     * to revoke, and a model no longer stored has no cutoff to move.
+     * Ending a deleted identity's sessions again reads one chunk and writes
+     * nothing.
      *
      * @return void
      *
@@ -313,10 +302,8 @@ final class SessionRevocationQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A tenant policy change that every session falls short of reads the keys
-     * of the tenant's sessions in one locked chunk, then those sessions again
-     * in one locked read, and for each its owner, its principal and its
-     * provenance, and writes each revocation: linear in the tenant's sessions.
+     * A tenant policy change every session falls short of costs reads and
+     * writes linear in its sessions.
      *
      * @param  int  $count
      * @param  int  $reads
@@ -354,10 +341,8 @@ final class SessionRevocationQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A tenant's deactivation reads each principal's tenant, owner and
-     * sessions, and writes each session's revocation, then reads the sessions
-     * still acting in the tenant in one chunk: three reads and one write for
-     * each principal with one session, and one read more.
+     * A tenant's deactivation costs three reads and one write per principal,
+     * and one read more.
      *
      * @param  int  $count
      * @param  int  $reads
@@ -395,10 +380,8 @@ final class SessionRevocationQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * An identity's deactivation or deletion made inside a transaction costs
-     * its bulk revocation and, once the transaction commits, one more chunk
-     * read of its sessions, which finds every one revoked and writes nothing:
-     * the cutoff is not moved again.
+     * An identity's deactivation or deletion inside a transaction reads its
+     * sessions once more at the commit.
      *
      * @param  \Closure(\SineMacula\Laravel\Authentication\Sessions\SessionService, \SineMacula\Laravel\Authentication\Contracts\Identity): int  $change
      * @return void
@@ -431,9 +414,8 @@ final class SessionRevocationQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A principal's deactivation or deletion made inside a transaction costs
-     * its revocation and, once the transaction commits, one more chunk read of
-     * its sessions, which writes nothing: its owner is not read again.
+     * A principal's deactivation or deletion inside a transaction reads its
+     * sessions once more at the commit.
      *
      * @param  \Closure(\SineMacula\Laravel\Authentication\Sessions\SessionService, \SineMacula\Laravel\Authentication\Contracts\Principal): int  $change
      * @return void
@@ -454,10 +436,8 @@ final class SessionRevocationQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A tenant's deactivation made inside a transaction costs its revocation
-     * and, once the transaction commits, one more chunk read for each principal
-     * listed and one for the sessions acting in the tenant, which write
-     * nothing.
+     * A tenant's deactivation inside a transaction reads its scopes once more
+     * at the commit.
      *
      * @return void
      *
@@ -475,9 +455,7 @@ final class SessionRevocationQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Any other bulk revocation, a reset password among them, costs the same
-     * inside a transaction as outside: only a deactivation or a deletion reads
-     * its scopes again at the commit.
+     * Any other bulk revocation costs the same inside a transaction as outside.
      *
      * @return void
      *

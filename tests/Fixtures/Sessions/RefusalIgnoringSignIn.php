@@ -13,9 +13,7 @@ use SineMacula\Laravel\Authentication\Proofs\FirstFactor;
 use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
 
 /**
- * Sign-in method double that breaks the method contract: it asks to count its
- * password check against the account its email address finds, then checks the
- * password whatever the answer, and returns the identity when it matches.
+ * Sign-in method that checks the password even when its attempt was refused.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

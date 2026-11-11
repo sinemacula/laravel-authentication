@@ -16,11 +16,8 @@ use SineMacula\Laravel\Authentication\IdentifierChanges\PendingChanges;
 use SineMacula\Laravel\Authentication\Models\OneTimeCode;
 
 /**
- * Finds one-time codes the way their keys are documented, an HMAC-SHA256 of the
- * parts joined by NUL bytes under a key derived from the application key for
- * each purpose, so tests compute a row's key and a code's hash themselves
- * rather than asking the engine; reads the challenge id a check names; and
- * builds an engine that issues known codes.
+ * Computes one-time code keys and hashes as documented, and builds an engine
+ * that issues known codes.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -62,9 +59,8 @@ trait InteractsWithCodes
     }
 
     /**
-     * The id of the live challenge stored for the binding, or of the only one
-     * stored when no binding is given; a well-formed id no challenge has when
-     * there is none.
+     * The id of the challenge stored for the binding, or of the only one
+     * stored.
      *
      * @param  ?\SineMacula\Laravel\Authentication\Codes\CodeBinding  $binding
      * @return string
@@ -78,8 +74,7 @@ trait InteractsWithCodes
     }
 
     /**
-     * The seconds of cooldown an issue answered with, or `null` when it issued
-     * a code or answered the delivery cap.
+     * The seconds of cooldown an issue answered with.
      *
      * @param  \SineMacula\Laravel\Authentication\Codes\DeliveryRefusal|\SineMacula\Laravel\Authentication\Codes\IssuedCode  $issued
      * @return ?int
@@ -90,8 +85,7 @@ trait InteractsWithCodes
     }
 
     /**
-     * An engine that issues the given codes in turn, as the container would
-     * build it otherwise.
+     * An engine that issues the given codes in turn.
      *
      * @param  list<string>  $codes
      * @return \SineMacula\Laravel\Authentication\Codes\OneTimeCodes
@@ -108,8 +102,7 @@ trait InteractsWithCodes
     }
 
     /**
-     * Bind an engine that issues the given codes in turn, for the sign-in
-     * methods and the code service the container builds from now on.
+     * Bind an engine that issues the given codes in turn.
      *
      * @param  list<string>  $codes
      * @return void
@@ -121,8 +114,7 @@ trait InteractsWithCodes
 
     /**
      * The challenge id of the code sent for the identity's pending change of
-     * the type, read on the write connection, or a well-formed id no challenge
-     * has when it has none.
+     * the type.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $type
@@ -137,8 +129,7 @@ trait InteractsWithCodes
     }
 
     /**
-     * A query on the codes' table, on the connection the codes live on, for the
-     * write PDO.
+     * A query on the codes' table through the write PDO.
      *
      * @return \Illuminate\Database\Query\Builder
      */
@@ -150,8 +141,7 @@ trait InteractsWithCodes
     }
 
     /**
-     * The key derived from the application key for one of the code key's
-     * purposes (`bindings` or `hashes`).
+     * The key derived from the application key for the purpose.
      *
      * @param  string  $purpose
      * @return string

@@ -9,9 +9,7 @@ use Illuminate\Support\Facades\Schema;
 
 /**
  * Shared tables for test cases that use the `TypedIdentity`, `TypedMembership`
- * and `TypedTenant` fixtures: identities whose memberships have a `type`
- * column, acting within tenants that have a `category` column, neither of which
- * the package reads.
+ * and `TypedTenant` fixtures.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

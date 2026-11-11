@@ -18,15 +18,7 @@ use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Passkeys\VirtualAuthenticator;
 
 /**
- * Query-budget and timing contracts for passkeys: what each ceremony costs, and
- * the timebox that keeps a failed passkey sign-in as slow whatever it found.
- *
- * Options write their challenge once; sign-in options first reserve a slot on
- * the client's IP counter (on a fresh window, an update that changes nothing
- * and the insert that creates the counter). An answer reads its challenge and
- * deletes it, reads the passkey by its digest, and moves the count with one
- * compare-and-set. A sign-in also takes and gives back its IP and account
- * slots, loads the owner once, and writes the session once.
+ * Query-budget and timing contracts for passkey ceremonies.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -70,10 +62,7 @@ final class PasskeyQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Registration options read the identity's passkeys once and write the
-     * challenge once; the registration reads and deletes the challenge, reads
-     * whether the credential is registered already (before the factor gate,
-     * which reads nothing by default, is asked) and inserts the passkey.
+     * A registration reads its challenge once and writes twice.
      *
      * @return void
      *
@@ -111,12 +100,8 @@ final class PasskeyQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A passkey sign-in reads the challenge, the passkey, the owner and the
-     * session's proofs once each, the proofs and the provenance left under the
-     * new key (none), and the owner again once the session is committed; it
-     * writes the challenge's delete, the count, the session and its first
-     * proof, and its limits (the IP and account counters taken on fresh windows
-     * and given back).
+     * A passkey sign-in reads seven times and writes its challenge's delete,
+     * the count, the session, its proof and its limits.
      *
      * @return void
      *
@@ -134,11 +119,7 @@ final class PasskeyQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A factor ceremony reads the identity's passkeys, keeping those the factor
-     * package named, and writes its challenge; its verification reads the
-     * challenge and the passkey, checks the passkey is one the challenge
-     * allowed without a query, and writes the delete and the count, and nothing
-     * else.
+     * A factor ceremony reads twice and writes twice.
      *
      * @return void
      *
@@ -189,8 +170,7 @@ final class PasskeyQueryBudgetTest extends PerformanceContractTestCase
 
     /**
      * A failed passkey sign-in waits out the timebox whether the passkey is
-     * unknown or known with a signature that does not verify, so its timing
-     * does not say which.
+     * unknown or forged.
      *
      * @return void
      *

@@ -10,11 +10,7 @@ use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 
 /**
- * Builds the session service of a JWT guard as the auth manager builds one: on
- * the guard's context, with the guard as its binding and its token service, and
- * on the container's connections and transactions manager. It serves a guard
- * the manager holds and one a test built by hand alike, so a test refreshes
- * through the service whichever guard it has.
+ * Builds the session service of a JWT guard as the auth manager builds one.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

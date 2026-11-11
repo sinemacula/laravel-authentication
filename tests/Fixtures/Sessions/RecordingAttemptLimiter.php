@@ -9,13 +9,8 @@ use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 
 /**
- * Attempt limiter double, as an application might build one on a cache, that
- * grants every reservation (or refuses those a test chooses) and records what
- * it is asked to take, what it answers and what it is given back. It keys each
- * slot by what it counts (the identifier, else the account, else the IP
- * address) and records those keys as the reservation's windows, or records no
- * windows at all, so tests can see that the package gives slots back from the
- * windows alone.
+ * Attempt limiter that grants every reservation, unless told to refuse, and
+ * records what it takes, answers and is given back.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

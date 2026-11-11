@@ -8,10 +8,8 @@ use Illuminate\Contracts\Auth\Authenticatable;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 
 /**
- * The `model` provider with a slow lookup, as a remote or heavily indexed user
- * store might be, counting each lookup by credentials or by id: a found
- * identity takes longer than a miss, so a flow whose timing depended on the
- * lookup, or on whether it was made, would show it.
+ * The `model` provider with a slow lookup when an identity is found, counting
+ * each lookup.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

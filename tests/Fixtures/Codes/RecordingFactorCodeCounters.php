@@ -11,11 +11,8 @@ use SineMacula\Laravel\Authentication\Contracts\FactorCodeCounters;
 use SineMacula\Laravel\Authentication\Database\StorageConnection;
 
 /**
- * Factor code counters that answer as scripted and record every call, the way
- * the factor package's counters run: each call requires a transaction open on
- * the storage connection, as the factor package's own writes and locks would,
- * and throws a `LogicException` without one; a report can be made to throw, as
- * one that fails would.
+ * Factor code counters that answer as scripted, record every call and, like the
+ * factor package's, require a transaction on the storage connection.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

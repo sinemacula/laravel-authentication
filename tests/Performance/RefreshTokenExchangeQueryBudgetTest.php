@@ -59,18 +59,7 @@ use Tests\Integration\Fixtures\TenantAware3dTenant;
 use Tests\Unit\Stubs\StubPrincipal;
 
 /**
- * Query-budget contracts for the refresh-token exchange hot paths.
- *
- * Every refresh first reads its session's and its IP address's refresh limits
- * in one query. A failed refresh then counts the failure against both: on a
- * fresh window, for each counter, an update that changes nothing and the insert
- * that creates it, so four writes. A successful refresh writes nothing to the
- * limits.
- *
- * Every refresh that finds its session then writes the session's issuance guard
- * (one `UPDATE` by key, first in the exchange's transaction) and reads the
- * session again with a lock (one `SELECT` by key): one write and one read more
- * on every path past the session lookup, whatever it decides.
+ * Query-budget contracts for the refresh-token exchange.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -162,11 +151,8 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     }
 
     /**
-     * Refresh success should read its limits, do the session lookup, its
-     * locking re-read after the issuance guard and authenticatable hydration,
-     * and read the session's proofs for the new access token's `auth_time` and
-     * `amr`; it writes the issuance guard and one CAS. The timestamp write is
-     * suppressed here by seeding `last_used_at` inside the throttle window.
+     * A successful refresh costs five reads and two writes, its last use seeded
+     * inside the throttle window.
      *
      * @return void
      *
@@ -240,9 +226,8 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     }
 
     /**
-     * Reading the token from the refresh cookie, with its same-site checks and
-     * its count of the request's cookies, and delivering the new refresh token
-     * in the cookie, add no query either.
+     * A refresh from the cookie, delivering the new token in it, costs no query
+     * more.
      *
      * @return void
      *
@@ -305,13 +290,8 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     }
 
     /**
-     * A cookie application's refresh from plain values, judged on the token's
-     * carriers and the client given and reading nothing from the guard's
-     * request, costs what a refresh costs; nothing presented, a reason handed
-     * in, and a token the judgement refuses (from a client the same-site check
-     * refuses, with conflicting carriers, or from a carrier that is not the
-     * application's) are answered before the exchange: no query, and no limit
-     * counted.
+     * A cookie refresh from plain values costs what a refresh costs; one
+     * refused before the exchange costs no query.
      *
      * @return void
      *
@@ -457,9 +437,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     }
 
     /**
-     * A session id that cannot be a key of the session model is rejected before
-     * the session lookup, so the failure costs only the limits' read and its
-     * count.
+     * A session id that cannot be a key fails before the session lookup.
      *
      * @return void
      *
@@ -487,10 +465,8 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     }
 
     /**
-     * A replayed refresh token is judged from the session row alone, before the
-     * owner is loaded, and costs the session read, the issuance guard, the
-     * session's locking re-read and the one guarded revocation write, besides
-     * the limits' read and the failure's count.
+     * A replayed refresh token is judged from the session row and revoked in
+     * one write.
      *
      * @return void
      *
@@ -515,10 +491,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     }
 
     /**
-     * A grace retry is answered from the limits, the session row (read, and
-     * read again with a lock once the issuance guard is written), the owner and
-     * the session's proofs, writing nothing but the issuance guard: the current
-     * credential is re-issued, not rotated again.
+     * A grace retry reads five times and writes only the issuance guard.
      *
      * @return void
      *
@@ -547,12 +520,8 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     }
 
     /**
-     * A refresh whose swap misses (the row rotated in its own transaction just
-     * before it, as a contract asked during the exchange could have done) pays
-     * the limits, session and owner reads, the issuance guard and the locking
-     * re-read after it, the proofs read of the pair it issued, the missed swap,
-     * and one more locking re-read of the session, then succeeds as a grace
-     * retry, reading the proofs again for its pair.
+     * A refresh whose swap misses succeeds as a grace retry in seven reads and
+     * two writes.
      *
      * @return void
      *
@@ -577,8 +546,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
             $ran = true;
 
-            // The winning request's rotation, written past the query log so
-            // only this request's own queries count against its budget.
+            // The winning request's rotation, through PDO so it goes uncounted.
             DB::connection()->getPdo()
                 ->prepare('update authentication_sessions set refresh_key = ?, previous_refresh_key = ?, refresh_rotated_at = ? where id = ?')
                 ->execute([
@@ -599,9 +567,8 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     }
 
     /**
-     * A refresh for a session that holds no refresh credential stops at the
-     * session lookup and its locking re-read, and writes nothing but the
-     * issuance guard and the failure's count.
+     * A refresh for a session with no refresh credential stops at the session
+     * lookup.
      *
      * @return void
      *
@@ -627,9 +594,8 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     }
 
     /**
-     * A refresh replaying a token against a session already revoked for reuse
-     * stops at the session lookup and its locking re-read: it revokes nothing
-     * again, and writes nothing but the issuance guard and the failure's count.
+     * A refresh replaying a token against a session revoked for reuse revokes
+     * nothing again.
      *
      * @return void
      *
@@ -660,10 +626,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     }
 
     /**
-     * The grace and replay paths cost no more than a rotation: each compares at
-     * most two digests and derives one successor, with no loop over past
-     * rotations. Measured as the fastest of several runs of each path against
-     * the fastest rotation, with a generous factor for noise.
+     * The grace and replay paths take no longer than a rotation.
      *
      * @return void
      *
@@ -696,9 +659,8 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     }
 
     /**
-     * A refresh for a session that has ended stops at the session lookup and
-     * its locking re-read: the deadlines are read from the row read there, and
-     * nothing but the issuance guard and the failure's count is written.
+     * A refresh for an ended session stops at the session lookup and its
+     * locking re-read.
      *
      * @return void
      *
@@ -738,9 +700,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     }
 
     /**
-     * A refresh for a session of another guard is refused from the session row,
-     * before the owner is loaded or its issuance guard written: the limits'
-     * read, the session read, and the failure's count.
+     * A refresh for another guard's session is refused from the session row.
      *
      * @return void
      *
@@ -764,9 +724,8 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     }
 
     /**
-     * A refresh whose session began with a method the guard no longer allows is
-     * refused once the owner is loaded, before any rotation write: only the
-     * issuance guard and the failure's count are written.
+     * A refresh whose session began with a method no longer allowed is refused
+     * before any rotation write.
      *
      * @return void
      *
@@ -791,9 +750,8 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     }
 
     /**
-     * A refresh for a principal the application no longer admits is refused
-     * once the owner is loaded, before any rotation write: only the issuance
-     * guard and the failure's count are written.
+     * A refresh for a principal no longer admitted is refused before any
+     * rotation write.
      *
      * @return void
      *
@@ -821,9 +779,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     }
 
     /**
-     * A refresh for a session that has used up its failures is refused from the
-     * limits' read alone, with its wait and nothing written, so a flood of them
-     * never reaches the session.
+     * A rate-limited refresh is refused from the limits' read alone.
      *
      * @return void
      *
@@ -852,11 +808,8 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     }
 
     /**
-     * Tenant-aware 3D refresh success should pay exactly the limits' read, the
-     * session read and its locking re-read after the issuance guard, the
-     * authenticatable read, the joined principal+tenant read, the read of the
-     * session's proofs for the new access token's `auth_time` and `amr`, and
-     * two writes: the issuance guard and the rotation.
+     * A tenant-aware 3D refresh costs six reads and writes the issuance guard
+     * and the rotation.
      *
      * @return void
      *
@@ -894,9 +847,8 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     }
 
     /**
-     * A tenant-aware refresh for a secondary tenant hint should still pay the
-     * same limits + session (and re-read) + identity + joined principal +
-     * proofs read budget as the primary tenant path, and the same two writes.
+     * A refresh for a secondary tenant hint costs what the primary tenant path
+     * does.
      *
      * @return void
      *
@@ -936,9 +888,8 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     }
 
     /**
-     * Rows of `[requirement, reason, writes]`: a tenant policy the session no
-     * longer meets, why the refresh is refused (`null` for a return to
-     * pending), and what it writes.
+     * Rows of `[requirement, reason, writes]`: a tenant policy the session
+     * falls short of, the reason (`null` for pending) and the writes.
      *
      * @return iterable<string, array{0: \SineMacula\Laravel\Authentication\Tenancy\TenantRequirement, 1: ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason, 2: int}>
      */
@@ -949,13 +900,8 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     }
 
     /**
-     * A 3D refresh that falls short of its tenant's policy reads what a
-     * rotation reads up to the principal and tenant, then the one proof or
-     * provenance row the policy is judged on instead of the proofs a new access
-     * token needs (a return to pending judges the identity's own requirement on
-     * that same first factor and names it, reading it no more), and writes the
-     * issuance guard and one update: the return to pending, which counts no
-     * failure, or the revocation, then the refusal's count.
+     * A 3D refresh short of its tenant's policy reads the proof it is judged on
+     * and writes its guard and one update.
      *
      * @param  \SineMacula\Laravel\Authentication\Tenancy\TenantRequirement  $requirement
      * @param  ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
@@ -1010,12 +956,8 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     }
 
     /**
-     * A 3D refresh of a session an external provider established, under a
-     * tenant that requires a further factor, reads what a rotation reads up to
-     * the principal and tenant, the first factor, then the session's accepted
-     * evidence in one more read: met, it rotates and reads the proofs for the
-     * new access token; not met, it returns the session to pending. Either way
-     * it writes the issuance guard and one update.
+     * An external session's refresh under a tenant's factor reads its accepted
+     * evidence once.
      *
      * @param  bool  $meets
      * @param  int  $reads

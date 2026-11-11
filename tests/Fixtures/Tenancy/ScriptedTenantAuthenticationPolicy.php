@@ -9,10 +9,8 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyContext;
 use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 
 /**
- * Tenant authentication policy a test scripts: it answers with what its
- * per-tenant answer gives for the tenant asked about, when it has one, or with
- * the requirement it holds now, which the test changes as a tenant's policy
- * would change; it keeps every context it was asked about.
+ * Tenant authentication policy that answers a scripted requirement and keeps
+ * every context it was asked about.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

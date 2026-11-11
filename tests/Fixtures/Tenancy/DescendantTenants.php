@@ -13,12 +13,8 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Integration\Fixtures\ActivatableTenant;
 
 /**
- * Tenant access and resolver an application binds to let principals act in the
- * tenants below their own, as its own tree says: a principal may act in its own
- * tenant and in those the tree lists below it, and a platform principal in none
- * or, when the tree says so, in any tenant. Tenants are the activatable tenant
- * fixtures, found by key on the write connection, and every question is
- * counted, so a test can show which paths ask.
+ * Tenant access and resolver that let principals act in their own tenant and
+ * those below it, counting every question.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

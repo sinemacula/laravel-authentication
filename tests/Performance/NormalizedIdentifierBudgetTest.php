@@ -15,10 +15,7 @@ use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use Tests\Integration\Fixtures\NormalizedEmailIdentity;
 
 /**
- * Query-budget and timing contracts for designated identifiers: normalising a
- * lookup adds no query, an identifier that cannot be one costs none while a
- * sign-in with it still waits out the timebox, and a rehash is one write or
- * nothing.
+ * Query-budget and timing contracts for designated identifiers.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -71,9 +68,8 @@ final class NormalizedIdentifierBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Looking an identity up by any casing of a designated identifier costs the
-     * one read a lookup always costs, and an identifier that cannot be one
-     * costs none.
+     * A lookup by any casing of a designated identifier costs one read, and an
+     * impossible one none.
      *
      * @return void
      */
@@ -89,8 +85,7 @@ final class NormalizedIdentifierBudgetTest extends PerformanceContractTestCase
 
     /**
      * A sign-in with an identifier that cannot be one still waits out the
-     * timebox, so skipping the lookup does not make it answer faster than one
-     * for an unknown account.
+     * timebox.
      *
      * @return void
      *

@@ -25,15 +25,7 @@ use Tests\Integration\Fixtures\MachineMembership;
 use Tests\Integration\Fixtures\MachineWorkspace;
 
 /**
- * Shared set-up for tests of machine credentials: an `api_key` guard
- * (`machine`) over `MachineClient`, which acts as its own principal; an
- * `api_key` guard (`accounts`) over `MachineAccount`, whose principals are
- * memberships of activatable tenants or workspaces, each with a `type` of the
- * application's own; `jwt` guards for client credentials over `MachineClient`
- * (`m2m`) and over `MachineAccount` (`m2m_accounts`); a `jwt` guard (`api`)
- * over the human `IntegrationIdentity`; the tables behind them; seeded
- * identities; a rebound application policy refusing memberships of a type; the
- * request a call comes from; and a record of the events dispatched.
+ * Shared set-up for tests of machine credentials.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -170,9 +162,7 @@ trait InteractsWithMachineCredentials
     }
 
     /**
-     * Bind an application access that keeps a membership whose `type` is the
-     * one given out of every guard, refused as `principal_ineligible`, as an
-     * application that keeps service accounts apart would.
+     * Bind an application access that refuses every membership of the type.
      *
      * @param  string  $type
      * @return void
@@ -202,8 +192,7 @@ trait InteractsWithMachineCredentials
     }
 
     /**
-     * Start a request from the test client and return the named guard's API
-     * keys, on a guard resolved afresh for that request.
+     * Return the API keys of a freshly resolved guard.
      *
      * @param  string  $guard
      * @return \SineMacula\Laravel\Authentication\ApiKeys\ApiKeyService
@@ -312,9 +301,8 @@ trait InteractsWithMachineCredentials
     }
 
     /**
-     * Distinct scopes that, written space-separated, take exactly the most
-     * bytes a list may: 31 of 255 bytes, one of 128 and one of 127, mostly
-     * slashes, which JSON escapes, so the stored form is as long as it gets.
+     * Distinct scopes that, space-separated, take exactly the most bytes a list
+     * may, mostly slashes so their JSON form is as long as it gets.
      *
      * @return list<string>
      */

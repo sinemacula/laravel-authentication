@@ -22,14 +22,8 @@ use Tests\Integration\Fixtures\TypedMembership;
 use Tests\Integration\Fixtures\TypedTenant;
 
 /**
- * Query-budget contracts for issuing an access token: issuing reads nothing,
- * not even the tenant a 3D principal acts within, unless the token names that
- * tenant and the principal has not loaded it, and the bearer request the token
- * then authenticates pays only its own reads. A token for a session costs the
- * one `UPDATE` of the session's issuance guard, which comes first so the token
- * reads the session's proofs after any issuance or proof change of it that
- * overlaps, and the one grouped read of those proofs for its `auth_time` and
- * `amr`.
+ * Query-budget contracts for issuing an access token and authenticating the
+ * bearer request it is then sent with.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -87,10 +81,8 @@ final class AccessTokenIssueQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Issuing a token that names the principal's tenant checks it is the
-     * principal's own: through the relation the caller loaded the tenant with,
-     * at no read, or, with that relation unloaded, at the one read that loads
-     * it, and never a write.
+     * Issuing a token that names the principal's tenant reads it at most once
+     * and writes nothing.
      *
      * @return void
      */
@@ -137,9 +129,8 @@ final class AccessTokenIssueQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * The bearer request for that token authenticates in its own reads, the
-     * identity, the principal and the tenant the activity check loads, and
-     * writes nothing: the read the token's issue skipped is not moved to it.
+     * The issued token authenticates its bearer request in three reads and no
+     * writes.
      *
      * @return void
      *

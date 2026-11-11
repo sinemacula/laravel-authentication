@@ -16,11 +16,7 @@ use SineMacula\Laravel\Authentication\Models\Session;
 use Tests\Concerns\InteractsWithCallers;
 
 /**
- * Query-budget contracts for the caller of a request: with the access
- * credential it reads nothing the guard has not read already, and whether the
- * caller's own session is its own costs nothing more; a refresh credential is
- * proven once for a request, however often the caller is asked; and admitting
- * another principal by its id reads the member's memberships once.
+ * Query-budget contracts for the caller of a request.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -86,9 +82,8 @@ final class CallerQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A refresh credential is proven the first time the caller is asked for,
-     * reading the session, the member and its membership; asked again, the
-     * caller costs no query.
+     * A refresh credential is proven once per request, however often the caller
+     * is asked for.
      *
      * @return void
      *

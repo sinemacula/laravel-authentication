@@ -10,10 +10,8 @@ use Illuminate\Support\Facades\Schema;
 use Tests\Integration\Fixtures\NamedIdentity;
 
 /**
- * Owner columns under a collation that counts distinct keys as equal: MySQL's
- * default `utf8mb4_unicode_ci`, a PostgreSQL ICU collation that ignores case
- * and accents, and SQLite's `NOCASE`, which folds ASCII case only; and
- * identities keyed by name, whose keys can differ only in case or accent.
+ * Owner columns under a collation that counts distinct keys as equal, and
+ * identities keyed by name.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -75,9 +73,7 @@ trait InteractsWithFoldingCollations
     }
 
     /**
-     * Check the column finds the stored key by the folded one, which is what
-     * made an owner condition match a key that is not the owner's; SQLite
-     * cannot fold an accent, so the test is skipped there.
+     * Check the column finds the stored key by the folded one.
      *
      * @param  string  $table
      * @param  string  $column

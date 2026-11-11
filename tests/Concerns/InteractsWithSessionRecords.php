@@ -18,9 +18,6 @@ use Tests\Fixtures\Database\ShippedMigrations;
 /**
  * Shared session helpers for test cases that create session tables and rows.
  *
- * A trait rather than a base-class method because the session tests extend
- * different base cases (plain Testbench and the package `TestCase`).
- *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
@@ -29,10 +26,8 @@ use Tests\Fixtures\Database\ShippedMigrations;
 trait InteractsWithSessionRecords
 {
     /**
-     * A session of the guard that starts now, signed in with a password, with
-     * the package's default lifetimes (90 days idle, 180 days absolute), acting
-     * as the principal when one is given (a bearer token naming the session is
-     * accepted only for the principal the session records).
+     * A session of the guard that starts now with the default lifetimes, acting
+     * as the principal when one is given.
      *
      * @formatter:off
      *
@@ -55,9 +50,7 @@ trait InteractsWithSessionRecords
 
     /**
      * The session columns that record the principal a session acts as, as the
-     * session service writes them at sign-in: the principal, its own tenant as
-     * the active tenant (none when it has none, or it cannot be loaded), and no
-     * switch.
+     * session service writes them at sign-in.
      *
      * @formatter:off
      *
@@ -119,8 +112,7 @@ trait InteractsWithSessionRecords
 
     /**
      * Create the one-time codes table on the connection with the shipped
-     * migration, for a test whose sessions, and so codes, live on a connection
-     * of their own.
+     * migration.
      *
      * @param  string  $connection
      * @return void
@@ -140,12 +132,8 @@ trait InteractsWithSessionRecords
     }
 
     /**
-     * Create a session table with every column of the shipped migration. The
-     * owner and both deadlines are nullable, unlike the shipped table, so tests
-     * can store a session without an owner or deadlines. The table is created
-     * on the given connection, or the default one, keyed by a UUID or, when
-     * `$incrementing`, by an integer the database issues, or, when
-     * `$stringKey`, by any string the model gives it.
+     * Create a session table with every column of the shipped migration, the
+     * owner and deadlines nullable.
      *
      * @param  string  $table
      * @param  string  $key

@@ -10,11 +10,8 @@ use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 
 /**
- * External evidence policy that trusts each `amr` value for the kinds of
- * requirement it was given, and accepts or meets a requirement only when the
- * evidence's values together cover every kind of it, of any age, so evidence
- * asserting one value meets what another value's does not. It keeps the methods
- * of every piece of evidence it was asked to judge, in order.
+ * External evidence policy that trusts each `amr` value for the requirement
+ * kinds it was given and keeps the methods it judged.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

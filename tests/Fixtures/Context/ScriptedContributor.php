@@ -8,9 +8,8 @@ use SineMacula\Laravel\Authentication\Context\ContributionSubject;
 use SineMacula\Laravel\Authentication\Contracts\AuthenticationContextContributor;
 
 /**
- * An authentication context contributor a test binds: it answers whatever its
- * script answers for the subject, and keeps every subject it was given, so a
- * test can show when, how often and with what it was asked.
+ * An authentication context contributor that answers as scripted and keeps
+ * every subject it was given.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

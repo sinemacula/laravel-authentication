@@ -7,11 +7,8 @@ namespace Tests\Concerns;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Reads a session row apart from its issuance guard. Every refresh and switch
- * that finds the session writes the guard first, whatever it then decides, and
- * every other issuance of a token for it writes the guard too, so a test that
- * holds a refused or repeated issuance to "nothing written" compares the row
- * without the guard, and counts the guard's writes on their own.
+ * Reads a session row apart from its issuance guard, which every issuance
+ * writes whatever it then decides.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -21,8 +18,7 @@ use Illuminate\Support\Facades\DB;
 trait InspectsIssuanceGuards
 {
     /**
-     * The row without its issuance sequence: the session's state as every
-     * decision of an issuance reads and writes it.
+     * The row without its issuance sequence.
      *
      * @param  array<string, mixed>  $row
      * @return array<string, mixed>
@@ -35,8 +31,8 @@ trait InspectsIssuanceGuards
     }
 
     /**
-     * How many times the issuance guard of the session stored under the key has
-     * been written since the session was inserted.
+     * How many times the session's issuance guard has been written since the
+     * session was inserted.
      *
      * @param  mixed  $key
      * @param  string  $table

@@ -24,16 +24,8 @@ use Tests\Fixtures\Sessions\PermissiveApplicationPolicy;
 use Tests\Fixtures\Sessions\UnlimitedAttemptLimiter;
 
 /**
- * Binds permissive sign-in policies (every method allowed, every identity
- * admitted with the given lifetimes, no attempt limits, no further factor, no
- * tenant requirement) and the package's default access contracts (any principal
- * in any application, in its own tenant only) for guard tests that build guards
- * over mocked collaborators without the package service provider: no
- * configuration describes their guards, so the shipped policy and limiter could
- * not serve them.
- *
- * A trait rather than a base-class method because those tests extend different
- * base cases.
+ * Binds permissive sign-in policies and the default access contracts for guard
+ * tests that run without the package service provider.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

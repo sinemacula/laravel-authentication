@@ -9,9 +9,7 @@ use Illuminate\Support\Facades\DB;
 
 /**
  * A caller's transaction at a given isolation level on the default connection,
- * as an adapter opens one around the package's calls, and the serialisation
- * failure PostgreSQL raises in it at REPEATABLE READ, after which the caller
- * rolls back and retries the whole transaction.
+ * and the serialisation failure PostgreSQL raises in it at REPEATABLE READ.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -33,9 +31,9 @@ trait InteractsWithIsolationLevels
     }
 
     /**
-     * Begin a transaction at the isolation level on the default connection:
-     * MySQL sets it for the next transaction, PostgreSQL inside it, before its
-     * first read.
+     * Begin a transaction at the isolation level on the default connection.
+     *
+     * MySQL sets the level for the next transaction, PostgreSQL inside it.
      *
      * @param  string  $level
      * @return void
@@ -61,8 +59,7 @@ trait InteractsWithIsolationLevels
 
     /**
      * Whether every read at the isolation level, a locking one included, sees
-     * the snapshot the transaction took at its first statement: PostgreSQL's
-     * REPEATABLE READ (MySQL's locking reads read what is committed now).
+     * the snapshot the transaction took at its first statement.
      *
      * @param  string  $level
      * @return bool
@@ -73,10 +70,8 @@ trait InteractsWithIsolationLevels
     }
 
     /**
-     * Run the work in the caller's open transaction, expecting it to fail to
-     * serialise, roll the whole transaction back, as its caller does before it
-     * retries, and return the SQLSTATE it failed with, or `null` when it did
-     * not fail.
+     * Run the work in the open transaction, roll it back and return the
+     * SQLSTATE it failed to serialise with.
      *
      * @param  \Closure(): mixed  $work
      * @return ?string
@@ -97,8 +92,7 @@ trait InteractsWithIsolationLevels
     }
 
     /**
-     * Have a lock wait on the named connection give up after two seconds, so a
-     * transaction that should not wait fails rather than hangs.
+     * Have a lock wait on the named connection give up after two seconds.
      *
      * @param  string  $name
      * @return void

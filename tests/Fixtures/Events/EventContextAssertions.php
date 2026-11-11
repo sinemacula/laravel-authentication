@@ -15,9 +15,8 @@ use SineMacula\Laravel\Authentication\Support\MorphClass;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
- * Assertions on what an event's context names: an identity, principal, tenant
- * or session by the type and identifier the context holds for it, since the
- * context holds no model; `null` asserts it names none.
+ * Assertions on the identity, principal, tenant or session an event's context
+ * names by type and identifier.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

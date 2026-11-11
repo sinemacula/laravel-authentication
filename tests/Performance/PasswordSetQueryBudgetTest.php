@@ -18,12 +18,7 @@ use SineMacula\Laravel\Authentication\Passwords\PasswordWriter;
 use Tests\Concerns\InteractsWithPasswords;
 
 /**
- * Query-budget contracts for setting a password: checking one touches no
- * database; a registration of a stored identity is the one `UPDATE` of its
- * password; a change or a reset adds the bulk revocation (the cutoff's
- * `UPDATE`, one read of the sessions and one `UPDATE` per session revoked);
- * and a rejected password writes nothing. The hasher runs once per password
- * set, never for one rejected.
+ * Query-budget contracts for checking and setting a password.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -106,9 +101,8 @@ final class PasswordSetQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A registration of a stored identity is one `UPDATE`, one read of the row
-     * it updated, the `UPDATE` that ends the reset links and codes the password
-     * outdates, and one hash.
+     * A registration of a stored identity is one `UPDATE`, one read, one sweep
+     * and one hash.
      *
      * @return void
      *
@@ -127,10 +121,8 @@ final class PasswordSetQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A change that keeps one of three sessions is the password's `UPDATE`, one
-     * read of the row it updated and one `UPDATE` that ends the reset links and
-     * codes it outdates, the cutoff's `UPDATE`, one read of the sessions and
-     * one `UPDATE` for each of the two it revokes.
+     * A change is the password's update and the bulk revocation of the sessions
+     * it ends.
      *
      * @return void
      *
