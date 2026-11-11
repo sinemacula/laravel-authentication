@@ -24,13 +24,6 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  * Which sessions are live, the listing of an identity's live sessions, and the
  * lookup of one of them.
  *
- * A session is active while it is not pending, not revoked, and its idle
- * deadline, and its absolute deadline when it has one, are still ahead: a
- * deadline has passed from the second it names, as on every other path. The
- * listing and the lookup read the identity's `sessions()` relation on the write
- * connection, so neither shows a session a replica has not yet seen revoked,
- * and summarise each session without its digests.
- *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
@@ -48,8 +41,7 @@ final class ActiveSessions
 
     /**
      * Constrain a query of the session's model to the sessions active at the
-     * given time, with the columns its name accessors give: active rather than
-     * pending, not revoked, and before both deadlines.
+     * given time.
      *
      * @param  \Illuminate\Contracts\Database\Eloquent\Builder  $query
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
@@ -72,8 +64,7 @@ final class ActiveSessions
 
     /**
      * One page of the identity's active sessions, of every guard, most recently
-     * used first (never used last), then by key, newest first, each summarised
-     * and marked when it is the current session.
+     * used first.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $current
@@ -116,10 +107,8 @@ final class ActiveSessions
     }
 
     /**
-     * One of the identity's active sessions, of any guard, by its key,
-     * summarised as the listing summarises it and marked when it is the current
-     * session; `null` when it is not the identity's, not active, or not found.
-     * A key that cannot be one of the session model's is not queried.
+     * One of the identity's active sessions, of any guard, by its key; `null`
+     * when it is not found.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  mixed  $id
@@ -153,8 +142,7 @@ final class ActiveSessions
     }
 
     /**
-     * Whether the listed session is the session bound to the guard: the same
-     * class with the same identifier.
+     * Whether the listed session is the session bound to the guard.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $current

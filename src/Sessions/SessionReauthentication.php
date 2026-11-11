@@ -36,36 +36,7 @@ use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
 
 /**
  * Reauthenticates a session of one guard with its identity's first factor,
- * through one of this package's sign-in methods: records a first-factor
- * reauthentication proof on the session and issues it a new access token. It
- * renews the session's authentication time and nothing else: the `amr`, any
- * further factor's standing and the session row (apart from its issuance guard)
- * are as they were, no refresh token is issued, and nothing is bound.
- *
- * In order: the application policy must allow the method (`method_not_allowed`,
- * nothing counted); the session, read on the write connection, must still be
- * the one given, recording its generation (a session model that reissues keys
- * may have put another session under its key, which is `session_unknown`), and
- * one of this guard's live sessions of a person (the reasons `ProofIssuance`
- * gives);
- * the identifier and the client's IP address must have attempts left under the
- * guard's `sign_in` limits (`rate_limited`, with the wait), counted before any
- * transaction opens; then, inside the guard's credential timebox, the method
- * must verify the input, its account checks counted against the account as a
- * sign-in's are, for the session's own owner: another identity's credential is
- * `invalid_credentials`, never saying whose it was. A concealed reason is
- * answered as `invalid_credentials`. The proof is then recorded and the token
- * issued as `ProofIssuance` describes, the session locked and checked again.
- * The locked row must still be the session that was verified, the same owner's
- * and of the same generation: a session model that reissues a key could
- * otherwise have put another session under it while the credential was checked,
- * which is `session_unknown`, reported for the session verified. Its generation
- * tells even a session of the same owner started in that same second apart, so
- * the proof is never recorded on it and the token, which would carry that
- * session's own further factors and their `mfa`, never issued. The slots are
- * then given back, and `Reauthenticated` reports it once committed. A refusal
- * reports `AuthenticationFailed` (flow `reauthentication`) and is answered,
- * never thrown.
+ * recording the proof and issuing a new access token.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -153,9 +124,7 @@ final readonly class SessionReauthentication
 
     /**
      * Check the session, take the attempt's slot, and verify the input for the
-     * session's owner under the policy that allowed the method: the stored
-     * session, the first factor, the time it was verified and the attempt, or
-     * the refusal.
+     * session's owner, or answer the refusal.
      *
      * @formatter:off
      *
@@ -209,8 +178,8 @@ final readonly class SessionReauthentication
     }
 
     /**
-     * Verify the input with the method, for the session's owner, cutting the
-     * timebox short only when it verified: the first factor, or why not.
+     * Verify the input with the method for the session's owner, cutting the
+     * timebox short only when it verified.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\SignInMethod  $driver
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInRequest  $request
@@ -241,8 +210,7 @@ final readonly class SessionReauthentication
 
     /**
      * The session given as stored, read on the write connection, or `null` when
-     * its key holds no session or a session of another generation (or the
-     * session given is not an Eloquent session, which records none).
+     * its key holds no session of the same generation.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @return (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)|null
@@ -257,8 +225,8 @@ final readonly class SessionReauthentication
     }
 
     /**
-     * Whether the locked row is still the session verified: the identity's, and
-     * of the generation the verified one records.
+     * Whether the locked row is still the session verified, of the same owner
+     * and generation.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $locked
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -271,10 +239,8 @@ final readonly class SessionReauthentication
     }
 
     /**
-     * The id of the challenge the input answers, as the method registered under
-     * the name says, or `null` for a name no method is registered under. Asked
-     * only once the application allowed the method, so a method it does not
-     * allow is refused without its driver being built.
+     * The id of the challenge the input answers, or `null` for a name no method
+     * is registered under.
      *
      * @param  string  $method
      * @param  array<array-key, mixed>  $input
@@ -292,8 +258,8 @@ final readonly class SessionReauthentication
     }
 
     /**
-     * Report a refused reauthentication with `AuthenticationFailed`, with the
-     * id of the challenge the input answered, and answer it.
+     * Report a refused reauthentication with `AuthenticationFailed`, and answer
+     * it.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Refused  $refused
      * @param  string  $method

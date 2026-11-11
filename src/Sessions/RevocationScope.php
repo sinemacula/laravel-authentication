@@ -18,27 +18,8 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
- * The sessions a bulk revocation ends: an identity's, a principal's, or those
- * acting in a tenant, pending sessions among them (a pending session is a
- * session row like any other, so its credential ends with it), the "tokens
- * valid after" cutoff that ends its access tokens issued without a session,
- * and, for an identity whose identifiers can be changed, its pending identifier
- * changes, which end with them.
- *
- * An identity's sessions are those its `sessions()` relation returns, of every
- * guard; a principal's are the configured session model's sessions that record
- * it as their principal. Only an identity that implements `HasSessions` can
- * hold a session (the session service refuses to start a session for any
- * other), so a scope whose identity does not (access-only mode, where the
- * package's tables may not exist) touches none and only moves its cutoff, and
- * an unsaved principal has none to find. A principal's scope ends no identifier
- * change: the identity that requested one keeps its other sessions. Only the
- * cutoff of a model loaded from its row is moved: an Eloquent identity or
- * principal whose `exists` is `false` (hard-deleted, never saved, or built from
- * its key alone) may have no row to move it on, and an implementation that
- * persists through `save()` would insert the row again. Every scope checks it,
- * not only a deletion's: an observer revokes once the transaction commits, on
- * the model as it is then, which a delete in the same transaction has removed.
+ * The sessions a bulk revocation ends, the "tokens valid after" cutoff that
+ * ends its session-less access tokens, and any pending identifier changes.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -82,16 +63,13 @@ final readonly class RevocationScope
         /** The tenant whose deactivation ends them, if that is why. */
         public ?Tenant $tenant = null,
 
-        /** The keys of the identity's pending identifier changes that end with its sessions (see `PendingChanges::key()`); none for a principal's scope. */
+        /** The keys of the identity's pending identifier changes that end with its sessions; none for a principal's scope. */
         public array $changes = [],
     ) {}
 
     /**
-     * Every session of the identity, through its `sessions()` relation, read on
-     * the write connection, and its pending identifier changes of the types
-     * given, for an identity whose identifiers can be changed: a change link
-     * needs no session, so one requested from a session that ends must end with
-     * it.
+     * Every session of the identity, read on the write connection, and its
+     * pending identifier changes of the types given.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  list<string>  $changeTypes
@@ -108,12 +86,8 @@ final readonly class RevocationScope
     }
 
     /**
-     * Every session acting as the principal, of the configured session model,
-     * read on the write connection, with the tenant whose deactivation ends
-     * them when that is why, and the principal's owning identity, read afresh
-     * on the write connection (a 2D principal is its own). When that identity
-     * does not implement `HasSessions`, the principal can have no session, so
-     * none is looked for; when the owner cannot be read, they are.
+     * Every session acting as the principal, read on the write connection, with
+     * the tenant whose deactivation ends them when that is why.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
@@ -146,13 +120,8 @@ final readonly class RevocationScope
     }
 
     /**
-     * Every session acting in the tenant (whose active tenant it is), of the
-     * configured session model, of every guard, read on the write connection
-     * through the session table's tenant index, whatever principal it acts as:
-     * a principal of another tenant may act in this one, and pending sessions
-     * recording the tenant end with the rest. It has no cutoff and no identity
-     * or principal of its own: a token without a session acts only in its
-     * principal's own tenant, which the principals' scopes end.
+     * Every session acting in the tenant, of every guard and principal, read on
+     * the write connection.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @return self
@@ -174,8 +143,7 @@ final readonly class RevocationScope
 
     /**
      * The same sessions with the cutoff left where it is, so the scope's
-     * session-less access tokens keep working: how the request's own
-     * session-less token is kept when its identity signs out everywhere else.
+     * session-less access tokens keep working.
      *
      * @return self
      */
@@ -201,10 +169,8 @@ final readonly class RevocationScope
     }
 
     /**
-     * The principal's owning identity, read through `WriteConnection::stored()`
-     * so a relation set by whoever loaded it cannot stand in for the stored
-     * owner, or `null` when it cannot be read: a `LogicException`, as
-     * `ActsAsPrincipal` throws for a deleted owner.
+     * The principal's owning identity, read through
+     * `WriteConnection::stored()`, or `null` when it cannot be read.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity

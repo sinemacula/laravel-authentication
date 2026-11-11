@@ -38,25 +38,6 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyCheck;
  * Refreshes a session of one guard: exchanges the refresh token, reports the
  * rotation, and binds the guard to the refreshed session.
  *
- * Every refresh starts with Laravel's `Attempting`. A refused one dispatches
- * Laravel's `Failed` and then the exchange's `AuthenticationFailed`, and is
- * answered with its reason, `rate_limited` with the wait. A successful one
- * schedules `Refreshed` and `SignedIn` (a refresh) for once the rotation is
- * committed on the session's connection, and only then binds the guard as a
- * sign-in (`Validated`, `Login` and the bind events), with the tenant and the
- * sign-in method the exchange established, once the rotation commits too, as
- * `DeferredBind` binds it: a bind listener that throws cannot withhold the
- * report of a rotation already written, and a refresh inside a transaction that
- * rolls back binds nothing.
- *
- * It runs on the guard's context, reading its dispatcher and configuration when
- * each refresh starts, and reaches the guard's bound state only through the
- * binding it is given. A refresh takes plain values and reads the guard's
- * request for nothing it judges or reports: the token, its source and the
- * client are the caller's, judged again by the transport (`refusal()`), and the
- * guard's bind events describe that client too, for that bind only: the guard
- * keeps no client, so its later events describe its own request.
- *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
@@ -64,7 +45,7 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyCheck;
  */
 final readonly class SessionRefresh
 {
-    /** @var list<\SineMacula\Laravel\Authentication\Events\Enums\FailureReason> The reasons `RefreshTokenTransport::extract()` refuses a request's refresh token with, the only ones a caller may hand in. */
+    /** @var list<\SineMacula\Laravel\Authentication\Events\Enums\FailureReason> The reasons `extract()` refuses a token with, the only ones a caller may hand in. */
     private const array EXTRACT_REFUSALS = [
         FailureReason::REFRESH_TOKEN_CONFLICT,
         FailureReason::REFRESH_TRANSPORT_MISMATCH,
@@ -107,14 +88,7 @@ final readonly class SessionRefresh
     ) {}
 
     /**
-     * Refresh with what was presented: what `RefreshTokenTransport::extract()`
-     * answered, or a `PresentedRefreshToken` the application built, judged
-     * again with the client (`RefreshTokenTransport::judge()`). `null` returns
-     * `null`, dispatching nothing; a reason handed in (`handedIn()`) or a
-     * refusal of the judgement dispatches `Attempting`, `Failed` and
-     * `AuthenticationFailed`, touching no session; otherwise the token is
-     * exchanged, refused as `session_mismatch` when it proves a session other
-     * than the one expected. A presented token's result says where it was
+     * Refresh with the presented token, or return `null` when none was
      * presented.
      *
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Http\PresentedRefreshToken|null  $presented
@@ -151,10 +125,7 @@ final readonly class SessionRefresh
 
     /**
      * The reason `RefreshTokenTransport::extract()` answered, handed in by the
-     * caller, which a refresh, a switch and a sign-out by refresh credential
-     * report as they report a refusal of their own; a reason `extract()` never
-     * answers is a caller's error (`InvalidArgumentException`), raised before
-     * anything is dispatched.
+     * caller; any other reason is a caller's error.
      *
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
      * @return \SineMacula\Laravel\Authentication\Events\Enums\FailureReason
@@ -172,19 +143,7 @@ final readonly class SessionRefresh
 
     /**
      * Who the presented refresh credential would sign in again, without
-     * rotating it: `null` when nothing was presented; the reason `extract()`
-     * answered; the transport's judgement with the client (`judge()`); the
-     * refusal of the proof (a replay revoking the session, reported with the
-     * client); then the session's owner admitted as a refresh admits it (the
-     * owner, reloaded through the guard's provider and active, as the principal
-     * the token names, which must be the one the session records, in the
-     * session's active tenant, still admitted by the application policy and
-     * `ApplicationAccess`); then the session judged against its tenant's
-     * authentication policy, as a refresh judges it: `sso_required` for one the
-     * next refresh would revoke, `additional_factor_required` for one it would
-     * return to pending, neither written here. Dispatches nothing but a
-     * replay's `SessionRevoked`, and binds nothing; the caller reports a
-     * refusal.
+     * rotating it, or why it would not.
      *
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Http\PresentedRefreshToken|null  $presented
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
@@ -206,8 +165,7 @@ final readonly class SessionRefresh
     }
 
     /**
-     * Who the presented refresh token would sign in again: the proof's refusal,
-     * the admission's, the tenant policy's, or the credential.
+     * Who the presented refresh token would sign in again, or the refusal.
      *
      * @param  \SineMacula\Laravel\Authentication\Http\PresentedRefreshToken  $presented
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
@@ -242,9 +200,7 @@ final readonly class SessionRefresh
 
     /**
      * The credential of the admitted session when it meets its tenant's
-     * authentication policy, judged as a refresh judges it but writing nothing:
-     * `sso_required` for a session the next refresh would revoke,
-     * `additional_factor_required` for one it would return to pending.
+     * authentication policy, judged as a refresh judges it but writing nothing.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
@@ -281,11 +237,7 @@ final readonly class SessionRefresh
 
     /**
      * Exchange the refresh token and bind the guard to the refreshed session
-     * once the rotation commits, its pair delivered by the application's
-     * transport at once. A session that no longer meets its tenant's
-     * authentication policy for want of a further factor returns to pending:
-     * the result is pending, with the pending credential instead of a pair,
-     * nothing is bound, and a binding to that session is forgotten.
+     * once the rotation commits, or return the session to pending.
      *
      * @param  \SineMacula\Laravel\Authentication\Secrets\Secret  $refreshToken
      * @param  \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport  $transport
@@ -347,8 +299,8 @@ final readonly class SessionRefresh
     }
 
     /**
-     * Report a refused refresh, Laravel's `Failed` and then the failure, and
-     * answer it with the failure's reason and wait.
+     * Report a refused refresh with Laravel's `Failed` and then the failure,
+     * and answer it.
      *
      * @param  \SineMacula\Laravel\Authentication\Events\AuthenticationFailed  $failure
      * @return \SineMacula\Laravel\Authentication\Sessions\RefreshResult
@@ -363,10 +315,8 @@ final readonly class SessionRefresh
     }
 
     /**
-     * Dispatch `Refreshed` and then `SignedIn` (a refresh, on the session it
-     * continued) once the rotation is committed on the session's own
-     * connection: at once when it has no open transaction, on its commit
-     * otherwise, and never when it rolls back.
+     * Dispatch `Refreshed` and then `SignedIn` once the rotation commits on the
+     * session's connection.
      *
      * @param  \SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh  $refreshed
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client

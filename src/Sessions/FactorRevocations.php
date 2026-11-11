@@ -37,47 +37,8 @@ use SineMacula\Laravel\Authentication\Tenancy\Enums\TenantPolicyStanding;
 use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyCheck;
 
 /**
- * Ends sessions when the factor package removes one of an identity's factors or
- * resets them all: the two mandatory triggers, which the factor package calls
- * synchronously inside its own change and no setting turns off.
- *
- * A removal revokes every session of the identity but the current one, as
- * `factor_removed`, then judges the current one again without the factor: the
- * proofs it made with that factor are voided, and an active one stays active
- * while it still meets what the identity's factor policy and its tenant's
- * policy ask of it, returns to pending while it falls short of a further factor
- * only, and is revoked when nothing it could do in place would meet them; a
- * pending one stays pending, its next action judged without those proofs; with
- * no current session, every session is revoked, and the guard's binding to the
- * identity is forgotten. A reset revokes every session of the identity, the
- * current one included, as `factor_reset`, and forgets the guard's binding to
- * the identity. Either needs the identity on the storage connection, so its
- * cutoff moves and its sessions end in the factor package's transaction, and
- * runs on the session model's connection in one transaction, a savepoint inside
- * the caller's. Once that commits, the guard first forgets its binding, so the
- * rest of the request is not authenticated as a session it ended even when a
- * listener throws, and then its events are reported. A current session whose
- * proofs were voided has the authentication context of every resolved guard
- * bound to it forgotten at once, and again once the removal commits or rolls
- * back, whether it stays active or not.
- *
- * A change the factor package makes that removes no factor (a factor confirmed,
- * a passkey associated as a factor) judges the current session again in the
- * same way, on the session model's connection in one transaction, a savepoint
- * inside the caller's: it voids no proof, touches no other session and moves no
- * cutoff, so the identity may live anywhere. A current session that is no
- * longer the session given, or no longer live and active, is skipped; a pending
- * one is judged at its next action. Its revocation records `factor_changed`, or
- * `factor_removed` for `FACTOR_REMOVED`.
- *
- * Either judgement is made under the current session's row lock, after its
- * issuance guard, and reads its proofs and provenance current
- * (`SessionProofs`): at READ COMMITTED, and on MySQL and MariaDB at REPEATABLE
- * READ, it judges the proofs committed by then, a step-up included and a
- * voided proof excluded, whatever the factor package's transaction read first;
- * on PostgreSQL at REPEATABLE READ, a proof change committed after that
- * transaction's snapshot fails it to serialise instead, for the factor package
- * to retry it whole.
+ * Ends sessions when the factor package removes, changes or resets an
+ * identity's factors, and judges the current session again.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -118,16 +79,8 @@ final readonly class FactorRevocations
     ) {}
 
     /**
-     * The factor `$factor` (the factor package's reference to it, 1 to 255
-     * characters) was removed: revoke every session of the identity but
-     * `$current`, then judge `$current` again without the factor. `$current`,
-     * when given, must be a session of this guard owned by the identity; it is
-     * left as it is when it has meanwhile been revoked or ended, and a pending
-     * one has its proofs made with the factor voided and stays pending. When
-     * the guard is bound to it and it is returned to pending or revoked, the
-     * binding is forgotten once the removal commits; with no `$current`, every
-     * session of the identity is revoked, and the guard's binding to the
-     * identity is forgotten then, as a reset forgets it.
+     * Revoke every session of the identity but `$current` after a factor was
+     * removed, then judge `$current` again without it.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $factor
@@ -162,12 +115,7 @@ final readonly class FactorRevocations
     }
 
     /**
-     * The factor package made the change given from `$current`, a session of
-     * this guard owned by the identity: judge it again, as a removal judges its
-     * current session, without voiding any proof or touching any other session.
-     * It is skipped when it is no longer the session given or no longer live
-     * and active; when the guard is bound to it and it is returned to pending
-     * or revoked, the binding is forgotten once the change commits.
+     * Judge `$current` again after the factor package made the change from it.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Factors\Enums\FactorChangeMade  $change
@@ -202,10 +150,8 @@ final readonly class FactorRevocations
     }
 
     /**
-     * The identity's further factors were reset: revoke every session of the
-     * identity, the current one included (`factor_reset`), and, when the guard
-     * is bound to the identity, forget the binding once the reset commits.
-     * Returns how many sessions this call revoked.
+     * Revoke every session of the identity after its further factors were
+     * reset, returning how many this call revoked.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @return int
@@ -223,9 +169,7 @@ final readonly class FactorRevocations
     }
 
     /**
-     * What forgets the guard's binding to the identity once the change that
-     * revoked every session of it commits, so the rest of the request is not
-     * authenticated as a session it ended; a rollback keeps the binding.
+     * What forgets the guard's binding to the identity once the change commits.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @return \Closure(): void
@@ -240,9 +184,8 @@ final readonly class FactorRevocations
     }
 
     /**
-     * What forgets the guard's binding to whichever of the sessions it is bound
-     * to, once the removal or change commits: the current session joins them
-     * when it is returned to pending or revoked.
+     * What forgets the guard's binding to any of the ended sessions once the
+     * change commits.
      *
      * @param  \ArrayObject<int, \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession>  $ended
      * @return \Closure(): void
@@ -260,8 +203,7 @@ final readonly class FactorRevocations
 
     /**
      * The current session given, once it is a session of this guard that the
-     * identity owns, or `null` when none was given; the flow names the call in
-     * the refusal.
+     * identity owns.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $current
@@ -286,8 +228,7 @@ final readonly class FactorRevocations
     }
 
     /**
-     * Refuse an identity that does not live on the storage connection, naming
-     * the flow and both connections.
+     * Refuse an identity that does not live on the storage connection.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $flow
@@ -305,11 +246,8 @@ final readonly class FactorRevocations
     }
 
     /**
-     * Lock the current session and, while it is still the session given and
-     * live, write its issuance guard (`IssuanceGuard`) and void its proofs made
-     * with the factor, so no issuance of the session that overlaps the removal
-     * counts them. An active one is then judged again; a pending one stays
-     * pending, its next action judged without them.
+     * Lock the current session, void its proofs made with the factor and judge
+     * it again when it is active.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $current
@@ -359,13 +297,8 @@ final readonly class FactorRevocations
     }
 
     /**
-     * Judge the locked session as its proofs now stand, read current: it stays
-     * active while nothing is outstanding, returns to pending, recording the
-     * version of its tenant's policy answered, while a further factor is (the
-     * strictest of the identity-level requirement it still owes and its
-     * tenant's), and is revoked with the reason given when it is no longer
-     * admitted as a refresh admits it, its tenant now requires a connection, or
-     * its return to pending missed.
+     * Keep the locked session active, return it to pending or revoke it, as its
+     * current proofs stand.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $locked
@@ -404,9 +337,8 @@ final readonly class FactorRevocations
     }
 
     /**
-     * The locked session admitted as a refresh admits it, as the principal it
-     * records, with how it stands against its tenant's policy, or `null` when
-     * it is not admitted or its tenant now requires a connection.
+     * The locked session admitted as a refresh admits it, with its tenant
+     * policy verdict, or `null` when it no longer stands.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $locked
      * @param  \Carbon\CarbonImmutable  $now
@@ -433,10 +365,8 @@ final readonly class FactorRevocations
     }
 
     /**
-     * Revoke the locked session with the reason given, report it once
-     * committed, and add it to the sessions whose binding is forgotten then:
-     * `revoked` when this call's write revoked it, `skipped` when another
-     * writer had revoked it meanwhile.
+     * Revoke the locked session and add it to the sessions whose binding is
+     * forgotten.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $locked
@@ -457,8 +387,7 @@ final readonly class FactorRevocations
     }
 
     /**
-     * The judgement's answer once the locked session returned to pending, added
-     * to the sessions whose binding is forgotten once that commits.
+     * The judgement's answer once the locked session returned to pending.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $locked
      * @param  \SineMacula\Laravel\Authentication\Sessions\ReturnedToPending  $returned
@@ -473,9 +402,7 @@ final readonly class FactorRevocations
     }
 
     /**
-     * What defers work until the writes made on the session model's connection
-     * commit, or runs it once they roll back, consulting the transactions
-     * manager bound when it runs.
+     * What defers work until the session model's connection commits.
      *
      * @return \SineMacula\Laravel\Authentication\Database\AfterCommit
      */

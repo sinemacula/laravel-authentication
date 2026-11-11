@@ -29,40 +29,8 @@ use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
 use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
 
 /**
- * Decides whether a `Reauthentication` proves that an identity authenticated
- * recently enough, through a guard, for a change of its identifiers: the
- * freshness policy's `identifier_change` operation decides how recently, and by
- * which proofs.
- *
- * A session proof is read again by its key on the write connection, so the
- * instance the caller holds cannot stand in for the stored row; it must still
- * be that session (of its generation, so another session a model put under the
- * key is not), the identity's own (its recorded owner), of the guard, not
- * revoked and not ended, and the freshness policy must find one of its proofs
- * that meets the operation's requirement (see `FreshnessPolicy`: a proof of a
- * kind the requirement takes, made within its age). A password proof is a
- * reauthentication with the first factor made now, so it is accepted only when
- * that requirement takes `first_factor_reauthentication` and asks for neither
- * multifactor authentication nor phishing resistance, which a password never
- * shows, and only on a guard whose application allows the password method. It
- * is checked inside the guard's credential timebox, against the identity read
- * again through the guard's identity provider on the write connection (it must
- * still be the same row), and counted first against the identity's account and
- * the IP address under the guard's `sign_in` limits, as a sign-in's password
- * is; a correct one gives its slot back.
- *
- * `refusal()` counts a password's attempt, so it runs before the transaction
- * that acts on the proof: inside it, the counters' rows would stay locked until
- * the commit, and MySQL deadlocks two transactions that each create a counter
- * in the same gap of the index. `stands()` then checks the accepted proof again
- * inside that transaction, once the identity's row is locked, without counting:
- * the session is read again with its row locked until the transaction ends and
- * judged as locked, and the freshness policy asked within it on the session's
- * proofs as committed (asked current), so neither a revocation nor a voided
- * proof can fall between the check and what the proof allows, and a password
- * stands while the locked row holds the hash it was checked against.
- *
- * Made for one check and dropped with it; it keeps nothing between calls.
+ * Decides whether a `Reauthentication` proves an identity authenticated
+ * recently enough, through a guard, for a change of its identifiers.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -87,10 +55,8 @@ final readonly class RecentAuthentication
     ) {}
 
     /**
-     * Why the proof does not show that the identity authenticated recently
-     * enough, from the IP address given: `reauthentication_required`, or the
-     * seconds until a password may be checked again when its limits refused
-     * it; `null` when it does.
+     * Why the proof does not show the identity authenticated recently enough,
+     * or `null` when it does.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Sessions\Reauthentication  $proof
@@ -119,12 +85,7 @@ final readonly class RecentAuthentication
 
     /**
      * Whether a proof `refusal()` accepted still stands, inside the transaction
-     * that acts on it and once the identity's row is locked: a session proof is
-     * checked again, its row locked and the freshness policy asked inside the
-     * transaction on its proofs as committed; a password proof stands while the
-     * locked row's password hash is the one the row held when it was read
-     * before the password was checked (a hash is salted afresh on every write,
-     * so any password written in between changes it).
+     * that acts on it and once the identity's row is locked.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $before
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $locked
@@ -144,19 +105,9 @@ final readonly class RecentAuthentication
     }
 
     /**
-     * Whether the session, as stored, is still the session given (of its
-     * generation: a session model that reissues keys may have put another
-     * session under its key, the identity's own included), one of the
-     * identity's live sessions of this guard, and has a proof fresh enough for
-     * an identifier change.
-     *
-     * The row given is judged here, not only by the freshness policy, which is
-     * never trusted to check it: in `stands()` it is the locked row, which a
-     * revocation committed in the meantime has reached even where the
-     * transaction reads an earlier snapshot without a lock (MySQL's REPEATABLE
-     * READ), and the policy is asked under that lock (`$locked`) on the
-     * session's proofs as committed (asked current); `refusal()`'s check,
-     * before the transaction, asks it plainly and locks nothing.
+     * Whether the session, as stored, is still the one given, a live session of
+     * the identity on this guard, and has a proof fresh enough for an
+     * identifier change.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
@@ -176,12 +127,9 @@ final readonly class RecentAuthentication
     }
 
     /**
-     * Whether the password is the identity's current one, checked inside the
-     * guard's credential timebox once a slot of the account's and the IP
-     * address's sign-in limits is taken; the seconds until another may be
-     * checked when they had none. A guard whose freshness for identifier
-     * changes does not take a password, or whose application does not allow the
-     * password method, accepts no password as proof, and counts nothing.
+     * Whether the password is the identity's current one, once a slot of its
+     * sign-in limits is taken; the seconds until another may be checked when
+     * none was free.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $password
@@ -247,8 +195,7 @@ final readonly class RecentAuthentication
 
     /**
      * Whether the freshness the guard requires for an identifier change takes a
-     * password checked now: a first-factor reauthentication, with neither
-     * multifactor authentication nor phishing resistance asked for.
+     * password checked now.
      *
      * @return bool
      *

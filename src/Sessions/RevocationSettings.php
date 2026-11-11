@@ -8,13 +8,8 @@ use Illuminate\Contracts\Config\Repository;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 
 /**
- * Whether each per-event revocation the application may turn off ends sessions:
- * a connection disabled or deleted, and an identity's link through a connection
- * removed (`authentication.revocation.*`, each `true` or `false`, on unless
- * set). A value that is not a boolean fails closed with an
- * `InvalidArgumentException` when the trigger is first called, and
- * `authentication:check` reports it. Every other revocation, a link's widened
- * scope among them, is mandatory: no setting turns it off.
+ * Whether each per-event revocation the application may turn off ends sessions
+ * (`authentication.revocation.*`, on unless set).
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -45,8 +40,8 @@ final readonly class RevocationSettings
     ) {}
 
     /**
-     * Whether the trigger that records the reason ends sessions: its setting,
-     * `true` unless set; a reason no setting turns off always does.
+     * Whether the trigger that records the reason ends sessions; a reason no
+     * setting turns off always does.
      *
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $trigger
      * @return bool
@@ -65,8 +60,7 @@ final readonly class RevocationSettings
     }
 
     /**
-     * Read every setting, failing closed on the first that is malformed;
-     * `authentication:check` runs it.
+     * Read every setting, failing closed on the first that is malformed.
      *
      * @return void
      *

@@ -7,8 +7,8 @@ namespace SineMacula\Laravel\Authentication\Sessions;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
 
 /**
- * An active session that returned to pending: the pending session it now is,
- * and the pending credential it now holds instead of its token pair.
+ * An active session that returned to pending, with the pending credential it
+ * holds instead of its token pair.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

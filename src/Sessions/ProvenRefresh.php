@@ -9,9 +9,8 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Jwt\Enums\RotationMatch;
 
 /**
- * The session a refresh token proves the client holds now: its record, the
- * principal its token names, and whether the token carried the current rotation
- * id or the one it replaced inside the grace window.
+ * The session a refresh token proves, the principal it names and the rotation
+ * id it carried.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

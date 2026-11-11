@@ -14,21 +14,7 @@ use SineMacula\Laravel\Authentication\Support\RowKey;
 
 /**
  * The sessions a bulk revocation kept on purpose while it moved a "tokens valid
- * after" cutoff (the session a password change, a password establishment, a
- * credential's removal or a sign-out everywhere keeps), each with the cutoffs
- * such revocations moved for each holder, so the check a sign-in, a choice or a
- * switch is held to (`AdmissionRecheck`) does not take a cutoff moved by a
- * revocation that saw its session, and kept it, for one that could not see it.
- *
- * Only a revocation and a check of the same request or job meet here, which is
- * where the check can be waiting when such a revocation runs: inside a caller's
- * transaction, which the check waits for. Sessions and holders are told apart
- * as their rows are (`RowKey`) for Eloquent models, and by class and identifier
- * for any other identity or principal. A record is forgotten when the move of
- * an Eloquent holder's cutoff it stands for rolls back (`RevocationWriter`).
- *
- * One instance is shared through the container, scoped, so nothing one request
- * or job kept is seen by the next.
+ * after" cutoff, with the cutoffs it moved for each holder.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -42,8 +28,7 @@ final class KeptSessions
 
     /**
      * Record that a revocation kept the session while it moved the holder's
-     * cutoff to the time given, and return what forgets that record again, for
-     * a move of the cutoff that is rolled back.
+     * cutoff, returning what forgets the record again.
      *
      * @param  \Illuminate\Database\Eloquent\Model  $session
      * @param  \SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter  $holder
@@ -64,9 +49,7 @@ final class KeptSessions
     }
 
     /**
-     * The time the holder's cutoff must pass to end the session's call: the
-     * call's start, or the latest cutoff a revocation that kept the session
-     * moved, when later.
+     * The time the holder's cutoff must pass to end the session's call.
      *
      * @param  \Illuminate\Database\Eloquent\Model  $session
      * @param  \SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter  $holder
@@ -91,9 +74,7 @@ final class KeptSessions
     }
 
     /**
-     * What tells a holder that is no Eloquent model apart: its class and its
-     * identifier as an identity (its auth identifier) or a principal, or the
-     * instance itself for any other.
+     * What tells a holder that is no Eloquent model apart.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter  $holder
      * @return string

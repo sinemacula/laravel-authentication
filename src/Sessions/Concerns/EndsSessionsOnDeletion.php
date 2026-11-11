@@ -11,8 +11,7 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
  * The session service's revocations when an identity or a principal is deleted,
  * which `SessionRevocations` carries out.
  *
- * They are delegations with no state of their own; they sit in a trait only so
- * the service stays within the number of methods one class may declare.
+ * Kept in a trait only to hold the service under the per-class method limit.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -22,15 +21,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 trait EndsSessionsOnDeletion
 {
     /**
-     * The identity was deleted, or soft-deleted: end every session it has, of
-     * every guard, pending ones included (`identity_deleted`), and cancel its
-     * pending identifier changes. It works on the model as it was deleted,
-     * which keeps its key, as well as on one about to be. Calling it again is
-     * safe: it revokes only a session written since. While the identity is a
-     * model loaded from its row (soft-deleted, or not yet deleted), each call
-     * moves its "tokens valid after" cutoff, when it records one, forward to
-     * now. Made inside a transaction, it ends the sessions again after the
-     * commit, as `identityDeactivated()` does.
+     * End every session of the deleted identity and cancel its pending
+     * identifier changes.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @return int
@@ -46,11 +38,7 @@ trait EndsSessionsOnDeletion
     }
 
     /**
-     * The principal was deleted, or soft-deleted: end every session acting as
-     * it, pending ones included (`principal_deleted`), as `identityDeleted()`
-     * does for an identity: on the model as it was deleted, safely again, and
-     * moving its cutoff while it is loaded from its row, and again after the
-     * commit when made inside a transaction.
+     * End every session acting as the deleted principal.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return int

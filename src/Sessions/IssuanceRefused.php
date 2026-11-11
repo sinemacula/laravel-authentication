@@ -7,10 +7,8 @@ namespace SineMacula\Laravel\Authentication\Sessions;
 use SineMacula\Laravel\Authentication\Admission\Refused;
 
 /**
- * Thrown inside a proof issuance's transaction when the session, judged again
- * with the proof just recorded, cannot be issued a token, so the transaction
- * rolls back and the proof is not kept; `ProofIssuance` catches it and answers
- * with the refusal. Never leaves `ProofIssuance`.
+ * Thrown inside a proof issuance's transaction to roll back a refused proof;
+ * `ProofIssuance` catches it.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

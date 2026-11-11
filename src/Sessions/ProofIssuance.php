@@ -26,40 +26,8 @@ use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
- * Records a proof on an active session and issues it a new access token, in one
- * transaction on the session's connection: the shared step of a step-up and a
- * reauthentication.
- *
- * In order, with the session's row locked until the transaction ends, so a
- * revocation either commits first (and the proof is refused) or after (and the
- * new token dies at the next request, as every access token of a revoked
- * session does): the session must exist (`session_unknown`); be this guard's,
- * not revoked, not pending and not ended (`OwnedSession::refusal()`); belong to
- * a person (`machine_identity`); take the proof (the operation's own check,
- * given the session's start); and be admitted again as a refresh admits it (the
- * owner, the principal the session records and its tenant active, the method
- * still allowed, the principal still eligible). Then the proof is recorded, the
- * session judged once more with it when the operation asks (its own check,
- * given the admission: a refusal there rolls the proof back with the
- * transaction), and one access token issued, its `auth_time` and `amr` derived
- * from the proofs, the new one included, and answered with when it expires (the
- * access lifetime from its issue, never past the session's end). Once the proof
- * commits or rolls back, every resolved guard bound to the session forgets the
- * authentication context it holds, so the rest of the request reads the proofs
- * as they then stand. Nothing else is written: the refresh token and the
- * deadlines stay as they were, and the session row takes only its issuance
- * guard (`IssuanceGuard`), written before the proof, which no compare-and-swap
- * reads, so a concurrent refresh's compare-and-swap is unaffected. The guard
- * makes a refresh, switch or other issuance of the session that overlaps this
- * one wait for it and then read its proof, or, where that one reads a snapshot
- * taken before this commits (PostgreSQL's REPEATABLE READ), fail to serialise,
- * so no later token of the session carries an older `auth_time` or fewer `amr`
- * values than this one.
- *
- * Every check and the token are judged at the second the lock is taken, not
- * when the caller began: a credential's verification and the wait for the lock
- * can outlast the session's idle or absolute deadline, and a session that ended
- * meanwhile is refused as ended.
+ * Records a proof on an active session and issues it a new access token in one
+ * transaction: the shared step of a step-up and a reauthentication.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -89,9 +57,7 @@ final readonly class ProofIssuance
 
     /**
      * Record the proof on the session the key names and issue it a new access
-     * token, or refuse with as much as was resolved. `$admits`, when given,
-     * judges the admitted session once the proof is recorded: a reason refuses
-     * the issuance and the proof is not kept.
+     * token, or refuse with as much as was resolved.
      *
      * @formatter:off
      *
@@ -119,8 +85,8 @@ final readonly class ProofIssuance
     }
 
     /**
-     * Lock, check, admit, record, judge again with the proof recorded when the
-     * operation asks, and issue, in the caller's transaction.
+     * Lock, check, admit, record, judge again and issue, in the caller's
+     * transaction.
      *
      * @formatter:off
      *
@@ -164,7 +130,7 @@ final readonly class ProofIssuance
         IssuanceGuard::hold($session);
 
         // Registered before the proof is written, so a context `$admits` builds
-        // from it is forgotten when `$admits` then refuses or throws.
+        // is forgotten when it refuses or throws.
         ContextForgetting::onSettle($this->afterCommit, $session);
 
         ProofWriter::record($session, $this->context->name(), $proof);
@@ -208,9 +174,8 @@ final readonly class ProofIssuance
     }
 
     /**
-     * Judge the admitted session once more, now that its proof is recorded,
-     * when the operation asks: a reason it gives refuses the issuance, rolling
-     * the proof back with the transaction.
+     * Judge the admitted session once more now its proof is recorded; a reason
+     * refuses the issuance and rolls the proof back.
      *
      * @formatter:off
      *
@@ -239,8 +204,7 @@ final readonly class ProofIssuance
 
     /**
      * Admit the session again as a refresh admits it, as the principal it
-     * records (`session_principal_mismatch` when that no longer resolves as
-     * that very principal).
+     * records.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @return \SineMacula\Laravel\Authentication\Admission\Admitted|\SineMacula\Laravel\Authentication\Admission\Refused

@@ -13,31 +13,11 @@ use SineMacula\Laravel\Authentication\Passkeys\PasskeySignIn;
 use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
 
 /**
- * The registry of sign-in methods, keyed by the name each is recorded under on
- * the sessions it signs in and allowed by a guard's application policy.
+ * The registry of sign-in methods, keyed by the name each is recorded under and
+ * allowed by.
  *
- * The package registers its own methods (`password`, which `attempt()` and
- * `validate()` also use directly, `phone_code`, `email_code` and `passkey`), so
- * their names are reserved: `extend('password', ...)` throws. So are the
- * machine credential kinds an application may list beside them (`api_key`,
- * `client_credentials`), which are not sign-in methods and never resolve to
- * one, and `external_provider`, under which the session service records a
- * session an external identity provider established
- * (`SessionService::signInExternally()`): it never resolves to a method, so a
- * result an external provider verified never arrives as a sign-in's input.
- * Other methods register themselves with `extend()` under a lower-case name (a
- * letter, then letters, digits or underscores), for example from a service
- * provider's `register()` once the registry resolves, which holds whichever
- * provider registers first:
- *
- * `$this->callAfterResolving(SignInMethodManager::class, fn ($methods) => $methods->extend('magic_link', ...));`
- *
- * A singleton that keeps each method it builds for as long as the same
- * application is serving (the life of the process, except under Octane, where
- * each request's sandbox builds its own), which is why methods must be
- * stateless. There is no default method: every sign-in names the method it
- * uses, exactly as it was registered, since the name is what the session
- * records and the application policy allows.
+ * A singleton that keeps each method it builds while the same application
+ * serves, so methods must be stateless.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -87,7 +67,7 @@ final class SignInMethodManager extends Manager
 
     /**
      * The names sign-in methods are registered under: the package's own, then
-     * those registered with `extend()`, in the order they were registered.
+     * those registered with `extend()`.
      *
      * @return list<string>
      */
@@ -112,17 +92,8 @@ final class SignInMethodManager extends Manager
     }
 
     /**
-     * Register a sign-in method under the name, which must be lower case (a
-     * letter, then letters, digits or underscores), so each method has one
-     * spelling to be recorded and allowed under. The package's own methods
-     * cannot be replaced: `attempt()`, `validate()` and the rehash on a
-     * password sign-in rely on `password`, so a replacement would change
-     * `signIn()` but not them, and the others hold the package's guarantees for
-     * codes and passkeys. The machine credential kinds cannot be registered
-     * either, since an application that lists one allows a credential, not a
-     * sign-in, and neither can `external_provider`, since a result an external
-     * provider verified reaches the session service only from a trusted
-     * adapter, never as input.
+     * Register a sign-in method under a lower-case name; the package's own
+     * names and the reserved credential kinds are refused.
      *
      * @param  mixed  $driver
      * @param  \Closure  $callback
@@ -163,18 +134,11 @@ final class SignInMethodManager extends Manager
     }
 
     /**
-     * Return the method registered under the name. A manager built with the
-     * application then serving builds its methods with the application now
-     * serving: methods built with another application are forgotten first, so
-     * they are built again with this one, and methods registered with
-     * `extend()` stay registered. A manager given a container of its own, at
-     * construction or through `setContainer()`, keeps it.
+     * Return the method registered under the name, built with the application
+     * now serving unless the manager was given a container of its own.
      *
-     * Under Octane each request runs in a sandbox: a copy of the application
-     * the worker booted, with the request's own configuration and bindings. A
-     * manager resolved at boot, as one a service provider registers a method on
-     * is, would otherwise build every method with the booted application and
-     * its configuration, for the life of the worker.
+     * Under Octane a manager resolved at boot would otherwise build every
+     * method with the booted application for the life of the worker.
      *
      * @param  mixed  $driver
      * @return mixed
@@ -228,10 +192,8 @@ final class SignInMethodManager extends Manager
     }
 
     /**
-     * Build the method registered under exactly the name: one of the package's
-     * own, through its `create<Name>Driver()` method, or one registered with
-     * `extend()`. Any other spelling, including one that differs only in case
-     * or punctuation from a registered name, is unknown.
+     * Build the method registered under exactly the name; any other spelling is
+     * unknown.
      *
      * @param  mixed  $driver
      * @return mixed

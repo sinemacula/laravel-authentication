@@ -10,15 +10,8 @@ use Symfony\Component\HttpFoundation\Cookie;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * How a sign-out ended: whether this call revoked a session, why the refresh
- * credential was refused when it was, where the refresh credential was read
- * from when one was, and, for a cookie application, the expired cookie that
- * clears the browser's when the request came from its own pages.
- *
- * A sign-out is never a failed authentication: a refusal only says why the
- * refresh credential proved no session, and a session it leaves unproven stays
- * live. `signOutWith()` forgets only a binding to the session it revoked, so a
- * guard bound to another session stays bound.
+ * How a sign-out ended: whether this call revoked a session or why its refresh
+ * credential was refused.
  *
  * @api
  *

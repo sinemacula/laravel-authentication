@@ -30,28 +30,7 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
  * Proves, from a refresh token, the session of one guard the client holds now,
- * without rotating it: what a sign-out by refresh credential revokes, and the
- * caller `Auth::caller()` reads from a refresh credential.
- *
- * It makes the checks a refresh makes of the token and its session, with the
- * same reasons, and no others: the token parses for this guard as a refresh
- * token (`token_invalid`), names a session (`session_unknown`) of this guard
- * (`session_guard_mismatch`, read on the write connection), which is live and
- * holds the token's rotation id as its current one or, inside the grace window,
- * as the one the current one replaced (`session_revoked`, `session_pending`,
- * `session_expired`, `refresh_key_missing`, `rotation_reuse`), and whose
- * recorded principal identifier is the one the token names
- * (`session_principal_mismatch`). The token names its principal by identifier
- * alone, and resolving it would need the owner the caller admits, so the type
- * is the caller's to check when it acts as that principal, as a refresh does: a
- * token from before a switch to a principal of another class with the same
- * identifier proves the session inside the grace window, which only a sign-out
- * takes, and the same token revokes it as a replay once the window closes. A
- * replay revokes the session (`rotation_reuse`, reported by `SessionRevoked`
- * once committed), as a refresh does, so reuse detection holds on every path
- * that accepts a refresh token. Nothing is rotated, no attempt is counted, and
- * neither the owner's admission nor the tenant's policy is asked: the caller
- * asks what it needs.
+ * without rotating it.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -85,8 +64,8 @@ final readonly class RefreshProof
 
     /**
      * The session the refresh token proves the client holds now, or the
-     * `AuthenticationFailed` event of the flow given that reports why it proves
-     * none, undispatched. Every event it builds carries the client given.
+     * undispatched `AuthenticationFailed` event that reports why it proves
+     * none.
      *
      * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $refreshToken
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow  $flow
@@ -124,10 +103,8 @@ final readonly class RefreshProof
     }
 
     /**
-     * The session the token's claims name, with the rotation id and the
-     * principal they carry, or the refusal: `token_invalid` for a token that
-     * does not parse or whose rotation id is not a string (naming the session
-     * id when it is one), `session_unknown` for a session that does not exist.
+     * The session the token's claims name, with the rotation id and principal
+     * they carry, or the refusal.
      *
      * @formatter:off
      *
@@ -176,10 +153,8 @@ final readonly class RefreshProof
     }
 
     /**
-     * Judge the session the token names: its guard, then the rotation id
-     * against it, a replay revoking it, then the principal the token names
-     * against the one the session records, when the token names one. Returns
-     * the refusal, or which rotation id the token carried.
+     * Judge the session the token names, revoking it on a replay; returns the
+     * refusal or which rotation id the token carried.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  string  $rotationId
@@ -218,7 +193,7 @@ final readonly class RefreshProof
 
     /**
      * Revoke the session whose token was replayed, and report it once the
-     * revocation commits on the session's own connection.
+     * revocation commits.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \Carbon\CarbonImmutable  $now

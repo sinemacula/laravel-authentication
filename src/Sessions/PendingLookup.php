@@ -23,18 +23,8 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
- * Finds the live pending session of a guard a pending credential names, for the
- * pending-session actions and for any other operation that must prove, under
- * the session's lock, that a credential names one (a passkey registration made
- * on a pending sign-in).
- *
- * A credential is `<session key>.<secret>`. It names a live pending session of
- * the guard only while the session is this guard's, pending, not revoked and
- * not ended (its idle deadline is the credential's expiry), its digest matches
- * the secret (compared in constant time), the guard's provider returns its very
- * owner, and the principal it records, if any, still resolves through the
- * hinted path as that principal of that owner. Anything else is not found,
- * without saying why.
+ * Finds the live pending session of a guard a pending credential, of the form
+ * `<session key>.<secret>`, names.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -58,13 +48,8 @@ final readonly class PendingLookup
     ) {}
 
     /**
-     * The live pending session of the guard the credential names, read on the
-     * write connection (locked for update when asked), with its owner reloaded
-     * through the guard's provider and the principal it records resolved, or
-     * `null`. The secret follows the credential's last `.` (it is base64url,
-     * which has none), so a session key may hold one. A credential that cannot
-     * name one (no key or secret, or a key longer than any the session can
-     * have) is rejected without a query.
+     * The live pending session the credential names, with its owner and the
+     * principal it records, or `null`.
      *
      * @formatter:off
      *
@@ -98,10 +83,9 @@ final readonly class PendingLookup
     }
 
     /**
-     * The live pending session of the guard the credential names, read on the
-     * write connection (locked for update when asked), or `null`. A credential
-     * that cannot name one (no key or secret, or a key longer than any the
-     * session can have) is rejected without a query.
+     * The live pending session the credential names, or `null`.
+     *
+     * The secret follows the last `.`: base64url has none, but a key may.
      *
      * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $credential
      * @param  \Carbon\CarbonImmutable  $now
@@ -128,9 +112,8 @@ final readonly class PendingLookup
     }
 
     /**
-     * Whether the session is a live pending session of the guard, waiting on
-     * something and holding the digest of the secret, read inside
-     * `WriteConnection::during()`.
+     * Whether the session is a live pending session of the guard holding the
+     * digest of the secret.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  string  $secret
@@ -172,9 +155,8 @@ final readonly class PendingLookup
     }
 
     /**
-     * The principal the session records, resolved through the hinted path as
-     * that very principal, still the owner's: `null` when it records none, and
-     * `false` when the one it records no longer resolves so.
+     * The principal the session records, still the owner's; `null` when it
+     * records none, `false` when it no longer resolves.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity

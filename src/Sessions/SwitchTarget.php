@@ -8,14 +8,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
 
 /**
- * Where a switch takes a session: another principal of the same identity, in
- * the tenant selected for it (its default unless one is named), or another
- * active tenant for the principal the session acts as.
- *
- * Both are requests, not admissions: the switch proves the principal belongs to
- * the identity, asks the access contracts and the destination tenant's policy,
- * and checks the principal and both tenants are active, before the session
- * records them.
+ * Where a switch takes a session: another principal of the same identity, or
+ * another active tenant.
  *
  * @api
  *

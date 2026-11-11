@@ -18,14 +18,8 @@ use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 
 /**
- * What the external sign-in and the external reauthentication both ask of a
- * result an external identity provider verified: the link the link contract
- * finds for its connection, issuer and subject (reporting one linked to no
- * identity with `ExternalResultUnlinked`), and whether the evidence it carries
- * is accepted, and so recorded and counted, for the identity it is linked to.
- *
- * Neither locks or writes anything: both are asked before any lock the package
- * takes, so the adapter's own locks, taken inside its transaction, come first.
+ * What the external sign-in and reauthentication both ask of a verified result:
+ * its link, and whether its evidence is accepted.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -50,9 +44,8 @@ final readonly class ExternalResults
     ) {}
 
     /**
-     * The link the link contract finds for the result, or `null`, reporting a
-     * result linked to no identity with `ExternalResultUnlinked` from the
-     * client given.
+     * The link the link contract finds for the result, or `null`, reported with
+     * `ExternalResultUnlinked`.
      *
      * @param  \SineMacula\Laravel\Authentication\External\ExternalResult  $result
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
@@ -87,11 +80,8 @@ final readonly class ExternalResults
     }
 
     /**
-     * The acceptance of the result's evidence for the identity, as the evidence
-     * contract judges it at the time given, and the evidence as it is recorded
-     * (dated no later than then), or neither: a result without evidence, or
-     * with evidence the contract does not accept, has nothing recorded or
-     * counted.
+     * The acceptance of the result's evidence for the identity and the evidence
+     * as recorded, or neither when there is none or it is not accepted.
      *
      * @formatter:off
      *

@@ -5,9 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Sessions\Enums;
 
 /**
- * Whether a session is active, holding a token pair, or pending, waiting on the
- * requirements it lists with only a pending credential. Revocation is recorded
- * apart, on either.
+ * Whether a session is active or pending; revocation is recorded apart.
  *
  * @api
  *
@@ -19,7 +17,6 @@ enum SessionStatus: string
     // The session holds a token pair and authenticates requests
     case ACTIVE = 'active';
 
-    // The session waits on requirements: no access or refresh token of it is
-    // accepted until it activates
+    // The session waits on requirements and accepts no token until it activates
     case PENDING = 'pending';
 }

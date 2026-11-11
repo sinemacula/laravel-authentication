@@ -17,25 +17,8 @@ use SineMacula\Laravel\Authentication\Requirements\RequirementSubject;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingAction;
 
 /**
- * A session waiting on requirements: a further factor, a choice of principal,
- * or both, in that order. It holds no access or refresh token; its pending
- * credential, handed out once in a result's body, is what every action on it
- * presents.
- *
- * The id is the session's key: it stays the same from pending to active and
- * grants nothing by itself. Only the actions of the first outstanding
- * requirement are allowed (`allows()`); the eligible principals are listed only
- * while the choice is that requirement. Each one listed that uses
- * `ActsAsPrincipal` holds its tenant, loaded with the others' on the write
- * connection, so a choice screen reading `getTenant()` on it costs no query and
- * never lazy-loads, even under Eloquent strict mode.
- *
- * What a factor's verifier needs to meet the further factor is here: the
- * requirement its authentication still falls short of (the strictest of the
- * identity-level requirement and the destination tenant's, each only while it
- * falls short, and empty while only the choice is outstanding), the proof of
- * the first factor it signed in with, its counting proofs (`proofs()`), and
- * when its pending credential expires.
+ * A session waiting on a further factor, a choice of principal, or both, in
+ * that order.
  *
  * @api
  *
@@ -100,8 +83,7 @@ final readonly class PendingSession
     ) {}
 
     /**
-     * Whether the pending credential may be used for the action now: whether it
-     * is one of the first outstanding requirement's.
+     * Whether the pending credential may be used for the action now.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\Enums\PendingAction  $action
      * @return bool
@@ -112,8 +94,7 @@ final readonly class PendingSession
     }
 
     /**
-     * The actions the pending credential may be used for now: the first
-     * outstanding requirement's.
+     * The actions the pending credential may be used for now.
      *
      * @return list<\SineMacula\Laravel\Authentication\Sessions\Enums\PendingAction>
      */
@@ -123,13 +104,8 @@ final readonly class PendingSession
     }
 
     /**
-     * The session's counting proofs (not voided, and a further factor or
-     * recovery code only when accepted), newest first by time and then by id,
-     * only those made at or after `$since` when it is given (the same instant
-     * in any time zone, and never changed) and of the given kinds when they
-     * are, at most `$limit` of them (1 to `RequirementSubject::MAX_LIMIT`): one
-     * bounded query on the write connection each call, as a requirement check's
-     * subject reads them.
+     * The session's counting proofs, newest first, filtered by `$since` and
+     * `$kinds` and capped at `$limit`.
      *
      * @param  ?\Carbon\CarbonInterface  $since
      * @param  ?list<\SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind>  $kinds

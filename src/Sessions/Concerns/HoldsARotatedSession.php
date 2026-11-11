@@ -11,14 +11,7 @@ use SineMacula\Laravel\Authentication\Sessions\PendingSession;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 
 /**
- * The shape of the outcome of a call a refresh token proves, a refresh or a
- * switch: the same session with its rotated token pair; the session returned to
- * pending, with the pending credential it now holds instead, when it fell short
- * of a further factor it can meet in place; or why the call was refused, with
- * the wait of a `rate_limited` refusal and, for a call that read the token from
- * the request, where it was read from. The result using it names its success,
- * aliasing `succeeded()` and `hasSucceeded()`, and its return to pending,
- * aliasing `returned()` as `pending()`.
+ * The outcome of a refresh or a switch that a refresh token proves.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -71,8 +64,7 @@ trait HoldsARotatedSession
     }
 
     /**
-     * A copy of the outcome that says the refresh token was read from the
-     * source; the outcome itself is left as it is.
+     * A copy of the outcome recording where the refresh token was read from.
      *
      * @param  \SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource  $source
      * @return self
@@ -83,8 +75,7 @@ trait HoldsARotatedSession
     }
 
     /**
-     * Whether the call was refused: it neither re-issued the pair nor returned
-     * the session to pending.
+     * Whether the call was refused.
      *
      * @return bool
      */
@@ -94,8 +85,7 @@ trait HoldsARotatedSession
     }
 
     /**
-     * Whether the session returned to pending instead of being re-issued its
-     * pair.
+     * Whether the session returned to pending.
      *
      * @return bool
      */
@@ -105,8 +95,7 @@ trait HoldsARotatedSession
     }
 
     /**
-     * A call that succeeded, with the session on its new token pair; the result
-     * using the trait names it.
+     * A call that succeeded; the result using the trait names it.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
      * @return self
@@ -117,8 +106,8 @@ trait HoldsARotatedSession
     }
 
     /**
-     * A call that returned the session to pending, with the pending credential
-     * it now holds; the result using the trait names it `pending()`.
+     * A call that returned the session to pending; the result using the trait
+     * names it `pending()`.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\PendingSession  $pending
      * @param  \SineMacula\Laravel\Authentication\Secrets\Secret  $credential

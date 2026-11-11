@@ -19,26 +19,7 @@ use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
 
 /**
  * Reads the counting proofs, the first factor and the provenance of one of a
- * guard's live, active sessions of a person, for the session service's public
- * reads and a contribution subject's.
- *
- * The session is named by its key (whichever session holds it now) or given as
- * a `Session` (only while its key still holds that very session: the same
- * generation and owner). Its row is read on the write connection, and answers
- * nothing, without saying why, when the key cannot be one of the session
- * model's (no query), names no row, or names a session of another guard (or of
- * none), a revoked, pending or ended one (past its idle or absolute deadline at
- * this second, or without deadlines), or a machine's. The proofs are then read
- * bound to the row as stored (`SessionProofs`), so only its own counting proofs
- * are returned.
- *
- * Outside a transaction on the session model's connection the row and the
- * proofs are two plain reads and nothing is locked. Inside one the row is
- * locked until the transaction ends (as every other path locks a session row,
- * before its proofs) and the proofs are read current, so a step-up committed
- * before the read is returned and a proof voided before it never is, whatever
- * the transaction read first; at PostgreSQL's REPEATABLE READ the row's lock
- * fails to serialise instead when the session was written after the snapshot.
+ * guard's live, active sessions of a person.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -53,12 +34,8 @@ final class ActiveSessionProofs
     private function __construct() {}
 
     /**
-     * The session's counting proofs, newest first by time and then by id, only
-     * those made at or after `$since` when it is given and of the given kinds
-     * when they are, at most `$limit` of them (1 to
-     * `RequirementSubject::MAX_LIMIT`, checked before anything is read): one
-     * bounded read once the session is found live and active; `[]` when it is
-     * not.
+     * The session's counting proofs, newest first, filtered by `$since` and
+     * `$kinds` and capped at `$limit`; `[]` when the session is not active.
      *
      * @param  string  $guard
      * @param  mixed  $session
@@ -81,9 +58,8 @@ final class ActiveSessionProofs
     }
 
     /**
-     * The first factor the session signed in with, its oldest counting
-     * first-factor proof, once the session is found live and active; `null`
-     * when it is not, or when that proof no longer counts.
+     * The session's oldest counting first-factor proof; `null` when the session
+     * is not active or that proof no longer counts.
      *
      * @param  string  $guard
      * @param  mixed  $session
@@ -101,10 +77,8 @@ final class ActiveSessionProofs
     }
 
     /**
-     * The provenance the session records, once the session is found live and
-     * active: how an external identity provider established it. `null` when it
-     * is not found so, and when no provider established it. Read, and locked
-     * inside a transaction, as `query()` is.
+     * The external provenance the session records; `null` when the session is
+     * not active or no provider established it.
      *
      * @param  string  $guard
      * @param  mixed  $session
@@ -122,11 +96,8 @@ final class ActiveSessionProofs
     }
 
     /**
-     * The stored session the key or instance names, when it is one of the
-     * guard's live, active sessions of a person, and whether its row was locked
-     * (inside a transaction on the session model's connection); `null` when it
-     * is not. A `Session` that is not an Eloquent session names none, and is
-     * not looked up.
+     * The live, active session the key or instance names, and whether its row
+     * was locked; `null` when there is none.
      *
      * @formatter:off
      *

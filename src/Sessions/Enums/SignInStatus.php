@@ -15,8 +15,7 @@ enum SignInStatus: string
     // A session started: the result carries the session and the token pair
     case SIGNED_IN = 'signed_in';
 
-    // The session waits on requirements: the result carries the pending
-    // session, and its credential when the call issued one
+    // The session waits on requirements: the result carries the pending session
     case PENDING = 'pending';
 
     // The sign-in failed: the result carries the reason

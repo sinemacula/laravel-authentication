@@ -34,33 +34,8 @@ use SineMacula\Laravel\Authentication\Tenancy\Enums\TenantPolicyStanding;
 use SineMacula\Laravel\Authentication\Tenancy\SessionEvidence;
 
 /**
- * Takes a sign-in whose identity is admitted on to its session, in the order
- * sign-in takes (see `PendingEvaluation`): the principal selected, the
- * identity-level factor policy, and, with a principal, the tenant it is to be
- * active in and that tenant's authentication policy, judged against the
- * sign-in's own evidence (a connection it requires and the sign-in did not use
- * refuses it as `sso_required`; a further factor it requires is owed as the
- * identity's own is). With nothing outstanding the session is written active
- * with its first pair; otherwise it is written pending, waiting on the further
- * factor, then the choice of principal, with its pending credential and no
- * token. Either way it records the sign-in's first-factor proof and provenance.
- *
- * Every sign-in is a new session. A session the client proved it holds (with
- * the refresh token of its previous session) is revoked (`superseded`) by an
- * active sign-in that replaces it, in the same transaction, or by a pending
- * one's first activation; nothing else is ever revoked, however alike the
- * client is, and the replaced session's proofs stay with it.
- *
- * It schedules what reports the session once committed on the session's
- * connection (`SessionPending`, or `SessionRevoked` for the session replaced,
- * `SessionCreated` and `SignedIn`, then, for a session an external provider's
- * result established, `ExternalResultRedeemed` with the connection and the
- * request reference) and never binds the guard: the session service binds after
- * it returns, so a bind listener that throws cannot withhold a report. It runs
- * on the guard's context: its events carry the client of the sign-in they
- * report, and go to the context's dispatcher as it is when they are dispatched.
- * Its reports of the session wait, beyond the commit, for the call's check
- * (`AdmissionRecheck`), and never run when the check ends the session.
+ * Takes a sign-in whose identity is admitted on to its session, active or
+ * pending.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -98,11 +73,7 @@ final readonly class SessionEstablishment
 
     /**
      * Select the principal the admitted identity's sign-in acts as, or find the
-     * principals it is to choose from: a sign-in whose deadline
-     * (`SignInContext::$notAfter`) has already passed fails as
-     * `session_expired`, before anything is read; then the principal named, or
-     * the only one the application admits, or none and the principals to choose
-     * from (see `PendingEvaluation::selection()`).
+     * principals it is to choose from.
      *
      * @formatter:off
      *
@@ -133,16 +104,7 @@ final readonly class SessionEstablishment
     }
 
     /**
-     * Take the sign-in on from its selection to its session: a deadline that
-     * passed since the selection fails as `session_expired`, before anything is
-     * written; then check the client's proof of an existing session (for the
-     * principal selected, or any of the identity's when none is), ask the
-     * identity-level factor policy, and with a principal admit the tenant it is
-     * to be active in; then write the session active when nothing is
-     * outstanding, replacing the proven session, or pending otherwise. When the
-     * proven session changed before an active sign-in could replace it, the
-     * sign-in is judged again without it, factor policy included; it never
-     * retries the session.
+     * Take the sign-in on from its selection to its session, active or pending.
      *
      * @formatter:off
      *
@@ -264,12 +226,7 @@ final readonly class SessionEstablishment
 
     /**
      * Write the sign-in's session pending, waiting on what is outstanding, and
-     * schedule `SessionPending` for once it is committed and its identity, and
-     * the principal and tenant it records if any, are checked again
-     * (`AdmissionRecheck`). The requirement is what its authentication still
-     * falls short of; the principals are the ones the pending session lists,
-     * given only when the choice is the first requirement, so none is shown
-     * while a factor is outstanding.
+     * schedule `SessionPending` once it is committed and checked again.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SessionWriter  $writer
      * @param  \SineMacula\Laravel\Authentication\Sessions\PendingSessionDraft  $draft
@@ -336,13 +293,9 @@ final readonly class SessionEstablishment
     }
 
     /**
-     * Write the active session of an admitted sign-in, with the guard's
-     * lifetimes, by the writer for the tenant policy version it answered at: a
-     * new session, replacing the proven one (the admission's) when there is
-     * one. The session records the method (the proof's) and the type of
-     * identifier the sign-in used, which a later switch admits its target with,
-     * and the sign-in's proofs and provenance. `null` when the proven session
-     * changed before it could be replaced.
+     * Write the active session of an admitted sign-in, replacing the proven one
+     * if any, or `null` when the proven session changed before it could be
+     * replaced.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SessionWriter  $writer
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
@@ -374,19 +327,8 @@ final readonly class SessionEstablishment
     }
 
     /**
-     * Schedule the reports of a written active session, and answer it, once the
-     * session is committed on the session's own connection and its identity,
-     * principal and tenant are checked again (`AdmissionRecheck`), the check
-     * registered first so no listener can keep it from running:
-     * `SessionRevoked` (`superseded`) for the session it replaced, if any,
-     * whatever the check found, then, when it passed, `SessionCreated` and
-     * `SignedIn`, in turn, so a listener that throws stops the reports after
-     * its own.
-     *
-     * The replaced session's revocation is reported with its guard (the
-     * sign-in's own) and the method it records, the sign-in's client, and the
-     * identity, principal and tenant the sign-in admitted, which the proof
-     * found the session records.
+     * Schedule the reports of a written active session, and answer it, once it
+     * is committed and checked again (`AdmissionRecheck`).
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
      * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)|null  $superseded
@@ -435,10 +377,8 @@ final readonly class SessionEstablishment
     }
 
     /**
-     * The report of an external provider's result redeemed into the session,
-     * for a sign-in whose proof is the provider's: its connection and the
-     * authorisation request's reference, beside the session's identity,
-     * principal and tenant as established; `null` for any other sign-in.
+     * The report of an external provider's result redeemed into the session, or
+     * `null` for any other sign-in.
      *
      * @param  \SineMacula\Laravel\Authentication\Proofs\SignInProof  $proof
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client

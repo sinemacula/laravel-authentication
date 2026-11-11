@@ -34,35 +34,7 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
  * Activates a pending session whose every requirement is met, under the row
- * lock the operation that met them holds: the pending credential is consumed,
- * the session records the principal and active tenant it activates as and in,
- * and its token pair is issued, in the operation's transaction.
- *
- * The first activation of a sign-in's session is that sign-in's: it supersedes
- * the session the sign-in's client proved it holds, by one compare-and-swap
- * that applies only while that session still holds the refresh digest it was
- * proven against, records the same owner, principal and guard, and is active
- * and not revoked (when it changed, nothing is written, and the caller judges
- * the session again without it, since a factor policy may have waived the
- * factor for it); it forgets the attempt-limit slots it held, handing them up
- * with the activated session (`SignedInSession::$heldSlots`) for the session
- * service to give back once it has bound the session; and it is reported as a
- * sign-in (`SessionRevoked` for the session superseded, then `SessionCreated`
- * and `SignedIn`). The activation of a session that returned to pending moves
- * the floor for its access tokens' issue time (`SwitchFloor`), so no token from
- * before its return is accepted, and is reported as `SessionActivated`. Every
- * report waits for the commit on the session's connection and for the check of
- * the call it is made for (`AdmissionRecheck`), which lets none but a
- * superseded session's run once it ended the session.
- *
- * The activation's write of the locked pending row, made before the pair is
- * issued, is the session's issuance guard, and the pair's proofs are read
- * current after it, so they include every proof the session committed before.
- * The pair is issued at the operation's `$now`, taken before the lock: no token
- * of the session can have committed in between, since an operation that issued
- * one activated the session, and this one, judged under the lock, would then
- * have found it no longer pending; a proof another operation recorded without
- * activating the session is read with the rest.
+ * lock the operation that met them holds.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -92,11 +64,8 @@ final readonly class SessionActivation
 
     /**
      * Activate the locked pending session as the destination's principal in its
-     * tenant, recording the tenant policy version it was checked against, for
-     * the client acting on it, and issue its pair at `$now`, superseding on a
-     * first activation the session its sign-in's client proved it holds, as the
-     * caller found it still is. `null`, with nothing written, when that session
-     * changed since.
+     * tenant and issue its pair at `$now`, or `null` when the proven session
+     * changed.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $destination
@@ -151,11 +120,7 @@ final readonly class SessionActivation
     }
 
     /**
-     * The columns an activation writes: active, nothing outstanding, the
-     * pending credential consumed, a new rotation id's digest with no previous
-     * one, the idle deadline restored, the client as its last use, and the
-     * principal and active tenant; on the first activation the proven session
-     * and the slots forgotten, on a later one the floor moved.
+     * The columns an activation writes.
      *
      * @formatter:off
      *
@@ -216,8 +181,8 @@ final readonly class SessionActivation
     }
 
     /**
-     * The idle deadline the session activates with: the application's idle
-     * lifetime from `$now`, never past its absolute deadline.
+     * The idle deadline the session activates with, never past its absolute
+     * deadline.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \Carbon\CarbonImmutable  $now
@@ -257,10 +222,7 @@ final readonly class SessionActivation
 
     /**
      * Revoke the session the sign-in's client proved it holds as `superseded`,
-     * by one compare-and-swap that applies only while it still holds the
-     * refresh digest it was proven against, records the same owner and guard
-     * and the principal the session activates as, and is active and not
-     * revoked; return it when it was, `null` when it changed.
+     * or return `null` when it changed since it was proven.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $proven
@@ -301,11 +263,8 @@ final readonly class SessionActivation
     }
 
     /**
-     * Schedule the reports of a sign-in's first activation, once committed on
-     * the session's connection and after the call's check: `SessionRevoked`
-     * (`superseded`) for the session it superseded, if any, whatever the check
-     * found, then, when it passed, `SessionCreated` and `SignedIn`, in turn, so
-     * a listener that throws stops the reports after its own.
+     * Schedule the reports of a sign-in's first activation, once committed and
+     * after the call's check.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Events\EventContext  $context
@@ -340,13 +299,8 @@ final readonly class SessionActivation
     }
 
     /**
-     * The attempt-limit reservations the sign-in held, as granted reservations
-     * to give back once it activates and is bound: one for each it held, with
-     * its windows, for the guard's sign-in flow, the identifier type and the IP
-     * address the session records (neither the identifier nor the account,
-     * which it does not keep), so the limiter gives back exactly the slots
-     * taken. None for a sign-in that reserved nothing (one `start()` or
-     * `signInExternally()` began).
+     * The attempt-limit reservations the sign-in held, to give back once it
+     * activates and is bound.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @return list<\SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation>

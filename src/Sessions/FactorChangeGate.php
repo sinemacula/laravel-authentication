@@ -22,29 +22,7 @@ use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
 
 /**
  * The gate the factor package asks before it changes one of an identity's
- * further factors (adding, replacing or removing one) or generates its recovery
- * codes, from the active session the change is made on.
- *
- * In one transaction on the session model's connection (a savepoint in the
- * caller's), the session's row is locked until that transaction ends, so a
- * revocation either commits first and the change is refused, or waits for the
- * change. The locked row must still be the session given (its generation and
- * owner), this guard's, not revoked, not pending (a pending session enrols its
- * bootstrap factor through the pending credential's actions instead) and not
- * ended, and a person's. Then the freshness policy judges it for the change's
- * operation, under the lock, on the session's proofs as committed (asked
- * current), so a step-up voided before the gate never counts, whatever the
- * transaction read first: `first_additional_factor` for an identity's first
- * additional factor, which has no factor to step up with and so takes a
- * reauthentication with the first factor (`reauthentication_required`), and
- * `factor_change` for every other change, which takes a step-up
- * (`step_up_required`). A replacement or removal names the factor it acts on,
- * whose own proofs never count. The stricter of the caller's requirement and
- * the configured one applies.
- *
- * It decides; it writes nothing and reports nothing. Whether the identity
- * already has a further factor, and what an added factor's destination is, are
- * the factor package's to know.
+ * further factors or generates its recovery codes.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -88,8 +66,7 @@ final readonly class FactorChangeGate
     }
 
     /**
-     * Lock the session and judge it for the change, in the transaction, its
-     * freshness on its proofs as committed.
+     * Lock the session and judge it for the change.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  \SineMacula\Laravel\Authentication\Factors\Enums\FactorChange  $change
@@ -122,10 +99,7 @@ final readonly class FactorChangeGate
     }
 
     /**
-     * The session's row, locked, when a change may be made from it; else why
-     * not: none stored under the key, or another session put there
-     * (`session_unknown`); another guard's, revoked, pending or ended
-     * (`OwnedSession::refusal()`); a machine identity's (`machine_identity`).
+     * The session's row, locked, when a change may be made from it, or why not.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  \Carbon\CarbonImmutable  $now
@@ -146,9 +120,8 @@ final readonly class FactorChangeGate
     }
 
     /**
-     * Refuse a factor named for a change that names none, or none named (or one
-     * empty or longer than 255 characters) for a replacement or removal, before
-     * anything is read.
+     * Refuse a factor named for a change that names none, or a missing or
+     * invalid one for a change that names one.
      *
      * @param  \SineMacula\Laravel\Authentication\Factors\Enums\FactorChange  $change
      * @param  ?string  $factor

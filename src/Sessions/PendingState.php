@@ -14,14 +14,10 @@ use SineMacula\Laravel\Authentication\Http\RequestBody;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
 
 /**
- * What every path that makes a session pending shares: the pending credential's
- * lifetime, its expiry, the body field it is read from, and how the
- * requirements and the other JSON columns are written.
+ * What every path that makes a session pending shares: the credential's
+ * lifetime, expiry and body field, and how its JSON columns are written.
  *
- * The JSON columns are written as stored, bypassing the model's casts, so a
- * session model that casts them (the shipped one does, as arrays) and one that
- * does not both store the same text, which `RecordsSessionStanding` reads back
- * either way.
+ * JSON columns bypass the model's casts so cast and uncast models store alike.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -54,9 +50,7 @@ final class PendingState
     private function __construct() {}
 
     /**
-     * The configured lifetime of a pending credential, in seconds (30 to 3600,
-     * 300 when unset), read each time a session becomes pending;
-     * `authentication:check` validates it the same way.
+     * The configured lifetime of a pending credential, in seconds.
      *
      * @param  \Illuminate\Contracts\Config\Repository  $config
      * @return int
@@ -69,11 +63,7 @@ final class PendingState
     }
 
     /**
-     * The body field a route that declares the pending credential reads it
-     * from (`pending_credential` when unset), read each time it is asked for;
-     * `authentication:check` validates it the same way. A name PHP would file
-     * under another key in a form body (with whitespace, a `.`, a bracket or a
-     * control character) fails closed.
+     * The body field the pending credential is read from.
      *
      * @param  \Illuminate\Contracts\Config\Repository  $config
      * @return string
@@ -92,8 +82,8 @@ final class PendingState
     }
 
     /**
-     * When a pending credential issued at `$now` expires: its lifetime later,
-     * never past the session's absolute deadline when it has one.
+     * When a pending credential issued at `$now` expires, never past the
+     * session's absolute deadline.
      *
      * @param  \Carbon\CarbonImmutable  $now
      * @param  int  $ttlSeconds
@@ -108,8 +98,7 @@ final class PendingState
     }
 
     /**
-     * The requirements as the session stores them: a JSON list of their values,
-     * in order.
+     * The requirements as the session stores them.
      *
      * @param  non-empty-list<\SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement>  $requires
      * @return string

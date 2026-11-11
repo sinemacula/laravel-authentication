@@ -14,44 +14,7 @@ use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
 
 /**
- * Where a sign-in comes from and what it asks for: the client (its IP address
- * and user agent, and the same-site facts of its request), the name and
- * platform it gives itself, the principal it wants to act as and the tenant it
- * wants to act in, the refresh token it holds for a session it signed in on
- * before, and a deadline of the session's own. The tenant applies once a
- * principal is selected at sign-in; a choice of principal names its own.
- *
- * A cookie application's `signIn()` and `start()` judge the same-site facts
- * (see `ClientContext`), and refuse a client without them as
- * `cross_site_request`: a `ClientContext` built from the IP address and user
- * agent alone fails there.
- *
- * The client name and platform come from the client, so they are made safe to
- * store as `ClientContext` makes the user agent safe: invalid UTF-8 replaced,
- * control and bidirectional formatting characters removed, and cut to the
- * column's 255 characters; a value that is empty after cleaning is `null`.
- *
- * The principal is verified, not trusted: it must resolve through the
- * resolver's hinted path to the same principal of the same class, owned by the
- * identity signing in. The tenant (`null` for the principal's default: its own
- * tenant, or none for a platform principal) is admitted as the session's active
- * tenant once a principal is selected: the principal's own, or one the
- * `TenantResolver` finds and `TenantAccess` lets it act in, active (refused as
- * `tenant_ineligible` or `tenant_inactive`). It is the application's to pass,
- * never read from the request. The refresh token, which an application passes
- * only when it wants a re-sign-in to replace the client's previous session,
- * proves the client holds that session: the sign-in then revokes it
- * (`superseded`) as it creates the new one (see the session service). Without
- * it nothing else is revoked. It is held as a `Secret`; a string given is
- * wrapped, and an empty one is no token.
- *
- * The deadline (`notAfter`, cut to the whole second) caps the session the
- * sign-in starts: its absolute deadline is the earlier of it and the
- * application's absolute limit, or it alone when the application sets none, and
- * refresh, a switch and a reauthentication never move it. An external
- * provider's session deadline is one source. It is the application's or a
- * trusted adapter's to supply, never read from the request, and a sign-in whose
- * deadline has already passed is refused as `session_expired`.
+ * Where a sign-in comes from and what it asks for.
  *
  * @api
  *
@@ -100,8 +63,7 @@ final readonly class SignInContext
         /** Principal the sign-in asks to act as, verified before it is used. */
         public ?Principal $principal = null,
 
-        // Refresh token of the client's previous session, which the sign-in
-        // replaces when it proves it.
+        // Refresh token of the client's previous session, to replace.
         #[\SensitiveParameter]
         Secret|string|null $refreshToken = null,
 
@@ -118,9 +80,8 @@ final readonly class SignInContext
     }
 
     /**
-     * The same context with the deadline capped at `$notAfter` too: the earlier
-     * of the two, either alone when the other is absent, none for neither. A
-     * deadline is only ever lowered this way.
+     * The same context with the deadline capped at `$notAfter` too, keeping the
+     * earlier of the two.
      *
      * @param  ?\Carbon\CarbonInterface  $notAfter
      * @return self
@@ -135,9 +96,8 @@ final readonly class SignInContext
     }
 
     /**
-     * Whether the deadline has been reached at the given time: a session must
-     * end after it starts, so a sign-in whose deadline is this second or
-     * earlier cannot start one. A context without a deadline never has.
+     * Whether the deadline is at or before the given second, since a session
+     * must end after it starts.
      *
      * @param  \Carbon\CarbonInterface  $at
      * @return bool
@@ -149,8 +109,7 @@ final readonly class SignInContext
 
     /**
      * Read the context of a sign-in from its request, which never supplies a
-     * deadline; the principal and tenant to ask for are the application's to
-     * pass.
+     * deadline.
      *
      * @param  \Illuminate\Http\Request  $request
      * @param  ?string  $clientName
@@ -172,8 +131,7 @@ final readonly class SignInContext
     }
 
     /**
-     * The refresh token as a secret: a string wrapped, an empty one read as no
-     * token, and a secret or none kept as it is.
+     * The refresh token as a secret, with an empty string read as no token.
      *
      * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string|null  $token
      * @return ?\SineMacula\Laravel\Authentication\Secrets\Secret

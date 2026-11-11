@@ -12,15 +12,8 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
- * What a session list shows of one active session: the session's guard, sign-in
- * method and client, where it was created, when it started, where it was last
- * used, when it ends, and whether it is the session the current request is
- * authenticated with.
- *
- * Safe to return to the identity it belongs to as it is: it never holds a
- * refresh digest, the rotation time, the revocation columns, the owner, or the
- * principal the session acts as. `toArray()` and JSON use snake_case keys and
- * ISO-8601 times.
+ * What a session list shows of one active session, safe to return to the
+ * identity it belongs to.
  *
  * @api
  *
@@ -196,9 +189,8 @@ final readonly class SessionSummary implements \JsonSerializable, Arrayable
     }
 
     /**
-     * A column's value, or `null` when it is not loaded: read without asking
-     * for a missing attribute, which a model that prevents accessing missing
-     * attributes would refuse.
+     * A column's value, or `null` when it is not loaded, read without tripping
+     * Eloquent's missing-attribute guard.
      *
      * @param  \Illuminate\Database\Eloquent\Model  $session
      * @param  string  $column
@@ -210,7 +202,7 @@ final readonly class SessionSummary implements \JsonSerializable, Arrayable
     }
 
     /**
-     * A time an active session always has: its sign-in time and both deadlines.
+     * A time an active session always has.
      *
      * @param  \Illuminate\Database\Eloquent\Model  $session
      * @param  ?\Carbon\CarbonInterface  $time

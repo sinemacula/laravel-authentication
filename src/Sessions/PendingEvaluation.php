@@ -40,28 +40,8 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyVerdict;
 use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
 
 /**
- * The checks a sign-in passes on its way to a session, in the order sign-in
- * takes them, and the gate a pending session passes again each time it is acted
- * on: the same checks against current state, so nothing that changed while the
- * session waited is skipped.
- *
- * In order: the identity (not a machine identity, active, and admitted by the
- * application policy with the identifier type the sign-in used); the principals
- * the application admits (its `principals()`, read on the write connection with
- * the tenants of the active ones loaded together when they are judged, or the
- * resolver's default for an identity that is its own principal or lists none),
- * each active, in an active tenant and allowed to use the application, with
- * none left a refusal after the credential is verified; the principal selected
- * (the one named, when it is among them, else the only one, else none and a
- * choice is outstanding); the identity-level factor policy, asked before any
- * principal is chosen for the requirement the session's authentication must
- * meet, which `RequirementJudge` judges against its proofs; and, with a
- * principal, the tenant it is to be active in and that tenant's authentication
- * policy.
- *
- * It decides; it writes nothing. Every read and every contract is asked on the
- * write connection. A caller that holds the session's row locked asks for its
- * proofs and provenance to be read current (`$current`, see `SessionProofs`).
+ * The checks a sign-in passes on its way to a session, which a pending session
+ * passes again each time it is acted on.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -86,9 +66,7 @@ final readonly class PendingEvaluation
     ) {}
 
     /**
-     * Why the identity may not sign in to the guard, or `null` when it may: a
-     * machine identity, an inactive one, or one the application policy refuses
-     * with the identifier type the sign-in used.
+     * Why the identity may not sign in to the guard, or `null` when it may.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?string  $identifierType
@@ -120,14 +98,7 @@ final readonly class PendingEvaluation
 
     /**
      * The principals the identity may use the application as, and the reason
-     * the last one left out was refused, if any. With an identifier type, the
-     * application policy must admit the identity with it first, or none is
-     * listed (not even which there are) and its reason is returned. Each
-     * principal is judged as it is stored, after the tenants of the active ones
-     * that use `ActsAsPrincipal` are loaded together on the write connection
-     * (`PrincipalListing`), so a principal listed holds its tenant even when
-     * the list hydrated it with lazy loading prevented (Eloquent strict mode),
-     * and listing many principals reads their tenants once.
+     * the last one left out was refused, if any.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?string  $identifierType
@@ -163,12 +134,7 @@ final readonly class PendingEvaluation
 
     /**
      * The one principal with the identifier among those `principals()` lists
-     * for the identity, or `null`: the very candidates it judges, kept to the
-     * one whose principal identifier matches (two that match name no one
-     * principal), admitted as it admits them, after the same identifier-type
-     * refusal. So a principal is found exactly when `principals()` lists it.
-     * Only the one found has its tenant loaded, so a lookup costs the
-     * candidates' read and, when an active one matches, its tenant's.
+     * for the identity, or `null`.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  mixed  $id
@@ -204,14 +170,8 @@ final readonly class PendingEvaluation
     }
 
     /**
-     * The principal a sign-in acts as and the principals it may choose from:
-     * the one named, when the identity owns it (resolved through the hinted
-     * path as that very principal) and the application admits it, with none to
-     * choose from; otherwise the only principal the application admits, or none
-     * and the principals to choose from. A principal named that is not the
-     * identity's is refused as `principal_mismatch`, one the application
-     * refuses with its reason, and an identity left with none with the reason
-     * the last was refused, or `principal_unresolved`.
+     * The principal a sign-in acts as and the principals it may choose from, or
+     * why there is none.
      *
      * @formatter:off
      *
@@ -248,9 +208,8 @@ final readonly class PendingEvaluation
     }
 
     /**
-     * The principal named, when the identity owns it (resolved through the
-     * hinted path as that very principal) and the application admits it; else
-     * `principal_mismatch`, or the reason the application refuses it.
+     * The principal named, when the identity owns it and the application admits
+     * it, or why not.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $named
@@ -286,10 +245,8 @@ final readonly class PendingEvaluation
     }
 
     /**
-     * Whether a pending session's recorded principal (one the identity owns)
-     * may still hold it, and the active tenant it records: the principal
-     * admitted by the application, and the tenant still one it may act in and
-     * active; else why not.
+     * The active tenant a pending session records, while its recorded principal
+     * and that tenant still stand, or why not.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -305,9 +262,7 @@ final readonly class PendingEvaluation
 
     /**
      * What the identity-level factor policy asks of the session beyond its
-     * first factor, asked about the identity and the sign-in (never a
-     * principal, since it is asked before one is chosen), inside
-     * `WriteConnection::during()` for the identity.
+     * first factor.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Proofs\RecordedProof  $firstFactor
@@ -328,12 +283,8 @@ final readonly class PendingEvaluation
     }
 
     /**
-     * What the identity still owes of what its factor policy asks: the policy's
-     * requirement while the session (or, at sign-in, the sign-in's evidence,
-     * with the session `null`) does not meet it, as `RequirementJudge` judges
-     * it, and an empty requirement once it does. A requirement that asks for
-     * nothing is owed by no one and costs no query. Pass `$current` only for a
-     * session whose row this transaction holds locked.
+     * What the identity still owes of what its factor policy asks; pass
+     * `$current` only for a session whose row this transaction holds locked.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Proofs\RecordedProof  $firstFactor
@@ -370,10 +321,7 @@ final readonly class PendingEvaluation
 
     /**
      * What the identity still owes on the stored session, asked as its sign-in
-     * was: with the first factor the session records (`firstFactorOf()`), the
-     * client it came from, the name and platform it gave, and the session its
-     * client proved it holds (see `owedFactor()`). Pass `$current` only for a
-     * session whose row this transaction holds locked.
+     * was.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -402,9 +350,7 @@ final readonly class PendingEvaluation
     }
 
     /**
-     * The first factor the session signed in with, as it records it, read
-     * current when asked. Pass `$current` only for a session whose row this
-     * transaction holds locked.
+     * The first factor the session signed in with, as it records it.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  bool  $current
@@ -419,10 +365,7 @@ final readonly class PendingEvaluation
 
     /**
      * How the session, or the sign-in's evidence, stands against the
-     * authentication policy of the tenant the principal is to act in; with no
-     * principal selected yet there is none to ask, and nothing falls short.
-     * Pass `$current` only for a session whose row this transaction holds
-     * locked.
+     * authentication policy of the tenant the principal is to act in.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -451,9 +394,7 @@ final readonly class PendingEvaluation
     }
 
     /**
-     * What a session still waits on, in order: the further factor while any of
-     * its authentication's requirement is outstanding, then the choice when no
-     * principal is selected.
+     * What a session still waits on, in order.
      *
      * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $outstanding
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -482,8 +423,7 @@ final readonly class PendingEvaluation
     }
 
     /**
-     * The application policy's `admitIdentifier()` answer for the identity,
-     * asked on the write connection.
+     * The application policy's `admitIdentifier()` answer for the identity.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?string  $identifierType
@@ -500,11 +440,7 @@ final readonly class PendingEvaluation
     }
 
     /**
-     * The principals the identity may act as, before any check: its
-     * `principals()` read on the write connection, as a `PrincipalListing` that
-     * loads the tenants of the active ones it judges together, or, for an
-     * identity that is its own principal or has no `principals()`, the
-     * resolver's default.
+     * The principals the identity may act as, before any check.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @return \SineMacula\Laravel\Authentication\Admission\PrincipalListing

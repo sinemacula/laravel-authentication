@@ -9,19 +9,8 @@ use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SignInStatus;
 
 /**
- * How a sign-in, or an action on its pending session, through the session
- * service ended: an active session with its token pair, a pending session
- * waiting on requirements (with its pending credential when the call issued
- * one), or a failure with its reason (and, for `rate_limited`, the seconds
- * until the next attempt may be made). A failure is a result rather than an
- * exception, so the caller answers it as it chooses; exceptions are kept for
- * misconfiguration and server errors.
- *
- * The pending credential travels only in the response body, never in a URL or a
- * cookie, and is handed out once: an action that leaves the session pending
- * answers without it, and the client keeps the one it holds. Like the token
- * pair, it is a `Secret`, revealed only into the response body that hands it to
- * the client.
+ * How a sign-in, or an action on its pending session, ended: an active session,
+ * a pending session or a failure.
  *
  * @api
  *
@@ -86,11 +75,8 @@ final readonly class SignInResult
     }
 
     /**
-     * A sign-in that failed. A concealed reason (a refusal by the account's own
-     * limit, an expired or exhausted code, a passkey's sign counter that did
-     * not advance) is answered as `invalid_credentials`, with no wait, as a
-     * wrong secret would be, so the result never reveals that the account or a
-     * code exists; only the server-side `AuthenticationFailed` event says why.
+     * A sign-in that failed, with a concealed reason answered as
+     * `invalid_credentials`.
      *
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
      * @param  ?int  $retryAfter

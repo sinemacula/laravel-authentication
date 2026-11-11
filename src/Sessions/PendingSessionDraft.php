@@ -11,11 +11,7 @@ use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 
 /**
- * What a sign-in left pending writes its session with: who signed in, the
- * principal and active tenant once one is selected, what the session waits on,
- * the type of identifier the sign-in used, what it proved, the session the
- * client proved it holds, and the attempt-limit slots it keeps until the
- * session first activates.
+ * What a sign-in left pending writes its session with.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

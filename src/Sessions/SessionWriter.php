@@ -30,28 +30,8 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
- * Writes a session the session service starts: always a new session, active
- * with its first token pair (replacing the existing session a client proved it
- * holds, if any), or pending with its pending credential (recording the session
- * the client proved, which its first activation supersedes), and its first
- * proof and provenance.
- *
- * Each runs in one transaction on the session's connection. A session an
- * external provider established writes the guard of the link it came through
- * first (`ConnectionGuards`), before any session row, so a revocation of the
- * link or the connection racing it never misses it. The session is written next
- * (after the revocation of the session it replaces), then the sign-in's
- * first-factor proof, then its provenance when an external provider established
- * it, each after deleting what an earlier session holding the same key left,
- * and the tokens are issued after them, inside the transaction, so a cancelled
- * insert or any failure while issuing (signing, randomness, an identifier that
- * cannot be read) rolls every write back: no session is left without a client
- * that holds its refresh token or pending credential, or without the proof its
- * tokens are derived from, and no session is revoked for a replacement that was
- * not written. Only the digest of the new rotation id, or of the pending
- * credential's secret, is stored. Every session time is the one `$now` of the
- * sign-in, formatted with the session model's own date format; each proof keeps
- * its own time.
+ * Writes a session the session service starts, active with its first token pair
+ * or pending with its pending credential, with its first proof and provenance.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -85,7 +65,7 @@ final readonly class SessionWriter
 
     /**
      * The same writer, for sessions checked against the tenant authentication
-     * policy at the version given (`null` for none), which they record.
+     * policy at the version given (`null` for none).
      *
      * @param  ?string  $version
      * @return self
@@ -98,19 +78,6 @@ final readonly class SessionWriter
     /**
      * Create a session of the configured model for the admitted sign-in and
      * issue its first pair.
-     *
-     * The session records that it is active, a new generation, its owner (the
-     * identity, which must be an Eloquent model), the principal and the active
-     * tenant, the guard, the sign-in method (the proof's) and the type of
-     * identifier it used, the client's name and platform, the IP address and
-     * user agent of the client the sign-in came from (`$origin`) as its
-     * creation, the context's client and the sign-in as its last use (so
-     * recording the use when the guard binds it writes nothing more), the
-     * digest of a new rotation id, and both deadlines: the absolute one capped
-     * at the context's deadline, if it gives one, and `null` when neither it
-     * nor the application sets one; then the sign-in's proofs and provenance
-     * (`$proof`). A context whose deadline has already passed is an
-     * `InvalidArgumentException`: establishment refuses such a sign-in first.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  ?string  $identifierType
@@ -152,24 +119,9 @@ final readonly class SessionWriter
     }
 
     /**
-     * Replace the session the client proved it holds, the admitted sign-in's
-     * session, with a new one for the sign-in, and issue the new session's
-     * first pair; `null` when the proven session changed after it was proven,
-     * so it cannot be replaced.
-     *
-     * Every sign-in is a new session, so the new session is written exactly as
-     * `create()` writes one, the context's deadline included, except that a
-     * client name or platform the context does not give is the proven session's
-     * (the client proved it is the same one). The proven session is revoked
-     * first, with the reason `superseded` and both of its digests forgotten, by
-     * one compare-and-swap that applies only while the row still holds the
-     * digest the client proved, is active and not revoked, and records the
-     * owner, principal and guard it was proven for; any concurrent refresh,
-     * revocation, return to pending or change makes it affect no row, and then
-     * nothing is written. The revocation, the new session and its pair are one
-     * transaction, so a cancelled insert or a failure while issuing leaves the
-     * proven session as it was. The new session records only its own sign-in's
-     * proofs: the replaced session's stay with it.
+     * Replace the session the client proved it holds with a new one for the
+     * sign-in and issue its first pair, or `null` when the proven session
+     * changed since.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  ?string  $identifierType
@@ -227,23 +179,6 @@ final readonly class SessionWriter
      * Create a pending session of the configured model for a sign-in that still
      * waits on requirements, and return it with its pending credential.
      *
-     * The session is written as `create()` writes one (its owner, the principal
-     * and active tenant when one is selected, the guard, method, identifier
-     * type and client, a new generation, the start and both deadlines), except
-     * that it is pending: it records what it waits on, in order, the digest of
-     * a new secret, no refresh credential, the session the client proved it
-     * holds and the digest it was proven against (its first activation
-     * supersedes that session only while it is unchanged), and the windows of
-     * the attempt-limit slots the sign-in holds until then. Its idle deadline
-     * is the pending credential's expiry: `$ttlSeconds` from `$now`, never past
-     * its absolute deadline, so an expired pending session has ended as any
-     * session ends. The first factor's proof and provenance are recorded with
-     * it, so they carry to the active session unchanged.
-     *
-     * The credential is `<session key>.<secret>`, held as a `Secret`; only the
-     * secret's digest is stored, and the credential is never written anywhere
-     * else.
-     *
      * @formatter:off
      *
      * @phpcs:disable Generic.Files.LineLength.TooLong
@@ -295,12 +230,8 @@ final readonly class SessionWriter
     }
 
     /**
-     * A new, unsaved session of the configured model for the sign-in, created
-     * from the origin's client, with the context's client name and platform,
-     * the principal (`null` while a choice is outstanding), the active tenant's
-     * id (`null` for none) and the tenant policy version it was checked
-     * against, and none of the state it starts with (`sessionState()`,
-     * `pendingState()`) yet.
+     * A new, unsaved session of the configured model for the sign-in, without
+     * the state it starts with.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -346,8 +277,8 @@ final readonly class SessionWriter
     }
 
     /**
-     * The session the admitted sign-in is on, which the client proved it holds
-     * and which must be an Eloquent session to be replaced.
+     * The session the admitted sign-in is on, which must be an Eloquent session
+     * to be replaced.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @return \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession
@@ -366,10 +297,10 @@ final readonly class SessionWriter
     }
 
     /**
-     * Insert the new session, or throw when a model event cancelled the insert:
-     * Eloquent reports that only by returning `false`, after the key is already
-     * set, so carrying on would issue a pair for a session that was never
-     * written and commit the revocation of the session it replaces.
+     * Insert the new session, or throw when a model event cancelled the insert.
+     *
+     * Eloquent reports a cancelled insert only by returning `false`, after the
+     * key is set.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @return void
@@ -384,12 +315,11 @@ final readonly class SessionWriter
     }
 
     /**
-     * A description the session recorded, as the model reads it: its text, or
+     * A description the session recorded, read through the model's casts, or
      * `null` when it recorded none or it is not loaded.
      *
-     * Read through the model's casts and accessors rather than as stored, since
-     * the new session writes it through its casts and mutators again: a stored
-     * value would be cast twice (an encrypted name encrypted a second time).
+     * Read cast, since the new session casts it again on write (an encrypted
+     * name would be encrypted twice).
      *
      * @param  \Illuminate\Database\Eloquent\Model  $session
      * @param  string  $column
@@ -420,13 +350,8 @@ final readonly class SessionWriter
     }
 
     /**
-     * The state of a session that starts active at `$now`: waiting on nothing,
-     * superseding nothing and never switched, a generation of its own, the
-     * client as its last use, the digest of the new rotation id with no
-     * previous one, the start itself, and both deadlines, the absolute one the
-     * earlier of the application's limit and the context's deadline, either
-     * alone, or none. Every state column is set, so the new session reads as a
-     * loaded row would.
+     * The state of a session that starts active at `$now`, with every state
+     * column set so the new session reads as a loaded row would.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  string  $rotationId
@@ -473,12 +398,8 @@ final readonly class SessionWriter
     }
 
     /**
-     * The state of a session that starts pending at `$now`: a generation of its
-     * own, the client as its last use, no refresh credential, the digest of the
-     * pending credential's secret, the session the client proved and the digest
-     * it was proven against, no switch, the start itself, the absolute deadline
-     * as an active session's, and the pending credential's expiry as the idle
-     * deadline, never past the absolute one.
+     * The state of a session that starts pending at `$now`, idling out when its
+     * pending credential expires.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  string  $secret
@@ -527,10 +448,8 @@ final readonly class SessionWriter
     }
 
     /**
-     * Record the sign-in's proofs on the new session: its first factor, and the
-     * provenance of a session an external provider established. Whatever an
-     * earlier session whose key the new one reuses left under it is deleted
-     * first, so the new session counts only its own sign-in's proofs.
+     * Record the sign-in's proofs on the new session, first deleting whatever
+     * an earlier session under the same key left.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Proofs\SignInProof  $proof
@@ -553,10 +472,7 @@ final readonly class SessionWriter
 
     /**
      * Apply the values to the proven session with one compare-and-swap on its
-     * own connection: only while the row still holds the digest, owner,
-     * principal and guard it was loaded with, exactly as stored, is active and
-     * is not revoked. The values are mirrored on the in-memory session as
-     * persisted state when the swap changed the row. Returns whether it did.
+     * own connection; whether the swap changed the row.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  array<string, mixed>  $values
@@ -594,9 +510,7 @@ final readonly class SessionWriter
     }
 
     /**
-     * Issue the session's first pair at `$now`, after the session was written:
-     * its insert is the issuance guard, and its proofs are only its own until
-     * the transaction commits, so they are read as it sees them.
+     * Issue the session's first pair at `$now`, after the session was written.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted

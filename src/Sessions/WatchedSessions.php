@@ -8,14 +8,10 @@ use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Support\RowKey;
 
 /**
- * The checks of the request or job still waiting to judge each session
- * (`AdmissionRecheck`), so a later switch or choice of the same session tells
- * them what it no longer acts as: a check judges only the principal and tenant
- * the session still acts as and in when it runs. Sessions are told apart as
- * their rows are (`RowKey`), since each call loads its own instance of one.
+ * The admission rechecks still waiting to judge each session in this request or
+ * job.
  *
- * One instance is shared through the container, scoped, so nothing one request
- * or job watches is seen by the next.
+ * Sessions are keyed by row (`RowKey`), since each call loads its own instance.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

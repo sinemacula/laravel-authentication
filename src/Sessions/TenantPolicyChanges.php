@@ -29,29 +29,6 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyVerdict;
  * Applies a change of a tenant's authentication policy to the sessions active
  * in the tenant, at once and outside any request.
  *
- * Every live session whose active tenant is the tenant (unrevoked and before
- * both its deadlines), on every guard, pending ones included, is judged in one
- * transaction on the session model's connection (a savepoint inside a caller's
- * transaction there, so it commits or rolls back with the caller's own work),
- * in two passes, so every session row is locked before any proof row, as the
- * package's lock order puts them: the first reads only their keys, in key
- * order, a chunk at a time, each chunk with a locking read on the write
- * connection; the second reads those sessions again, a chunk at a time, with a
- * locking read of the rows the first already holds, and judges each, reading
- * its proofs and provenance current (`SessionProofs`), so on MySQL and MariaDB
- * at REPEATABLE READ a session is judged on what is committed, not on the
- * snapshot an earlier read of the transaction took. The sessions judged are the
- * ones the first pass found; the keys are held in memory for the call, the
- * sessions only a chunk at a time. Each session is judged against the policy as
- * it answers for that session's application, identity and principal: a session
- * recorded at the very version answered, neither `null`, is skipped; an active
- * one that falls short is revoked (`tenant_policy_changed`) and one that meets
- * it records the version; a pending one is revoked only when it would need
- * another connection, since its activation judges a further factor itself. A
- * session whose owner or principal no longer loads is revoked when active. Each
- * revocation is one conditional update on the session still being active in the
- * tenant and unrevoked, and is reported with `SessionRevoked` once committed.
- *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
@@ -112,10 +89,7 @@ final readonly class TenantPolicyChanges
 
     /**
      * The keys of the tenant's live sessions, in key order, read a chunk at a
-     * time with a locking read on the write connection, which holds their rows
-     * until the transaction ends: unrevoked, and before both deadlines at
-     * `$now`, so a session that has already ended (waiting to be pruned) is
-     * neither judged, revoked nor counted.
+     * time with a locking read on the write connection.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $model
      * @param  string  $tenantId
@@ -152,10 +126,8 @@ final readonly class TenantPolicyChanges
     }
 
     /**
-     * The sessions under the keys given, in key order, read again on the write
-     * connection with a locking read of the rows this transaction already
-     * holds, so each is read as committed whatever snapshot the transaction
-     * took first.
+     * The sessions under the keys given, read again with a locking read so each
+     * is read as committed.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $model
      * @param  list<mixed>  $keys
@@ -173,9 +145,8 @@ final readonly class TenantPolicyChanges
     }
 
     /**
-     * Judge one session against the policy and act on the verdict: revoke it
-     * when it falls short, or record the version it meets; returns whether it
-     * was revoked.
+     * Judge one session against the policy and revoke it when it falls short,
+     * or record the version it meets; whether it was revoked.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
@@ -212,11 +183,8 @@ final readonly class TenantPolicyChanges
     }
 
     /**
-     * The session judged against the policy as it answers for the session's
-     * application, identity and principal, or `null` when the session is
-     * recorded at the very version answered (neither `null`) and so is skipped.
-     * A session whose owner or principal no longer loads lacks what the policy
-     * is asked about, and is judged as falling short of it.
+     * The session judged against the policy, or `null` when it is recorded at
+     * the very version answered.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
@@ -267,8 +235,7 @@ final readonly class TenantPolicyChanges
 
     /**
      * Revoke the session as `tenant_policy_changed` while it is still active in
-     * the tenant and unrevoked, and report it once committed; returns whether
-     * this call revoked it.
+     * the tenant and unrevoked; whether this call revoked it.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
