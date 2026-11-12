@@ -5,17 +5,21 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Sessions\Concerns;
 
 use Carbon\CarbonInterface;
+use Illuminate\Database\Eloquent\Model;
+use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
+use SineMacula\Laravel\Authentication\Contracts\HasSessions;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Proofs\Provenance;
 use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
+use SineMacula\Laravel\Authentication\SessionRecords\IdentitySessions;
 use SineMacula\Laravel\Authentication\Sessions\ActiveSessionProofs;
 use SineMacula\Laravel\Authentication\Sessions\ActiveSessions;
 use SineMacula\Laravel\Authentication\Sessions\SessionSummary;
 
 /**
- * The session service's lookups of one session, one principal, and an active
- * session's proofs.
+ * The session service's lookups of one session, one session record, one
+ * principal, and an active session's proofs.
  *
  * Kept in a trait only to hold the service under the per-class method limit.
  *
@@ -39,6 +43,25 @@ trait LooksUpSessions
     public function session(Identity $identity, mixed $sessionId): ?SessionSummary
     {
         return ActiveSessions::find($identity, $sessionId, $this->binding->session());
+    }
+
+    /**
+     * One of the identity's sessions, of any guard and in any state, by its
+     * identifier; `null` when the identity has no such session.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  mixed  $sessionId
+     * @return (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)|null
+     *
+     * @throws \LogicException
+     */
+    public function sessionRecord(Identity $identity, mixed $sessionId): (EloquentSession&Model)|null
+    {
+        if (!$identity instanceof HasSessions) {
+            throw new \LogicException(sprintf('Only identities that implement %s have sessions to read; %s does not.', HasSessions::class, $identity::class));
+        }
+
+        return IdentitySessions::find($identity, $sessionId);
     }
 
     /**

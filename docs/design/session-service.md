@@ -249,8 +249,9 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   delegated to `src/Sessions/SessionRefresh.php` (a trait for the same reason), and `src/Sessions/RefreshResult.php`.
   `src/Sessions/Concerns/ProvesSessions.php`: `stepUp()` and `reauthenticate()`, delegated to
   `src/Sessions/SessionStepUp.php` and `src/Sessions/SessionReauthentication.php` over `src/Sessions/ProofIssuance.php`
-  (see `proofs-and-freshness.md`). `src/Sessions/Concerns/LooksUpSessions.php`: `session()`, `principal()`, `proofs()`
-  and `firstFactor()`, delegated to `src/Sessions/ActiveSessions.php`, `src/Sessions/PendingEvaluation.php` and
+  (see `proofs-and-freshness.md`). `src/Sessions/Concerns/LooksUpSessions.php`: `session()`, `sessionRecord()`,
+  `principal()`, `proofs()` and `firstFactor()`, delegated to `src/Sessions/ActiveSessions.php`,
+  `src/SessionRecords/IdentitySessions.php`, `src/Sessions/PendingEvaluation.php` and
   `src/Sessions/ActiveSessionProofs.php` (a trait for the same reason).
 - `src/Sessions/SessionEstablishment.php`: `select()`, `proceed()`, `establish()`, `wait()`, `write()`, `signedIn()`:
   the session, the factor policy and the scheduled reports, never the bind.
