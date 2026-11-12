@@ -895,6 +895,15 @@ The same rule is a query scope on any model that uses `ActsAsSession`, for your 
 Session::query()->active()->where('guard', 'api')->count();
 ```
 
+`sessionRecord()` gets the stored session itself, of any guard and in any state (active, pending, revoked or ended), or
+`null` when the identity has no session with that id. It reads the identity's `sessions()` relation on the write
+connection, locks nothing and does not judge whether the session is still live. The identity must implement
+`HasSessions`, as for `session()`:
+
+```php
+$record = Auth::sessions('api')->sessionRecord($identity, $sessionId);
+```
+
 ### Revoking on security changes
 
 Call the session service from your own flows when something about an identity's security changes; each ends the

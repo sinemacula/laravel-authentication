@@ -174,6 +174,72 @@ final class LooksUpSessionsTest extends TestCase
     }
 
     /**
+     * A session record is found for any of the identity's sessions, whatever
+     * its guard or state.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASessionRecordIsFoundInAnyStateOnAnyGuard(): void
+    {
+        $identity = $this->seedIdentity();
+
+        $active  = $this->signIn('api', 'Phone');
+        $revoked = $this->signIn('api', 'Revoked');
+        $pending = $this->signIn('api', 'Pending');
+        $ended   = $this->signIn('api', 'Ended');
+        $admin   = $this->signIn('admin', 'Console');
+
+        Session::query()->whereKey($revoked->record->getKey())->update(['revoked_at' => now(), 'revoked_reason' => 'revoked']);
+        Session::query()->whereKey($pending->record->getKey())->update(['status' => 'pending', 'requires' => '["mfa"]']);
+        Session::query()->whereKey($ended->record->getKey())->update(['idle_expires_at' => now()->subMinute()]);
+
+        foreach ([$active, $revoked, $pending, $ended, $admin] as $session) {
+            $record = Auth::sessions('api')->sessionRecord($identity, $session->record->getSessionIdentifier());
+
+            self::assertInstanceOf(Session::class, $record);
+            self::assertSame(self::idOf($session), IdentifierCoercion::stringify($record->getSessionIdentifier()));
+        }
+
+        self::assertSame('revoked', Auth::sessions('api')->sessionRecord($identity, self::idOf($revoked))?->getRevokedReason());
+        self::assertSame('admin', Auth::sessions('api')->sessionRecord($identity, self::idOf($admin))?->getGuard());
+    }
+
+    /**
+     * Another identity's session, or an identifier that names none, has no
+     * session record.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnotherIdentitysSessionHasNoSessionRecord(): void
+    {
+        $identity = $this->seedIdentity();
+
+        $this->seedIdentity('grace@example.test');
+
+        $other = $this->signIn('api', 'Other', 'grace@example.test');
+
+        self::assertNull(Auth::sessions('api')->sessionRecord($identity, self::idOf($other)));
+        self::assertNull(Auth::sessions('api')->sessionRecord($identity, (string) Str::uuid7()));
+        self::assertNull(Auth::sessions('api')->sessionRecord($identity, 'not-a-uuid'));
+    }
+
+    /**
+     * An identity without sessions is refused, as `session()` refuses it.
+     *
+     * @return void
+     */
+    public function testASessionRecordOfAnIdentityWithoutSessionsIsRefused(): void
+    {
+        $this->expectException(\LogicException::class);
+
+        Auth::sessions('api')->sessionRecord(\Mockery::mock(Identity::class), (string) Str::uuid7());
+    }
+
+    /**
      * The route answers an active session's counting proofs and first factor.
      *
      * @return void
