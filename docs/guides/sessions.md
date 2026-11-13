@@ -186,12 +186,12 @@ $first   = $sessions->firstFactor(Auth::session());
 ```
 
 `proofs()` answers a list of `Proofs\RecordedProof`: the session's counting proofs (not voided, and a further factor or
-recovery code only when its adapter accepted it), newest first by time and then by id, only those made at or after
-`$since` when it is given (any Carbon time, mutable or not, the same instant in whichever time zone it is given, and
-never changed by the read) and of `$kinds` when they are given, at most `$limit` of them (50 by default, 1 to 200;
-anything else is an `InvalidArgumentException`, before anything is read): exactly what `PendingSession::proofs()`
-answers for a pending session. `firstFactor()` answers the session's oldest counting first-factor proof, or `null` when
-it no longer counts.
+recovery code only when its adapter accepted it), newest first by time and then in the order they were recorded, only
+those made at or after `$since` when it is given (any Carbon time, mutable or not, the same instant in whichever time
+zone it is given, and never changed by the read) and of `$kinds` when they are given, at most `$limit` of them (50 by
+default, 1 to 200; anything else is an `InvalidArgumentException`, before anything is read): exactly what
+`PendingSession::proofs()` answers for a pending session. `firstFactor()` answers the session's oldest counting
+first-factor proof, or `null` when it no longer counts.
 
 Both answer only for one of this guard's live, active sessions of a person. An id that cannot be a key of the session
 model (not a UUID, for the shipped model), one that names no session, and a session of another guard, a revoked one, a
