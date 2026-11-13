@@ -30,6 +30,8 @@ final readonly class CodeBinding
      * @param  string  $identifier
      * @param  string  $identity
      * @param  string  $transaction
+     * @param  ?\SineMacula\Laravel\Authentication\Proofs\Enums\Purpose  $proofPurpose
+     * @param  ?string  $factor
      */
     private function __construct(
 
@@ -50,6 +52,12 @@ final readonly class CodeBinding
 
         /** The transaction a factor code is bound to besides its key, or empty for every other purpose. */
         #[\SensitiveParameter] public string $transaction = '',
+
+        /** What a factor code proves, or `null` for every other purpose. */
+        public ?Purpose $proofPurpose = null,
+
+        /** The factor package's reference to a factor code's factor, or `null` for every other purpose. */
+        public ?string $factor = null,
     ) {}
 
     /**
@@ -139,8 +147,9 @@ final readonly class CodeBinding
         $last        = $proof->purpose === Purpose::ENROLLMENT ? (string) $binding->grant : $proof->purpose->value;
         $transaction = implode("\0", [(string) IdentifierCoercion::stringify($proof->sessionId), $binding->factor, $last]);
 
-        $channel = $binding->channel;
+        $channel  = $binding->channel;
+        $identity = AccountAttempts::account($proof->identity);
 
-        return new self($binding->purpose(), $guard, $channel->kind->value, (string) $channel->reference, AccountAttempts::account($proof->identity), $transaction);
+        return new self($binding->purpose(), $guard, $channel->kind->value, (string) $channel->reference, $identity, $transaction, $proof->purpose, $binding->factor);
     }
 }
