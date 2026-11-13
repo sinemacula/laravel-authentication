@@ -15,28 +15,30 @@ link contract answers, and the package starts, reauthenticates and ends sessions
   `External\NoExternalLinks`, links nothing, so no result signs anyone in until an application binds its own.
 - A result (`External\ExternalResult`: the connection, issuer and subject, and optionally the connection's tenant, the
   provider's authentication time and session deadline, the policy version checked, the provider's evidence, the id of
-  the link the adapter redeemed it through, the public reference of the authorisation request it answered and the
-  adapter's provider context) comes only from a trusted adapter, never from a client: `external_provider` is reserved,
-  so `SignInMethodManager::extend()` refuses it, `method()` never resolves it, `signIn()` cannot reach it, and `start()`
-  and `reauthenticate()` refuse it as their method (`SessionPreconditions::assertSessionMethod()`). Only
-  `signInExternally()` records a session under it.
+  the link the adapter redeemed it through, the public reference of the authorisation request it answered, the adapter's
+  provider context and the subject's SAML `NameID` format) comes only from a trusted adapter, never from a client:
+  `external_provider` is reserved, so `SignInMethodManager::extend()` refuses it, `method()` never resolves it,
+  `signIn()` cannot reach it, and `start()` and `reauthenticate()` refuse it as their method
+  (`SessionPreconditions::assertSessionMethod()`). Only `signInExternally()` records a session under it.
 - A cookie application's `signInExternally()` makes no same-site check, which holds `signIn()`, `start()`, `satisfy()`
   and `choose()` (`SessionPreconditions::crossSite()`): the provider's callback is a cross-site navigation. The defence
   against signing a browser into another account is the adapter's, and the guides require it of an adapter: it binds its
   `state` and nonce to the browser that began the flow, refuses a callback that does not match them, and redeems the
   handoff once, for that browser.
-- The identity is the one `Contracts\ExternalIdentityLinks::find($connectionId, $issuer, $subject)` answers, through a
-  link made through exactly that connection for exactly that issuer and subject, never by email or any other attribute
-  the provider asserted. Its answer (`External\ExternalLink`) is the identity and the link's own opaque id. The link id
-  is taken from that answer, not from the result, though the verified result an adapter redeems carries one: the
-  contract reads, inside the adapter's transaction, the very link it maps the identity through, so the id recorded is
-  always that link's and can never name a link other than the one that chose the identity. A result that names the link
-  the adapter redeemed (`ExternalResult::$linkId`) must be answered with exactly that link, at sign-in and at
-  reauthentication (`link_mismatch`), so a link removed and made again for the same subject since never stands in for
-  it. Outside a caller's transaction the sign-in opens its own around the link contract and the writes; a
-  reauthentication judges the link again under the session's row lock (its provenance must still record the link, and a
-  link's removal revokes the session), so it does not. The connection guards order a sign-in against a revocation and
-  never ask the contract again, so they add to the adapter's locks and never replace them.
+- The identity is the one `Contracts\ExternalIdentityLinks::find($connectionId, $issuer, $subject, $nameIdFormat)`
+  answers, through a link made through exactly that connection for exactly that issuer, subject and `NameID` format
+  (`null` for a subject that is not a `NameID`), never by email or any other attribute the provider asserted, and never
+  for a subject in one `NameID` format by a link made for another (a transient or email `NameID` is not a persistent
+  one). Its answer (`External\ExternalLink`) is the identity and the link's own opaque id. The link id is taken from
+  that answer, not from the result, though the verified result an adapter redeems carries one: the contract reads,
+  inside the adapter's transaction, the very link it maps the identity through, so the id recorded is always that link's
+  and can never name a link other than the one that chose the identity. A result that names the link the adapter
+  redeemed (`ExternalResult::$linkId`) must be answered with exactly that link, at sign-in and at reauthentication
+  (`link_mismatch`), so a link removed and made again for the same subject since never stands in for it. Outside a
+  caller's transaction the sign-in opens its own around the link contract and the writes; a reauthentication judges the
+  link again under the session's row lock (its provenance must still record the link, and a link's removal revokes the
+  session), so it does not. The connection guards order a sign-in against a revocation and never ask the contract again,
+  so they add to the adapter's locks and never replace them.
 - The link contract, and the evidence policy's acceptance of a result's evidence, are asked before the package takes any
   lock, so the adapter's own locks, taken inside its transaction, always come first and the package's own rows last: a
   sign-in's or a revocation's connection guards first, then the session rows (the session reauthenticated, the one a

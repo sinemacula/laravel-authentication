@@ -843,23 +843,24 @@ binds a fake `AuthenticationContexts`.
 
 ### Single sign-on (`laravel-sso`)
 
-- Bind `Contracts\ExternalIdentityLinks`. Given the connection, the issuer and the subject of a result the provider
-  verified, `find()` answers the link made through exactly that connection for exactly that issuer and subject
-  (`External\ExternalLink`: the identity and the link's own id, opaque and compared exactly), or `null`. It never
-  matches by email or any other attribute the provider asserted. It is asked inside the adapter's transaction, before
-  any lock of the package's, so read the links on the write connection. The default, `NoExternalLinks`, links nothing,
-  so no external result signs anyone in until the identity package's adapter binds `laravel-sso`'s links. Linking, and
-  the links, are `laravel-sso`'s; this package stores none.
+- Bind `Contracts\ExternalIdentityLinks`. Given the connection, the issuer, the subject of a result the provider
+  verified and, when the subject is a SAML `NameID`, its format (`null` otherwise), `find()` answers the link made
+  through exactly that connection for exactly that issuer, subject and format (`External\ExternalLink`: the identity and
+  the link's own id, opaque and compared exactly), or `null`. It never matches by email or any other attribute the
+  provider asserted, nor a subject in one `NameID` format by a link made for another. It is asked inside the adapter's
+  transaction, before any lock of the package's, so read the links on the write connection. The default,
+  `NoExternalLinks`, links nothing, so no external result signs anyone in until the identity package's adapter binds
+  `laravel-sso`'s links. Linking, and the links, are `laravel-sso`'s; this package stores none.
 - Inside the transaction in which it redeems a handoff, after `laravel-sso`'s own locks, the adapter hands the verified
   result, naming the link it redeemed it through (`linkId`), the authorisation request's public reference
-  (`requestReference`) and, if it wants one, its provider context (`providerContext`, below), to
-  `Auth::sessions($guard)->signInExternally(new ExternalResult(...), $context)` (see [External
-  sign-in](signing-in.md#external-sign-in)). On a cookie application `signInExternally()` makes no same-site check (the
-  provider's callback is a cross-site navigation by design), so the adapter must bind the `state` and nonce it sends the
-  provider to the browser that began the flow, refuse a callback that does not match them, and redeem the handoff once,
-  for that browser: otherwise a cross-site page could sign a victim's browser into the attacker's account (see [the
-  refresh token cookie](refreshing.md#refresh-token-cookie)). The application must list `external_provider` in its
-  `methods`. The identity is reloaded through the guard's provider, and activity, the application policy, the
+  (`requestReference`), a SAML subject's `NameID` format (`nameIdFormat`) and, if it wants one, its provider context
+  (`providerContext`, below), to `Auth::sessions($guard)->signInExternally(new ExternalResult(...), $context)` (see
+  [External sign-in](signing-in.md#external-sign-in)). On a cookie application `signInExternally()` makes no same-site
+  check (the provider's callback is a cross-site navigation by design), so the adapter must bind the `state` and nonce
+  it sends the provider to the browser that began the flow, refuse a callback that does not match them, and redeem the
+  handoff once, for that browser: otherwise a cross-site page could sign a victim's browser into the attacker's account
+  (see [the refresh token cookie](refreshing.md#refresh-token-cookie)). The application must list `external_provider` in
+  its `methods`. The identity is reloaded through the guard's provider, and activity, the application policy, the
   additional-factor policy, the choice of principal and the tenant's authentication policy all apply; no attempt limit
   or timebox does, since nothing is guessed. The package takes no lock before the link contract is asked, so every row
   of its own it locks (the link's connection guard, then any session the sign-in replaces) is locked after the adapter's
