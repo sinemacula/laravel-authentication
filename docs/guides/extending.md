@@ -298,7 +298,8 @@ principal's tenant must be active (`Admission\ActivationPolicy`), the applicatio
 package asks them. The tenant the activity check loaded is the one it binds. A guard type that authenticated a
 credential the request presented names its kind last (`kind:`, a `Context\Enums\CredentialKind`), so the request's
 [authentication context](#authentication-context) says what was presented; one that names none reports `credential` as
-`null`, as a sign-in in the request does:
+`null`, as a sign-in in the request does. A guard type may also name the credential's id (`credentialId:`), which its
+events and `boundCaller()` report: an identifier, such as the id of the key's row, never the credential itself:
 
 ```php
 use Illuminate\Container\Container;

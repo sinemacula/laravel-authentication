@@ -6,6 +6,7 @@ namespace SineMacula\Laravel\Authentication\Guards\Concerns;
 
 use Illuminate\Auth\Events\Authenticated;
 use Illuminate\Auth\Events\Validated;
+use SineMacula\Laravel\Authentication\Callers\BoundCaller;
 use SineMacula\Laravel\Authentication\Context\Enums\CredentialKind;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
@@ -139,6 +140,23 @@ trait BindsContextualState
         }
 
         return $this->activeTenant;
+    }
+
+    /**
+     * Return what the guard is already bound to, or `null` when no identity is,
+     * without resolving the request.
+     *
+     * @return ?\SineMacula\Laravel\Authentication\Callers\BoundCaller
+     *
+     * @phpstan-impure
+     */
+    public function boundCaller(): ?BoundCaller
+    {
+        if ($this->identity === null) {
+            return null;
+        }
+
+        return new BoundCaller($this->identity, $this->principal, $this->session, $this->credentialKind, $this->credentialId, $this->unavailableTenant ?? $this->activeTenant);
     }
 
     /**

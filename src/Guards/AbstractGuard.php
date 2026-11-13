@@ -418,6 +418,7 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
     {
         $this->identity       = $identity;
         $this->credentialKind = null;
+        $this->credentialId   = null;
 
         $this->forgetDerivedState();
 

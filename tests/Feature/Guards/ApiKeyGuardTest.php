@@ -25,6 +25,7 @@ use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyAuthentication;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyLookup;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyOutcome;
 use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
+use SineMacula\Laravel\Authentication\Context\Enums\CredentialKind;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -709,6 +710,33 @@ final class ApiKeyGuardTest extends TestCase
 
         self::assertSame(['a', 'b'], Auth::scopes());
         self::assertSame($issued->id, $this->dispatchedOf(PrincipalAssigned::class)[0]->context->credentialId);
+    }
+
+    /**
+     * The bound caller names the key by its id, which is no part of the key a
+     * client presents.
+     *
+     * @return void
+     */
+    public function testTheBoundCallerNamesTheKeyByItsId(): void
+    {
+        $machine = $this->seedMachine();
+        $issued  = $this->apiKeys()->issue($machine, $machine, ['a']);
+
+        $this->startMachineRequest($issued->key()->reveal());
+
+        $guard = self::keyGuard('machine');
+
+        self::assertNull($guard->boundCaller());
+
+        $guard->user();
+
+        $caller = $guard->boundCaller();
+
+        self::assertNotNull($caller);
+        self::assertSame(CredentialKind::API_KEY, $caller->credentialKind);
+        self::assertSame($issued->id, $caller->credentialId);
+        self::assertStringNotContainsString($issued->id, $issued->key()->reveal());
     }
 
     /**
