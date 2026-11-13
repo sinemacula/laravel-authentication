@@ -301,7 +301,7 @@ $holders = AppUser::holdingVerifiedIdentifier('email', $asserted);
 
 The identifier is normalised as verification normalises it (`Ben@Example.com` finds `ben@example.com`), and one the
 type's normaliser refuses finds nobody without a query. The identities are read on the write connection with the
-model's global scopes, and each must hold the normal form byte for byte, whatever the column's collation counts as
+model's global scopes, and each must store the normal form byte for byte, whatever the column's collation counts as
 equal. More than one can hold the same identifier unless a unique index on its column stops it, so decide what two
 holders mean before acting on one.
 

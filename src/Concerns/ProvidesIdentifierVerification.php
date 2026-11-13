@@ -117,7 +117,7 @@ trait ProvidesIdentifierVerification
 
         // A collation can match another spelling of the identifier
         return WriteConnection::during($model, static fn (): Collection => $query->get())
-            ->filter(static fn (self $identity): bool => $identity->getIdentifierForVerification($type) === $normalized)
+            ->filter(static fn (self $identity): bool => $identity->getRawOriginal($type) === $normalized)
             ->values();
     }
 

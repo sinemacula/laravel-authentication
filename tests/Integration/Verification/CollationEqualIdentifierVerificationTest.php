@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace Tests\Integration\Verification;
 
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
@@ -19,6 +20,7 @@ use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
 use Tests\Concerns\InteractsWithVerifiableIdentities;
 use Tests\Integration\Fixtures\VerifiableIdentity;
 use Tests\TestCase;
+use Tests\Unit\Stubs\StubVerifiableModel;
 
 /**
  * Integration tests for an address replaced, after the identity was read, by a
@@ -152,7 +154,23 @@ final class CollationEqualIdentifierVerificationTest extends TestCase
 
         $this->replaceAddressWith($variant);
 
+        $folding = new class extends StubVerifiableModel {
+            /** @var string|null The table associated with the model. */
+            protected $table = 'verifiable_identities';
+
+            /**
+             * Read the address folded to the proven one.
+             *
+             * @return \Illuminate\Database\Eloquent\Casts\Attribute<string, never>
+             */
+            protected function email(): Attribute
+            {
+                return Attribute::get(static fn (): string => 'ben@example.com');
+            }
+        };
+
         self::assertTrue(VerifiableIdentity::holdingVerifiedIdentifier('email', self::PROVEN)->isEmpty());
+        self::assertTrue($folding::holdingVerifiedIdentifier('email', self::PROVEN)->isEmpty());
     }
 
     /**
