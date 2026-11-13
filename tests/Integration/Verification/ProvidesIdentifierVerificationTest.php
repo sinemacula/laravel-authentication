@@ -230,9 +230,15 @@ final class ProvidesIdentifierVerificationTest extends TestCase
      */
     public function testTheLookupIsAPublicStaticFinder(): void
     {
-        $method = new \ReflectionMethod(VerifiableIdentity::class, 'holdingVerifiedIdentifier');
+        $identity = self::seedVerifiableIdentity();
+
+        self::assertTrue($identity->markIdentifierAsVerified('email', 'ben@example.com'));
+
+        $finder = [VerifiableIdentity::class, 'holdingVerifiedIdentifier'];
+        $method = new \ReflectionMethod(...$finder);
         $names  = array_map(static fn (\ReflectionParameter $parameter): string => $parameter->getName(), $method->getParameters());
 
+        self::assertSame([$identity->id], $finder('email', 'ben@example.com')->modelKeys());
         self::assertTrue($method->isPublic());
         self::assertTrue($method->isStatic());
         self::assertSame(['type', 'identifier'], $names);
