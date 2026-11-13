@@ -6,6 +6,7 @@ namespace Tests\Integration\Verification;
 
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\Events\TransactionBeginning;
 use Illuminate\Database\Events\TransactionCommitted;
@@ -200,7 +201,7 @@ final class ProvidesIdentifierVerificationTest extends TestCase
         self::assertTrue($second->markIdentifierAsVerified('email', 'ben@example.com'));
         self::assertTrue($other->markIdentifierAsVerified('email', 'ada@example.com'));
 
-        $found = (new VerifiableIdentity)->holdingVerifiedIdentifier('email', ' Ben@Example.COM ');
+        $found = VerifiableIdentity::holdingVerifiedIdentifier('email', ' Ben@Example.COM ');
 
         self::assertContainsOnlyInstancesOf(VerifiableIdentity::class, $found);
         self::assertEqualsCanonicalizing([$first->id, $second->id], $found->modelKeys());
@@ -217,8 +218,25 @@ final class ProvidesIdentifierVerificationTest extends TestCase
     {
         $statements = $this->recordStatements();
 
-        self::assertTrue((new VerifiableIdentity)->holdingVerifiedIdentifier('email', "\xFF")->isEmpty());
+        self::assertTrue(VerifiableIdentity::holdingVerifiedIdentifier('email', "\xFF")->isEmpty());
         self::assertSame([], $statements());
+    }
+
+    /**
+     * The lookup is a public static finder taking the type and the identifier,
+     * so a caller outside the model can name it as a callable.
+     *
+     * @return void
+     */
+    public function testTheLookupIsAPublicStaticFinder(): void
+    {
+        $method = new \ReflectionMethod(VerifiableIdentity::class, 'holdingVerifiedIdentifier');
+        $names  = array_map(static fn (\ReflectionParameter $parameter): string => $parameter->getName(), $method->getParameters());
+
+        self::assertTrue($method->isPublic());
+        self::assertTrue($method->isStatic());
+        self::assertSame(['type', 'identifier'], $names);
+        self::assertSame(Collection::class, (string) $method->getReturnType());
     }
 
     /**
@@ -250,8 +268,8 @@ final class ProvidesIdentifierVerificationTest extends TestCase
             }
         };
 
-        self::assertCount(1, (new VerifiableIdentity)->holdingVerifiedIdentifier('email', 'ben@example.com'));
-        self::assertTrue($scoped->holdingVerifiedIdentifier('email', 'ben@example.com')->isEmpty());
+        self::assertCount(1, VerifiableIdentity::holdingVerifiedIdentifier('email', 'ben@example.com'));
+        self::assertTrue($scoped::holdingVerifiedIdentifier('email', 'ben@example.com')->isEmpty());
     }
 
     /**
@@ -319,7 +337,7 @@ final class ProvidesIdentifierVerificationTest extends TestCase
             static fn (): mixed => $identity->getIdentifierForVerification($type),
             static fn (): mixed => $identity->hasVerifiedIdentifier($type),
             static fn (): mixed => $identity->markIdentifierAsVerified($type, 'ben@example.com'),
-            static fn (): mixed => (new VerifiableIdentity)->holdingVerifiedIdentifier($type, 'ben@example.com'),
+            static fn (): mixed => VerifiableIdentity::holdingVerifiedIdentifier($type, 'ben@example.com'),
         ];
 
         foreach ($calls as $call) {

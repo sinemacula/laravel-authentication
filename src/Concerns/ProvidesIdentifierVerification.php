@@ -104,18 +104,19 @@ trait ProvidesIdentifierVerification
      *
      * @throws \InvalidArgumentException
      */
-    public function holdingVerifiedIdentifier(string $type, #[\SensitiveParameter] string $identifier): Collection
+    public static function holdingVerifiedIdentifier(string $type, #[\SensitiveParameter] string $identifier): Collection
     {
+        $model      = new static;
         $normalized = Container::getInstance()->make(IdentifierVerifier::class)->canonical(IdentifierType::assertValid($type), $identifier);
 
         if ($normalized === null) {
-            return $this->newCollection();
+            return $model->newCollection();
         }
 
-        $query = WriteConnection::query($this->newQuery())->where($type, $normalized)->whereNotNull($this->getVerifiedAtName($type));
+        $query = WriteConnection::query($model->newQuery())->where($type, $normalized)->whereNotNull($model->getVerifiedAtName($type));
 
         // A collation can match another spelling of the identifier
-        return WriteConnection::during($this, static fn (): Collection => $query->get())
+        return WriteConnection::during($model, static fn (): Collection => $query->get())
             ->filter(static fn (self $identity): bool => $identity->getRawOriginal($type) === $normalized)
             ->values();
     }
