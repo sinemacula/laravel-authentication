@@ -196,6 +196,9 @@ final readonly class OneTimeCodes
      * Whether the code is the one that used the binding's challenge up; ending
      * a challenge replaces its issuance, so no code matches one ended unused.
      *
+     * The read locks, so a repeatable-read snapshot older than the use cannot
+     * answer it.
+     *
      * @param  \SineMacula\Laravel\Authentication\Codes\CodeBinding  $binding
      * @param  string  $challengeId
      * @param  string  $code
@@ -208,7 +211,7 @@ final readonly class OneTimeCodes
     public function isUsedBy(CodeBinding $binding, string $challengeId, #[\SensitiveParameter] string $code): bool
     {
         $digest = $this->keys->binding($binding);
-        $row    = CodeRows::find($digest);
+        $row    = CodeRows::find($digest, true);
 
         return $row !== null
             && hash_equals($row->challenge_id, $challengeId)

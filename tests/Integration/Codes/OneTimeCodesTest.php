@@ -229,6 +229,32 @@ final class OneTimeCodesTest extends TestCase
     }
 
     /**
+     * Whether a code used its challenge is read locked.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testWhetherACodeUsedItsChallengeIsReadLocked(): void
+    {
+        $connection = DB::connection();
+
+        if ($connection->getDriverName() === 'sqlite') {
+            $connection->setQueryGrammar(new LockMarkingSQLiteGrammar($connection));
+        }
+
+        $issued = $this->issued(self::binding(), '123456');
+        $reads  = [];
+
+        $connection->listen(static function (QueryExecuted $query) use (&$reads): void {
+            $reads[] = str_contains($query->sql, 'for update');
+        });
+
+        self::assertFalse(self::codes()->isUsedBy(self::binding(), $issued->challengeId, '123456'));
+        self::assertSame([true], $reads);
+    }
+
+    /**
      * Codes are drawn uniformly over every digit string of their length.
      *
      * @return void
