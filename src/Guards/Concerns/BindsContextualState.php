@@ -355,7 +355,7 @@ trait BindsContextualState
 
     /**
      * Bind the whole triple with its credential and scopes, then dispatch its
-     * events.
+     * events, returning the context they report.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -363,7 +363,7 @@ trait BindsContextualState
      * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant|\SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException|null  $tenant
      * @param  ?string  $method
      * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
-     * @return void
+     * @return \SineMacula\Laravel\Authentication\Events\EventContext
      */
     private function bindContext(
         Identity $identity,
@@ -372,7 +372,7 @@ trait BindsContextualState
         Tenant|TenantUnavailableException|null $tenant,
         ?string $method,
         ?ClientContext $client = null,
-    ): void {
+    ): EventContext {
         $this->identity  = $identity;
         $this->principal = $principal;
         $this->session   = $session;
@@ -388,11 +388,11 @@ trait BindsContextualState
         $this->context->dispatch(new Authenticated($this->context->name(), $identity));
         $this->context->dispatch(new PrincipalAssigned($context));
 
-        if ($session === null) {
-            return;
+        if ($session !== null) {
+            $this->context->dispatch(new SessionAuthenticated($context));
         }
 
-        $this->context->dispatch(new SessionAuthenticated($context));
+        return $context;
     }
 
     /**

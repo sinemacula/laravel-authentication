@@ -269,8 +269,9 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - `tests/Feature/Guards/AbstractGuardLifecycleTest.php`
   `testLoginFiresValidatedEventBeforeBindingState`
 - `tests/Feature/Guards/AbstractGuardEventContextTest.php` `testLoginReportsTheSignInWithTheBoundContext`,
-  `testLoginStartedLeavesTheSignInToTheFlowThatStartedIt`; `tests/Feature/Guards/AbstractGuardTest.php`
-  `testASuccessfulAttemptBindsAsAPasswordSignIn`
+  `testLoginReportsWhatItBoundWhenAListenerSignsOut`, `testLoginStartedLeavesTheSignInToTheFlowThatStartedIt`;
+  `tests/Feature/Guards/AbstractGuardTest.php` `testASuccessfulAttemptBindsAsAPasswordSignIn`,
+  `testASuccessfulAttemptReportsWhatItBoundWhenAListenerSignsOut`
 - `tests/Feature/Guards/JwtGuardTest.php`
   `testARateLimitedRefreshFiresFailedAndReturnsTheWait`
 - `tests/Feature/Sessions/SessionRefreshTest.php`

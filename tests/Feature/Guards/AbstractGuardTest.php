@@ -1127,6 +1127,39 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     }
 
     /**
+     * A successful attempt reports the identity it bound even when a bind
+     * listener signs the guard out.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASuccessfulAttemptReportsWhatItBoundWhenAListenerSignsOut(): void
+    {
+        $identity  = $this->mockIdentity();
+        $principal = $this->mockActivePrincipal();
+        $guard     = $this->makeGuard();
+        $signedIn  = null;
+
+        $this->expectPasswordAccepted($identity);
+        $this->resolver->shouldReceive('resolve')->once()->with($identity)->andReturn($principal);
+
+        $this->events->shouldReceive('dispatch')
+            ->andReturnUsing(static function (object $event) use ($guard, &$signedIn): void {
+                if ($event instanceof PrincipalAssigned) {
+                    $guard->forgetUser();
+                }
+
+                $signedIn = $event instanceof SignedIn ? $event : $signedIn;
+            });
+
+        self::assertTrue($guard->attempt(['email' => 'ada@example.test', 'password' => 'secret']));
+        self::assertInstanceOf(SignedIn::class, $signedIn);
+        EventContextAssertions::assertIdentity($identity, $signedIn->context);
+        EventContextAssertions::assertPrincipal($principal, $signedIn->context);
+    }
+
+    /**
      * The `bindAuthenticationLifecycle()` hook binds a sign-in whose events
      * report the session's method, or none without a session.
      *

@@ -203,6 +203,35 @@ final class AbstractGuardEventContextTest extends AbstractGuardTestCase
     }
 
     /**
+     * `login()` reports the identity it bound even when a bind listener signs
+     * the guard out.
+     *
+     * @return void
+     */
+    public function testLoginReportsWhatItBoundWhenAListenerSignsOut(): void
+    {
+        $guard     = $this->makeGuard();
+        $identity  = $this->mockIdentity();
+        $principal = $this->mockPrincipal();
+        $signedIn  = null;
+
+        $this->events->shouldReceive('dispatch')
+            ->andReturnUsing(static function (object $event) use ($guard, &$signedIn): void {
+                if ($event instanceof PrincipalAssigned) {
+                    $guard->forgetUser();
+                }
+
+                $signedIn = $event instanceof SignedIn ? $event : $signedIn;
+            });
+
+        $guard->login($identity, $principal);
+
+        self::assertInstanceOf(SignedIn::class, $signedIn);
+        EventContextAssertions::assertIdentity($identity, $signedIn->context);
+        EventContextAssertions::assertPrincipal($principal, $signedIn->context);
+    }
+
+    /**
      * `loginStarted()` binds the session service's sign-in without reporting it
      * again.
      *
