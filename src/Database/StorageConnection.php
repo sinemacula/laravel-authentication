@@ -6,6 +6,7 @@ namespace SineMacula\Laravel\Authentication\Database;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\DB;
 
 /**
  * The connection the package's tables live on, read by both the shipped models
@@ -47,6 +48,19 @@ final class StorageConnection
     public static function forRateLimits(): ?string
     {
         return self::read('rate_limits.connection', 'the storage connection') ?? self::name();
+    }
+
+    /**
+     * Whether a transaction is open on the storage connection: where a session
+     * may be read current, as `FreshnessPolicy` asks.
+     *
+     * @return bool
+     *
+     * @throws \InvalidArgumentException
+     */
+    public static function isInTransaction(): bool
+    {
+        return DB::connection(self::name())->transactionLevel() > 0;
     }
 
     /**

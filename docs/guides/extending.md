@@ -728,16 +728,17 @@ seam has a default that works alone.
   first factor, not an accepted further one.
 - Before a sensitive operation of its own that the gate does not cover, the factor package asks
   `FreshnessPolicy::freshProof($session, 'mfa.some_operation')`, under a namespaced operation name of its own that the
-  application configures under `freshness`, and passes a `FreshnessRequirement` of its own for a floor the
-  configuration may not lower (see [Freshness](sessions.md#freshness)). A caller that means only "within so many
-  seconds" passes `FreshnessRequirement::within($seconds)`, which takes every proof kind: a list of kinds of its own
-  narrows the configured kinds to those both take. `freshUntil()` answers until when the session stays fresh, and both
-  take an excluded factor (`$excludingFactor`), whose proofs never count: a removal's requirement is met only by the
-  session's other proofs. When it acts on the answer in the same transaction, it asks with the read mode set
+  application configures under `freshness`, and passes a `FreshnessRequirement` of its own for a floor the configuration
+  may not lower (see [Freshness](sessions.md#freshness)). A caller that means only "within so many seconds" passes
+  `FreshnessRequirement::within($seconds)`, which takes every proof kind: a list of kinds of its own narrows the
+  configured kinds to those both take. `freshUntil()` answers until when the session stays fresh, and both take an
+  excluded factor (`$excludingFactor`), whose proofs never count: a removal's requirement is met only by the session's
+  other proofs. When it acts on the answer in the same transaction, it asks with the read mode set
   (`freshProof($session, 'mfa.some_operation', current: true)`, and `freshUntil(..., current: true)` for a grant's
   expiry) inside that transaction, on the storage connection, after its own identity and factor locks and after any
-  other session's row it needs (take those before the call), and never acts on a plain answer there: the policy locks
-  and judges the session's row and reads its proofs current, so a step-up voided meanwhile never counts.
+  other session's row it needs (take those before the call), and never acts on a plain answer there
+  (`Database\StorageConnection::isInTransaction()` answers whether it is inside one): the policy locks and judges the
+  session's row and reads its proofs current, so a step-up voided meanwhile never counts.
 - The factor package's own requirement for a change (its `mfa.add_factor`, say) is the caller's requirement the gate
   takes as `$requirement`: the stricter of it and `factor_change` (or `first_additional_factor`) applies.
 - The active tenant the factor package acts in comes from the validated session or caller, never from an event's
