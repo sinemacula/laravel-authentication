@@ -183,8 +183,9 @@ $this->app->singleton(TenantAuthenticationPolicy::class, OrganisationPolicy::cla
 ```
 
 The package asks it inside `WriteConnection::during()` for the tenant, so read the policy's own state from the write
-connection, as there. Change the version whenever anything the answer depends on changes, the exemptions included, and
-call `Auth::sessions()->tenantPolicyChanged($tenant)` when it does (see [Tenant authentication
+connection, as there. A sign-in, choice or switch into a tenant asks it once more after the session's write commits, so
+a change applied in between is not missed. Change the version whenever anything the answer depends on changes, the
+exemptions included, and call `Auth::sessions()->tenantPolicyChanged($tenant)` when it does (see [Tenant authentication
 policies](sessions.md#tenant-authentication-policies)). A `null` version is never taken as already checked.
 
 Whether a session's proofs meet a further factor is `Contracts\RequirementCheck`'s to judge: `evaluate()` takes a

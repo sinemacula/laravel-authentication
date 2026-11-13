@@ -13,6 +13,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\ExternalEvidencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
@@ -42,6 +43,7 @@ use SineMacula\Laravel\Authentication\Requirements\Enums\RequirementKind;
 use SineMacula\Laravel\Authentication\Requirements\MeetNoRequirement;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
+use SineMacula\Laravel\Authentication\Sessions\AdmissionRecheck;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
 use SineMacula\Laravel\Authentication\Sessions\PendingSessions;
@@ -54,6 +56,7 @@ use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use SineMacula\Laravel\Authentication\Sessions\TenantPolicyChanges;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyCheck;
 use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyContext;
 use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use Tests\Concerns\InteractsWithExternalSignIns;
@@ -88,6 +91,8 @@ use Tests\TestCase;
 #[CoversClass(RefreshTokenExchange::class)]
 #[CoversClass(RefreshRotationStore::class)]
 #[CoversClass(TenantPolicyChanges::class)]
+#[CoversClass(AdmissionRecheck::class)]
+#[CoversClass(TenantPolicyCheck::class)]
 #[CoversClass(AbstractGuard::class)]
 final class TenantAuthenticationPolicyTest extends TestCase
 {
@@ -823,6 +828,142 @@ final class TenantAuthenticationPolicyTest extends TestCase
     }
 
     /**
+     * Rows of `[requirement the change brings in, refusal]`.
+     *
+     * @return iterable<string, array{0: \SineMacula\Laravel\Authentication\Tenancy\TenantRequirement, 1: \SineMacula\Laravel\Authentication\Events\Enums\FailureReason}>
+     */
+    public static function provideRacedRequirements(): iterable
+    {
+        yield 'a connection' => [new TenantRequirement('v2', connections: ['conn-a']), FailureReason::SSO_REQUIRED];
+        yield 'a further factor' => [new TenantRequirement('v2', new Requirement(new RequirementPart)), FailureReason::ADDITIONAL_FACTOR_REQUIRED];
+    }
+
+    /**
+     * A sign-in that read the policy before a change the helper applied, and
+     * wrote its session after, is ended once its write commits.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Tenancy\TenantRequirement  $changed
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $refusal
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideRacedRequirements')]
+    public function testASignInThatReadThePolicyBeforeAChangeIsEndedOnceItCommits(TenantRequirement $changed, FailureReason $refusal): void
+    {
+        [, , $tenant] = $this->seedMember();
+
+        $this->changeOnFirstAsk($tenant, new TenantRequirement('v1'), $changed);
+
+        $refused = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext());
+
+        self::assertTrue($refused->isFailed());
+        self::assertSame($refusal, $refused->reason);
+        self::assertSame(RevocationReason::TENANT_POLICY_CHANGED->value, Session::query()->sole()->getRevokedReason());
+    }
+
+    /**
+     * A sign-in that meets the policy as changed meanwhile stands.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASignInThatMeetsAPolicyChangedMeanwhileStands(): void
+    {
+        [, , $tenant] = $this->seedMember();
+
+        $this->changeOnFirstAsk($tenant, new TenantRequirement('v1'), new TenantRequirement('v2'));
+
+        $result = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext());
+
+        self::assertTrue($result->isSignedIn());
+        self::assertNull(Session::query()->sole()->getRevokedAt());
+        self::assertCount(2, $this->policy->asked);
+    }
+
+    /**
+     * A sign-in written pending that lacks only a further factor of the changed
+     * policy stays pending.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPendingSignInThatLacksOnlyAFactorOfAChangedPolicyStaysPending(): void
+    {
+        [, , $tenant] = $this->seedMember();
+
+        $this->changeOnFirstAsk($tenant, new TenantRequirement('v1', new Requirement(new RequirementPart)), new TenantRequirement('v2', new Requirement(new RequirementPart)));
+
+        $result = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext());
+
+        self::assertTrue($result->isPending());
+        self::assertNull(Session::query()->sole()->getRevokedAt());
+    }
+
+    /**
+     * A pending sign-in activated before the caller commits is held to the
+     * changed policy as the active session it is by then.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASignInActivatedBeforeTheCommitIsJudgedAsActive(): void
+    {
+        [$member] = $this->seedMember();
+
+        $this->policy->requirement = new TenantRequirement('v1', new Requirement(new RequirementPart));
+
+        DB::transaction(function () use ($member): void {
+
+            $result = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext());
+
+            self::assertNotNull($result->pending);
+            self::assertNotNull($result->credential);
+
+            $active = $this->sessions('members')->satisfy(
+                $result->credential->reveal(),
+                self::adapterProof($member, 'members', $result->pending->id, Purpose::SIGN_IN),
+                self::requestClient(),
+            );
+
+            self::assertTrue($active->isSignedIn());
+
+            $this->policy->requirement = new TenantRequirement('v2', new Requirement(new RequirementPart));
+
+            app()->instance(RequirementCheck::class, new MeetNoRequirement);
+        });
+
+        self::assertSame(RevocationReason::TENANT_POLICY_CHANGED->value, Session::query()->sole()->getRevokedReason());
+    }
+
+    /**
+     * A choice that read the chosen tenant's policy before a change the helper
+     * applied, and wrote its session after, is ended once its write commits.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAChoiceThatReadThePolicyBeforeAChangeIsEndedOnceItCommits(): void
+    {
+        [, , $second] = $this->seedChooser();
+
+        $result = $this->sessions(self::CHOOSERS)->signIn('password', self::credentials('chooser@example.test'), self::requestContext());
+
+        self::assertNotNull($result->credential);
+
+        $this->changeOnFirstAsk(ActivatableTenant::query()->findOrFail($second->tenant_id), new TenantRequirement('v1'), new TenantRequirement('v2', connections: ['conn-a']));
+
+        $refused = $this->sessions(self::CHOOSERS)->choose($result->credential->reveal(), $second, self::requestClient());
+
+        self::assertSame(FailureReason::SSO_REQUIRED, $refused->reason);
+        self::assertSame(RevocationReason::TENANT_POLICY_CHANGED->value, Session::query()->sole()->getRevokedReason());
+    }
+
+    /**
      * Register the session guards and the choosers' guard.
      *
      * @param  mixed  $app
@@ -858,6 +999,28 @@ final class TenantAuthenticationPolicyTest extends TestCase
         self::assertNotNull($result->session, 'Expected the sign-in to start a session; it failed with ' . $result->reason?->value);
 
         return $result->session;
+    }
+
+    /**
+     * Answer the first ask with the requirement given, changing the policy and
+     * applying the change to the tenant before that answer is acted on.
+     *
+     * @param  \Tests\Integration\Fixtures\ActivatableTenant  $tenant
+     * @param  \SineMacula\Laravel\Authentication\Tenancy\TenantRequirement  $read
+     * @param  \SineMacula\Laravel\Authentication\Tenancy\TenantRequirement  $changed
+     * @return void
+     */
+    private function changeOnFirstAsk(ActivatableTenant $tenant, TenantRequirement $read, TenantRequirement $changed): void
+    {
+        $this->policy->answer = function () use ($tenant, $read, $changed): TenantRequirement {
+
+            $this->policy->answer      = null;
+            $this->policy->requirement = $changed;
+
+            self::assertSame(0, $this->sessions('members')->tenantPolicyChanged($tenant));
+
+            return $read;
+        };
     }
 
     /**
