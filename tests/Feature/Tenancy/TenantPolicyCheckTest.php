@@ -695,7 +695,7 @@ final class TenantPolicyCheckTest extends TestCase
         $locks  = self::proofReadLocks(static fn (): mixed => TenantPolicyCheck::again('members', $member, $membership, $tenant, $session, $active, CarbonImmutable::now()));
 
         self::assertNotSame([], $locks);
-        self::assertSame(array_fill(0, count($locks), true), $locks);
+        self::assertSame(array_fill(0, count($locks), self::takesSharedLocks()), $locks);
     }
 
     /**
