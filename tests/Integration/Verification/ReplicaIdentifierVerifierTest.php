@@ -107,7 +107,7 @@ final class ReplicaIdentifierVerifierTest extends TestCase
     public function testTheVerifiedIdentifierLookupReadsThePrimary(): void
     {
         self::assertNull(DB::connection(self::REPLICA_CONNECTION)->table('verifiable_identities')->value('email_verified_at'));
-        self::assertSame([1], VerifiableIdentity::holdingVerifiedIdentifier('email', 'ben@example.com')->modelKeys());
+        self::assertSame([1], (new VerifiableIdentity)->holdingVerifiedIdentifier('email', 'ben@example.com')->modelKeys());
     }
 
     /**

@@ -200,7 +200,7 @@ final class ProvidesIdentifierVerificationTest extends TestCase
         self::assertTrue($second->markIdentifierAsVerified('email', 'ben@example.com'));
         self::assertTrue($other->markIdentifierAsVerified('email', 'ada@example.com'));
 
-        $found = VerifiableIdentity::holdingVerifiedIdentifier('email', ' Ben@Example.COM ');
+        $found = (new VerifiableIdentity)->holdingVerifiedIdentifier('email', ' Ben@Example.COM ');
 
         self::assertContainsOnlyInstancesOf(VerifiableIdentity::class, $found);
         self::assertEqualsCanonicalizing([$first->id, $second->id], $found->modelKeys());
@@ -217,7 +217,7 @@ final class ProvidesIdentifierVerificationTest extends TestCase
     {
         $statements = $this->recordStatements();
 
-        self::assertTrue(VerifiableIdentity::holdingVerifiedIdentifier('email', "\xFF")->isEmpty());
+        self::assertTrue((new VerifiableIdentity)->holdingVerifiedIdentifier('email', "\xFF")->isEmpty());
         self::assertSame([], $statements());
     }
 
@@ -250,8 +250,8 @@ final class ProvidesIdentifierVerificationTest extends TestCase
             }
         };
 
-        self::assertCount(1, VerifiableIdentity::holdingVerifiedIdentifier('email', 'ben@example.com'));
-        self::assertTrue($scoped::holdingVerifiedIdentifier('email', 'ben@example.com')->isEmpty());
+        self::assertCount(1, (new VerifiableIdentity)->holdingVerifiedIdentifier('email', 'ben@example.com'));
+        self::assertTrue($scoped->holdingVerifiedIdentifier('email', 'ben@example.com')->isEmpty());
     }
 
     /**
@@ -319,7 +319,7 @@ final class ProvidesIdentifierVerificationTest extends TestCase
             static fn (): mixed => $identity->getIdentifierForVerification($type),
             static fn (): mixed => $identity->hasVerifiedIdentifier($type),
             static fn (): mixed => $identity->markIdentifierAsVerified($type, 'ben@example.com'),
-            static fn (): mixed => VerifiableIdentity::holdingVerifiedIdentifier($type, 'ben@example.com'),
+            static fn (): mixed => (new VerifiableIdentity)->holdingVerifiedIdentifier($type, 'ben@example.com'),
         ];
 
         foreach ($calls as $call) {

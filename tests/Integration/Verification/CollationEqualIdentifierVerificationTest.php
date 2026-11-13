@@ -150,7 +150,7 @@ final class CollationEqualIdentifierVerificationTest extends TestCase
         $identity = self::seedVerifiableIdentity(self::PROVEN);
 
         self::assertTrue($identity->markIdentifierAsVerified('email', self::PROVEN));
-        self::assertCount(1, VerifiableIdentity::holdingVerifiedIdentifier('email', self::PROVEN));
+        self::assertCount(1, (new VerifiableIdentity)->holdingVerifiedIdentifier('email', self::PROVEN));
 
         $this->replaceAddressWith($variant);
 
@@ -169,8 +169,8 @@ final class CollationEqualIdentifierVerificationTest extends TestCase
             }
         };
 
-        self::assertTrue(VerifiableIdentity::holdingVerifiedIdentifier('email', self::PROVEN)->isEmpty());
-        self::assertTrue($folding::holdingVerifiedIdentifier('email', self::PROVEN)->isEmpty());
+        self::assertTrue((new VerifiableIdentity)->holdingVerifiedIdentifier('email', self::PROVEN)->isEmpty());
+        self::assertTrue($folding->holdingVerifiedIdentifier('email', self::PROVEN)->isEmpty());
     }
 
     /**
