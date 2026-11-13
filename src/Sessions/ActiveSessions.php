@@ -16,9 +16,9 @@ use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Database\GrammarExpression;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\SessionRecords\IdentitySessions;
-use SineMacula\Laravel\Authentication\SessionRecords\SessionKeyShape;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use SineMacula\Laravel\Authentication\Support\KeyShape;
 
 /**
  * Which sessions are live, the listing of an identity's live sessions, and the
@@ -125,7 +125,7 @@ final class ActiveSessions
 
         [$query, $session] = IdentitySessions::query($identity);
 
-        if (!SessionKeyShape::matches($session, $id)) {
+        if (!KeyShape::matches($session, $id)) {
             return null;
         }
 
