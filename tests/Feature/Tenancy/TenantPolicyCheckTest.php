@@ -699,6 +699,27 @@ final class TenantPolicyCheckTest extends TestCase
     }
 
     /**
+     * Judging a session again tells the policy so; admitting a call does not.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testThePolicyIsToldWhetherASessionIsJudgedAgain(): void
+    {
+        [$member, $membership, $tenant] = $this->seedMember();
+
+        $session = $this->signedIn();
+        $asked   = count($this->policy->asked);
+        $active  = static fn (): bool => false;
+
+        TenantPolicyCheck::check('members', $member, $membership, $tenant, $session, CarbonImmutable::now());
+        TenantPolicyCheck::again('members', $member, $membership, $tenant, $session, $active, CarbonImmutable::now());
+
+        self::assertSame([false, true], array_map(static fn (TenantPolicyContext $context): bool => $context->rejudging, array_slice($this->policy->asked, $asked)));
+    }
+
+    /**
      * Judging a session again ends the context it asked the policy with.
      *
      * @return void

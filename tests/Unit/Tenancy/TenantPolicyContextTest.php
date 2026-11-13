@@ -33,6 +33,16 @@ final class TenantPolicyContextTest extends TestCase
     }
 
     /**
+     * A context judges a call unless it is built to judge a session again.
+     *
+     * @return void
+     */
+    public function testAContextJudgesACallByDefault(): void
+    {
+        self::assertFalse(self::context()->rejudging);
+    }
+
+    /**
      * The closure runs only when the connection is asked for, and once however
      * often it is: a `null` answer is kept too.
      *

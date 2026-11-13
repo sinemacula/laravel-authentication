@@ -103,7 +103,7 @@ final class TenantPolicyCheck
     ): ?TenantPolicyVerdict {
         $recorded = $session->getTenantPolicyVersion();
         $source   = new ProofSource(current: true);
-        $context  = self::contextFor($guard, $identity, $principal, $tenant, $session, $source);
+        $context  = self::contextFor($guard, $identity, $principal, $tenant, $session, $source, true);
 
         try {
             $requirement = self::requirementFor($context);
@@ -162,17 +162,25 @@ final class TenantPolicyCheck
      * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  \SineMacula\Laravel\Authentication\Requirements\ProofSource  $source
+     * @param  bool  $rejudging
      * @return \SineMacula\Laravel\Authentication\Tenancy\TenantPolicyContext
      */
-    public static function contextFor(string $guard, Identity $identity, Principal $principal, Tenant $tenant, ?Session $session, ProofSource $source): TenantPolicyContext
-    {
+    public static function contextFor(
+        string $guard,
+        Identity $identity,
+        Principal $principal,
+        Tenant $tenant,
+        ?Session $session,
+        ProofSource $source,
+        bool $rejudging = false,
+    ): TenantPolicyContext {
         $connectionId = static fn (): ?string => match (true) {
             $source->evidence !== null => $source->evidence->connectionId,
             $session === null          => null,
             default                    => SessionProofs::connectionId($session, $source->current),
         };
 
-        return new TenantPolicyContext($guard, $identity, $principal, $tenant, $session, $connectionId);
+        return new TenantPolicyContext($guard, $identity, $principal, $tenant, $session, $connectionId, $rejudging);
     }
 
     /**

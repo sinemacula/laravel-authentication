@@ -967,6 +967,25 @@ final class TenantAuthenticationPolicyTest extends TestCase
     }
 
     /**
+     * The policy is told it judges a session again after a sign-in commits and
+     * when a change is applied, and not when it admits the sign-in.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testThePolicyIsToldWhenItJudgesASessionAgain(): void
+    {
+        [, , $tenant] = $this->seedMember();
+
+        $this->signedIn();
+
+        $this->sessions('members')->tenantPolicyChanged($tenant);
+
+        self::assertSame([false, true, true], array_map(static fn (TenantPolicyContext $context): bool => $context->rejudging, $this->policy->asked));
+    }
+
+    /**
      * A choice that read the chosen tenant's policy before a change the helper
      * applied, and wrote its session after, is ended once its write commits.
      *
