@@ -788,7 +788,7 @@ final class FactorCodesTest extends TestCase
 
     /**
      * A client the caller hands in is the one a send and a check count and
-     * report.
+     * report, and the one the counters are given.
      *
      * @return void
      *
@@ -808,6 +808,7 @@ final class FactorCodesTest extends TestCase
         self::assertSame(FactorCodeOutcome::INVALID, $this->codeService()->verifyFactorCode($binding, $challenge, '000000', $client)->outcome);
         self::assertSame([1, 0], [self::counterHits('mobile', 'factor_code', 'per_ip', '198.51.100.9'), self::counterHits('mobile', 'factor_code', 'per_ip', self::IP)]);
         self::assertSame('198.51.100.9', $this->recordedEvent(AuthenticationFailed::class)->context->client->ip);
+        self::assertSame([$client, $client, $client], $this->counters->clients);
     }
 
     /**

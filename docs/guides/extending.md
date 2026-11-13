@@ -671,8 +671,9 @@ seam has a default that works alone.
   against the challenge (it still takes its IP slot, before it is judged); neither `not_found` nor `used` counts an
   attempt or is reported to the counters. The delivery key is the destination and the identity, never the factor, so the
   cooldown and the delivery cap hold across an enrolment restarted with a new factor and grant. Bind
-  `Contracts\FactorCodeCounters` (the default, `RefuseFactorCodes`, refuses every code): `admit()` is asked before each
-  delivery and each check, and `report($binding, $challengeId, $passed)` exactly once for each attempt a check counts,
+  `Contracts\FactorCodeCounters` (the default, `RefuseFactorCodes`, refuses every code): `admit($binding, $client)` is
+  asked before each delivery and each check, and `report($binding, $challengeId, $passed, $client)` exactly once for
+  each attempt a check counts, each given the `ClientContext` handed to `sendFactorCode()` or `verifyFactorCode()`, and
   both inside the package's transaction on the storage connection (a savepoint of yours, when you opened one). `admit()`
   runs before the challenge's row is locked, so take your identity and factor locks there, on that same connection;
   `report()` runs after the row is locked and the attempt counted, so it must take no lock that comes before the

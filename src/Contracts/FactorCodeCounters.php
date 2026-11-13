@@ -6,6 +6,7 @@ namespace SineMacula\Laravel\Authentication\Contracts;
 
 use SineMacula\Laravel\Authentication\Codes\FactorCodeAdmission;
 use SineMacula\Laravel\Authentication\Codes\FactorCodeBinding;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 
 /**
  * The factor package's per-factor and per-identity counts and lockouts for
@@ -19,21 +20,24 @@ use SineMacula\Laravel\Authentication\Codes\FactorCodeBinding;
 interface FactorCodeCounters
 {
     /**
-     * Whether a code for the binding may be sent or checked now.
+     * Whether a code for the binding may be sent or checked now, for the client
+     * asking.
      *
      * @param  \SineMacula\Laravel\Authentication\Codes\FactorCodeBinding  $binding
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Codes\FactorCodeAdmission
      */
-    public function admit(FactorCodeBinding $binding): FactorCodeAdmission;
+    public function admit(FactorCodeBinding $binding, ClientContext $client): FactorCodeAdmission;
 
     /**
-     * Count one attempt at the challenge's code and answer whether its outcome
-     * stands.
+     * Count one attempt at the challenge's code, made by the client, and answer
+     * whether its outcome stands.
      *
      * @param  \SineMacula\Laravel\Authentication\Codes\FactorCodeBinding  $binding
      * @param  string  $challengeId
      * @param  bool  $passed
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Codes\FactorCodeAdmission
      */
-    public function report(FactorCodeBinding $binding, string $challengeId, bool $passed): FactorCodeAdmission;
+    public function report(FactorCodeBinding $binding, string $challengeId, bool $passed, ClientContext $client): FactorCodeAdmission;
 }

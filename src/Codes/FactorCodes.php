@@ -79,7 +79,7 @@ final readonly class FactorCodes
         $codes    = $this->container->make(OneTimeCodes::class);
 
         $issued = (new OneTimeCode)->getConnection()->transaction(
-            static fn (): DeliveryRefusal|FactorCodeAdmission|IssuedCode => self::issue($counters, $codes, $binding, $code, $delivery),
+            static fn (): DeliveryRefusal|FactorCodeAdmission|IssuedCode => self::issue($counters, $codes, $binding, $code, $delivery, $client),
         );
 
         return $this->answer($issued, $context);
@@ -124,7 +124,7 @@ final readonly class FactorCodes
         $bound    = CodeBinding::factor($guard, $binding);
 
         $check = (new OneTimeCode)->getConnection()->transaction(
-            static fn (): FactorCodeCheck => self::consume($counters, $codes, $binding, $bound, $challengeId, $secret->getValue()),
+            static fn (): FactorCodeCheck => self::consume($counters, $codes, $binding, $bound, $challengeId, $secret->getValue(), $client),
         );
 
         if ($check->isVerified()) {
@@ -149,6 +149,7 @@ final readonly class FactorCodes
      * @param  \SineMacula\Laravel\Authentication\Codes\FactorCodeBinding  $binding
      * @param  \SineMacula\Laravel\Authentication\Codes\CodeBinding  $code
      * @param  \SineMacula\Laravel\Authentication\Delivery\QueuedDelivery  $delivery
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Codes\DeliveryRefusal|\SineMacula\Laravel\Authentication\Codes\FactorCodeAdmission|\SineMacula\Laravel\Authentication\Codes\IssuedCode
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -165,8 +166,9 @@ final readonly class FactorCodes
         FactorCodeBinding $binding,
         CodeBinding $code,
         QueuedDelivery $delivery,
+        ClientContext $client,
     ): DeliveryRefusal|FactorCodeAdmission|IssuedCode {
-        $admission = $counters->admit($binding);
+        $admission = $counters->admit($binding, $client);
 
         if (!$admission->isAdmitted()) {
             return $admission;
@@ -191,6 +193,7 @@ final readonly class FactorCodes
      * @param  \SineMacula\Laravel\Authentication\Codes\CodeBinding  $bound
      * @param  string  $challengeId
      * @param  string  $code
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Codes\FactorCodeCheck
      *
      * @throws \InvalidArgumentException
@@ -202,8 +205,9 @@ final readonly class FactorCodes
         CodeBinding $bound,
         string $challengeId,
         #[\SensitiveParameter] string $code,
+        ClientContext $client,
     ): FactorCodeCheck {
-        $admission = $counters->admit($binding);
+        $admission = $counters->admit($binding, $client);
 
         if (!$admission->isAdmitted()) {
             return self::checked($admission, $challengeId);
@@ -217,8 +221,8 @@ final readonly class FactorCodes
             CodeCheck::USED      => new FactorCodeCheck(FactorCodeOutcome::USED, $challengeId),
             CodeCheck::EXPIRED   => new FactorCodeCheck(FactorCodeOutcome::EXPIRED, $challengeId),
             CodeCheck::EXHAUSTED => new FactorCodeCheck(FactorCodeOutcome::EXHAUSTED, $challengeId),
-            CodeCheck::ACCEPTED  => self::checked($counters->report($binding, $challengeId, true), $challengeId, $now),
-            CodeCheck::WRONG     => self::checked($counters->report($binding, $challengeId, false), $challengeId, wrong: true),
+            CodeCheck::ACCEPTED  => self::checked($counters->report($binding, $challengeId, true, $client), $challengeId, $now),
+            CodeCheck::WRONG     => self::checked($counters->report($binding, $challengeId, false, $client), $challengeId, wrong: true),
         };
     }
 
