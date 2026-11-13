@@ -8,6 +8,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 
 /**
  * What a tenant authentication policy is asked about.
@@ -30,6 +31,7 @@ final readonly class TenantPolicyContext
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @param  ?\Closure(): ?string  $connectionId
      */
     public function __construct(
@@ -48,6 +50,9 @@ final readonly class TenantPolicyContext
 
         /** The session, or `null` before one is written. */
         public ?Session $session,
+
+        /** The client of the asking call; `null` for `tenantPolicyChanged()` and a pending session's lookup, which have none. */
+        public ?ClientContext $client,
 
         // Finds the connection the session was established through, when asked.
         ?\Closure $connectionId = null,

@@ -6,12 +6,14 @@ namespace SineMacula\Laravel\Authentication\Tenancy;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Container\Container;
+use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
 use SineMacula\Laravel\Authentication\Requirements\ProofSource;
 use SineMacula\Laravel\Authentication\Requirements\RequirementJudge;
@@ -38,10 +40,9 @@ final class TenantPolicyCheck
      * against it.
      *
      * @param  string  $guard
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
+     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @param  \Carbon\CarbonImmutable  $now
      * @param  \SineMacula\Laravel\Authentication\Requirements\ProofSource  $source
      * @return \SineMacula\Laravel\Authentication\Tenancy\TenantPolicyVerdict
@@ -51,18 +52,17 @@ final class TenantPolicyCheck
      */
     public static function check(
         string $guard,
-        Identity $identity,
-        Principal $principal,
-        ?Tenant $tenant,
+        Admitted $admitted,
         ?Session $session,
+        ?ClientContext $client,
         CarbonImmutable $now,
         ProofSource $source = new ProofSource,
     ): TenantPolicyVerdict {
-        if ($tenant === null) {
+        if ($admitted->tenant === null) {
             return new TenantPolicyVerdict(TenantPolicyStanding::MET, null);
         }
 
-        $context = self::contextFor($guard, $identity, $principal, $tenant, $session, $source);
+        $context = self::contextFor($guard, $admitted->identity, $admitted->principal, $admitted->tenant, $session, $client, $source);
 
         try {
             return self::judge(self::requirementFor($context), $context, $now, $source);
@@ -79,18 +79,26 @@ final class TenantPolicyCheck
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @param  \SineMacula\Laravel\Authentication\Requirements\ProofSource  $source
      * @return \SineMacula\Laravel\Authentication\Tenancy\TenantPolicyContext
      */
-    public static function contextFor(string $guard, Identity $identity, Principal $principal, Tenant $tenant, ?Session $session, ProofSource $source): TenantPolicyContext
-    {
+    public static function contextFor(
+        string $guard,
+        Identity $identity,
+        Principal $principal,
+        Tenant $tenant,
+        ?Session $session,
+        ?ClientContext $client,
+        ProofSource $source,
+    ): TenantPolicyContext {
         $connectionId = static fn (): ?string => match (true) {
             $source->evidence !== null => $source->evidence->connectionId,
             $session === null          => null,
             default                    => SessionProofs::connectionId($session, $source->current),
         };
 
-        return new TenantPolicyContext($guard, $identity, $principal, $tenant, $session, $connectionId);
+        return new TenantPolicyContext($guard, $identity, $principal, $tenant, $session, $client, $connectionId);
     }
 
     /**

@@ -9,6 +9,7 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\ExternalEvidencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -110,7 +111,7 @@ final class TenantPolicyCheckTest extends TestCase
     {
         [$member, $membership] = $this->seedMember();
 
-        $verdict = TenantPolicyCheck::check('members', $member, $membership, null, null, CarbonImmutable::now());
+        $verdict = TenantPolicyCheck::check('members', new Admitted($member, $membership, null), null, null, CarbonImmutable::now());
 
         self::assertSame(TenantPolicyStanding::MET, $verdict->standing);
         self::assertNull($verdict->version);
@@ -137,7 +138,7 @@ final class TenantPolicyCheckTest extends TestCase
 
         DB::enableQueryLog();
 
-        $verdict = TenantPolicyCheck::check('members', $member, $membership, $tenant, $session, CarbonImmutable::now());
+        $verdict = TenantPolicyCheck::check('members', new Admitted($member, $membership, $tenant), $session, null, CarbonImmutable::now());
 
         self::assertSame([], DB::getQueryLog());
         self::assertSame(TenantPolicyStanding::MET, $verdict->standing);
@@ -174,10 +175,9 @@ final class TenantPolicyCheckTest extends TestCase
 
         $standing = fn (?SessionContract $session): TenantPolicyStanding => TenantPolicyCheck::check(
             'members',
-            $member,
-            $membership,
-            $tenant,
+            new Admitted($member, $membership, $tenant),
             $session,
+            null,
             CarbonImmutable::now(),
         )->standing;
 
@@ -188,7 +188,7 @@ final class TenantPolicyCheckTest extends TestCase
 
         $this->policy->requirement = new TenantRequirement(factor: new Requirement(new RequirementPart), connections: ['conn-a']);
 
-        $refused = TenantPolicyCheck::check('members', $member, $membership, $tenant, $password, CarbonImmutable::now());
+        $refused = TenantPolicyCheck::check('members', new Admitted($member, $membership, $tenant), $password, null, CarbonImmutable::now());
 
         self::assertTrue($refused->factor->isEmpty());
         self::assertNull($refused->firstFactor);
@@ -222,8 +222,10 @@ final class TenantPolicyCheckTest extends TestCase
 
         DB::enableQueryLog();
 
-        self::assertTrue(TenantPolicyCheck::check('members', $member, $membership, $tenant, null, $now, new ProofSource($external))->isMet());
-        self::assertSame(TenantPolicyStanding::SSO_REQUIRED, TenantPolicyCheck::check('members', $member, $membership, $tenant, null, $now, new ProofSource($password))->standing);
+        $admitted = new Admitted($member, $membership, $tenant);
+
+        self::assertTrue(TenantPolicyCheck::check('members', $admitted, null, null, $now, new ProofSource($external))->isMet());
+        self::assertSame(TenantPolicyStanding::SSO_REQUIRED, TenantPolicyCheck::check('members', $admitted, null, null, $now, new ProofSource($password))->standing);
         self::assertSame([], DB::getQueryLog());
     }
 
@@ -270,7 +272,7 @@ final class TenantPolicyCheckTest extends TestCase
 
         DB::enableQueryLog();
 
-        $verdict = TenantPolicyCheck::check('members', $member, $membership, $tenant, $session, $now);
+        $verdict = TenantPolicyCheck::check('members', new Admitted($member, $membership, $tenant), $session, null, $now);
         $reads   = array_filter(DB::getQueryLog(), static fn (array $query): bool => preg_match('/[`"]kind[`"] = \?/', $query['query']) === 1);
 
         DB::disableQueryLog();
@@ -289,16 +291,16 @@ final class TenantPolicyCheckTest extends TestCase
 
         self::recordProof($session, ProofKind::ADDITIONAL_FACTOR, $now, ['otp'], new Evaluation(true, true));
 
-        $met = TenantPolicyCheck::check('members', $member, $membership, $tenant, $session, $now);
+        $met = TenantPolicyCheck::check('members', new Admitted($member, $membership, $tenant), $session, null, $now);
 
         self::assertTrue($met->isMet());
         self::assertTrue($met->factor->isEmpty());
         self::assertSame($this->check->judged[1]->firstFactor, $met->firstFactor);
-        self::assertSame(TenantPolicyStanding::FACTOR_REQUIRED, TenantPolicyCheck::check('members', $member, $membership, $tenant, null, $now)->standing);
+        self::assertSame(TenantPolicyStanding::FACTOR_REQUIRED, TenantPolicyCheck::check('members', new Admitted($member, $membership, $tenant), null, null, $now)->standing);
 
         app()->instance(RequirementCheck::class, new MeetNoRequirement);
 
-        self::assertSame(TenantPolicyStanding::FACTOR_REQUIRED, TenantPolicyCheck::check('members', $member, $membership, $tenant, $session, $now)->standing);
+        self::assertSame(TenantPolicyStanding::FACTOR_REQUIRED, TenantPolicyCheck::check('members', new Admitted($member, $membership, $tenant), $session, null, $now)->standing);
     }
 
     /**
@@ -321,17 +323,18 @@ final class TenantPolicyCheckTest extends TestCase
 
         $this->policy->requirement = new TenantRequirement('v1', new Requirement(new RequirementPart), ['conn-a']);
 
-        $checked = static fn (ProofSource $source): TenantPolicyVerdict => TenantPolicyCheck::check('members', $member, $membership, $tenant, $session, $now, $source);
-        $judged  = fn (ProofSource $source): TenantPolicyVerdict => self::judged($this->policy->requirement, $tenant, $member, $membership, $session, $now, $source);
-        $check   = static fn (ProofSource $source): array => self::proofReadLocks(static fn (): mixed => $checked($source));
-        $judge   = static fn (ProofSource $source): array => self::proofReadLocks(static fn (): mixed => $judged($source));
+        $admitted = new Admitted($member, $membership, $tenant);
+        $checked  = static fn (ProofSource $source): TenantPolicyVerdict => TenantPolicyCheck::check('members', $admitted, $session, null, $now, $source);
+        $judged   = fn (ProofSource $source): TenantPolicyVerdict => self::judged($this->policy->requirement, $tenant, $member, $membership, $session, $now, $source);
+        $check    = static fn (ProofSource $source): array => self::proofReadLocks(static fn (): mixed => $checked($source));
+        $judge    = static fn (ProofSource $source): array => self::proofReadLocks(static fn (): mixed => $judged($source));
 
         self::assertSame(TenantPolicyStanding::FACTOR_REQUIRED, $checked(new ProofSource(current: true))->standing);
 
         self::assertSame(array_fill(0, 4, self::takesSharedLocks()), $check(new ProofSource(current: true)));
         self::assertSame(array_fill(0, 4, self::takesSharedLocks()), $judge(new ProofSource(current: true)));
         self::assertSame(array_fill(0, 4, false), $check(new ProofSource));
-        self::assertSame(array_fill(0, 4, false), self::proofReadLocks(static fn (): mixed => TenantPolicyCheck::check('members', $member, $membership, $tenant, $session, $now)));
+        self::assertSame(array_fill(0, 4, false), self::proofReadLocks(static fn (): mixed => TenantPolicyCheck::check('members', $admitted, $session, null, $now)));
 
         $this->policy->requirement = new TenantRequirement('v2');
 
@@ -356,11 +359,11 @@ final class TenantPolicyCheckTest extends TestCase
 
         $this->policy->requirement = new TenantRequirement(factor: new Requirement(new RequirementPart));
 
-        self::assertTrue(TenantPolicyCheck::check('members', $member, $membership, $tenant, $session, $now)->isMet());
+        self::assertTrue(TenantPolicyCheck::check('members', new Admitted($member, $membership, $tenant), $session, null, $now)->isMet());
 
         $evidence = SessionEvidence::of(UndescribedSignInProof::of('password', $now));
 
-        $judged = TenantPolicyCheck::check('members', $member, $membership, $tenant, $session, $now, new ProofSource($evidence));
+        $judged = TenantPolicyCheck::check('members', new Admitted($member, $membership, $tenant), $session, null, $now, new ProofSource($evidence));
 
         self::assertSame(TenantPolicyStanding::FACTOR_REQUIRED, $judged->standing);
         self::assertSame([$evidence->firstFactor], $this->check->judged[1]->proofs());
@@ -384,7 +387,7 @@ final class TenantPolicyCheckTest extends TestCase
 
         $this->policy->requirement = new TenantRequirement('v4', new Requirement(multifactor: new RequirementPart), ['conn-a']);
 
-        $judged = TenantPolicyCheck::check('members', $member, $membership, $tenant, null, $now, new ProofSource($evidence));
+        $judged = TenantPolicyCheck::check('members', new Admitted($member, $membership, $tenant), null, null, $now, new ProofSource($evidence));
 
         self::assertSame(TenantPolicyStanding::FACTOR_REQUIRED, $judged->standing);
         self::assertCount(1, $this->check->judged);
@@ -393,7 +396,7 @@ final class TenantPolicyCheckTest extends TestCase
 
         app()->instance(ExternalEvidencePolicy::class, $policy);
 
-        $verdict = TenantPolicyCheck::check('members', $member, $membership, $tenant, null, $now, new ProofSource($evidence));
+        $verdict = TenantPolicyCheck::check('members', new Admitted($member, $membership, $tenant), null, null, $now, new ProofSource($evidence));
 
         self::assertSame([TenantPolicyStanding::MET, 'v4'], [$verdict->standing, $verdict->version]);
         self::assertSame($accepted, $policy->asked[0]['evidence']);
@@ -418,7 +421,7 @@ final class TenantPolicyCheckTest extends TestCase
         $this->policy->requirement = new TenantRequirement('v7', connections: ['conn-a']);
 
         $before      = count($this->policy->asked);
-        $requirement = TenantPolicyCheck::requirementFor(new TenantPolicyContext('members', $member, $membership, $tenant, $session, static fn (): string => 'conn-a'));
+        $requirement = TenantPolicyCheck::requirementFor(new TenantPolicyContext('members', $member, $membership, $tenant, $session, null, static fn (): string => 'conn-a'));
         $asked       = array_slice($this->policy->asked, $before);
 
         self::assertSame($this->policy->requirement, $requirement);
@@ -466,7 +469,7 @@ final class TenantPolicyCheckTest extends TestCase
                 return new TenantRequirement;
             };
 
-            TenantPolicyCheck::check('members', $member, $membership, $tenant, $session, $now, $source);
+            TenantPolicyCheck::check('members', new Admitted($member, $membership, $tenant), $session, null, $now, $source);
 
             return $told[0] ?? null;
         };
@@ -500,7 +503,7 @@ final class TenantPolicyCheckTest extends TestCase
 
         $provenanceReads = function () use ($member, $membership, $tenant, $session): int {
             $statements = self::statementsDuring(static function () use ($member, $membership, $tenant, $session): void {
-                TenantPolicyCheck::check('members', $member, $membership, $tenant, $session, CarbonImmutable::now());
+                TenantPolicyCheck::check('members', new Admitted($member, $membership, $tenant), $session, null, CarbonImmutable::now());
             });
 
             return count(array_filter($statements, static fn (string $sql): bool => str_contains($sql, 'authentication_provenance')));
@@ -557,7 +560,7 @@ final class TenantPolicyCheckTest extends TestCase
             return new TenantRequirement('v1');
         };
 
-        $check = static fn () => TenantPolicyCheck::check('members', $member, $membership, $tenant, $session, CarbonImmutable::now());
+        $check = static fn () => TenantPolicyCheck::check('members', new Admitted($member, $membership, $tenant), $session, null, CarbonImmutable::now());
 
         $check();
         $check();
@@ -646,7 +649,7 @@ final class TenantPolicyCheckTest extends TestCase
         CarbonImmutable $now,
         ProofSource $source,
     ): TenantPolicyVerdict {
-        return TenantPolicyCheck::judge($requirement, TenantPolicyCheck::contextFor('members', $identity, $principal, $tenant, $session, $source), $now, $source);
+        return TenantPolicyCheck::judge($requirement, TenantPolicyCheck::contextFor('members', $identity, $principal, $tenant, $session, null, $source), $now, $source);
     }
 
     /**

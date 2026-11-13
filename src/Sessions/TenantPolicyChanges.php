@@ -236,7 +236,7 @@ final readonly class TenantPolicyChanges
 
         $recorded = $session->getTenantPolicyVersion();
         $source   = new ProofSource(current: true);
-        $context  = TenantPolicyCheck::contextFor((string) $session->getGuard(), $identity, $principal, $tenant, $session, $source);
+        $context  = TenantPolicyCheck::contextFor((string) $session->getGuard(), $identity, $principal, $tenant, $session, null, $source);
 
         try {
             $requirement = TenantPolicyCheck::requirementFor($context);

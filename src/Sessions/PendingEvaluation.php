@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Admission\ActivationPolicy;
+use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Admission\PinnedPrincipal;
 use SineMacula\Laravel\Authentication\Admission\PrincipalAdmission;
 use SineMacula\Laravel\Authentication\Admission\PrincipalListing;
@@ -371,6 +372,7 @@ final readonly class PendingEvaluation
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @param  \Carbon\CarbonImmutable  $now
      * @param  ?\SineMacula\Laravel\Authentication\Tenancy\SessionEvidence  $evidence
      * @param  bool  $current
@@ -384,13 +386,14 @@ final readonly class PendingEvaluation
         ?Principal $principal,
         ?Tenant $tenant,
         ?Session $session,
+        ?ClientContext $client,
         CarbonImmutable $now,
         ?SessionEvidence $evidence = null,
         bool $current = false,
     ): TenantPolicyVerdict {
         return $principal === null
             ? new TenantPolicyVerdict(TenantPolicyStanding::MET, null)
-            : TenantPolicyCheck::check($this->context->name(), $identity, $principal, $tenant, $session, $now, new ProofSource($evidence, $current));
+            : TenantPolicyCheck::check($this->context->name(), new Admitted($identity, $principal, $tenant), $session, $client, $now, new ProofSource($evidence, $current));
     }
 
     /**

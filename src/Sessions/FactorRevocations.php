@@ -352,7 +352,7 @@ final readonly class FactorRevocations
             return null;
         }
 
-        $policy = TenantPolicyCheck::check($guard, $admitted->identity, $admitted->principal, $admitted->tenant, $locked, $now, new ProofSource(current: true));
+        $policy = TenantPolicyCheck::check($guard, $admitted, $locked, $this->context->client(), $now, new ProofSource(current: true));
 
         return $policy->standing === TenantPolicyStanding::SSO_REQUIRED ? null : [$admitted, $policy];
     }
