@@ -8,7 +8,9 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\AuthManager;
+use SineMacula\Laravel\Authentication\Concerns\ReadsActiveGuard;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
@@ -27,6 +29,7 @@ use Tests\TestCase;
  * @internal
  */
 #[CoversClass(AuthManager::class)]
+#[CoversTrait(ReadsActiveGuard::class)]
 final class AuthScopesIntegrationTest extends TestCase
 {
     use InteractsWithMachineClients, InteractsWithSessions;

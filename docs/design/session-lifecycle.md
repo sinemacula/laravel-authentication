@@ -144,9 +144,9 @@ session that ended is deleted. Starting a session is in `session-service.md`; re
 - The optional listeners (`RevokeSessionsOnPasswordReset`, `RevokeSessionsOnPasswordChange`,
   `RevokeSessionsOnDeactivation`, `RevokeSessionsOnDeletion`) run their revocation through `AfterCommit` on the changed
   model's connection, so a rolled-back change revokes nothing. They act through a jwt guard's session service: the guard
-  bound to the listener's `$guard`, else the current default guard when it is a jwt guard, else the first jwt guard
-  configured, so a route guarded by another driver (`shouldUse()`) still revokes; no jwt guard at all is an
-  `InvalidArgumentException`.
+  bound to the listener's `$guard`, else the one `AuthManager::jwtGuard()` picks (the current default guard when it is a
+  jwt guard, else the first jwt guard configured), so a route guarded by another driver (`shouldUse()`) still revokes;
+  no jwt guard at all is an `InvalidArgumentException`.
 - `RevokeSessionsOnDeletion` answers an identity's or principal's `deleted` event with `identityDeleted()` or
   `principalDeleted()` (`identity_deleted`, `principal_deleted`; a 2D model is the identity, checked first), the same
   bulk revocations as the deactivation calls; it is a sibling of the deactivation observer rather than a second event on

@@ -72,47 +72,6 @@ trait RevokesOnceCommitted
         /** @var \SineMacula\Laravel\Authentication\AuthManager $auth */
         $auth = Container::getInstance()->make('auth');
 
-        /** @var \Illuminate\Contracts\Config\Repository $config */
-        $config = Container::getInstance()->make('config');
-        $guards = $config->get('auth.guards');
-
-        return $auth->sessions($this->guard ?? self::jwtGuardName($auth->getDefaultDriver(), is_array($guards) ? $guards : []));
-    }
-
-    /**
-     * The default guard when it is a jwt guard, else the first jwt guard
-     * configured.
-     *
-     * @param  string  $default
-     * @param  array<array-key, mixed>  $guards
-     * @return string
-     *
-     * @throws \InvalidArgumentException
-     */
-    private static function jwtGuardName(string $default, array $guards): string
-    {
-        if (self::isJwtGuard($guards[$default] ?? null)) {
-            return $default;
-        }
-
-        foreach ($guards as $name => $guard) {
-
-            if (self::isJwtGuard($guard)) {
-                return (string) $name;
-            }
-        }
-
-        throw new \InvalidArgumentException('No jwt guard is configured, so no session service can revoke the sessions.');
-    }
-
-    /**
-     * Whether the guard configuration is a jwt guard's.
-     *
-     * @param  mixed  $guard
-     * @return bool
-     */
-    private static function isJwtGuard(mixed $guard): bool
-    {
-        return is_array($guard) && ($guard['driver'] ?? null) === 'jwt';
+        return $auth->sessions($this->guard);
     }
 }

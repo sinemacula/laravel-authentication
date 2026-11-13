@@ -94,8 +94,12 @@ be read (no relation, or an owner that has been deleted) fails the attempt.
 ## Signing in: the session service
 
 Each JWT guard has a session service, `Auth::sessions('api')`, that signs in, creates the session, issues the first
-token pair and binds the guard in one call; `Auth::sessionGuards()` lists those guards without resolving them. The
-manager builds a new service from the guard on each call; the guard itself has no `sessions()` method:
+token pair and binds the guard in one call; `Auth::sessionGuards()` lists those guards without resolving them. With no
+name, `Auth::sessions()` is the default guard's when that is a `jwt` guard, else the first `jwt` guard's, so a change
+that covers every guard (`factorReset()`, `tenantPolicyChanged()`) needs no guard name. `Auth::jwtGuard()` resolves a
+guard the same way, typed as `Guards\JwtGuard`; a named guard that is not a `jwt` guard is an
+`InvalidArgumentException`. The manager builds a new service from the guard on each call; the guard itself has no
+`sessions()` method:
 
 ```php
 use Illuminate\Http\Exceptions\ThrottleRequestsException;

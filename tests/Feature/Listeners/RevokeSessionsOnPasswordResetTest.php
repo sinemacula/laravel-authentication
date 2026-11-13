@@ -227,7 +227,7 @@ final class RevokeSessionsOnPasswordResetTest extends TestCase
         Event::listen(PasswordReset::class, RevokeSessionsOnPasswordReset::class);
 
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('No jwt guard is configured, so no session service can revoke the sessions.');
+        $this->expectExceptionMessage('No jwt guard is configured.');
 
         event(new PasswordReset($identity));
     }
