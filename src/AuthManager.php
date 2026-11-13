@@ -13,15 +13,12 @@ use SineMacula\Laravel\Authentication\Callers\Caller;
 use SineMacula\Laravel\Authentication\Callers\CallerCredentials;
 use SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsExchange;
 use SineMacula\Laravel\Authentication\Codes\CodeService;
+use SineMacula\Laravel\Authentication\Concerns\ReadsActiveGuard;
 use SineMacula\Laravel\Authentication\Config\JwtGuards;
 use SineMacula\Laravel\Authentication\Context\AuthenticationContext;
 use SineMacula\Laravel\Authentication\Contracts\AuthenticationContexts;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\GuardBinding;
-use SineMacula\Laravel\Authentication\Contracts\Identity;
-use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Contracts\Session;
-use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\ApiKeyGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
@@ -46,6 +43,8 @@ use SineMacula\Laravel\Authentication\Support\ClosureRebinding;
  */
 class AuthManager extends IlluminateAuthManager
 {
+    use ReadsActiveGuard;
+
     /**
      * Take over the creators, user resolver and resolved guards of the manager
      * this one replaces in the `auth` binding.
@@ -102,8 +101,35 @@ class AuthManager extends IlluminateAuthManager
     }
 
     /**
-     * Return the session service of the named JWT guard, or of the default
-     * guard.
+     * Return the named JWT guard, or else the default guard when it is one,
+     * else the first JWT guard in `auth.guards`.
+     *
+     * @param  ?string  $name
+     * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     */
+    public function jwtGuard(?string $name = null): JwtGuard
+    {
+        if ($name === null) {
+            $default = $this->getDefaultDriver();
+            $names   = $this->sessionGuards();
+            $name    = in_array($default, $names, true) ? $default : ($names[0] ?? throw new \InvalidArgumentException('No jwt guard is configured.'));
+        }
+
+        $resolved = $this->guard($name);
+
+        if (!$resolved instanceof JwtGuard) {
+            throw new \InvalidArgumentException(sprintf('Auth guard [%s] is not a jwt guard.', $name));
+        }
+
+        return $resolved;
+    }
+
+    /**
+     * Return the session service of the named JWT guard, or else of the guard
+     * `jwtGuard()` picks.
      *
      * @param  ?string  $guard
      * @return \SineMacula\Laravel\Authentication\Sessions\SessionService
@@ -113,7 +139,7 @@ class AuthManager extends IlluminateAuthManager
      */
     public function sessions(?string $guard = null): SessionService
     {
-        $resolved = JwtGuard::from($this, $guard, 'session service');
+        $resolved = $this->jwtGuard($guard);
         $app      = $this->app;
 
         return new SessionService(
@@ -319,76 +345,5 @@ class AuthManager extends IlluminateAuthManager
     public function context(): ?AuthenticationContext
     {
         return $this->app->make(AuthenticationContexts::class)->current();
-    }
-
-    /**
-     * The active identity, when the active guard is contextual.
-     *
-     * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
-     *
-     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
-     */
-    public function identity(): ?Identity
-    {
-        $guard = $this->guard();
-
-        return $guard instanceof ContextualGuard ? $guard->identity() : null;
-    }
-
-    /**
-     * The active principal, when the active guard is contextual.
-     *
-     * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
-     *
-     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
-     */
-    public function principal(): ?Principal
-    {
-        $guard = $this->guard();
-
-        return $guard instanceof ContextualGuard ? $guard->principal() : null;
-    }
-
-    /**
-     * The active session, when the active guard is contextual.
-     *
-     * @return ?\SineMacula\Laravel\Authentication\Contracts\Session
-     *
-     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
-     */
-    public function session(): ?Session
-    {
-        $guard = $this->guard();
-
-        return $guard instanceof ContextualGuard ? $guard->session() : null;
-    }
-
-    /**
-     * The active tenant, when the active guard is contextual.
-     *
-     * @return ?\SineMacula\Laravel\Authentication\Contracts\Tenant
-     *
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
-     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
-     */
-    public function tenant(): ?Tenant
-    {
-        $guard = $this->guard();
-
-        return $guard instanceof ContextualGuard ? $guard->tenant() : null;
-    }
-
-    /**
-     * The scopes the request's credential grants; `null` for a human session.
-     *
-     * @return ?list<string>
-     *
-     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
-     */
-    public function scopes(): ?array
-    {
-        $guard = $this->guard();
-
-        return $guard instanceof ContextualGuard ? $guard->scopes() : null;
     }
 }

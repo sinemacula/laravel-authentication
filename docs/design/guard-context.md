@@ -112,8 +112,8 @@ shared and mutable, how it is rebound, and what a flow may keep from it.
   `src/Jwt/RefreshTokenExchange.php`: the constructor, which `src/Sessions/SessionService.php`'s constructor calls;
   `src/Sessions/SessionRevocations.php`; `src/Passwords/PasswordWriter.php`: `write()`.
 - `src/AuthenticationServiceProvider.php`: `createJwtGuard()`, `wireGuardRebinds()`.
-- `src/AuthManager.php`: `sessions()`, `codes()`, `passkeys()`, `apiKeys()`, `clientCredentials()`, `passwords()`,
-  `identifierChanges()`; the constructors of `src/Sessions/SessionService.php`, `src/Codes/CodeService.php`,
+- `src/AuthManager.php`: `jwtGuard()`, `sessions()`, `codes()`, `passkeys()`, `apiKeys()`, `clientCredentials()`,
+  `passwords()`, `identifierChanges()`; the constructors of `src/Sessions/SessionService.php`, `src/Codes/CodeService.php`,
   `src/Passkeys/PasskeyService.php`, `src/ApiKeys/ApiKeyService.php`,
   `src/ClientCredentials/ClientCredentialsExchange.php`, `src/Passwords/PasswordService.php`,
   `src/Passwords/ResetRequests.php`, `src/Passwords/ResetSubmissions.php`,

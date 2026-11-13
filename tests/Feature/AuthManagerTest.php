@@ -14,10 +14,12 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Event;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Callers\DeclaredCredential;
 use SineMacula\Laravel\Authentication\Callers\Enums\CallerCredential;
+use SineMacula\Laravel\Authentication\Concerns\ReadsActiveGuard;
 use SineMacula\Laravel\Authentication\Context\AuthenticationContext;
 use SineMacula\Laravel\Authentication\Contracts\AuthenticationContexts;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -40,6 +42,7 @@ use Tests\Unit\Stubs\StubAuthenticatableModel;
  * @internal
  */
 #[CoversClass(AuthManager::class)]
+#[CoversTrait(ReadsActiveGuard::class)]
 final class AuthManagerTest extends TestCase
 {
     /**
@@ -166,33 +169,74 @@ final class AuthManagerTest extends TestCase
     }
 
     /**
-     * A guard that is not a JWT guard has no session service, and asking for
-     * one names the guard.
+     * With no name, `jwtGuard()` and `sessions()` act for the default guard
+     * when it is a JWT guard, else for the first JWT guard configured.
      *
      * @return void
+     *
+     * @throws \ReflectionException
      */
-    public function testSessionsRejectsAGuardThatIsNotAJwtGuard(): void
+    public function testWithNoNameTheDefaultJwtGuardOrElseTheFirstActs(): void
     {
         $this->configureJwtGuard();
 
+        config()->set('auth.guards.admin', ['driver' => 'jwt', 'provider' => 'identities']);
         config()->set('auth.defaults.guard', 'web');
 
         /** @var \SineMacula\Laravel\Authentication\AuthManager $manager */
         $manager = app('auth');
 
+        self::assertSame($manager->guard('test_jwt'), $manager->jwtGuard());
+        self::assertSame($manager->guard('test_jwt'), self::readProperty($manager->sessions(), 'binding'));
+
+        config()->set('auth.defaults.guard', 'admin');
+
+        self::assertSame($manager->guard('admin'), $manager->jwtGuard());
+        self::assertSame($manager->guard('admin'), self::readProperty($manager->sessions(), 'binding'));
+        self::assertSame($manager->guard('test_jwt'), $manager->jwtGuard('test_jwt'));
+    }
+
+    /**
+     * A named guard that is not a JWT guard is refused, naming the guard.
+     *
+     * @return void
+     */
+    public function testANamedGuardThatIsNotAJwtGuardIsRefused(): void
+    {
+        $this->configureJwtGuard();
+
+        /** @var \SineMacula\Laravel\Authentication\AuthManager $manager */
+        $manager = app('auth');
+
         try {
-            $manager->sessions();
+            $manager->jwtGuard('web');
             self::fail('Expected the session guard to be refused.');
         } catch (\InvalidArgumentException $exception) {
-            self::assertSame('Auth guard [web] is not a jwt guard, so it has no session service.', $exception->getMessage());
+            self::assertSame('Auth guard [web] is not a jwt guard.', $exception->getMessage());
         }
 
-        config()->set('auth.defaults.guard', 'test_jwt');
-
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('Auth guard [web] is not a jwt guard, so it has no session service.');
+        $this->expectExceptionMessage('Auth guard [web] is not a jwt guard.');
 
         $manager->sessions('web');
+    }
+
+    /**
+     * With no JWT guard configured, there is none to pick.
+     *
+     * @return void
+     */
+    public function testWithNoJwtGuardConfiguredNoneIsPicked(): void
+    {
+        config()->set('auth.defaults.guard', 'web');
+
+        /** @var \SineMacula\Laravel\Authentication\AuthManager $manager */
+        $manager = app('auth');
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('No jwt guard is configured.');
+
+        $manager->sessions();
     }
 
     /**

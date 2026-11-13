@@ -151,9 +151,9 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 - The service holds no state between calls. It runs on the guard's context (`Runtime\GuardContext`), reading the
   provider, resolver, dispatcher and request, and the sign-in method manager and policies from the container, each time
   it needs them, and reaches the guard's bound state only through its binding; it names no `Guards` class. The guard
-  neither builds nor holds one: `AuthManager::sessions()` builds a service on each call, from the guard's context and
-  token service, with the guard as the binding, on the container's connections and transactions manager. A service
-  handed out earlier therefore follows the guard's rebinds as a new one does.
+  neither builds nor holds one: `AuthManager::sessions()` builds a service on each call, for the guard `jwtGuard()`
+  resolves, from the guard's context and token service, with the guard as the binding, on the container's connections
+  and transactions manager. A service handed out earlier therefore follows the guard's rebinds as a new one does.
 - Acting on a pending session is `PendingSessions`' (`pending()`, `satisfy()`, `choose()`, `discard()`): it finds the
   session by its credential under the row's lock, re-runs the gate (`PendingEvaluation`) and activates it
   (`SessionActivation`) or leaves it waiting; the service binds an activated session as it binds any other. See
@@ -273,7 +273,8 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   reloaded-identity check, and the cookie application's same-site check (`crossSite()`).
 - `src/Admission/SignInAdmission.php`, shared with `attempt()`; `src/Admission/PinnedPrincipal.php`.
 - `src/Database/AfterCommit.php`, shared with the refresh exchange's revocation report.
-- `src/AuthManager.php`: `sessions()`, which builds the service per call; `src/Guards/JwtGuard.php`: `tokens()`.
+- `src/AuthManager.php`: `jwtGuard()`, which picks the guard, and `sessions()`, which builds the service per call;
+  `src/Guards/JwtGuard.php`: `tokens()`.
 
 ## Authoritative Tests
 

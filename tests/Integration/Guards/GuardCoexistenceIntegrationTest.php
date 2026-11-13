@@ -12,8 +12,10 @@ use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
+use SineMacula\Laravel\Authentication\Concerns\ReadsActiveGuard;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
@@ -35,6 +37,7 @@ use Tests\TestCase;
 #[CoversClass(AuthManager::class)]
 #[CoversClass(AuthenticationServiceProvider::class)]
 #[CoversClass(DefaultPrincipalResolver::class)]
+#[CoversTrait(ReadsActiveGuard::class)]
 final class GuardCoexistenceIntegrationTest extends TestCase
 {
     /** @var string */

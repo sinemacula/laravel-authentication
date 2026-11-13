@@ -1036,9 +1036,9 @@ change of password, resets included, as `password_changed`; to record resets as 
 listener and call `passwordChanged()` from your password-change flow instead of registering the observer.
 
 Revocation covers every guard whichever session service acts; the acting guard only names the guard and request the
-events report. It is the current default guard when that is a `jwt` guard, else the first `jwt` guard in
-`auth.guards`, so a change made on a route guarded by another driver (whose middleware makes that guard the default)
-still revokes. To name it, bind the listener's `$guard`:
+events report. It is the guard `Auth::sessions()` picks with no name: the current default guard when that is a `jwt`
+guard, else the first `jwt` guard in `auth.guards`, so a change made on a route guarded by another driver (whose
+middleware makes that guard the default) still revokes. To name it, bind the listener's `$guard`:
 
 ```php
 $this->app->when(RevokeSessionsOnPasswordChange::class)->needs('$guard')->give('api');
