@@ -666,22 +666,23 @@ seam has a default that works alone.
   `Channel` (`sms` or `email`, with the destination in its normal form) and, for an enrolment, its grant. A code is
   accepted only for that very binding: another session, factor, purpose or grant, and an `mfa` code as an `enrollment`
   one or the reverse, is `not_found`, as a malformed, unknown or replaced challenge id is, so another binding's
-  challenge cannot be told from an absent one; the binding's own challenge, once used, is `used`; a wrong code is
-  `invalid` and counted, while a malformed one is `invalid` and not counted
-  against the challenge (it still takes its IP slot, before it is judged); neither `not_found` nor `used` counts an
-  attempt or is reported to the counters. The delivery key is the destination and the identity, never the factor, so the
-  cooldown and the delivery cap hold across an enrolment restarted with a new factor and grant. Bind
-  `Contracts\FactorCodeCounters` (the default, `RefuseFactorCodes`, refuses every code): `admit()` is asked before each
-  delivery and each check, and `report($binding, $challengeId, $passed)` exactly once for each attempt a check counts,
-  both inside the package's transaction on the storage connection (a savepoint of yours, when you opened one). `admit()`
-  runs before the challenge's row is locked, so take your identity and factor locks there, on that same connection;
-  `report()` runs after the row is locked and the attempt counted, so it must take no lock that comes before the
-  challenge (it writes the counts of rows `admit()` already locked). The report's answer stands: a matching code is
-  `verified` only when it answers `admitted`. This package counts per challenge, per destination and per IP address
-  (`codes.max_attempts`, `codes.max_deliveries`, the `code_request` and `factor_code` limits); the per-factor and
-  per-identity counts and lockouts are yours. Turn a verified check into a `ProofResult` (its method, the channel, the
-  factor, the binding) and hand it to `satisfy()` or `stepUp()`, inside the same transaction when both are to commit
-  together. A sent code's `CodeRequest` also says when another may be sent (`resendAvailableAt`).
+  challenge cannot be told from an absent one; the binding's own challenge, once used, is `replayed` for the code that
+  used it and `used` for any other code or once it was ended; a wrong code is `invalid` and counted, while a malformed
+  one is `invalid` and not counted against the challenge (it still takes its IP slot, before it is judged); none of
+  `not_found`, `used` and `replayed` counts an attempt or is reported to the counters. The delivery key is the
+  destination and the identity, never the factor, so the cooldown and the delivery cap hold across an enrolment
+  restarted with a new factor and grant. Bind `Contracts\FactorCodeCounters` (the default, `RefuseFactorCodes`, refuses
+  every code): `admit()` is asked before each delivery and each check, and `report($binding, $challengeId, $passed)`
+  exactly once for each attempt a check counts, both inside the package's transaction on the storage connection (a
+  savepoint of yours, when you opened one). `admit()` runs before the challenge's row is locked, so take your identity
+  and factor locks there, on that same connection; `report()` runs after the row is locked and the attempt counted, so
+  it must take no lock that comes before the challenge (it writes the counts of rows `admit()` already locked). The
+  report's answer stands: a matching code is `verified` only when it answers `admitted`. This package counts per
+  challenge, per destination and per IP address (`codes.max_attempts`, `codes.max_deliveries`, the `code_request` and
+  `factor_code` limits); the per-factor and per-identity counts and lockouts are yours. Turn a verified check into a
+  `ProofResult` (its method, the channel, the factor, the binding) and hand it to `satisfy()` or `stepUp()`, inside the
+  same transaction when both are to commit together. A sent code's `CodeRequest` also says when another may be sent
+  (`resendAvailableAt`).
 - A factor package's proof store and first-factor resolver read an active session's proofs through the session service:
   `Auth::sessions($guard)->proofs($session, $since, $kinds, $limit)` (its counting proofs, newest first, as
   `PendingSession::proofs()` reads a pending session's) and `firstFactor($session)` (the first factor it signed in
