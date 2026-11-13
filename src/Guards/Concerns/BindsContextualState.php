@@ -156,7 +156,7 @@ trait BindsContextualState
             return null;
         }
 
-        return new BoundCaller($this->identity, $this->principal, $this->session, $this->credentialKind, $this->credentialId, $this->unavailableTenant ?? $this->activeTenant);
+        return new BoundCaller($this->identity, $this->principal, $this->session, $this->credentialKind, $this->credentialId, $this->activeTenant, $this->unavailableTenant);
     }
 
     /**

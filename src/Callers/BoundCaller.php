@@ -30,7 +30,8 @@ final readonly class BoundCaller
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  ?\SineMacula\Laravel\Authentication\Context\Enums\CredentialKind  $credentialKind
      * @param  ?string  $credentialId
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant|\SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException|null  $tenant
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
+     * @param  ?\SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException  $unavailableTenant
      */
     public function __construct(
 
@@ -50,8 +51,11 @@ final readonly class BoundCaller
         #[\SensitiveParameter]
         public ?string $credentialId,
 
-        /** The active tenant, the reason it cannot be loaded, or `null` for none. */
-        private Tenant|TenantUnavailableException|null $tenant,
+        /** The active tenant, or `null` for none or one that cannot be loaded. */
+        private ?Tenant $tenant,
+
+        /** Why the bound tenant cannot be loaded, when it cannot. */
+        private ?TenantUnavailableException $unavailableTenant,
     ) {}
 
     /**
@@ -63,8 +67,8 @@ final readonly class BoundCaller
      */
     public function tenant(): ?Tenant
     {
-        if ($this->tenant instanceof TenantUnavailableException) {
-            throw $this->tenant;
+        if ($this->unavailableTenant !== null) {
+            throw $this->unavailableTenant;
         }
 
         return $this->tenant;
