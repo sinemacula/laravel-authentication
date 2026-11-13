@@ -25,6 +25,7 @@ use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\EventContext;
+use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
 use SineMacula\Laravel\Authentication\Guards\Concerns\BindsContextualState;
 use SineMacula\Laravel\Authentication\Guards\Concerns\ExposesCollaborators;
@@ -283,12 +284,14 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
         // skip login() to avoid double-dispatching.
         $this->bindVerifiedContext($outcome->identity, $outcome->principal, $outcome->session, $outcome->tenant, PasswordSignIn::NAME, true);
 
+        $this->context->dispatch(new SignedIn($this->boundContext($this->activeTenant, PasswordSignIn::NAME), false));
+
         return true;
     }
 
     /**
      * Bind a fully resolved identity, principal, and optional session, firing
-     * `Validated` and `Login` around the bind.
+     * `Validated` and `Login` around the bind and `SignedIn` after it.
      *
      * A trusted bind: nothing given is checked against the identity.
      *
@@ -303,9 +306,9 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
     #[\Override]
     public function login(Identity $identity, Principal $principal, ?Session $session = null, ?ClientContext $client = null): void
     {
-        $this->fireValidatedEvent($identity);
+        $this->loginStarted($identity, $principal, $session, $client);
 
-        $this->bindAuthenticationLifecycle($identity, $principal, $session, $client);
+        $this->context->dispatch(new SignedIn($this->boundContext($this->activeTenant, $session?->getSignInMethod(), $client), false));
     }
 
     /**

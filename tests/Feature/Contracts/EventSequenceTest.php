@@ -122,7 +122,8 @@ final class EventSequenceTest extends TestCase
     }
 
     /**
-     * A successful `attempt()` binds as a sign-in and starts no session.
+     * A successful `attempt()` binds and reports a sign-in, and starts no
+     * session.
      *
      * @return void
      *
@@ -144,6 +145,7 @@ final class EventSequenceTest extends TestCase
             'Login api i1',
             'Authenticated api i1',
             'PrincipalAssigned api i1/p1/-',
+            'SignedIn api new i1/p1/-',
         ], $this->recordedSequence());
     }
 
@@ -276,7 +278,7 @@ final class EventSequenceTest extends TestCase
     }
 
     /**
-     * `login()` binds as a sign-in.
+     * `login()` binds and reports a sign-in.
      *
      * @return void
      *
@@ -300,6 +302,7 @@ final class EventSequenceTest extends TestCase
             'Authenticated api i1',
             'PrincipalAssigned api i1/p1/s1',
             'SessionAuthenticated api i1/p1/s1',
+            'SignedIn api new i1/p1/s1',
         ], $this->recordedSequence());
     }
 

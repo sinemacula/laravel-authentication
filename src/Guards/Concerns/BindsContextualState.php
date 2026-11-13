@@ -212,6 +212,25 @@ trait BindsContextualState
     }
 
     /**
+     * Bind a session the session service started and reported itself, firing
+     * `Validated` and `Login` around the bind.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @return void
+     *
+     * @throws \LogicException
+     */
+    public function loginStarted(Identity $identity, Principal $principal, ?Session $session = null, ?ClientContext $client = null): void
+    {
+        $this->fireValidatedEvent($identity);
+
+        $this->bindAuthenticationLifecycle($identity, $principal, $session, $client);
+    }
+
+    /**
      * Bind a context the flow verified itself as a sign-in, firing `Validated`,
      * `Login` and the bind events.
      *

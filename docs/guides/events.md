@@ -16,7 +16,7 @@
 | `SineMacula\...\Events\SessionRevoked`            | The package revoked a session, once committed; with reason                                          |
 | `SineMacula\...\Events\SignedOutEverywhere`       | A bulk revocation ended a scope's sessions, once committed                                          |
 | `SineMacula\...\Events\SessionCreated`            | The session service created a session, once committed                                               |
-| `SineMacula\...\Events\SignedIn`                  | A session started or was refreshed, once committed                                                  |
+| `SineMacula\...\Events\SignedIn`                  | A session started or was refreshed, once committed, or `attempt()` or `login()` bound a sign-in     |
 | `SineMacula\...\Events\SessionPending`            | A sign-in's session waits on a further factor or a choice, once committed                           |
 | `SineMacula\...\Events\SessionReturnedToPending`  | An active session returned to pending, once committed                                               |
 | `SineMacula\...\Events\SessionActivated`          | A pending session that had been active activated again, once committed                              |
@@ -152,16 +152,19 @@ request without a token dispatches nothing.
 `Login` and `SignedIn` report real sign-ins: a session the session service started (`signIn()`, `start()`,
 `signInExternally()`, or `satisfy()` or `choose()` activating a pending session), with the method that proved who signed
 in, and a refresh, which renews the session and dispatches `Refreshed` and then `SignedIn` with `$refresh` set and the
-method the session records. `attempt()` starts no session and never dispatches `SignedIn`: Laravel's `Login` reports its
-sign-ins, and code that calls `start()` after `attempt()` reports the sign-in once. `SessionCreated` precedes the
-`SignedIn` of every sign-in that starts a session (not a refresh's, which keeps its session); a sign-in that proved the
-client's previous session dispatches that session's `SessionRevoked` (`superseded`) before both. A sign-in whose session
-is written pending (a further factor or a choice of principal outstanding) dispatches `SessionPending` instead, once
-committed, with what it waits on and when its credential expires: from `signIn()` it answers the sign-in's `Attempting`,
-and from `start()` and `signInExternally()`, which dispatch no `Attempting`, it is the only event. Its first activation
-dispatches `SessionCreated` and `SignedIn` (with the superseded session's `SessionRevoked` first), and discarding it
-`SessionRevoked` with `signed_out`. A sign-in, choice or switch whose session fails the check it is held to once
-committed (its identity, principal or tenant deactivated or deleted meanwhile, see [Sign-ins racing a deactivation or
+method the session records. A guard's `attempt()` and `login()` start no session: each dispatches `SignedIn` after the
+events of its bind, with the context `PrincipalAssigned` reports (the method `password` for `attempt()`, the one a given
+session records for `login()`, and a session only when one was pinned or given), so an access-only guard's sign-ins
+reach an audit mapper. Code that calls `start()` after `attempt()` therefore reports two sign-ins, where
+`signIn('password')` reports one. `SessionCreated` precedes the `SignedIn` of every sign-in that starts a session (not a
+refresh's, which keeps its session); a sign-in that proved the client's previous session dispatches that session's
+`SessionRevoked` (`superseded`) before both. A sign-in whose session is written pending (a further factor or a choice of
+principal outstanding) dispatches `SessionPending` instead, once committed, with what it waits on and when its
+credential expires: from `signIn()` it answers the sign-in's `Attempting`, and from `start()` and `signInExternally()`,
+which dispatch no `Attempting`, it is the only event. Its first activation dispatches `SessionCreated` and `SignedIn`
+(with the superseded session's `SessionRevoked` first), and discarding it `SessionRevoked` with `signed_out`. A sign-in,
+choice or switch whose session fails the check it is held to once committed (its identity, principal or tenant
+deactivated or deleted meanwhile, see [Sign-ins racing a deactivation or
 deletion](sessions.md#sign-ins-racing-a-deactivation-or-deletion)) dispatches none of the events that would report the
 session or the switch (a switch's `SessionReturnedToPending` among them; a superseded session's `SessionRevoked` is
 still reported, after the check and any `SessionRevoked` the check reports): a sign-in answered with the refusal
@@ -195,8 +198,8 @@ read the event's context in its listener, not the guard, which may not be bound 
 sign-in, a refresh or a switch itself waits for the session's commit, so inside your transaction its bind events follow
 the commit, after the events that report the session, and a rollback withdraws both. The one exception is a sign-in,
 choice or switch inside a transaction of yours on the identity's, principal's or tenant's connection when the sessions
-are kept on another: the session commits and is bound at once, while the events that report it wait for the check it
-is held to, and so for your transaction to end, whether it commits or rolls back (see [Sign-ins racing a deactivation or
+are kept on another: the session commits and is bound at once, while the events that report it wait for the check it is
+held to, and so for your transaction to end, whether it commits or rolls back (see [Sign-ins racing a deactivation or
 deletion](sessions.md#sign-ins-racing-a-deactivation-or-deletion)); a bind listener that throws still cannot keep them
 from being reported.
 

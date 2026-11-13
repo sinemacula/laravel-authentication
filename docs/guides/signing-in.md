@@ -70,20 +70,21 @@ The password is rehashed when its stored hash no longer matches the hasher's alg
 `hashing.rehash_on_login` is off). `attempt()` cannot leave a session pending, so the additional-factor policy must not
 ask for a further factor (`additional_factor_required`), and the active tenant's authentication policy, judged against
 the password, must ask for neither a connection (`sso_required`) nor a further factor (`additional_factor_required`). A
-successful attempt gives its slots back; a failed one keeps them. Every failure fires Laravel's `Failed` and then
-`AuthenticationFailed` with a reason (see [Events](events.md#events)). `validate()` checks only the credentials and
-never rehashes, as with Laravel's own guards; neither does a bearer request or a refresh, which never see a password.
+successful attempt gives its slots back and fires `SignedIn` once the guard is bound; a failed one keeps them. Every
+failure fires Laravel's `Failed` and then `AuthenticationFailed` with a reason (see [Events](events.md#events)).
+`validate()` checks only the credentials and never rehashes, as with Laravel's own guards; neither does a bearer request
+or a refresh, which never see a password.
 
 The pins are verified rather than trusted, because they often come from request input: the principal must be one the
 resolver returns for that identifier on the authenticated identity (same class, same identifier) and must belong to that
 identity (its `getIdentity()` is the authenticated identity), and the session must be one of the identity's own sessions
 (through `HasSessions`, looked up the way a bearer `sid` is), of this guard (a session of another guard, or of none,
 counts as missing), not revoked, not ended, and acting as the principal being bound. A pin that fails either check fails
-the attempt. `login()` is the trusted entry point: it binds exactly what it is given, so only pass it a principal and
-session you have already proven belong to the identity. `setPrincipal()` and `setSession()` are trusted binds in the
-same way: they do not check ownership, activity, revocation or session deadlines, so a principal or session taken from
-request input (a header that switches the acting membership, say) must be verified first, as `attempt()` verifies its
-pins.
+the attempt. `login()` is the trusted entry point: it binds exactly what it is given, and reports a sign-in with
+`SignedIn` as `attempt()` does, so only pass it a principal and session you have already proven belong to the identity.
+`setPrincipal()` and `setSession()` are trusted binds in the same way: they do not check ownership, activity, revocation
+or session deadlines, so a principal or session taken from request input (a header that switches the acting membership,
+say) must be verified first, as `attempt()` verifies its pins.
 
 Pinning a principal therefore needs a principal that can report its owner. With `ActsAsPrincipal`, declare the
 `identity` relation, as `AppMembership` does in [Identity models](identity-models.md) (or override

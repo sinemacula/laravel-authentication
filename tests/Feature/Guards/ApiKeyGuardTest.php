@@ -29,6 +29,7 @@ use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
+use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\ApiKeyGuard;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
@@ -86,7 +87,17 @@ final class ApiKeyGuardTest extends TestCase
             ]);
         }
 
-        $events = [Attempting::class, Validated::class, Login::class, Authenticated::class, Failed::class, Logout::class, PrincipalAssigned::class, AuthenticationFailed::class];
+        $events = [
+            Attempting::class,
+            Validated::class,
+            Login::class,
+            Authenticated::class,
+            Failed::class,
+            Logout::class,
+            PrincipalAssigned::class,
+            AuthenticationFailed::class,
+            SignedIn::class,
+        ];
 
         Event::listen($events, function (object $event): void {
             $this->dispatched[] = $event;
@@ -691,6 +702,30 @@ final class ApiKeyGuardTest extends TestCase
         self::assertCount(1, $this->dispatchedOf(Logout::class));
 
         $this->getWithKey('/machine/me', $issued->key()->reveal())->assertOk();
+    }
+
+    /**
+     * A trusted `login()` reports its sign-in with `SignedIn`, naming no
+     * credential and limited to no scopes.
+     *
+     * @return void
+     */
+    public function testATrustedLoginReportsItsSignIn(): void
+    {
+        $machine = $this->seedMachine();
+
+        self::keyGuard('machine')->login($machine, $machine);
+
+        $signedIn = $this->dispatchedOf(SignedIn::class);
+
+        self::assertCount(1, $signedIn);
+        self::assertInstanceOf(SignedIn::class, $signedIn[0]);
+        self::assertFalse($signedIn[0]->refresh);
+        self::assertSame('machine', $signedIn[0]->context->guard);
+        EventContextAssertions::assertIdentity($machine, $signedIn[0]->context);
+        self::assertNull($signedIn[0]->context->credentialId);
+        self::assertSame([], $signedIn[0]->context->scopes);
+        self::assertNull($signedIn[0]->context->method);
     }
 
     /**

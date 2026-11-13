@@ -29,7 +29,7 @@ final class GuardBindingTest extends TestCase
      */
     public static function provideBinds(): iterable
     {
-        yield 'login' => ['login', ['identity', 'principal', 'session', 'client']];
+        yield 'loginStarted' => ['loginStarted', ['identity', 'principal', 'session', 'client']];
         yield 'loginVerified' => ['loginVerified', ['identity', 'principal', 'session', 'tenant', 'method', 'client']];
         yield 'authenticateAs' => ['authenticateAs', ['identity', 'principal', 'session', 'scopes', 'tenant', 'client']];
     }
