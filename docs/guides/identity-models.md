@@ -292,8 +292,9 @@ collation counts as equal (`Ben@` or `bén@` for `ben@`); it fires no model even
 an identifier changes, clear its `<type>_verified_at` with it, or change it through
 [`Auth::identifierChanges()`](identifier-changes.md), which records the proven one as verified.
 
-`holdingVerifiedIdentifier()` finds the identities that hold an identifier verified, such as the accounts an email
-address asserted elsewhere may belong to:
+`holdingVerifiedIdentifier()`, declared on `HasVerifiableIdentifiers`, finds the identities that hold an identifier
+verified, such as the accounts an email address asserted elsewhere may belong to; an identity that implements the
+contract without the trait implements it over its own storage:
 
 ```php
 $holders = AppUser::holdingVerifiedIdentifier('email', $asserted);
