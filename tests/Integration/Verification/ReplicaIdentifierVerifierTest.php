@@ -99,6 +99,18 @@ final class ReplicaIdentifierVerifierTest extends TestCase
     }
 
     /**
+     * The lookup by verified identifier finds the identity the primary holds
+     * verified, though the replica has it unverified.
+     *
+     * @return void
+     */
+    public function testTheVerifiedIdentifierLookupReadsThePrimary(): void
+    {
+        self::assertNull(DB::connection(self::REPLICA_CONNECTION)->table('verifiable_identities')->value('email_verified_at'));
+        self::assertSame([1], VerifiableIdentity::holdingVerifiedIdentifier('email', 'ben@example.com')->modelKeys());
+    }
+
+    /**
      * The sign-in gate asks the identity inside the write-connection window, so
      * an identity that queries for its verification reads the primary.
      *

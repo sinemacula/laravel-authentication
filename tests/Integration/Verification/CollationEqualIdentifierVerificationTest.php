@@ -17,6 +17,7 @@ use SineMacula\Laravel\Authentication\Events\IdentifierVerified;
 use SineMacula\Laravel\Authentication\Verification\Enums\IdentifierVerification;
 use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
 use Tests\Concerns\InteractsWithVerifiableIdentities;
+use Tests\Integration\Fixtures\VerifiableIdentity;
 use Tests\TestCase;
 
 /**
@@ -132,6 +133,26 @@ final class CollationEqualIdentifierVerificationTest extends TestCase
         self::assertNull(DB::table('verifiable_identities')->value('email_verified_at'));
 
         Event::assertNotDispatched(IdentifierVerified::class);
+    }
+
+    /**
+     * The lookup by verified identifier finds nobody for an address the row
+     * holds only as a collation-equal variant.
+     *
+     * @param  string  $variant
+     * @return void
+     */
+    #[DataProvider('provideCollationEqualAddresses')]
+    public function testTheVerifiedIdentifierLookupRefusesACollationEqualVariant(string $variant): void
+    {
+        $identity = self::seedVerifiableIdentity(self::PROVEN);
+
+        self::assertTrue($identity->markIdentifierAsVerified('email', self::PROVEN));
+        self::assertCount(1, VerifiableIdentity::holdingVerifiedIdentifier('email', self::PROVEN));
+
+        $this->replaceAddressWith($variant);
+
+        self::assertTrue(VerifiableIdentity::holdingVerifiedIdentifier('email', self::PROVEN)->isEmpty());
     }
 
     /**

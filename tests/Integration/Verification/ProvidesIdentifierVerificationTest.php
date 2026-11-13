@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace Tests\Integration\Verification;
 
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\Events\TransactionBeginning;
 use Illuminate\Database\Events\TransactionCommitted;
@@ -182,6 +183,78 @@ final class ProvidesIdentifierVerificationTest extends TestCase
     }
 
     /**
+     * Every identity holding the identifier in its normal form and verified is
+     * found, and no other.
+     *
+     * @return void
+     */
+    public function testFindsTheIdentitiesHoldingAVerifiedIdentifier(): void
+    {
+        $first  = self::seedVerifiableIdentity('ben@example.com');
+        $second = self::seedVerifiableIdentity('ben@example.com');
+        $other  = self::seedVerifiableIdentity('ada@example.com');
+
+        self::seedVerifiableIdentity('ben@example.com');
+
+        self::assertTrue($first->markIdentifierAsVerified('email', 'ben@example.com'));
+        self::assertTrue($second->markIdentifierAsVerified('email', 'ben@example.com'));
+        self::assertTrue($other->markIdentifierAsVerified('email', 'ada@example.com'));
+
+        $found = VerifiableIdentity::holdingVerifiedIdentifier('email', ' Ben@Example.COM ');
+
+        self::assertContainsOnlyInstancesOf(VerifiableIdentity::class, $found);
+        self::assertEqualsCanonicalizing([$first->id, $second->id], $found->modelKeys());
+        self::assertSame([0, 1], $found->keys()->all());
+    }
+
+    /**
+     * An identifier the type's normaliser refuses names nobody, without a
+     * query.
+     *
+     * @return void
+     */
+    public function testAnIdentifierTheNormaliserRefusesFindsNobody(): void
+    {
+        $statements = $this->recordStatements();
+
+        self::assertTrue(VerifiableIdentity::holdingVerifiedIdentifier('email', "\xFF")->isEmpty());
+        self::assertSame([], $statements());
+    }
+
+    /**
+     * An identity the model's global scopes hide is not found.
+     *
+     * @return void
+     */
+    public function testAnIdentityHiddenByAGlobalScopeIsNotFound(): void
+    {
+        $identity = self::seedVerifiableIdentity('ben@example.com', '+447700900123');
+
+        self::assertTrue($identity->markIdentifierAsVerified('email', 'ben@example.com'));
+
+        $scoped = new class extends StubVerifiableModel {
+            /** @var string|null The table associated with the model. */
+            protected $table = 'verifiable_identities';
+
+            /**
+             * Hide identities with a phone number.
+             *
+             * @return void
+             */
+            #[\Override]
+            protected static function booted(): void
+            {
+                self::addGlobalScope('without_phone', static function (Builder $query): void {
+                    $query->whereNull('phone');
+                });
+            }
+        };
+
+        self::assertCount(1, VerifiableIdentity::holdingVerifiedIdentifier('email', 'ben@example.com'));
+        self::assertTrue($scoped::holdingVerifiedIdentifier('email', 'ben@example.com')->isEmpty());
+    }
+
+    /**
      * Each type uses its own columns, and a subclass can name the verification
      * column differently.
      *
@@ -246,6 +319,7 @@ final class ProvidesIdentifierVerificationTest extends TestCase
             static fn (): mixed => $identity->getIdentifierForVerification($type),
             static fn (): mixed => $identity->hasVerifiedIdentifier($type),
             static fn (): mixed => $identity->markIdentifierAsVerified($type, 'ben@example.com'),
+            static fn (): mixed => VerifiableIdentity::holdingVerifiedIdentifier($type, 'ben@example.com'),
         ];
 
         foreach ($calls as $call) {

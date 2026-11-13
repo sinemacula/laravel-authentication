@@ -4,10 +4,13 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Concerns;
 
+use Illuminate\Container\Container;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Carbon;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierType;
+use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
 
 /**
  * Provides a default `HasVerifiableIdentifiers` implementation on an Eloquent
@@ -88,6 +91,34 @@ trait ProvidesIdentifierVerification
         $this->forceFill([$column => $verifiedAt])->syncOriginalAttribute($column);
 
         return true;
+    }
+
+    /**
+     * The identities whose identifier of the type is the given one in its
+     * normal form, byte for byte, and verified, read on the write connection
+     * with the model's global scopes.
+     *
+     * @param  string  $type
+     * @param  string  $identifier
+     * @return \Illuminate\Database\Eloquent\Collection<int, static>
+     *
+     * @throws \InvalidArgumentException
+     */
+    public static function holdingVerifiedIdentifier(string $type, #[\SensitiveParameter] string $identifier): Collection
+    {
+        $model      = new static;
+        $normalized = Container::getInstance()->make(IdentifierVerifier::class)->canonical(IdentifierType::assertValid($type), $identifier);
+
+        if ($normalized === null) {
+            return $model->newCollection();
+        }
+
+        $query = WriteConnection::query($model->newQuery())->where($type, $normalized)->whereNotNull($model->getVerifiedAtName($type));
+
+        // A collation can match another spelling of the identifier
+        return WriteConnection::during($model, static fn (): Collection => $query->get())
+            ->filter(static fn (self $identity): bool => $identity->getIdentifierForVerification($type) === $normalized)
+            ->values();
     }
 
     /**
