@@ -140,13 +140,11 @@ final class TenantPolicyCheck
      */
     public static function shortfall(string $guard, Identity $identity, Principal $principal, Tenant $tenant, EloquentSession&Model $session, CarbonImmutable $now): ?FailureReason
     {
-        // A pending copy is read again as stored: an activation may follow it.
-        $pending = static function () use ($session): bool {
-
-            $stored = $session->getConnection()->table($session->getTable())->useWritePdo()->where($session->getKeyName(), $session->getKey());
-
-            return $session->getStatus() === SessionStatus::PENDING && $stored->value($session->getStatusName()) === SessionStatus::PENDING->value;
-        };
+        // Read as stored: the copy given may predate an activation or a return
+        // to pending made since in the same transaction.
+        $pending = static fn (): bool => $session->getConnection()->table($session->getTable())->useWritePdo()
+            ->where($session->getKeyName(), $session->getKey())
+            ->value($session->getStatusName()) === SessionStatus::PENDING->value;
 
         return match (self::again($guard, $identity, $principal, $tenant, $session, $pending, $now)?->standing) {
             TenantPolicyStanding::SSO_REQUIRED    => FailureReason::SSO_REQUIRED,

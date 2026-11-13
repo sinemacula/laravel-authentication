@@ -940,6 +940,33 @@ final class TenantAuthenticationPolicyTest extends TestCase
     }
 
     /**
+     * A sign-in returned to pending by a refresh before the caller commits is
+     * held to the changed policy as the pending session it is by then.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASignInReturnedToPendingBeforeTheCommitIsJudgedAsPending(): void
+    {
+        $this->seedMember();
+
+        DB::transaction(function (): void {
+
+            $session = $this->signedIn();
+
+            $this->policy->requirement = new TenantRequirement('v2', new Requirement(new RequirementPart));
+
+            self::assertTrue($this->sessions('members')->refresh(self::bodyToken($session->tokens), self::requestClient())->isPending());
+        });
+
+        $row = Session::query()->sole();
+
+        self::assertNull($row->getRevokedAt());
+        self::assertSame(SessionStatus::PENDING, $row->getStatus());
+    }
+
+    /**
      * A choice that read the chosen tenant's policy before a change the helper
      * applied, and wrote its session after, is ended once its write commits.
      *
