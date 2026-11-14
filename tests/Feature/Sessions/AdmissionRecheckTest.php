@@ -24,6 +24,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Contracts\TenantAccess;
+use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\TenantResolver;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -32,14 +33,18 @@ use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Sessions\AdmissionRecheck;
 use SineMacula\Laravel\Authentication\Sessions\RevocationWriter;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\WatchedSessions;
+use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use Tests\Concerns\InteractsWithRecheckedMembers;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Sessions\PlainPrincipalResolver;
 use Tests\Fixtures\Tenancy\DescendantTenants;
+use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\Integration\Fixtures\RecheckedMember;
@@ -208,6 +213,44 @@ final class AdmissionRecheckTest extends TestCase
         self::assertFalse($ran);
         self::assertTrue($stood);
         self::assertSame([], $this->recordedClasses());
+    }
+
+    /**
+     * Rows of `[requirement the tenant's policy answers once the session is
+     * written, refusal]`.
+     *
+     * @return iterable<string, array{0: \SineMacula\Laravel\Authentication\Tenancy\TenantRequirement, 1: \SineMacula\Laravel\Authentication\Events\Enums\FailureReason}>
+     */
+    public static function provideTenantPolicyChanges(): iterable
+    {
+        yield 'a connection' => [new TenantRequirement('v2', connections: ['conn-a']), FailureReason::SSO_REQUIRED];
+        yield 'a further factor' => [new TenantRequirement('v2', new Requirement(new RequirementPart)), FailureReason::ADDITIONAL_FACTOR_REQUIRED];
+    }
+
+    /**
+     * A sign-in's session that no longer meets its tenant's policy is refused
+     * for what it lacks and revoked as `tenant_policy_changed`.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Tenancy\TenantRequirement  $requirement
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $refusal
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideTenantPolicyChanges')]
+    public function testASignInsSessionThatNoLongerMeetsItsTenantsPolicyIsRevoked(TenantRequirement $requirement, FailureReason $refusal): void
+    {
+        [$member, $membership, $tenant] = $this->seedRechecked();
+
+        $session = $this->signIn();
+        $recheck = $this->recheck();
+
+        app()->instance(TenantAuthenticationPolicy::class, new ScriptedTenantAuthenticationPolicy($requirement));
+
+        $recheck->signIn($session->record, $member, $membership, $tenant);
+
+        self::assertSame($refusal, $recheck->refusal()?->reason);
+        self::assertSame(RevocationReason::TENANT_POLICY_CHANGED->value, self::revokedReasonOf($session));
     }
 
     /**

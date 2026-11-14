@@ -31,6 +31,7 @@ final readonly class TenantPolicyContext
      * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  ?\Closure(): ?string  $connectionId
+     * @param  bool  $rejudging
      */
     public function __construct(
 
@@ -51,6 +52,9 @@ final readonly class TenantPolicyContext
 
         // Finds the connection the session was established through, when asked.
         ?\Closure $connectionId = null,
+
+        /** Whether a session already written is judged again rather than a call admitted; record per-judgement effects only when `false`. */
+        public bool $rejudging = false,
     ) {
         $this->connection = new ConnectionLookup($connectionId);
     }

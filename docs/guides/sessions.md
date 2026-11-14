@@ -1070,8 +1070,10 @@ session already records what it acts as, so every revocation of those finds it).
 commit) when a later switch or choice in the same request or job moves the same session on judges only what the session
 still acts as: the principal or tenant it left is not judged, and an active tenant it keeps under another principal is
 judged by the later call's check, through that principal. Nothing an access contract (`ApplicationAccess`,
-`TenantAccess`), the application policy or a tenant's authentication policy says is asked again: those are not what a
-deactivation or deletion changes, and their own triggers end sessions.
+`TenantAccess`) or the application policy says is asked again: those are not what a deactivation or deletion changes,
+and their own triggers end sessions. The authentication policy of an active tenant the session newly acts in is asked
+again, since `tenantPolicyChanged()` finds no session written after it ran (see [Tenant authentication
+policies](#tenant-authentication-policies)).
 
 A session that fails the check is revoked with the reason, by the conditional revocation every other one uses. Outside a
 transaction of yours the check runs before the call returns, and the call answers the refusal instead of the session: a
@@ -1436,14 +1438,17 @@ that meets it. It returns how many it revoked, and `SessionRevoked` reports each
 transaction that publishes the change, on the storage connection, so the two commit or roll back together (it runs as a
 savepoint and never commits on its own). Called inside a transaction on the storage connection or the tenant's own, it
 judges the tenant's sessions once more after that commits, at that time, skipping those the first pass recorded and
-reporting each it revokes without counting it; a rollback runs no second pass. This narrows the race with a sign-in into
-the tenant but does not close it: a sign-in that read the old policy and commits after the second pass is judged at its
-first refresh, which always asks the policy (a sign-in's own check after your commit does not). Change the policy's
-version whenever anything its answer depends on changes, so the helper never skips a session it should judge. On MySQL
-and MariaDB at REPEATABLE READ it holds the shared locks of every session it judged until your transaction commits, so a
-sign-in that starts meanwhile waits when one of them is the newest session, as does a step-up of a session next to one;
-keep that transaction short. It holds the keys of the tenant's live sessions in memory for the call (about 70 KB for a
-thousand), and the sessions only a chunk at a time.
+reporting each it revokes without counting it; a rollback runs no second pass. A sign-in, choice or switch into the
+tenant that read the old policy and commits after that pass is judged by its own check once committed (see [Sign-ins
+racing a deactivation or deletion](#sign-ins-racing-a-deactivation-or-deletion)): unless the session records the very
+version the policy now answers, it is judged as the helper judges it, an active session that falls short and a pending
+one that needs another connection revoked as `tenant_policy_changed`, and the call refused as `sso_required` or
+`additional_factor_required`. Either the helper reads the session or the check reads the change, so long as the policy
+reads its own state as committed. Change the policy's version whenever anything its answer depends on changes, so the
+helper never skips a session it should judge. On MySQL and MariaDB at REPEATABLE READ it holds the shared locks of every
+session it judged until your transaction commits, so a sign-in that starts meanwhile waits when one of them is the
+newest session, as does a step-up of a session next to one; keep that transaction short. It holds the keys of the
+tenant's live sessions in memory for the call (about 70 KB for a thousand), and the sessions only a chunk at a time.
 
 ### Revocation reasons
 
@@ -1466,7 +1471,7 @@ Every revocation records one of these reasons in the session's `revoked_reason` 
 | `tenant_deactivated`    | `tenantDeactivated()`; or a sign-in, choice or switch whose tenant was deactivated or deleted meanwhile                                    |
 | `identity_deleted`      | `identityDeleted()`, directly or through `RevokeSessionsOnDeletion`, a soft delete included; or a sign-in, as for deactivation             |
 | `principal_deleted`     | `principalDeleted()`, directly or through `RevokeSessionsOnDeletion`, a soft delete included; or a sign-in, choice or switch, likewise     |
-| `tenant_policy_changed` | `tenantPolicyChanged()`, or a refresh that finds the tenant now requires a connection the session was not established through              |
+| `tenant_policy_changed` | `tenantPolicyChanged()`; a refresh that finds a connection now required; or a sign-in, choice or switch the change raced                   |
 | `factor_reset`          | The factor package's `factorReset()`: every session of the identity                                                                        |
 | `factor_changed`        | The factor package's `factorChanged()`: the current session, no longer admitted after an addition (`factor_removed` for `FACTOR_REMOVED`)  |
 | `connection_disabled`   | `connectionDisabled()`: the sessions the connection established                                                                            |

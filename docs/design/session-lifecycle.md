@@ -200,8 +200,12 @@ session that ended is deleted. Starting a session is in `session-service.md`; re
   cutoff rolls back; a switch of tenant alone also needs its principal to resolve). A later switch or choice of the same
   session in the same request or job takes what it changed out of a check still waiting (`Sessions\WatchedSessions`,
   scoped, and put back if its write rolls back), and judges an active tenant the session keeps under another principal
-  in its place, so a check never ends a session for a subject it left. No access contract, application policy or tenant
-  authentication policy is asked. A failure revokes the session (`RevocationWriter::revoke()`, conditional) with the
+  in its place, so a check never ends a session for a subject it left. No access contract or application policy is
+  asked; the authentication policy of an active tenant the session newly acts in is (`TenantPolicyCheck::shortfall()`),
+  unless the session records the very version answered, and an active session that falls short or a pending one that
+  needs another connection fails as `sso_required` or `additional_factor_required`, revoked as `tenant_policy_changed`,
+  since `tenantPolicyChanged()` finds no session written after its last pass. A failure revokes the session
+  (`RevocationWriter::revoke()`, conditional) with the
   matching reason; reports the call routes through `AdmissionRecheck::then()` (a switch's `SessionReturnedToPending`
   among them, through `PendingTransitions::reportingThrough()`) run only after a pass, and those through `afterCheck()`
   (a superseded session's `SessionRevoked`) after the check whatever it found, the check being registered before either
@@ -295,8 +299,9 @@ session that ended is deleted. Starting a session is in `session-service.md`; re
   version answered (neither `null`); revokes an active one that falls short, and a pending one only when it needs
   another connection, as `tenant_policy_changed` with a conditional update on `tenant_id` and `revoked_at IS NULL`; and
   records the version on an active one that meets it. `SessionRevoked` follows each revocation's commit. Inside a
-  caller's transaction (on that connection or the tenant's) it runs again once that commits; a session that enters the
-  tenant after that second scan is bounded by its first refresh, which always asks the policy.
+  caller's transaction (on that connection or the tenant's) it runs again once that commits; a session a sign-in, choice
+  or switch writes into the tenant after that second scan is judged by the call's check after commit
+  (`AdmissionRecheck`), which asks the policy again.
 
 ## Success Path
 
