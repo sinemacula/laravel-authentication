@@ -12,7 +12,7 @@ use Tests\Unit\Stubs\PlainTenantFixture;
 
 /**
  * Unit tests for the default application access: any principal may use any
- * application (D18).
+ * application.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
