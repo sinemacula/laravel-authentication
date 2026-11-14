@@ -20,7 +20,8 @@ use SineMacula\Laravel\Authentication\External\NoExternalLinks;
 final class NoExternalLinksTest extends TestCase
 {
     /**
-     * No result is linked, whatever connection, issuer and subject it names.
+     * No result is linked, whatever connection, issuer, subject and NameID
+     * format it names.
      *
      * @return void
      */
@@ -28,7 +29,7 @@ final class NoExternalLinksTest extends TestCase
     {
         $links = new NoExternalLinks;
 
-        self::assertNull($links->find('connection-7', 'https://idp.example.test', 'subject-1'));
-        self::assertNull($links->find(str_repeat('c', 255), str_repeat('i', 2048), str_repeat('s', 1024)));
+        self::assertNull($links->find('connection-7', 'https://idp.example.test', 'subject-1', null));
+        self::assertNull($links->find(str_repeat('c', 255), str_repeat('i', 2048), str_repeat('s', 1024), 'urn:oasis:names:tc:SAML:2.0:nameid-format:persistent'));
     }
 }

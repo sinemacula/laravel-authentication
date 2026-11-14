@@ -55,7 +55,7 @@ final readonly class ExternalResults
      */
     public function link(ExternalResult $result, ClientContext $client): ?ExternalLink
     {
-        $link = $this->container->make(ExternalIdentityLinks::class)->find($result->connectionId, $result->issuer, $result->subject);
+        $link = $this->container->make(ExternalIdentityLinks::class)->find($result->connectionId, $result->issuer, $result->subject, $result->nameIdFormat);
 
         if ($link === null) {
             $context = new EventContext($this->context->name(), $client, connectionId: $result->connectionId, requestReference: $result->requestReference);

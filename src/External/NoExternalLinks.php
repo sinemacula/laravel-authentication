@@ -23,10 +23,11 @@ final readonly class NoExternalLinks implements ExternalIdentityLinks
      * @param  string  $connectionId
      * @param  string  $issuer
      * @param  string  $subject
+     * @param  ?string  $nameIdFormat
      * @return null
      */
     #[\Override]
-    public function find(string $connectionId, string $issuer, string $subject): null
+    public function find(string $connectionId, string $issuer, string $subject, ?string $nameIdFormat): null
     {
         return null;
     }

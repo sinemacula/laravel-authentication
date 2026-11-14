@@ -349,6 +349,7 @@ $result = Auth::sessions('api')->reauthenticateExternally($redeemed->sessionId, 
     authenticatedAt: $redeemed->authenticatedAt,
     evidence: $redeemed->evidence,
     requestReference: $redeemed->requestReference,
+    nameIdFormat: $redeemed->nameIdFormat,
 ), ClientContext::fromRequest($request));
 ```
 
