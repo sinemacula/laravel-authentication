@@ -27,6 +27,7 @@ use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
+use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyCheck;
 
 /**
  * Re-reads what a session newly acts as once one session service call's write
@@ -303,7 +304,7 @@ final class AdmissionRecheck
      * Why what the session acts as no longer stands, read afresh, or `null`
      * when it does.
      *
-     * @param  \Illuminate\Database\Eloquent\Model  $session
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
@@ -311,7 +312,7 @@ final class AdmissionRecheck
      *
      * @throws \Throwable
      */
-    private function judge(Model $session, Identity $identity, ?Principal $principal, ?Tenant $tenant): ?FailureReason
+    private function judge(EloquentSession&Model $session, Identity $identity, ?Principal $principal, ?Tenant $tenant): ?FailureReason
     {
         $current = $this->checks['identity'] ? $this->reload($identity) : $identity;
 
@@ -327,9 +328,10 @@ final class AdmissionRecheck
 
     /**
      * Why the principal, or the active tenant, the session acts as and in no
-     * longer stands, read afresh, or `null` when it does.
+     * longer stands, read afresh, or `null` when it does. A tenant newly acted
+     * in is held to its authentication policy as it answers now.
      *
-     * @param  \Illuminate\Database\Eloquent\Model  $session
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
@@ -337,7 +339,7 @@ final class AdmissionRecheck
      *
      * @throws \Throwable
      */
-    private function judgePrincipal(Model $session, Identity $identity, Principal $principal, ?Tenant $tenant): ?FailureReason
+    private function judgePrincipal(EloquentSession&Model $session, Identity $identity, Principal $principal, ?Tenant $tenant): ?FailureReason
     {
         $current = $this->current($identity, $principal);
 
@@ -354,7 +356,9 @@ final class AdmissionRecheck
 
         $tenantId = IdentifierCoercion::stringify($checked->getTenantIdentifier());
 
-        return TenantAdmission::recorded($current, $tenantId, false) instanceof FailureReason ? FailureReason::TENANT_INACTIVE : null;
+        return TenantAdmission::recorded($current, $tenantId, false) instanceof FailureReason
+            ? FailureReason::TENANT_INACTIVE
+            : TenantPolicyCheck::shortfall($this->context->name(), $identity, $current, $checked, $session, CarbonImmutable::now()->startOfSecond());
     }
 
     /**
@@ -490,7 +494,9 @@ final class AdmissionRecheck
             FailureReason::PRINCIPAL_UNRESOLVED => RevocationReason::PRINCIPAL_DELETED,
             FailureReason::PRINCIPAL_INACTIVE   => RevocationReason::PRINCIPAL_DEACTIVATED,
             FailureReason::TENANT_INACTIVE      => RevocationReason::TENANT_DEACTIVATED,
-            default                             => RevocationReason::SIGNED_OUT_EVERYWHERE,
+            FailureReason::SSO_REQUIRED,
+            FailureReason::ADDITIONAL_FACTOR_REQUIRED => RevocationReason::TENANT_POLICY_CHANGED,
+            default                                   => RevocationReason::SIGNED_OUT_EVERYWHERE,
         };
     }
 

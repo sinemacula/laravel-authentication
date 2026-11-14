@@ -17,6 +17,7 @@ use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Contracts\Session as SessionContract;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
@@ -29,6 +30,7 @@ use SineMacula\Laravel\Authentication\Requirements\MeetNoRequirement;
 use SineMacula\Laravel\Authentication\Requirements\ProofSource;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
+use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
 use SineMacula\Laravel\Authentication\Tenancy\Enums\TenantPolicyStanding;
 use SineMacula\Laravel\Authentication\Tenancy\SessionEvidence;
 use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyCheck;
@@ -604,6 +606,181 @@ final class TenantPolicyCheckTest extends TestCase
         $constructor->invoke($instance);
 
         self::assertInstanceOf(TenantPolicyCheck::class, $instance);
+    }
+
+    /**
+     * A session recorded at the very version answered is not judged again; one
+     * recorded at another version, or at none, is.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASessionIsJudgedAgainUnlessItRecordsTheVersionAnswered(): void
+    {
+        [$member, $membership, $tenant] = $this->seedMember();
+
+        $session = $this->signedIn();
+        $active  = static fn (): bool => false;
+        $again   = static function (?string $recorded) use ($member, $membership, $tenant, $session, $active): ?TenantPolicyStanding {
+            $session->setAttribute($session->getTenantPolicyVersionName(), $recorded);
+
+            return TenantPolicyCheck::again('members', $member, $membership, $tenant, $session, $active, CarbonImmutable::now())?->standing;
+        };
+
+        $this->policy->requirement = new TenantRequirement('v1', connections: ['conn-a']);
+
+        self::assertNull($again('v1'));
+        self::assertSame(TenantPolicyStanding::SSO_REQUIRED, $again('v0'));
+
+        $this->policy->requirement = new TenantRequirement(connections: ['conn-a']);
+
+        self::assertSame(TenantPolicyStanding::SSO_REQUIRED, $again(null));
+    }
+
+    /**
+     * A pending session is judged again for its connection alone, an active one
+     * for its further factor too.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPendingSessionIsJudgedAgainForItsConnectionAlone(): void
+    {
+        [$member, $membership, $tenant] = $this->seedMember();
+
+        $session = $this->signedIn();
+        $again   = static fn (bool $pending): ?TenantPolicyVerdict => TenantPolicyCheck::again(
+            'members',
+            $member,
+            $membership,
+            $tenant,
+            $session,
+            static fn (): bool => $pending,
+            CarbonImmutable::now(),
+        );
+
+        $this->policy->requirement = new TenantRequirement('v1', new Requirement(new RequirementPart));
+
+        $pending = $again(true);
+
+        self::assertSame(TenantPolicyStanding::MET, $pending?->standing);
+        self::assertSame('v1', $pending->version);
+        self::assertSame(TenantPolicyStanding::FACTOR_REQUIRED, $again(false)?->standing);
+
+        $this->policy->requirement = new TenantRequirement('v2', new Requirement(new RequirementPart), ['conn-a']);
+
+        self::assertSame(TenantPolicyStanding::SSO_REQUIRED, $again(true)?->standing);
+    }
+
+    /**
+     * Judging a session again reads its proofs and provenance current.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testJudgingASessionAgainReadsItsProofsCurrent(): void
+    {
+        self::markSharedLocks();
+
+        [$member, $membership, $tenant] = $this->seedMember();
+
+        $session = $this->signedIn();
+
+        $this->policy->requirement = new TenantRequirement('v1', new Requirement(new RequirementPart), ['conn-a', 'conn-b']);
+
+        $active = static fn (): bool => false;
+        $locks  = self::proofReadLocks(static fn (): mixed => TenantPolicyCheck::again('members', $member, $membership, $tenant, $session, $active, CarbonImmutable::now()));
+
+        self::assertNotSame([], $locks);
+        self::assertSame(array_fill(0, count($locks), self::takesSharedLocks()), $locks);
+    }
+
+    /**
+     * Judging a session again tells the policy so; admitting a call does not.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testThePolicyIsToldWhetherASessionIsJudgedAgain(): void
+    {
+        [$member, $membership, $tenant] = $this->seedMember();
+
+        $session = $this->signedIn();
+        $asked   = count($this->policy->asked);
+        $active  = static fn (): bool => false;
+
+        TenantPolicyCheck::check('members', $member, $membership, $tenant, $session, CarbonImmutable::now());
+        TenantPolicyCheck::again('members', $member, $membership, $tenant, $session, $active, CarbonImmutable::now());
+
+        self::assertSame([false, true], array_map(static fn (TenantPolicyContext $context): bool => $context->rejudging, array_slice($this->policy->asked, $asked)));
+    }
+
+    /**
+     * Judging a session again ends the context it asked the policy with.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testJudgingASessionAgainEndsItsContext(): void
+    {
+        [$member, $membership, $tenant] = $this->seedMember();
+
+        $session = $this->signedIn();
+        $kept    = [];
+
+        $this->policy->answer = static function (TenantPolicyContext $context) use (&$kept): TenantRequirement {
+            $kept[] = $context;
+
+            return new TenantRequirement('v1');
+        };
+
+        TenantPolicyCheck::again('members', $member, $membership, $tenant, $session, static fn (): bool => false, CarbonImmutable::now());
+
+        self::assertCount(1, $kept);
+
+        $this->expectException(\LogicException::class);
+
+        $kept[0]->connectionId();
+    }
+
+    /**
+     * A committed session that falls short of the policy is refused for the
+     * standing it falls short by; one recorded at the version answered, or
+     * stored pending and lacking only a factor, is not.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testACommittedSessionsShortfallIsTheReasonItFallsShortBy(): void
+    {
+        [$member, $membership, $tenant] = $this->seedMember();
+
+        $session   = $this->signedIn();
+        $shortfall = static fn (): ?FailureReason => TenantPolicyCheck::shortfall('members', $member, $membership, $tenant, $session, CarbonImmutable::now());
+
+        $this->policy->requirement = new TenantRequirement('v1', connections: ['conn-a']);
+
+        self::assertSame(FailureReason::SSO_REQUIRED, $shortfall());
+
+        $this->policy->requirement = new TenantRequirement('v1', new Requirement(new RequirementPart));
+
+        self::assertSame(FailureReason::ADDITIONAL_FACTOR_REQUIRED, $shortfall());
+
+        Session::query()->whereKey($session->getKey())->update([$session->getStatusName() => SessionStatus::PENDING->value]);
+
+        self::assertNull($shortfall());
+
+        $session->setAttribute($session->getTenantPolicyVersionName(), 'v1');
+
+        $this->policy->requirement = new TenantRequirement('v1', connections: ['conn-a']);
+
+        self::assertNull($shortfall());
     }
 
     /**
