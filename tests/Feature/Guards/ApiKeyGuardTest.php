@@ -25,10 +25,12 @@ use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyAuthentication;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyLookup;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyOutcome;
 use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
+use SineMacula\Laravel\Authentication\Context\Enums\CredentialKind;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
+use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\ApiKeyGuard;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
@@ -86,7 +88,17 @@ final class ApiKeyGuardTest extends TestCase
             ]);
         }
 
-        $events = [Attempting::class, Validated::class, Login::class, Authenticated::class, Failed::class, Logout::class, PrincipalAssigned::class, AuthenticationFailed::class];
+        $events = [
+            Attempting::class,
+            Validated::class,
+            Login::class,
+            Authenticated::class,
+            Failed::class,
+            Logout::class,
+            PrincipalAssigned::class,
+            AuthenticationFailed::class,
+            SignedIn::class,
+        ];
 
         Event::listen($events, function (object $event): void {
             $this->dispatched[] = $event;
@@ -694,6 +706,30 @@ final class ApiKeyGuardTest extends TestCase
     }
 
     /**
+     * A trusted `login()` reports its sign-in with `SignedIn`, naming no
+     * credential and limited to no scopes.
+     *
+     * @return void
+     */
+    public function testATrustedLoginReportsItsSignIn(): void
+    {
+        $machine = $this->seedMachine();
+
+        self::keyGuard('machine')->login($machine, $machine);
+
+        $signedIn = $this->dispatchedOf(SignedIn::class);
+
+        self::assertCount(1, $signedIn);
+        self::assertInstanceOf(SignedIn::class, $signedIn[0]);
+        self::assertFalse($signedIn[0]->refresh);
+        self::assertSame('machine', $signedIn[0]->context->guard);
+        EventContextAssertions::assertIdentity($machine, $signedIn[0]->context);
+        self::assertNull($signedIn[0]->context->credentialId);
+        self::assertSame([], $signedIn[0]->context->scopes);
+        self::assertNull($signedIn[0]->context->method);
+    }
+
+    /**
      * `Auth::scopes()` reports the key's scopes on the default guard.
      *
      * @return void
@@ -709,6 +745,33 @@ final class ApiKeyGuardTest extends TestCase
 
         self::assertSame(['a', 'b'], Auth::scopes());
         self::assertSame($issued->id, $this->dispatchedOf(PrincipalAssigned::class)[0]->context->credentialId);
+    }
+
+    /**
+     * The bound caller names the key by its id, which is no part of the key a
+     * client presents.
+     *
+     * @return void
+     */
+    public function testTheBoundCallerNamesTheKeyByItsId(): void
+    {
+        $machine = $this->seedMachine();
+        $issued  = $this->apiKeys()->issue($machine, $machine, ['a']);
+
+        $this->startMachineRequest($issued->key()->reveal());
+
+        $guard = self::keyGuard('machine');
+
+        self::assertNull($guard->boundCaller());
+
+        $guard->user();
+
+        $caller = $guard->boundCaller();
+
+        self::assertNotNull($caller);
+        self::assertSame(CredentialKind::API_KEY, $caller->credentialKind);
+        self::assertSame($issued->id, $caller->credentialId);
+        self::assertStringNotContainsString($issued->id, $issued->key()->reveal());
     }
 
     /**

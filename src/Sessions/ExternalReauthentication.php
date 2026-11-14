@@ -117,7 +117,7 @@ final readonly class ExternalReauthentication
             $stored->getSessionIdentifier(),
             $proof,
             static fn (EloquentSession&Model $locked, CarbonInterface $startedAt): ?FailureReason => self::refusal($locked, $stored, $link, $result->connectionId, $at, $startedAt),
-            static fn (Admitted $admitted, EloquentSession&Model $locked, CarbonImmutable $now): ?FailureReason => self::shortfall($guard, $admitted, $locked, $now),
+            static fn (Admitted $admitted, EloquentSession&Model $locked, CarbonImmutable $now): ?FailureReason => self::shortfall($guard, $admitted, $locked, $client, $now),
         );
 
         if ($issued instanceof Refused) {
@@ -298,15 +298,16 @@ final readonly class ExternalReauthentication
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @param  \Carbon\CarbonImmutable  $now
      * @return ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      */
-    private static function shortfall(string $guard, Admitted $admitted, EloquentSession&Model $session, CarbonImmutable $now): ?FailureReason
+    private static function shortfall(string $guard, Admitted $admitted, EloquentSession&Model $session, ClientContext $client, CarbonImmutable $now): ?FailureReason
     {
-        return match (TenantPolicyCheck::check($guard, $admitted->identity, $admitted->principal, $admitted->tenant, $session, $now, new ProofSource(current: true))->standing) {
+        return match (TenantPolicyCheck::check($guard, $admitted, $session, $client, $now, new ProofSource(current: true))->standing) {
             TenantPolicyStanding::SSO_REQUIRED    => FailureReason::SSO_REQUIRED,
             TenantPolicyStanding::FACTOR_REQUIRED => FailureReason::ADDITIONAL_FACTOR_REQUIRED,
             TenantPolicyStanding::MET             => null,

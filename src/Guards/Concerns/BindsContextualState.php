@@ -6,6 +6,7 @@ namespace SineMacula\Laravel\Authentication\Guards\Concerns;
 
 use Illuminate\Auth\Events\Authenticated;
 use Illuminate\Auth\Events\Validated;
+use SineMacula\Laravel\Authentication\Callers\BoundCaller;
 use SineMacula\Laravel\Authentication\Context\Enums\CredentialKind;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
@@ -142,6 +143,23 @@ trait BindsContextualState
     }
 
     /**
+     * Return what the guard is already bound to, or `null` when no identity is,
+     * without resolving the request.
+     *
+     * @return ?\SineMacula\Laravel\Authentication\Callers\BoundCaller
+     *
+     * @phpstan-impure
+     */
+    public function boundCaller(): ?BoundCaller
+    {
+        if ($this->identity === null) {
+            return null;
+        }
+
+        return new BoundCaller($this->identity, $this->principal, $this->session, $this->credentialKind, $this->credentialId, $this->activeTenant, $this->unavailableTenant);
+    }
+
+    /**
      * The bound state's version, unique across guards and replaced on change.
      *
      * @return int
@@ -209,6 +227,25 @@ trait BindsContextualState
         $this->context->dispatch(new SessionAuthenticated($this->boundContext($this->activeTenant, $session->getSignInMethod())));
 
         return $this;
+    }
+
+    /**
+     * Bind a session the session service started and reported itself, firing
+     * `Validated` and `Login` around the bind.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @return void
+     *
+     * @throws \LogicException
+     */
+    public function loginStarted(Identity $identity, Principal $principal, ?Session $session = null, ?ClientContext $client = null): void
+    {
+        $this->fireValidatedEvent($identity);
+
+        $this->bindAuthenticationLifecycle($identity, $principal, $session, $client);
     }
 
     /**
@@ -336,7 +373,7 @@ trait BindsContextualState
 
     /**
      * Bind the whole triple with its credential and scopes, then dispatch its
-     * events.
+     * events, returning the context they report.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -344,7 +381,7 @@ trait BindsContextualState
      * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant|\SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException|null  $tenant
      * @param  ?string  $method
      * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
-     * @return void
+     * @return \SineMacula\Laravel\Authentication\Events\EventContext
      */
     private function bindContext(
         Identity $identity,
@@ -353,7 +390,7 @@ trait BindsContextualState
         Tenant|TenantUnavailableException|null $tenant,
         ?string $method,
         ?ClientContext $client = null,
-    ): void {
+    ): EventContext {
         $this->identity  = $identity;
         $this->principal = $principal;
         $this->session   = $session;
@@ -369,11 +406,11 @@ trait BindsContextualState
         $this->context->dispatch(new Authenticated($this->context->name(), $identity));
         $this->context->dispatch(new PrincipalAssigned($context));
 
-        if ($session === null) {
-            return;
+        if ($session !== null) {
+            $this->context->dispatch(new SessionAuthenticated($context));
         }
 
-        $this->context->dispatch(new SessionAuthenticated($context));
+        return $context;
     }
 
     /**

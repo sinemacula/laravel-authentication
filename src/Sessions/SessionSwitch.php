@@ -325,7 +325,7 @@ final readonly class SessionSwitch
         CarbonImmutable $now,
     ): AuthenticationFailed|ReturnedToPending|SwitchedPrincipal {
         $source  = new ProofSource(current: true);
-        $verdict = TenantPolicyCheck::check($this->context->name(), $destination->identity, $destination->principal, $destination->tenant, $session, $now, $source);
+        $verdict = TenantPolicyCheck::check($this->context->name(), $destination, $session, $this->client, $now, $source);
         $missed  = fn (): AuthenticationFailed|ReturnedToPending|SwitchedPrincipal => $this->afterLostSwitch($session, $destination, $presented, $now);
 
         return match ($verdict->standing) {
@@ -444,7 +444,7 @@ final readonly class SessionSwitch
         }
 
         $now     = CarbonImmutable::now()->startOfSecond();
-        $verdict = TenantPolicyCheck::check($this->context->name(), $admitted->identity, $admitted->principal, $admitted->tenant, $session, $now, new ProofSource(current: true));
+        $verdict = TenantPolicyCheck::check($this->context->name(), $admitted, $session, $this->client, $now, new ProofSource(current: true));
         $missed  = fn (): AuthenticationFailed => self::refused(FailureReason::ROTATION_CONFLICT, $this->eventContext($session, $admitted));
 
         return match ($verdict->standing) {

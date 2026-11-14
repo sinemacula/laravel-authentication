@@ -51,7 +51,8 @@ session held back by the policy waits as `pending-sessions.md` describes; the pe
 - A tenant's authentication policy (`TenantAuthenticationPolicy::requirementFor()`, default `RequireNothingOfTenants`)
   answers a `TenantRequirement`: a further factor (a `Requirement`), the connections the session must have been
   established through (`null` for no requirement, `[]` for none that satisfies), and a version. It is asked inside
-  `WriteConnection::during()` for the tenant, with the application, identity, principal, session and a lazy
+  `WriteConnection::during()` for the tenant, with the application, identity, principal, session, the client of the
+  asking call (none for `tenantPolicyChanged()` and a pending session's lookup, which act for no client) and a lazy
   `connectionId()` (the connection the session was established through, found when the policy or the judgement first
   asks, and once: `TenantPolicyContext`), so exemptions are its own answer; a destination of no tenant
   has no policy and asks nothing.
@@ -86,6 +87,8 @@ session held back by the policy waits as `pending-sessions.md` describes; the pe
   activation judges a further factor itself. Each revocation is one conditional update on the session still acting in
   the tenant and unrevoked, reported by `SessionRevoked` once committed. Inside a transaction on the session model's
   connection or the tenant's own, the same pass runs again once they commit; its revocations are reported, not counted.
+  A sign-in, choice or switch into the tenant that commits after the last pass is judged the same way by its own check
+  after commit (`AdmissionRecheck`), so either the pass reads the session or the check reads the change.
 - `tenantDeactivated()` ends every session acting in the tenant, whatever its principal, as well as the sessions of the
   principals listed for it, each session counted once.
 

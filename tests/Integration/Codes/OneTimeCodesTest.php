@@ -12,8 +12,13 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Codes\CodeBinding;
 use SineMacula\Laravel\Authentication\Codes\DeliveryRefusal;
 use SineMacula\Laravel\Authentication\Codes\Enums\CodeCheck;
+use SineMacula\Laravel\Authentication\Codes\FactorCodeBinding;
 use SineMacula\Laravel\Authentication\Codes\IssuedCode;
 use SineMacula\Laravel\Authentication\Codes\OneTimeCodes;
+use SineMacula\Laravel\Authentication\Proofs\Channel;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
+use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
+use SineMacula\Laravel\Authentication\Proofs\ProofBinding;
 use Tests\Concerns\InteractsWithCodes;
 use Tests\Fixtures\Database\LockMarkingSQLiteGrammar;
 use Tests\TestCase;
@@ -221,6 +226,32 @@ final class OneTimeCodesTest extends TestCase
         self::assertSame(CodeCheck::WRONG, self::codes()->check(self::binding(), $issued->challengeId, '654321', $this->now));
         self::assertSame(CodeCheck::ACCEPTED, self::codes()->check(self::binding(), $issued->challengeId, '123456', $this->now, true));
         self::assertSame([false, true], $reads);
+    }
+
+    /**
+     * Whether a code used its challenge is read locked.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testWhetherACodeUsedItsChallengeIsReadLocked(): void
+    {
+        $connection = DB::connection();
+
+        if ($connection->getDriverName() === 'sqlite') {
+            $connection->setQueryGrammar(new LockMarkingSQLiteGrammar($connection));
+        }
+
+        $issued = $this->issued(self::binding(), '123456');
+        $reads  = [];
+
+        $connection->listen(static function (QueryExecuted $query) use (&$reads): void {
+            $reads[] = str_contains($query->sql, 'for update');
+        });
+
+        self::assertFalse(self::codes()->isUsedBy(self::binding(), $issued->challengeId, '123456'));
+        self::assertSame([true], $reads);
     }
 
     /**
@@ -898,6 +929,65 @@ final class OneTimeCodesTest extends TestCase
 
         self::assertSame(0, self::attempts());
         self::assertSame(CodeCheck::ACCEPTED, self::codes()->check($binding, $issued->challengeId, $issued->code(), $this->now));
+    }
+
+    /**
+     * Only the code that used the challenge up used it.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testOnlyTheCodeThatUsedTheChallengeUsedIt(): void
+    {
+        $binding = self::binding();
+        $issued  = $this->issued($binding, '424242');
+
+        self::assertFalse(self::codes()->isUsedBy($binding, $issued->challengeId, '424242'));
+        self::assertSame(CodeCheck::ACCEPTED, self::codes()->check($binding, $issued->challengeId, '424242', $this->now));
+        self::assertTrue(self::codes()->isUsedBy($binding, $issued->challengeId, '424242'));
+        self::assertFalse(self::codes()->isUsedBy($binding, $issued->challengeId, '000000'));
+        self::assertFalse(self::codes()->isUsedBy($binding, self::NO_CHALLENGE, '424242'));
+        self::assertFalse(self::codes()->isUsedBy(CodeBinding::signIn('mobile', 'phone', '+447700900999'), $issued->challengeId, '424242'));
+    }
+
+    /**
+     * No code used a challenge that was ended unused.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testNoCodeUsedAChallengeEndedUnused(): void
+    {
+        $binding = self::binding();
+        $issued  = $this->issued($binding, '424242');
+
+        self::codes()->invalidate([$binding]);
+
+        self::assertSame(CodeCheck::USED, self::codes()->check($binding, $issued->challengeId, '424242', $this->now));
+        self::assertFalse(self::codes()->isUsedBy($binding, $issued->challengeId, '424242'));
+    }
+
+    /**
+     * A factor code used up by its own transaction was not used for another
+     * transaction of the same key.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testAFactorCodeWasUsedOnlyForItsOwnTransaction(): void
+    {
+        $identity = new PlainIdentityFixture(1);
+        $channel  = new Channel(ChannelKind::SMS, self::PHONE);
+        $binding  = CodeBinding::factor('mobile', new FactorCodeBinding(new ProofBinding($identity, 'mobile', 'session-1', Purpose::SIGN_IN), 'factor-1', $channel));
+        $other    = CodeBinding::factor('mobile', new FactorCodeBinding(new ProofBinding($identity, 'mobile', 'session-1', Purpose::SIGN_IN), 'factor-2', $channel));
+        $issued   = $this->issued($binding, '424242');
+
+        self::assertSame(CodeCheck::ACCEPTED, self::codes()->check($binding, $issued->challengeId, '424242', $this->now));
+        self::assertTrue(self::codes()->isUsedBy($binding, $issued->challengeId, '424242'));
+        self::assertFalse(self::codes()->isUsedBy($other, $issued->challengeId, '424242'));
     }
 
     /**

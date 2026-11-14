@@ -193,6 +193,35 @@ final readonly class OneTimeCodes
     }
 
     /**
+     * Whether the code is the one that used the binding's challenge up; ending
+     * a challenge replaces its issuance, so no code matches one ended unused.
+     *
+     * The read locks, so a repeatable-read snapshot older than the use cannot
+     * answer it.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Codes\CodeBinding  $binding
+     * @param  string  $challengeId
+     * @param  string  $code
+     * @return bool
+     *
+     * @throws \InvalidArgumentException
+     *
+     * @phpstan-impure
+     */
+    public function isUsedBy(CodeBinding $binding, string $challengeId, #[\SensitiveParameter] string $code): bool
+    {
+        $digest = $this->keys->binding($binding);
+        $row    = CodeRows::find($digest, true);
+
+        if ($row === null || $row->consumed_at === null || !hash_equals($row->challenge_id, $challengeId)) {
+            return false;
+        }
+
+        return CodeRows::isSameContext($row->context, $this->keys->context($binding))
+            && hash_equals($row->code_hash, $this->keys->code($digest, $row->issue_id, $code));
+    }
+
+    /**
      * End the challenge of each binding that is not used yet, keeping its row
      * so the delivery cap and cooldown still hold, and answer how many ended.
      *

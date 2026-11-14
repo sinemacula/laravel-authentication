@@ -6,6 +6,7 @@ namespace SineMacula\Laravel\Authentication\Sessions;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
+use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -16,7 +17,6 @@ use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
-use SineMacula\Laravel\Authentication\Requirements\ProofSource;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
@@ -234,19 +234,9 @@ final readonly class TenantPolicyChanges
 
         [$identity, $principal] = $actors;
 
-        $recorded = $session->getTenantPolicyVersion();
-        $source   = new ProofSource(current: true);
-        $context  = TenantPolicyCheck::contextFor((string) $session->getGuard(), $identity, $principal, $tenant, $session, $source);
+        $pending = static fn (): bool => $session->getStatus() === SessionStatus::PENDING;
 
-        try {
-            $requirement = TenantPolicyCheck::requirementFor($context);
-
-            return $recorded !== null && $recorded === $requirement->version
-                ? null
-                : TenantPolicyCheck::judge($requirement, $context, $now, $source);
-        } finally {
-            $context->expire();
-        }
+        return TenantPolicyCheck::again((string) $session->getGuard(), new Admitted($identity, $principal, $tenant), $session, null, $pending, $now);
     }
 
     /**

@@ -7,6 +7,7 @@ namespace SineMacula\Laravel\Authentication\Codes;
 use Carbon\CarbonImmutable;
 use SineMacula\Laravel\Authentication\Codes\Enums\CodePurpose;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
 
 /**
@@ -29,6 +30,8 @@ final readonly class OneTimeCodeMessage
      * @param  \SineMacula\Laravel\Authentication\Secrets\Secret  $code
      * @param  \Carbon\CarbonImmutable  $expiresAt
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  ?\SineMacula\Laravel\Authentication\Proofs\Enums\Purpose  $proofPurpose
+     * @param  ?string  $factor
      */
     public function __construct(
 
@@ -52,5 +55,11 @@ final readonly class OneTimeCodeMessage
 
         /** Recipient of the code. */
         public Identity $identity,
+
+        /** What a factor code proves: `sign_in` (a sign-in's further factor), `step_up` or `enrollment`; `null` for every other code. */
+        public ?Purpose $proofPurpose = null,
+
+        /** The factor package's reference to a factor code's factor (the pending factor, for an enrolment); `null` for every other code. */
+        public ?string $factor = null,
     ) {}
 }

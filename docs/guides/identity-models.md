@@ -292,6 +292,20 @@ collation counts as equal (`Ben@` or `bén@` for `ben@`); it fires no model even
 an identifier changes, clear its `<type>_verified_at` with it, or change it through
 [`Auth::identifierChanges()`](identifier-changes.md), which records the proven one as verified.
 
+`holdingVerifiedIdentifier()`, declared on `HasVerifiableIdentifiers`, finds the identities that hold an identifier
+verified, such as the accounts an email address asserted elsewhere may belong to; an identity that implements the
+contract without the trait implements it over its own storage:
+
+```php
+$holders = AppUser::holdingVerifiedIdentifier('email', $asserted);
+```
+
+The identifier is normalised as verification normalises it (`Ben@Example.com` finds `ben@example.com`), and one the
+type's normaliser refuses finds nobody without a query. The identities are read on the write connection with the
+model's global scopes, and each must store the normal form byte for byte, whatever the column's collation counts as
+equal. More than one can hold the same identifier unless a unique index on its column stops it, so decide what two
+holders mean before acting on one.
+
 Verify by signed link with `Verification\VerificationLinks`. The application owns the route, the message and its
 delivery:
 

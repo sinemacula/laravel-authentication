@@ -235,7 +235,7 @@ trait SignsInWithCredentials
             return Refused::after(FailureReason::ADDITIONAL_FACTOR_REQUIRED, $admitted);
         }
 
-        $policy = TenantPolicyCheck::check($this->context->name(), $admitted->identity, $admitted->principal, $admitted->tenant, null, $now, new ProofSource($evidence));
+        $policy = TenantPolicyCheck::check($this->context->name(), $admitted, null, $client, $now, new ProofSource($evidence));
 
         return match ($policy->standing) {
             TenantPolicyStanding::SSO_REQUIRED    => Refused::after(FailureReason::SSO_REQUIRED, $admitted),

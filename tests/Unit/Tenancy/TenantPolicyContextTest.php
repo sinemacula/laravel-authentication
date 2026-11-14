@@ -33,6 +33,16 @@ final class TenantPolicyContextTest extends TestCase
     }
 
     /**
+     * A context judges a call unless it is built to judge a session again.
+     *
+     * @return void
+     */
+    public function testAContextJudgesACallByDefault(): void
+    {
+        self::assertFalse(self::context()->rejudging);
+    }
+
+    /**
      * The closure runs only when the connection is asked for, and once however
      * often it is: a `null` answer is kept too.
      *
@@ -95,6 +105,6 @@ final class TenantPolicyContextTest extends TestCase
      */
     private static function context(?\Closure $connectionId = null): TenantPolicyContext
     {
-        return new TenantPolicyContext('api', new PlainIdentityFixture(7), new PlainPrincipalFixture(7), new PlainTenantFixture(1), null, $connectionId);
+        return new TenantPolicyContext('api', new PlainIdentityFixture(7), new PlainPrincipalFixture(7), new PlainTenantFixture(1), null, null, $connectionId);
     }
 }

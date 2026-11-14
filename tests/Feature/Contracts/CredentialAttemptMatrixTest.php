@@ -202,7 +202,7 @@ final class CredentialAttemptMatrixTest extends TestCase
 
         yield 'success' => ['success', [
             'result'      => 'true',
-            'events'      => ['Attempting api', 'Validated api i1', 'Login api i1', 'Authenticated api i1', 'PrincipalAssigned api i1/p1/-'],
+            'events'      => ['Attempting api', 'Validated api i1', 'Login api i1', 'Authenticated api i1', 'PrincipalAssigned api i1/p1/-', 'SignedIn api new i1/p1/-'],
             'timebox'     => 'cut short',
             'rehashed'    => true,
             'reservation' => 'released',

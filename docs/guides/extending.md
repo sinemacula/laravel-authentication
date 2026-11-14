@@ -146,17 +146,25 @@ the names your policy allows are its own.
 
 Bind `Contracts\TenantAuthenticationPolicy` to say what a tenant requires of the sessions active in it. It is asked with
 a `Tenancy\TenantPolicyContext` (the application, the identity, the principal acting in the tenant, the tenant, and the
-session, or `null` before one is written; `connectionId()` adds the connection the session was established through, or
-`null` when no external provider established it) and answers a `Tenancy\TenantRequirement`: a `version` (1 to 64
-characters, or `null`), a further factor as a `Requirements\Requirement` (empty asks for none), and the `connections` a
-session must have been established through (`null` for no such requirement, `[]` for none that satisfies). Exemptions
-are the policy's own answer: answer an exempt identity's sessions with nothing required. The `connectionId()` is the
-sign-in's own while its session is not yet written, and otherwise the one the session's provenance records. It is found
-when first asked and kept, so a policy that never calls it, and a judgement that names no connections, cost no read; one
-that does read it shares that single read with the judgement. Read it inside `requirementFor()`: when the check ends, a
-connection not yet read is never read, and asking for it throws a `LogicException` (the session's key may name another
-session by then), so do not keep the context to read it later; one already read stays readable. In a test, build the
-context with a closure, `new TenantPolicyContext(..., connectionId: fn (): ?string => 'conn-a')`.
+session, or `null` before one is written; the `client` of the call that asks, a `Http\ClientContext` with its IP address
+and user agent, or `null` when `tenantPolicyChanged()` judges the tenant's sessions or a pending session is looked up
+(`pending()`), since neither acts for the client the session belongs to; `connectionId()` adds the connection the
+session was established through, or `null` when no external provider established it) and answers a
+`Tenancy\TenantRequirement`: a `version` (1 to 64 characters, or `null`), a further factor as a
+`Requirements\Requirement` (empty asks for none), and the `connections` a session must have been established through
+(`null` for no such requirement, `[]` for none that satisfies). Exemptions are the policy's own answer: answer an exempt
+identity's sessions with nothing required. A policy that judges by the client decides what a `null` client is held to,
+and `tenantPolicyChanged()` judges the tenant's sessions against that answer. The context's `rejudging` is `true` when
+the package judges a session already written again (the check after a sign-in, choice or switch commits, which carries
+that call's client, and both passes of `tenantPolicyChanged()`) and `false` when it judges a call it is about to admit,
+so a policy that records something per judgement, such as an exemption used, records it only when `rejudging` is
+`false`. The `connectionId()` is the sign-in's own while its session is not yet written, and otherwise the one the
+session's provenance records. It is found when first asked and kept, so a policy that never calls it, and a judgement
+that names no connections, cost no read; one that does read it shares that single read with the judgement. Read it
+inside `requirementFor()`: when the check ends, a connection not yet read is never read, and asking for it throws a
+`LogicException` (the session's key may name another session by then), so do not keep the context to read it later; one
+already read stays readable. In a test, build the context with a closure,
+`new TenantPolicyContext(..., connectionId: fn (): ?string => 'conn-a')`.
 
 ```php
 use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
@@ -183,8 +191,9 @@ $this->app->singleton(TenantAuthenticationPolicy::class, OrganisationPolicy::cla
 ```
 
 The package asks it inside `WriteConnection::during()` for the tenant, so read the policy's own state from the write
-connection, as there. Change the version whenever anything the answer depends on changes, the exemptions included, and
-call `Auth::sessions()->tenantPolicyChanged($tenant)` when it does (see [Tenant authentication
+connection, as there. A sign-in, choice or switch into a tenant asks it once more after the session's write commits, so
+a change applied in between is not missed. Change the version whenever anything the answer depends on changes, the
+exemptions included, and call `Auth::sessions()->tenantPolicyChanged($tenant)` when it does (see [Tenant authentication
 policies](sessions.md#tenant-authentication-policies)). A `null` version is never taken as already checked.
 
 Whether a session's proofs meet a further factor is `Contracts\RequirementCheck`'s to judge: `evaluate()` takes a
@@ -298,7 +307,8 @@ principal's tenant must be active (`Admission\ActivationPolicy`), the applicatio
 package asks them. The tenant the activity check loaded is the one it binds. A guard type that authenticated a
 credential the request presented names its kind last (`kind:`, a `Context\Enums\CredentialKind`), so the request's
 [authentication context](#authentication-context) says what was presented; one that names none reports `credential` as
-`null`, as a sign-in in the request does:
+`null`, as a sign-in in the request does. A guard type may also name the credential's id (`credentialId:`), which its
+events and `boundCaller()` report: an identifier, such as the id of the key's row, never the credential itself:
 
 ```php
 use Illuminate\Container\Container;
@@ -666,22 +676,24 @@ seam has a default that works alone.
   `Channel` (`sms` or `email`, with the destination in its normal form) and, for an enrolment, its grant. A code is
   accepted only for that very binding: another session, factor, purpose or grant, and an `mfa` code as an `enrollment`
   one or the reverse, is `not_found`, as a malformed, unknown or replaced challenge id is, so another binding's
-  challenge cannot be told from an absent one; the binding's own challenge, once used, is `used`; a wrong code is
-  `invalid` and counted, while a malformed one is `invalid` and not counted
-  against the challenge (it still takes its IP slot, before it is judged); neither `not_found` nor `used` counts an
-  attempt or is reported to the counters. The delivery key is the destination and the identity, never the factor, so the
-  cooldown and the delivery cap hold across an enrolment restarted with a new factor and grant. Bind
-  `Contracts\FactorCodeCounters` (the default, `RefuseFactorCodes`, refuses every code): `admit()` is asked before each
-  delivery and each check, and `report($binding, $challengeId, $passed)` exactly once for each attempt a check counts,
-  both inside the package's transaction on the storage connection (a savepoint of yours, when you opened one). `admit()`
-  runs before the challenge's row is locked, so take your identity and factor locks there, on that same connection;
-  `report()` runs after the row is locked and the attempt counted, so it must take no lock that comes before the
-  challenge (it writes the counts of rows `admit()` already locked). The report's answer stands: a matching code is
-  `verified` only when it answers `admitted`. This package counts per challenge, per destination and per IP address
-  (`codes.max_attempts`, `codes.max_deliveries`, the `code_request` and `factor_code` limits); the per-factor and
-  per-identity counts and lockouts are yours. Turn a verified check into a `ProofResult` (its method, the channel, the
-  factor, the binding) and hand it to `satisfy()` or `stepUp()`, inside the same transaction when both are to commit
-  together. A sent code's `CodeRequest` also says when another may be sent (`resendAvailableAt`).
+  challenge cannot be told from an absent one; the binding's own challenge, once used, is `replayed` for the code that
+  used it and `used` for any other code or once it was ended; a wrong code is `invalid` and counted, while a malformed
+  one is `invalid` and not counted against the challenge (it still takes its IP slot, before it is judged); none of
+  `not_found`, `used` and `replayed` counts an attempt or is reported to the counters. The delivery key is the
+  destination and the identity, never the factor, so the cooldown and the delivery cap hold across an enrolment
+  restarted with a new factor and grant. Bind `Contracts\FactorCodeCounters` (the default, `RefuseFactorCodes`, refuses
+  every code): `admit($binding, $client)` is asked before each delivery and each check, and
+  `report($binding, $challengeId, $passed, $client)` exactly once for each attempt a check counts, each given the
+  `ClientContext` handed to `sendFactorCode()` or `verifyFactorCode()`, and both inside the package's transaction on the
+  storage connection (a savepoint of yours, when you opened one). `admit()` runs before the challenge's row is locked,
+  so take your identity and factor locks there, on that same connection; `report()` runs after the row is locked and the
+  attempt counted, so it must take no lock that comes before the challenge (it writes the counts of rows `admit()`
+  already locked). The report's answer stands: a matching code is `verified` only when it answers `admitted`. This
+  package counts per challenge, per destination and per IP address (`codes.max_attempts`, `codes.max_deliveries`, the
+  `code_request` and `factor_code` limits); the per-factor and per-identity counts and lockouts are yours. Turn a
+  verified check into a `ProofResult` (its method, the channel, the factor, the binding) and hand it to `satisfy()` or
+  `stepUp()`, inside the same transaction when both are to commit together. A sent code's `CodeRequest` also says when
+  another may be sent (`resendAvailableAt`).
 - A factor package's proof store and first-factor resolver read an active session's proofs through the session service:
   `Auth::sessions($guard)->proofs($session, $since, $kinds, $limit)` (its counting proofs, newest first, as
   `PendingSession::proofs()` reads a pending session's) and `firstFactor($session)` (the first factor it signed in
