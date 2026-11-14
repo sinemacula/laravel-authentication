@@ -16,6 +16,7 @@ use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyLookup;
 use SineMacula\Laravel\Authentication\ApiKeys\IssuedApiKey;
+use SineMacula\Laravel\Authentication\Context\Enums\CredentialKind;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -114,6 +115,36 @@ final class ClientTokenBearerAuthenticationTest extends TestCase
         self::assertSame('client_credentials', $context->method);
         self::assertSame($issued->id, $context->credentialId);
         self::assertSame(['write'], $context->scopes);
+    }
+
+    /**
+     * The bound caller of a client token names its key by its id, which is no
+     * part of the token or the key.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testTheBoundCallerNamesTheTokensKeyByItsId(): void
+    {
+        [, $issued] = $this->machineKey(['read']);
+
+        $token = $this->exchange($issued);
+
+        $this->startMachineRequest($token);
+
+        $guard = Auth::manager()->guard('m2m');
+
+        self::assertInstanceOf(JwtGuard::class, $guard);
+
+        $guard->user();
+
+        $caller = $guard->boundCaller();
+
+        self::assertNotNull($caller);
+        self::assertSame(CredentialKind::CLIENT_CREDENTIALS, $caller->credentialKind);
+        self::assertSame($issued->id, $caller->credentialId);
+        self::assertStringNotContainsString($issued->id, $issued->key()->reveal());
     }
 
     /**

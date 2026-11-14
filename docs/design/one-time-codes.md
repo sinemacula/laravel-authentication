@@ -69,10 +69,12 @@ the same whether or not anyone has the identifier, and who a code is ever delive
   counted attempt, in the transaction that counts it, each with the client the send or the check was handed; a check
   that counts nothing reports nothing. The report's answer stands: a matching code is verified only when it is admitted.
   The default counters refuse every code. A factor code check tells the adapter `not_found` (a malformed, unknown,
-  replaced or other-binding challenge id) and `used` (the binding's own challenge, used up) from `invalid` (a malformed
-  code, or a wrong one, which alone is counted and reported). Neither `not_found` nor `used` is a guess, so neither
-  counts or reports, though every check takes its IP slot first, before the challenge id and the code are judged: a full
-  limit answers `rate_limited` even for a malformed check, and a malformed one keeps its slot. Every refusal reports
+  replaced or other-binding challenge id), `used` (the binding's own challenge, used up by another code or ended) and
+  `replayed` (the code that used the binding's own challenge up: its issuance survives the use, and ending a challenge
+  replaces it, so only that code matches) from `invalid` (a malformed code, or a wrong one, which alone is counted and
+  reported). None of `not_found`, `used` and `replayed` is a guess at a live code, so none counts or reports, though
+  every check takes its IP slot first, before the challenge id and the code are judged: a full limit answers
+  `rate_limited` even for a malformed check, and a malformed one keeps its slot. Every refusal reports
   `AuthenticationFailed`: as `rate_limited` with its wait once the limit is full, and as `invalid_credentials`
   otherwise. A rate-limited refusal is reported too, so the volume of failure events is bounded by the application's own
   request throttling. Code sign-in and verification by code keep one concealed answer for all of them, so they say

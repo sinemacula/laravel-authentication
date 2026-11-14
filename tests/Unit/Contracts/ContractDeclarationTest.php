@@ -357,7 +357,7 @@ final class ContractDeclarationTest extends TestCase
     public function testVerifiableIdentifiersAreACapabilityOfTheIdentity(): void
     {
         self::assertSame(
-            ['getIdentifierForVerification', 'hasVerifiedIdentifier', 'markIdentifierAsVerified'],
+            ['getIdentifierForVerification', 'hasVerifiedIdentifier', 'holdingVerifiedIdentifier', 'markIdentifierAsVerified'],
             self::declaredMethods(HasVerifiableIdentifiers::class),
         );
         self::assertFalse((new \ReflectionClass(Identity::class))->hasMethod('hasVerifiedIdentifier'));
