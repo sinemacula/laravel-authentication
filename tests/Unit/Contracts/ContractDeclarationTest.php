@@ -549,7 +549,8 @@ final class ContractDeclarationTest extends TestCase
 
     /**
      * The external identity link contract declares one lookup, by connection,
-     * issuer and subject, and nothing that finds a link by anything else.
+     * issuer, subject and NameID format, and nothing that finds a link by
+     * anything else.
      *
      * @return void
      */
@@ -558,7 +559,9 @@ final class ContractDeclarationTest extends TestCase
         self::assertSame(['find'], self::declaredMethods(ExternalIdentityLinks::class));
         $parameters = (new \ReflectionMethod(ExternalIdentityLinks::class, 'find'))->getParameters();
 
-        self::assertSame(['connectionId', 'issuer', 'subject'], array_map(static fn (\ReflectionParameter $parameter): string => $parameter->getName(), $parameters));
+        $names = array_map(static fn (\ReflectionParameter $parameter): string => $parameter->getName(), $parameters);
+
+        self::assertSame(['connectionId', 'issuer', 'subject', 'nameIdFormat'], $names);
     }
 
     /**

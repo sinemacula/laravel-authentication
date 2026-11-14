@@ -35,7 +35,10 @@ return new class extends Migration {
         (new MigrationCollisionGuard($schema))->ensureNotExists($table, 'proofs.table');
 
         $schema->create($table, static function (Blueprint $blueprint) use ($schema, $table): void {
-            $blueprint->uuid('id')->primary();
+            // The order the proofs were recorded in, which a UUIDv7 id does not
+            // keep across processes or a clock stepped back.
+            $blueprint->id('sequence');
+            $blueprint->uuid('id')->unique($table . '_id_unique');
 
             self::exact($schema, $blueprint, 'session_id');
 

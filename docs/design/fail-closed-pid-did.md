@@ -99,7 +99,7 @@ and the runtime cannot prove that claim, authentication fails.
 - `src/Support/IdentifierCoercion.php`: `stringify()` and `matches()`, the exact-match rule behind the bearer and
   refresh `principal` checks.
 - `src/Jwt/Enums/TokenType.php`: `requiredClaims()`, enforced by `JwtTokenService::parse()`.
-- `src/SessionRecords/SessionKeyShape.php`: `matches()`, the `sid` shape check shared by the bearer and refresh paths.
+- `src/Support/KeyShape.php`: `matches()`, the `sid` shape check shared by the bearer and refresh paths.
 - `src/SessionRecords/SessionDeadlines.php`: `hasEnded()`, the one deadline rule the bearer path, pins, refresh, and
   issuance share.
 - `src/Database/WriteConnection.php`: `query()` and `during()`, which pin the identity, principal, tenant, and session

@@ -153,7 +153,7 @@ final class ExternalSignInTest extends TestCase
         self::assertSame($identity->getKey(), $session->identity->getAuthIdentifier());
         self::assertSame('external_provider', $session->method);
         self::assertSame('external_provider', $session->record->getSignInMethod());
-        self::assertSame([['Connection-7 ', self::ISSUER, 'Subject 1 ']], $this->externalLinks()->asked);
+        self::assertSame([['Connection-7 ', self::ISSUER, 'Subject 1 ', null]], $this->externalLinks()->asked);
         self::assertSame([SessionCreated::class, SignedIn::class, Validated::class], $this->recordedClasses());
         self::assertSame('external_provider', $this->recordedEvent(SignedIn::class)->context->method);
         self::assertSame($identity->getKey(), Auth::guard('api')->id());
@@ -496,6 +496,38 @@ final class ExternalSignInTest extends TestCase
         }
 
         self::assertSame(0, Session::query()->count());
+    }
+
+    /**
+     * The link contract is asked with the subject's NameID format, so a link
+     * made for one format never links a subject given in another.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheLinkContractIsAskedWithTheNameIdFormat(): void
+    {
+        $identity   = $this->seedIdentity();
+        $persistent = 'urn:oasis:names:tc:SAML:2.0:nameid-format:persistent';
+        $email      = 'urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress';
+
+        $this->externalLinks()->link($identity, 'link-1', 'connection-7', self::ISSUER, 'subject-1', $persistent);
+
+        $results = [
+            new ExternalResult('connection-7', self::ISSUER, 'subject-1', nameIdFormat: $email),
+            new ExternalResult('connection-7', self::ISSUER, 'subject-1'),
+            new ExternalResult('connection-7', self::ISSUER, 'subject-1', nameIdFormat: $persistent),
+        ];
+
+        $reasons = array_map(fn (ExternalResult $result): ?FailureReason => $this->sessions()->signInExternally($result, self::requestContext())->reason, $results);
+
+        self::assertSame([FailureReason::EXTERNAL_RESULT_UNLINKED, FailureReason::EXTERNAL_RESULT_UNLINKED, null], $reasons);
+        self::assertSame(
+            [['connection-7', self::ISSUER, 'subject-1', $email], ['connection-7', self::ISSUER, 'subject-1', null], ['connection-7', self::ISSUER, 'subject-1', $persistent]],
+            $this->externalLinks()->asked,
+        );
+        self::assertSame(1, Session::query()->count());
     }
 
     /**

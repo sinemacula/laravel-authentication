@@ -66,7 +66,7 @@ uses for the caller's own instance, are the application's: the package binds no 
   `SessionSummary` the list gives for that session, `current` marked the same way, or `null` when it is not the
   identity's, not active (pending, revoked, past a deadline) or not found; one query through the identity's `sessions()`
   relation on the writer with the list's rule, and none for an id that cannot be a key of the session model
-  (`SessionKeyShape`).
+  (`KeyShape`).
 - `principal($identity, $id, $identifierType)` (`PendingEvaluation::principal()`) reads the very candidates
   `principals()` reads (the identity's `principals()` on the writer, or the resolver's default for an identity that is
   its own principal or has none), keeps the one whose principal identifier matches (two matches are ambiguous and

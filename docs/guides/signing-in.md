@@ -266,24 +266,25 @@ of the authorisation request the result answers (`requestReference`, opaque, 1 t
 redemption's events carry, and a provider context (`providerContext`, an `External\ProviderContext`): details of how the
 provider established the session, for the adapter's own authentication-context contributor, whose keys are the
 contributing package's own and which this package stores but never interprets, logs or reports (see [Extending: single
-sign-on](extending.md#single-sign-on-laravel-sso)). It is off unless the application lists `external_provider` in its
-`methods` (`method_not_allowed` otherwise, the link contract never asked).
+sign-on](extending.md#single-sign-on-laravel-sso)), and, when the subject is a SAML `NameID`, its format
+(`nameIdFormat`, compared exactly, 1 to 255 characters). It is off unless the application lists `external_provider` in
+its `methods` (`method_not_allowed` otherwise, the link contract never asked).
 
-The identity is the one the bound `Contracts\ExternalIdentityLinks` links the connection, issuer and subject to: only a
-link made through exactly that connection, for exactly that issuer and subject, never by email or any other attribute
-(see [Extending: single sign-on](extending.md#single-sign-on-laravel-sso)). The default, `NoExternalLinks`, links
-nothing. A result linked to no identity dispatches `ExternalResultUnlinked` (the guard, the client, the connection and
-the issuer, never the subject), informational only, and fails as `external_result_unlinked`. A result that names the
-link the adapter redeemed it through (`ExternalResult::$linkId`) fails as `link_mismatch` unless the contract answers
-exactly that link, so a link removed and made again since cannot take its place. From the linked identity on, the
-sign-in follows `start()`'s order under the method `external_provider`: reloaded, admitted, the principal the context
-names or the only one, or a choice, the factor policy, the tenant and its authentication policy (one requiring another
-connection refuses it as `sso_required`). No `Attempting` is dispatched, and no attempt limit or timebox applies. Nor
-is it held to a cookie application's same-site check, as `signIn()`, `start()`, `satisfy()` and `choose()` are: the
-provider's callback is a cross-site navigation by design, so the defence against signing a browser into another
-account is the adapter's: it must bind its `state` and nonce to the browser that began the flow, refuse a callback that
-does not match them, and redeem the handoff once, for that browser (see
-[Refresh token cookie](refreshing.md#refresh-token-cookie)).
+The identity is the one the bound `Contracts\ExternalIdentityLinks` links the connection, issuer, subject and NameID
+format to: only a link made through exactly that connection, for exactly that issuer, subject and format (so a link made
+for a persistent `NameID` never links a transient or email one), never by email or any other attribute (see [Extending:
+single sign-on](extending.md#single-sign-on-laravel-sso)). The default, `NoExternalLinks`, links nothing. A result
+linked to no identity dispatches `ExternalResultUnlinked` (the guard, the client, the connection and the issuer, never
+the subject), informational only, and fails as `external_result_unlinked`. A result that names the link the adapter
+redeemed it through (`ExternalResult::$linkId`) fails as `link_mismatch` unless the contract answers exactly that link,
+so a link removed and made again since cannot take its place. From the linked identity on, the sign-in follows
+`start()`'s order under the method `external_provider`: reloaded, admitted, the principal the context names or the only
+one, or a choice, the factor policy, the tenant and its authentication policy (one requiring another connection refuses
+it as `sso_required`). No `Attempting` is dispatched, and no attempt limit or timebox applies. Nor is it held to a
+cookie application's same-site check, as `signIn()`, `start()`, `satisfy()` and `choose()` are: the provider's callback
+is a cross-site navigation by design, so the defence against signing a browser into another account is the adapter's: it
+must bind its `state` and nonce to the browser that began the flow, refuse a callback that does not match them, and
+redeem the handoff once, for that browser (see [Refresh token cookie](refreshing.md#refresh-token-cookie)).
 
 The session's first proof is the provider's: the connection as an `external_provider` channel, the private `amr` value
 `urn:sinemacula:amr:external_provider` (RFC 8176 names none for it; the provider's own values are its package's to
@@ -314,6 +315,7 @@ $result = Auth::sessions('api')->signInExternally(new ExternalResult(
     linkId: $redeemed->linkId,
     requestReference: $redeemed->requestReference,
     providerContext: new ProviderContext(['protocol' => $redeemed->protocol]),
+    nameIdFormat: $redeemed->nameIdFormat,
 ), SignInContext::fromRequest($request));
 ```
 
