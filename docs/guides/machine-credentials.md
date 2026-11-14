@@ -52,7 +52,7 @@ with the credential's scopes, so a scope grants nothing the principal could not 
 `authenticateAs($identity, $principal, $session, $scopes)` gives it the scopes named instead (a test acting as a machine
 with scopes, say; see [Testing](testing.md)), and refuses scopes for a human identity with an
 `InvalidArgumentException`. The scopes are also in every event's context (`$event->context->scopes`), with the
-credential's id in `credentialId`.
+credential's id in `credentialId`, which the guard's `boundCaller()` also gives with the credential's kind.
 
 Scopes are checked when a credential is issued: each must be a well-formed scope token, and the bound
 `ScopeRegistry` may reject any of them for the principal on the guard. The default, `AcceptAnyScope`, accepts every

@@ -43,6 +43,13 @@ uses for the caller's own instance, are the application's: the package binds no 
   - A refresh or pending credential the request carries and that is refused is reported once, by `AuthenticationFailed`
     (flow `refresh` with the refresh's reason; flow `sign_in` with `pending_invalid` or `pending_action_not_allowed`),
     never the credential. A request that carries none is not reported.
+- `ContextualGuard::boundCaller()` (`Callers\BoundCaller`, `BindsContextualState`) reads only what the guard is
+  already bound to: never the request, so it never authenticates, loads or dispatches anything, and is `null` when no
+  identity is bound. It gives the bound identity, principal and session, the credential kind of the verified bind
+  (`null` for a sign-in or a trusted bind) and the credential's id: the API key's primary key for an API key and for a
+  client credentials token (whose `cid` claim names that key), never the key, its public id or a token. Its `tenant()`
+  throws the reason a bound tenant cannot be loaded, as the guard's `tenant()` does. `setIdentity()` forgets the
+  credential's kind and id with the identity it replaces.
 - `Caller::owns()` judges the model as it is given, by class and key, and reads nothing but a principal's admission:
   - a session: of the caller's guard, owned by the caller's identity (`SessionOwnership::isOwner()`), and with a refresh
     or pending credential the very session that credential proves (D13, D19); with the access credential any session of
@@ -89,6 +96,8 @@ uses for the caller's own instance, are the application's: the package binds no 
 
 - `src/AuthManager.php` (`caller()`); `src/Callers/Caller.php`, `src/Callers/CallerCredentials.php`,
   `src/Callers/DeclaredCredential.php`, `src/Callers/Enums/CallerCredential.php`
+- `src/Contracts/ContextualGuard.php` (`boundCaller()`), `src/Callers/BoundCaller.php`,
+  `src/Guards/Concerns/BindsContextualState.php` (`boundCaller()`)
 - `src/Http/Middleware/UseRefreshCredential.php`, `src/Http/Middleware/UsePendingCredential.php`;
   `src/AuthenticationServiceProvider.php` (`registerMiddleware()`)
 - `src/Sessions/Concerns/LooksUpSessions.php`, `src/Sessions/ActiveSessions.php` (`find()`),
@@ -107,6 +116,9 @@ uses for the caller's own instance, are the application's: the package binds no 
   `tests/Feature/Callers/CallerRouteBindingTest.php`: the guide's application binding over HTTP;
   `tests/Feature/AuthManagerTest.php` `testCallerReadsTheRequestBeingServed`;
   `tests/Unit/Callers/DeclaredCredentialTest.php`
+- `tests/Feature/Guards/BindsContextualStateTest.php` `testBoundCaller*`; `tests/Feature/Guards/ApiKeyGuardTest.php`
+  `testTheBoundCallerNamesTheKeyByItsId`; `tests/Feature/Guards/ClientTokenBearerAuthenticationTest.php`
+  `testTheBoundCallerNamesTheTokensKeyByItsId`
 - `tests/Feature/Http/Middleware/UseRefreshCredentialTest.php`,
   `tests/Feature/Http/Middleware/UsePendingCredentialTest.php`, `tests/Feature/AuthenticationServiceProviderTest.php`
   `testTheRouteMiddlewareAreAliasedAndOrderedInThePriority`
@@ -124,4 +136,5 @@ Update this note when any of the following change:
 - what makes a session, identity or principal the caller's
 - which credentials a route may declare, how it declares them, or where they sit in the kernel's priority
 - how the caller is read, memoised or reported
+- what a guard's bound caller gives, or what its credential id may hold
 - how one session or one principal is looked up, or what makes the lookup and its list differ

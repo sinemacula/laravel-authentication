@@ -8,6 +8,7 @@ use Illuminate\Contracts\Auth\Authenticatable as LaravelAuthenticatable;
 use Illuminate\Contracts\Auth\Guard as LaravelGuard;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\TestCase;
+use SineMacula\Laravel\Authentication\Callers\BoundCaller;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -53,11 +54,12 @@ final class ContextualGuardTest extends TestCase
     public function testContextualGuardDeclaresContextualAccessors(): void
     {
         $expected = [
-            'identity'  => Identity::class,
-            'principal' => Principal::class,
-            'session'   => Session::class,
-            'tenant'    => Tenant::class,
-            'scopes'    => 'array',
+            'identity'    => Identity::class,
+            'principal'   => Principal::class,
+            'session'     => Session::class,
+            'tenant'      => Tenant::class,
+            'scopes'      => 'array',
+            'boundCaller' => BoundCaller::class,
         ];
 
         foreach ($expected as $method => $returnType) {

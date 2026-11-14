@@ -36,6 +36,13 @@ bind found cannot be loaded (deleted, or no longer resolving), `Auth::tenant()` 
 code that scopes by it never takes a tenanted context for a platform-wide one. A principal loaded without its tenant's
 key (or polymorphic type) is a misconfiguration, and the bind throws its `LogicException`.
 
+To read only what a guard is already bound to, without authenticating the request, ask the guard for its
+`boundCaller()`: a `Callers\BoundCaller` with the bound `identity`, `principal` and `session`, the `credentialKind` the
+guard authenticated (`null` for a sign-in or a trusted bind), the `credentialId` of an API key or a client credentials
+token (the key's id, never the key), and `tenant()`, which throws `TenantUnavailableException` as `Auth::tenant()` does;
+or `null` when no identity is bound. Code that must not trigger authentication, such as an audit log's actor, reads
+this instead of the accessors above.
+
 `setUser()`, which Laravel's `actingAs()` uses, replaces the whole context: it binds the identity with its default
 principal (and no session), and throws an `InvalidArgumentException` when the identity has none. Use the guard's
 `login($identity, $principal, $session)` to bind a specific principal or a session; code acting for a client it was

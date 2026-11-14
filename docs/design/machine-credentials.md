@@ -25,7 +25,8 @@ authorisation package decides what they allow.
 - `Auth::scopes()` is `null` when no credential limits the request (a human identity's session, or nothing bound), the
   credential's granted list for an API key or a client credentials token, and `[]` for a `MachineIdentity` bound
   without a credential: a machine is never left without a ceiling.
-- Every bound context's events carry the credential's id (`credentialId`) and its scopes (`scopes`) as plain strings.
+- Every bound context's events carry the credential's id (`credentialId`) and its scopes (`scopes`) as plain strings;
+  the guard's `boundCaller()` gives the same id. The id is the key's primary key, never the key or its public id.
 - An API key is `<prefix>_<public>_<secret>`; only `<prefix>_<public>` (the key's public id, column `public_id`, which
   is also its OAuth client id) and the SHA-256 digest of the secret are stored, so the key exists in plaintext only in
   the `IssuedApiKey` the issuing call returns, whose `key()` is a `Secret` (revealed only where it is shown), so no
@@ -156,7 +157,7 @@ authorisation package decides what they allow.
 - `src/Scopes/Scopes.php`: `normalize()`, `parse()`, `format()`, `isSubset()`, `grantable()`.
 - `src/Contracts/ScopeRegistry.php`, `src/Scopes/AcceptAnyScope.php`, `src/Exceptions/InvalidScopeException.php`.
 - `src/Guards/Concerns/BindsContextualState.php`: `scopes()`, and the scopes a bind without a credential gets.
-- `src/Events/EventContext.php`: `credentialId`, `scopes`.
+- `src/Events/EventContext.php`: `credentialId`, `scopes`; `src/Callers/BoundCaller.php`: `credentialId`.
 - `src/ApiKeys/ApiKeyService.php`, `ApiKeyToken.php`, `ApiKeyLookup.php`, `ApiKeyAuthentication.php`,
   `ApiKeyAdmission.php`, `CredentialBinding.php`, `ApiKeyRules.php`, `ApiKeySettings.php`.
 - `src/ClientCredentials/ClientCredentialsExchange.php`, `ClientCredentialsRequest.php`, `PresentedClient.php`,
