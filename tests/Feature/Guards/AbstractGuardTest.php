@@ -30,6 +30,7 @@ use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
+use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
@@ -1105,16 +1106,57 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
         $classes = array_map(static fn (object $event): string => $event::class, $events->getArrayCopy());
 
-        self::assertSame([Attempting::class, Validated::class, Login::class, Authenticated::class, PrincipalAssigned::class], $classes);
+        self::assertSame([Attempting::class, Validated::class, Login::class, Authenticated::class, PrincipalAssigned::class, SignedIn::class], $classes);
 
         $login    = $events[2];
         $assigned = $events[4];
+        $signedIn = $events[5];
 
         self::assertInstanceOf(Login::class, $login);
         self::assertFalse($login->remember);
         self::assertInstanceOf(PrincipalAssigned::class, $assigned);
         self::assertSame('password', $assigned->context->method);
         EventContextAssertions::assertTenant($tenant, $assigned->context);
+        self::assertInstanceOf(SignedIn::class, $signedIn);
+        self::assertFalse($signedIn->refresh);
+        self::assertSame('password', $signedIn->context->method);
+        EventContextAssertions::assertIdentity($identity, $signedIn->context);
+        EventContextAssertions::assertPrincipal($principal, $signedIn->context);
+        EventContextAssertions::assertTenant($tenant, $signedIn->context);
+        EventContextAssertions::assertSession(null, $signedIn->context);
+    }
+
+    /**
+     * A successful attempt reports the identity it bound even when a bind
+     * listener signs the guard out.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASuccessfulAttemptReportsWhatItBoundWhenAListenerSignsOut(): void
+    {
+        $identity  = $this->mockIdentity();
+        $principal = $this->mockActivePrincipal();
+        $guard     = $this->makeGuard();
+        $signedIn  = null;
+
+        $this->expectPasswordAccepted($identity);
+        $this->resolver->shouldReceive('resolve')->once()->with($identity)->andReturn($principal);
+
+        $this->events->shouldReceive('dispatch')
+            ->andReturnUsing(static function (object $event) use ($guard, &$signedIn): void {
+                if ($event instanceof PrincipalAssigned) {
+                    $guard->forgetUser();
+                }
+
+                $signedIn = $event instanceof SignedIn ? $event : $signedIn;
+            });
+
+        self::assertTrue($guard->attempt(['email' => 'ada@example.test', 'password' => 'secret']));
+        self::assertInstanceOf(SignedIn::class, $signedIn);
+        EventContextAssertions::assertIdentity($identity, $signedIn->context);
+        EventContextAssertions::assertPrincipal($principal, $signedIn->context);
     }
 
     /**
@@ -1385,7 +1427,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
         $guard->login($identity, $principal, $session, $client);
 
         self::assertSame(
-            [Validated::class, Login::class, Authenticated::class, PrincipalAssigned::class, SessionAuthenticated::class],
+            [Validated::class, Login::class, Authenticated::class, PrincipalAssigned::class, SessionAuthenticated::class, SignedIn::class],
             array_map(static fn (object $event): string => $event::class, $events->getArrayCopy()),
         );
         self::assertSame($identity, $events[0]->user ?? null);

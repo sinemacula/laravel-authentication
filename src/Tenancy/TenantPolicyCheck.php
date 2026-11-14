@@ -6,17 +6,18 @@ namespace SineMacula\Laravel\Authentication\Tenancy;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Container\Container;
+use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Admission\Admitted;
-use SineMacula\Laravel\Authentication\Contracts\Identity;
-use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Session;
-use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
 use SineMacula\Laravel\Authentication\Requirements\ProofSource;
 use SineMacula\Laravel\Authentication\Requirements\RequirementJudge;
+use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
 use SineMacula\Laravel\Authentication\Tenancy\Enums\TenantPolicyStanding;
 
 /**
@@ -62,7 +63,7 @@ final class TenantPolicyCheck
             return new TenantPolicyVerdict(TenantPolicyStanding::MET, null);
         }
 
-        $context = self::contextFor($guard, $admitted->identity, $admitted->principal, $admitted->tenant, $session, $client, $source);
+        $context = new TenantPolicyContext($guard, $admitted->identity, $admitted->principal, $admitted->tenant, $session, $client, self::connectionOf($session, $source));
 
         try {
             return self::judge(self::requirementFor($context), $context, $now, $source);
@@ -72,33 +73,93 @@ final class TenantPolicyCheck
     }
 
     /**
-     * The context the policy is asked about, with its connection found lazily.
+     * Judge the session again against the tenant's policy on its current
+     * proofs, a further factor only when it is not pending; `null` when it acts
+     * in no tenant or records the very version answered.
      *
      * @param  string  $guard
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
-     * @param  \SineMacula\Laravel\Authentication\Requirements\ProofSource  $source
-     * @return \SineMacula\Laravel\Authentication\Tenancy\TenantPolicyContext
+     * @param  \Closure(): bool  $pending
+     * @param  \Carbon\CarbonImmutable  $now
+     * @return ?\SineMacula\Laravel\Authentication\Tenancy\TenantPolicyVerdict
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
      */
-    public static function contextFor(
-        string $guard,
-        Identity $identity,
-        Principal $principal,
-        Tenant $tenant,
-        ?Session $session,
-        ?ClientContext $client,
-        ProofSource $source,
-    ): TenantPolicyContext {
-        $connectionId = static fn (): ?string => match (true) {
+    public static function again(string $guard, Admitted $admitted, Session $session, ?ClientContext $client, \Closure $pending, CarbonImmutable $now): ?TenantPolicyVerdict
+    {
+        if ($admitted->tenant === null) {
+            return null;
+        }
+
+        $recorded = $session->getTenantPolicyVersion();
+        $source   = new ProofSource(current: true);
+        $context  = new TenantPolicyContext($guard, $admitted->identity, $admitted->principal, $admitted->tenant, $session, $client, self::connectionOf($session, $source), true);
+
+        try {
+            $requirement = self::requirementFor($context);
+
+            if ($recorded !== null && $recorded === $requirement->version) {
+                return null;
+            }
+
+            // A pending session's further factor is judged when it activates.
+            $judged = !$requirement->factor->isEmpty() && $pending()
+                ? new TenantRequirement($requirement->version, connections: $requirement->connections)
+                : $requirement;
+
+            return self::judge($judged, $context, $now, $source);
+        } finally {
+            $context->expire();
+        }
+    }
+
+    /**
+     * Why a committed session no longer meets the tenant's policy as it answers
+     * now; `null` when it does or records the very version answered.
+     *
+     * @param  string  $guard
+     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  \Carbon\CarbonImmutable  $now
+     * @return ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     */
+    public static function shortfall(string $guard, Admitted $admitted, EloquentSession&Model $session, ClientContext $client, CarbonImmutable $now): ?FailureReason
+    {
+        // Read as stored: the copy given may predate an activation or a return
+        // to pending made since in the same transaction.
+        $pending = static fn (): bool => $session->getConnection()->table($session->getTable())->useWritePdo()
+            ->where($session->getKeyName(), $session->getKey())
+            ->value($session->getStatusName()) === SessionStatus::PENDING->value;
+
+        return match (self::again($guard, $admitted, $session, $client, $pending, $now)?->standing) {
+            TenantPolicyStanding::SSO_REQUIRED    => FailureReason::SSO_REQUIRED,
+            TenantPolicyStanding::FACTOR_REQUIRED => FailureReason::ADDITIONAL_FACTOR_REQUIRED,
+            default                               => null,
+        };
+    }
+
+    /**
+     * Finds the connection the policy's context reads lazily: the evidence's,
+     * or the one the session's provenance records.
+     *
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  \SineMacula\Laravel\Authentication\Requirements\ProofSource  $source
+     * @return \Closure(): ?string
+     */
+    public static function connectionOf(?Session $session, ProofSource $source): \Closure
+    {
+        return static fn (): ?string => match (true) {
             $source->evidence !== null => $source->evidence->connectionId,
             $session === null          => null,
             default                    => SessionProofs::connectionId($session, $source->current),
         };
-
-        return new TenantPolicyContext($guard, $identity, $principal, $tenant, $session, $client, $connectionId);
     }
 
     /**

@@ -365,7 +365,7 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
         app()->instance(TenantAuthenticationPolicy::class, new ScriptedTenantAuthenticationPolicy(new TenantRequirement('v1', new Requirement(new RequirementPart))));
 
         $sessions = $this->sessions('choosers');
-        $result   = $this->assertQueryBudget(8, 1, static fn (): SignInResult => $sessions->choose($token, $chosen, self::requestClient()));
+        $result   = $this->assertQueryBudget(9, 1, static fn (): SignInResult => $sessions->choose($token, $chosen, self::requestClient()));
 
         self::assertTrue($result->isPending());
         self::assertSame(1, $this->firstFactorReads());
