@@ -214,7 +214,7 @@ final readonly class FactorCodes
         return match ($codes->check($bound, $challengeId, $code, $now, true)) {
             CodeCheck::INVALID   => new FactorCodeCheck(FactorCodeOutcome::INVALID, $challengeId),
             CodeCheck::NOT_FOUND => new FactorCodeCheck(FactorCodeOutcome::NOT_FOUND, $challengeId),
-            CodeCheck::USED      => new FactorCodeCheck(FactorCodeOutcome::USED, $challengeId),
+            CodeCheck::USED      => new FactorCodeCheck($codes->isUsedBy($bound, $challengeId, $code) ? FactorCodeOutcome::REPLAYED : FactorCodeOutcome::USED, $challengeId),
             CodeCheck::EXPIRED   => new FactorCodeCheck(FactorCodeOutcome::EXPIRED, $challengeId),
             CodeCheck::EXHAUSTED => new FactorCodeCheck(FactorCodeOutcome::EXHAUSTED, $challengeId),
             CodeCheck::ACCEPTED  => self::checked($counters->report($binding, $challengeId, true), $challengeId, $now),
