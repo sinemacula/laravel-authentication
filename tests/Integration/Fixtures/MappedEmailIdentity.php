@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace Tests\Integration\Fixtures;
 
 use Illuminate\Contracts\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
 use SineMacula\Laravel\Authentication\Concerns\Authenticatable;
@@ -68,6 +69,25 @@ final class MappedEmailIdentity extends Model implements HasSessions, HasVerifia
         $address = $this->getAttribute('email_address');
 
         return is_string($address) ? $address : null;
+    }
+
+    /**
+     * The identities holding the email address, every one of which is verified.
+     *
+     * @param  string  $type
+     * @param  string  $identifier
+     * @return \Illuminate\Database\Eloquent\Collection<int, self>
+     *
+     * @throws \LogicException
+     */
+    #[\Override]
+    public static function holdingVerifiedIdentifier(string $type, #[\SensitiveParameter] string $identifier): Collection
+    {
+        if ($type !== 'email') {
+            throw new \LogicException(sprintf('%s has no [%s] identifier.', self::class, $type));
+        }
+
+        return self::query()->where('email_address', $identifier)->get();
     }
 
     /**
