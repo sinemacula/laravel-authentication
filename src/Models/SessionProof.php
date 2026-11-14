@@ -17,6 +17,7 @@ use SineMacula\Laravel\Authentication\Database\StorageConnection;
  *
  * @internal
  *
+ * @property int $sequence
  * @property string $id
  * @property string $session_id
  * @property string $kind
