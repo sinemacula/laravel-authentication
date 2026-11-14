@@ -123,6 +123,10 @@ to these events, so the shape and the timing are a contract.
 - Refresh: the guard dispatches `Refreshed` and `SignedIn` with the session's context, including the session's active
   tenant the exchange admitted and the method the session records, after the rotation commits on the session's
   connection, scheduling them before it binds the exchanged session.
+- A guard's `attempt()` and `login()`, which write no session: `SignedIn` after the bind's events, with the context
+  `PrincipalAssigned` carries (the method `password` for `attempt()`, the method a given session records for
+  `login()`). The session service binds through `GuardBinding::loginStarted()`, which reports nothing more, so each
+  sign-in is reported once.
 - A write is reported before the guard binds to it, so a bind listener that throws (on `Validated`, `Login`,
   `Authenticated`, `PrincipalAssigned` or `SessionAuthenticated`) cannot withhold the report: its exception still
   reaches the caller, and the events still never fire for a rolled-back write. With no transaction open they are
