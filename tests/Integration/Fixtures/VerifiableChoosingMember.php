@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace Tests\Integration\Fixtures;
 
 use Illuminate\Contracts\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Concerns\Authenticatable;
 use SineMacula\Laravel\Authentication\Contracts\HasPrincipals;
@@ -112,6 +113,19 @@ final class VerifiableChoosingMember extends Model implements HasPrincipals, Has
     public function markIdentifierAsVerified(string $type, string $identifier): bool
     {
         return $this->forceFill(['email_verified' => true])->save();
+    }
+
+    /**
+     * The members holding the email, verified.
+     *
+     * @param  string  $type
+     * @param  string  $identifier
+     * @return \Illuminate\Database\Eloquent\Collection<int, self>
+     */
+    #[\Override]
+    public static function holdingVerifiedIdentifier(string $type, #[\SensitiveParameter] string $identifier): Collection
+    {
+        return $type === 'email' ? self::query()->where('email', $identifier)->where('email_verified', true)->get() : new Collection;
     }
 
     /**

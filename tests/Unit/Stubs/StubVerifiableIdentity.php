@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace Tests\Unit\Stubs;
 
+use Illuminate\Database\Eloquent\Collection;
 use SineMacula\Laravel\Authentication\Contracts\HasVerifiableIdentifiers;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 
@@ -46,6 +47,19 @@ final class StubVerifiableIdentity implements HasVerifiableIdentifiers, Identity
     public function getIdentifierForVerification(string $type): ?string
     {
         return $this->identifiers[$type] ?? null;
+    }
+
+    /**
+     * No stub identity is found by its identifier: stubs are not stored.
+     *
+     * @param  string  $type
+     * @param  string  $identifier
+     * @return \Illuminate\Database\Eloquent\Collection<int, never>
+     */
+    #[\Override]
+    public static function holdingVerifiedIdentifier(string $type, #[\SensitiveParameter] string $identifier): Collection
+    {
+        return new Collection;
     }
 
     /**
