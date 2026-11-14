@@ -61,9 +61,9 @@ signs in again on the same device gets a new session, so the device and the reco
   session before it judges any). `IssuanceGuard::write()` returns whether it wrote the row: refresh and switch refuse
   a `false` as `session_unknown`, and `IssuanceGuard::hold()`, used under a lock and by the token service's public
   issue, makes it a `LogicException`.
-- `SignedInSession` and `SignedIn` carry no flag saying a session was created. Every sign-in creates one, so on
-  `SignedIn` the flag would always be `!$refresh`, and on `SignedInSession` it would only repeat which result carries
-  it; `SessionCreated` marks a creation.
+- `SignedInSession` and `SignedIn` carry no flag saying a session was created. Every session service sign-in creates
+  one and a guard's `attempt()` or `login()` creates none, so on `SignedIn` the flag would only repeat which flow
+  reported it, and on `SignedInSession` which result carries it; `SessionCreated` marks a creation.
 
 ## Success Path
 

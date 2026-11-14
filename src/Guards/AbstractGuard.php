@@ -25,6 +25,7 @@ use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\EventContext;
+use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
 use SineMacula\Laravel\Authentication\Guards\Concerns\BindsContextualState;
 use SineMacula\Laravel\Authentication\Guards\Concerns\ExposesCollaborators;
@@ -281,14 +282,16 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
 
         // Validated fired when the password was accepted; bind directly and
         // skip login() to avoid double-dispatching.
-        $this->bindVerifiedContext($outcome->identity, $outcome->principal, $outcome->session, $outcome->tenant, PasswordSignIn::NAME, true);
+        $context = $this->bindVerifiedContext($outcome->identity, $outcome->principal, $outcome->session, $outcome->tenant, PasswordSignIn::NAME, true);
+
+        $this->context->dispatch(new SignedIn($context, false));
 
         return true;
     }
 
     /**
      * Bind a fully resolved identity, principal, and optional session, firing
-     * `Validated` and `Login` around the bind.
+     * `Validated` and `Login` around the bind and `SignedIn` after it.
      *
      * A trusted bind: nothing given is checked against the identity.
      *
@@ -305,7 +308,9 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
     {
         $this->fireValidatedEvent($identity);
 
-        $this->bindAuthenticationLifecycle($identity, $principal, $session, $client);
+        $context = $this->bindAuthenticationLifecycle($identity, $principal, $session, $client);
+
+        $this->context->dispatch(new SignedIn($context, false));
     }
 
     /**
@@ -455,25 +460,26 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
 
     /**
      * Bind as a sign-in, in the tenant the session records (or the principal's
-     * own without a session), with the sign-in method the session records.
+     * own without a session), with the sign-in method the session records,
+     * returning the context the bind's events report.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
-     * @return void
+     * @return \SineMacula\Laravel\Authentication\Events\EventContext
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \LogicException
      */
-    protected function bindAuthenticationLifecycle(Identity $identity, Principal $principal, ?Session $session = null, ?ClientContext $client = null): void
+    protected function bindAuthenticationLifecycle(Identity $identity, Principal $principal, ?Session $session = null, ?ClientContext $client = null): EventContext
     {
-        $this->bindVerifiedContext($identity, $principal, $session, TrustedTenant::of($principal, $session), $session?->getSignInMethod(), true, client: $client);
+        return $this->bindVerifiedContext($identity, $principal, $session, TrustedTenant::of($principal, $session), $session?->getSignInMethod(), true, client: $client);
     }
 
     /**
      * Bind a context the guard verified itself, dispatching `Login` for a
-     * sign-in before the bind's own events.
+     * sign-in before the bind's own events, and return the context they report.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -485,7 +491,7 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
      * @param  ?list<string>  $scopes
      * @param  ?\SineMacula\Laravel\Authentication\Context\Enums\CredentialKind  $kind
      * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
-     * @return void
+     * @return \SineMacula\Laravel\Authentication\Events\EventContext
      */
     protected function bindVerifiedContext(
         Identity $identity,
@@ -499,7 +505,7 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
         ?array $scopes = null,
         ?CredentialKind $kind = null,
         ?ClientContext $client = null,
-    ): void {
+    ): EventContext {
         $this->requestResolved = true;
 
         $this->clearContextualState();
@@ -513,6 +519,6 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
         $this->credentialId = $credentialId;
         $this->scopes       = $scopes;
 
-        $this->bindContext($identity, $principal, $session, $tenant, $method, $client);
+        return $this->bindContext($identity, $principal, $session, $tenant, $method, $client);
     }
 }

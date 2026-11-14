@@ -139,8 +139,8 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   withhold the reports and leaves the slots counted, and nothing of a rolled-back session is reported, bound or given
   back. The order holds by construction: `SessionEstablishment` (and `SessionActivation` for a pending session) writes
   the session, asks the factor policy and schedules those reports, and never binds; the service's `bound()` delivers
-  the pair at once and schedules the bind, through `login()` on the `Contracts\GuardBinding` it was given, only once
-  establishment has returned a signed-in result. A bind that waited for a commit (`Database\AfterCommit::defers()`)
+  the pair at once and schedules the bind, through `loginStarted()` on the `Contracts\GuardBinding` it was given, only
+  once establishment has returned a signed-in result. A bind that waited for a commit (`Database\AfterCommit::defers()`)
   binds only while the guard still serves the request that signed in and the session, read again on the write
   connection, is still that one (generation and owner), of this guard, unrevoked, active and not ended; with no
   transaction open it binds at once, with no extra query. The bind is deferred because the factor package satisfies a
@@ -219,8 +219,8 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   (nothing was guessed), so its external verifier bounds it.
 - An activation runs in the client `satisfy()` or `choose()` is given: its events and the session's last use carry that
   client, while the session keeps the client the sign-in came from as its creation. The bind's `PrincipalAssigned` and
-  `SessionAuthenticated` carry it too (`bound()` hands the client to `GuardBinding::login()`), as they carry a sign-in's
-  `SignInContext` client, so a last use the bind records is the same client's.
+  `SessionAuthenticated` carry it too (`bound()` hands the client to `GuardBinding::loginStarted()`), as they carry a
+  sign-in's `SignInContext` client, so a last use the bind records is the same client's.
 - Inside a caller's transaction the service's transaction is a savepoint: the lifecycle events, the bind and the
   give-back of the slots wait for the caller's commit, and a rollback withdraws all three with the session, leaving the
   guard unbound (and, unless the counters are on a connection of their own, the sign-in's attempts uncounted). A

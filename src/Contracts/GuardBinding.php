@@ -56,7 +56,7 @@ interface GuardBinding
     public function tenant(): ?Tenant;
 
     /**
-     * Bind a session the flow started as a sign-in.
+     * Bind a session the flow started and reported as a sign-in.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -66,7 +66,7 @@ interface GuardBinding
      *
      * @throws \LogicException
      */
-    public function login(Identity $identity, Principal $principal, ?Session $session = null, ?ClientContext $client = null): void;
+    public function loginStarted(Identity $identity, Principal $principal, ?Session $session = null, ?ClientContext $client = null): void;
 
     /**
      * Bind a session the flow verified itself as a sign-in, as a refresh binds

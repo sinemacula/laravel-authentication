@@ -553,7 +553,7 @@ final readonly class SessionService
         $this->binds->run(
             $session->record,
             $session->principal,
-            fn () => $this->binding->login($session->identity, $session->principal, $session->record, $recheck->client),
+            fn () => $this->binding->loginStarted($session->identity, $session->principal, $session->record, $recheck->client),
             fn () => $recheck->then($session->record, fn () => $this->giveBack($session->heldSlots, $attempt)),
         );
 

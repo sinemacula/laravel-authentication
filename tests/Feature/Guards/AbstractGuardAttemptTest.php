@@ -16,6 +16,7 @@ use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
+use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
 use Tests\Fixtures\Events\EventContextAssertions;
@@ -94,7 +95,7 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
 
         self::assertTrue($guard->attempt(['email' => 'x', 'password' => 'y']));
         self::assertSame(
-            [Attempting::class, Validated::class, Login::class, Authenticated::class, PrincipalAssigned::class],
+            [Attempting::class, Validated::class, Login::class, Authenticated::class, PrincipalAssigned::class, SignedIn::class],
             $dispatched,
         );
     }
@@ -133,6 +134,8 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
             ->with(\Mockery::type(Authenticated::class));
         $this->events->shouldReceive('dispatch')
             ->with(\Mockery::type(PrincipalAssigned::class));
+        $this->events->shouldReceive('dispatch')
+            ->with(\Mockery::type(SignedIn::class));
         $this->events->shouldReceive('dispatch')
             ->once()
             ->with(

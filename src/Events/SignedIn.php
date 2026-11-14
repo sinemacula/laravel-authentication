@@ -5,7 +5,8 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Events;
 
 /**
- * Dispatched once a sign-in, or a refresh that renews a session, is committed.
+ * Dispatched once a sign-in, or a refresh that renews a session, is committed,
+ * and once a guard's `attempt()` or `login()` has bound a sign-in.
  *
  * @api
  *

@@ -18,7 +18,7 @@ shared and mutable, how it is rebound, and what a flow may keep from it.
   built for the guard builds the refresh exchange on the same context with the guard's token service, so both read the
   provider, the resolver and the dispatcher the guard reads; neither keeps a copy of them, and neither has setters.
 - What a session flow may do to its guard's bound state is the internal port `Contracts\GuardBinding` (`user()`,
-  `principal()`, `session()`, `tenant()`, `login()`, `loginVerified()`, `authenticateAs()`, `forgetUser()`,
+  `principal()`, `session()`, `tenant()`, `loginStarted()`, `loginVerified()`, `authenticateAs()`, `forgetUser()`,
   `forgetSession()`, `forgetIdentity()`), which `AbstractGuard` implements. `forgetSession()` forgets a binding only to
   the session given and `forgetIdentity()` only to the identity given (but one to the session kept), neither resolving
   the request, so a revocation unbinds just the guards bound to what it ended once it commits:

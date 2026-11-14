@@ -13,9 +13,11 @@ use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
+use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\Concerns\BindsContextualState;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use Tests\Fixtures\Events\EventContextAssertions;
 
 /**
@@ -149,17 +151,104 @@ final class AbstractGuardEventContextTest extends AbstractGuardTestCase
 
     /**
      * `login()` reports a sign-in: `Validated` and `Login` come before the bind
-     * events.
+     * events, and `SignedIn` after them.
      *
      * @return void
      */
-    public function testLoginReportsTheSignInBeforeTheBind(): void
+    public function testLoginReportsTheSignInAroundTheBind(): void
     {
         $events = $this->recordEvents();
 
         $this->makeGuard()->login($this->mockIdentity(), $this->mockPrincipal());
 
-        self::assertSame([Validated::class, Login::class, Authenticated::class, PrincipalAssigned::class], self::classes($events));
+        self::assertSame([Validated::class, Login::class, Authenticated::class, PrincipalAssigned::class, SignedIn::class], self::classes($events));
+    }
+
+    /**
+     * `login()` reports its sign-in with the context the bind reports, the
+     * client given and the method the session records.
+     *
+     * @return void
+     */
+    public function testLoginReportsTheSignInWithTheBoundContext(): void
+    {
+        $tenant = \Mockery::mock(Tenant::class);
+        $tenant->shouldReceive('getTenantIdentifier')->andReturn(5);
+
+        $identity  = $this->mockIdentity();
+        $principal = $this->mockPrincipal();
+        $session   = $this->mockSession();
+
+        $principal->shouldReceive('getTenant')->andReturn($tenant);
+        $session->shouldReceive('getSignInMethod')->andReturn('passkey');
+        $session->shouldReceive('getTenantId')->andReturn('5');
+
+        $events = $this->recordEvents();
+
+        $client = new ClientContext('198.51.100.4', 'Worker/3.1');
+
+        $this->makeGuard()->login($identity, $principal, $session, $client);
+
+        $signedIn = $events->getArrayCopy()[5];
+
+        self::assertInstanceOf(SignedIn::class, $signedIn);
+        self::assertFalse($signedIn->refresh);
+        self::assertSame(self::GUARD_NAME, $signedIn->context->guard);
+        self::assertSame($client, $signedIn->context->client);
+        EventContextAssertions::assertIdentity($identity, $signedIn->context);
+        EventContextAssertions::assertPrincipal($principal, $signedIn->context);
+        EventContextAssertions::assertTenant($tenant, $signedIn->context);
+        EventContextAssertions::assertSession($session, $signedIn->context);
+        self::assertSame('passkey', $signedIn->context->method);
+    }
+
+    /**
+     * `login()` reports the identity it bound even when a bind listener signs
+     * the guard out.
+     *
+     * @return void
+     */
+    public function testLoginReportsWhatItBoundWhenAListenerSignsOut(): void
+    {
+        $guard     = $this->makeGuard();
+        $identity  = $this->mockIdentity();
+        $principal = $this->mockPrincipal();
+        $signedIn  = null;
+
+        $this->events->shouldReceive('dispatch')
+            ->andReturnUsing(static function (object $event) use ($guard, &$signedIn): void {
+                if ($event instanceof PrincipalAssigned) {
+                    $guard->forgetUser();
+                }
+
+                $signedIn = $event instanceof SignedIn ? $event : $signedIn;
+            });
+
+        $guard->login($identity, $principal);
+
+        self::assertInstanceOf(SignedIn::class, $signedIn);
+        EventContextAssertions::assertIdentity($identity, $signedIn->context);
+        EventContextAssertions::assertPrincipal($principal, $signedIn->context);
+    }
+
+    /**
+     * `loginStarted()` binds the session service's sign-in without reporting it
+     * again.
+     *
+     * @return void
+     */
+    public function testLoginStartedLeavesTheSignInToTheFlowThatStartedIt(): void
+    {
+        $identity  = $this->mockIdentity();
+        $principal = $this->mockPrincipal();
+        $session   = $this->mockSession();
+        $events    = $this->recordEvents();
+        $guard     = $this->makeGuard();
+
+        $guard->loginStarted($identity, $principal, $session);
+
+        self::assertSame([Validated::class, Login::class, Authenticated::class, PrincipalAssigned::class, SessionAuthenticated::class], self::classes($events));
+        self::assertSame([$identity, $principal, $session], [$guard->user(), $guard->principal(), $guard->session()]);
     }
 
     /**
