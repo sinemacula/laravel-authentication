@@ -16,10 +16,16 @@ leaves that choice to the notifier; the one below sends nothing to an unverified
 one.
 
 ```php
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
+use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
+use SineMacula\Laravel\Authentication\Concerns\Authenticatable;
 use SineMacula\Laravel\Authentication\Concerns\ProvidesIdentifierChanges;
 use SineMacula\Laravel\Authentication\Contracts\HasChangeableIdentifiers;
 use SineMacula\Laravel\Authentication\Contracts\IdentifierChangeNotifier;
+use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeNotice;
 
 class User extends Model implements HasChangeableIdentifiers, Identity, Principal
@@ -45,24 +51,28 @@ final class MailIdentifierChangeNotifier implements IdentifierChangeNotifier
 $this->app->singleton(IdentifierChangeNotifier::class, MailIdentifierChangeNotifier::class);
 ```
 
-**Uniqueness.** Give the identifier's column a unique index on the stored, normalised value (the `NormalizedIdentifier`
-cast stores it so; see [Identifiers](identity-models.md#identifiers)), and a composite one with the tenant's key for
-identifiers unique per tenant. A confirmation checks first that the guard's identity provider finds no other identity
-holding the new identifier, but only the index decides a race between two confirmations of one value: the one that loses
-is refused as `taken`, inside a savepoint, so the change, its proof and any transaction you hold stay usable. Without
-the index the check is best effort and a race can leave two identities with one identifier.
+## Uniqueness
 
-**Recent authentication.** A request carries a `Sessions\Reauthentication`, the proof that the identity authenticated
-recently enough: the `identifier_change` operation's freshness decides how recently and by which proofs (900 seconds,
-and any proof kind, by default; see [Freshness](configuration.md#freshness), where a guard may set its own).
+Give the identifier's column a unique index on the stored, normalised value (the `NormalizedIdentifier` cast stores it
+so; see [Identifiers](identity-models.md#identifiers)), and a composite one with the tenant's key for identifiers unique
+per tenant. A confirmation checks first that the guard's identity provider finds no other identity holding the new
+identifier, but only the index decides a race between two confirmations of one value: the one that loses is refused as
+`taken`, inside a savepoint, so the change, its proof and any transaction you hold stay usable. Without the index the
+check is best effort and a race can leave two identities with one identifier.
+
+## Recent authentication
+
+A request carries a `Sessions\Reauthentication`, the proof that the identity authenticated recently enough: the
+`identifier_change` operation's freshness decides how recently and by which proofs (900 seconds, and any proof kind, by
+default; see [Freshness](configuration.md#freshness), where a guard may set its own).
 
 - `Reauthentication::session($session)`: the session the change is made from. Read again on the write connection, it
   must still be that session (of its generation, so a later session a model put under its key proves nothing for it) and
-  one of the identity's own live sessions of the guard (not revoked, deadlines not passed) holding a proof that meets
-  the requirement: its sign-in, a reauthentication, a step-up or a recovery code, of a kind the requirement takes, made
-  within its age (see [Freshness](sessions.md#freshness)). A refresh or a switch records no proof, so neither
-  renews it; a reauthentication or a step-up does. A fresh sign-in starts a new session, and a session it replaced is
-  revoked, so it no longer proves anything.
+  one of the identity's own live sessions of the guard (not revoked, not pending, deadlines not passed) holding a proof
+  that meets the requirement: its sign-in, a reauthentication, a step-up or a recovery code, of a kind the requirement
+  takes, made within its age (see [Freshness](sessions.md#freshness)). A refresh or a switch records no proof, so
+  neither renews it; a reauthentication or a step-up does. A fresh sign-in starts a new session, and a session it
+  replaced is revoked, so it no longer proves anything.
 - `Reauthentication::password($password)`: the identity's current password, a first-factor reauthentication made now,
   checked in the guard's credential timebox against the identity read again through the guard's provider. It counts
   against the identity's account and the IP address under the `sign_in` limits, and a correct one is given back. It is
@@ -82,28 +92,29 @@ reauthenticating, and the session's own proofs otherwise. A malformed `identifie
 every request and confirmation throws its `InvalidArgumentException` before anything is counted or written, and
 `authentication:check` reports it.
 
-**Requesting.** `requestByCode()` sends a code to the new identifier, delivered after commit by a queued job through
-your `OneTimeCodeSender` with the purpose `change_identifier` (the message's `identifier` is the new one), and answers
-the challenge id its confirmation names;
-`requestByLink()` signs a link to your named route instead, which `link()` returns for you to send to the new identifier
-(and only there: never return it to the client). The new identifier must be one the type's normaliser accepts and not
-the current one; whether another identity holds it is not checked here, so the answer says nothing about it. Requests
-are limited by `rate_limits.identifier_change`, counted on the new identifier, on the identity and on the IP address. A
-request checks the proof, the new identifier and the limits first, on the identity's row read again; then, in one
-transaction that locks that row (and the proving session's row, for a session proof), it checks again that the proof
-stands and that the identifier is not the current one, and writes the change. A refusal there gives the
-`identifier_change` slots back. So a password change or a reset racing a request proven by the old password, and a
-revocation of the session that proves one, come either before the check under the lock, which then fails, or after the
-change is written, which they then cancel. The check under the lock judges a session proof's freshness on the session's
-proofs as committed, the freshness policy asked current (see [Issuance order](sessions.md#issuance-order)): a step-up
-a factor's removal voided before it never counts, whatever a transaction of yours around the call read first. The first
-check, before the transaction, reads plainly, so inside a transaction of yours at REPEATABLE READ it may miss a proof
-recorded after your first read and refuse (`reauthentication_required`); it never lets a voided one through, as the
-check under the lock refuses it. A password proof racing a revocation that leaves the password as it is is not
-serialised. The current identifier is read from the row as locked. The limits are counted before the transaction, never
-inside it, so no counter's row stays locked until its commit: on MySQL, two transactions that each create a counter in
-the same gap of the index deadlock (inside a transaction of yours, see the paragraph on transactions under [Rate
-limits](configuration.md#rate-limits)).
+## Requesting
+
+`requestByCode()` sends a code to the new identifier, delivered after commit by a queued job through your
+`OneTimeCodeSender` with the purpose `change_identifier` (the message's `identifier` is the new one), and answers the
+challenge id its confirmation names; `requestByLink()` signs a link to your named route instead, which `link()` returns
+for you to send to the new identifier (and only there: never return it to the client). The new identifier must be one
+the type's normaliser accepts and not the current one; whether another identity holds it is not checked here, so the
+answer says nothing about it. Requests are limited by `rate_limits.identifier_change`, counted on the new identifier, on
+the identity and on the IP address. A request checks the proof, the new identifier and the limits first, on the
+identity's row read again; then, in one transaction that locks that row (and the proving session's row, for a session
+proof), it checks again that the proof stands and that the identifier is not the current one, and writes the change. A
+refusal there gives the `identifier_change` slots back. So a password change or a reset racing a request proven by the
+old password, and a revocation of the session that proves one, come either before the check under the lock, which then
+fails, or after the change is written, which they then cancel. The check under the lock judges a session proof's
+freshness on the session's proofs as committed, the freshness policy asked current (see [Issuance
+order](sessions.md#issuance-order)): a step-up a factor's removal voided before it never counts, whatever a transaction
+of yours around the call read first. The first check, before the transaction, reads plainly, so inside a transaction of
+yours at REPEATABLE READ it may miss a proof recorded after your first read and refuse (`reauthentication_required`); it
+never lets a voided one through, as the check under the lock refuses it. A password proof racing a revocation that
+leaves the password as it is is not serialised. The current identifier is read from the row as locked. The limits are
+counted before the transaction, never inside it, so no counter's row stays locked until its commit: on MySQL, two
+transactions that each create a counter in the same gap of the index deadlock (inside a transaction of yours, see the
+paragraph on transactions under [Rate limits](configuration.md#rate-limits)).
 
 ```php
 use SineMacula\Laravel\Authentication\Facades\Auth;
@@ -163,29 +174,32 @@ reports the change waiting through this guard (its new identifier and times) and
 locking the identity's row first, as a request and a confirmation do, so the three wait for each other. Ending the
 identity's sessions in bulk drops every change it has waiting, of each type and through each guard, in the same
 transaction: `signOutEverywhere()`, `revokeSessions()` and the security-change methods that end an identity's sessions
-(see [Revoking on security changes](sessions.md#revoking-on-security-changes)), so also a change or a reset of the
-password through `Auth::passwords()->set()`, a reset by link or code, and the listeners that call them. A link needs no
-session, so one requested from a session that ended could otherwise still move the account to an address of the
-requester's. Revoking one session, ending a principal's sessions and a registration keep them. Prune expired changes
-with `php artisan model:prune --model="SineMacula\Laravel\Authentication\Models\IdentifierChange"`.
+(see [Revoking on security changes](sessions.md#revoking-on-security-changes)), so also `Auth::passwords()->change()`
+and `establish()`, a change or a reset of the password through `set()`, a reset by link or code, and the listeners that
+call them. A link needs no session, so one requested from a session that ended could otherwise still move the account to
+an address of the requester's. Revoking one session, ending a principal's sessions and a registration keep them. Prune
+expired changes with `php artisan model:prune --model="SineMacula\Laravel\Authentication\Models\IdentifierChange"`.
 
-**Confirming.** `confirmByCode($identity, $type, $challengeId, $code, $client)` takes the code and the challenge id the
-request by code answered (`IdentifierChangeRequest::$challengeId`); a malformed id is `invalid` and counts no attempt
-against the code, and a confirmation, a malformed one included, counts against the identity's account and the IP address
-under the `identifier_change` limits, given back once the change is made (out of confirmations: `rate_limited`, with the
-wait). `confirmByLink($link, $client)` takes the link as `SignedLink::fromRequest($request)` captured it from the
-request to the link's address (its address, through the trusted proxies, and its raw query string), which needs no
-session (the link names the identity, signed), and checks the signature and the expiry again from those values, with
-every key and previous key. Each acts only on a change requested through the same guard. Let the link's `GET` only show
-a confirmation, and confirm from its form: mail scanners and link previews fetch links no one clicked, and a change
+## Confirming
+
+`confirmByCode($identity, $type, $challengeId, $code, $client)` takes the code and the challenge id the request by code
+answered (`IdentifierChangeRequest::$challengeId`); a malformed id is `invalid` and counts no attempt against the code,
+and a confirmation, a malformed one included, counts against the identity's account and the IP address under the
+`identifier_change` limits, given back once the change is made (out of confirmations: `rate_limited`, with the wait).
+`confirmByLink($link, $client)` takes the link as `SignedLink::fromRequest($request)` captured it from the request to
+the link's address (its address, through the trusted proxies, and its raw query string), which needs no session (the
+link names the identity, signed), and checks the signature and the expiry again from those values, with every key and
+previous key. Each acts only on a change requested through the same guard. Let the link's `GET` only show a
+confirmation, and confirm from its form: mail scanners and link previews fetch links no one clicked, and a change
 confirmed by such a fetch (a mistyped address that reaches a stranger's scanned mailbox, say) would make the stranger's
 address the one password resets go to. The form posts back to the same signed address, query included, and
 `SignedLink::fromRequest()` captures the signature from it. Neither confirms a change for an identity that is not active
 (`CanBeActive`, see [Active-state enforcement](identity-models.md#active-state-enforcement)): the link needs no session,
 so no guard has checked it, and an account suspended after the request keeps its identifier. The answer is `invalid`,
-reported as `identity_inactive`, before anything is counted. Each answers a `RateLimiting\LimitedOutcome`: its `outcome`
-(an `IdentifierChangeOutcome`; `is(IdentifierChangeOutcome::CHANGED)` once the change is made) and, for `rate_limited`,
-the `retryAfter` to answer with.
+reported as `identity_inactive`, before the change is read or its proof checked; a confirmation by code keeps the
+`identifier_change` slot it took. Each answers a `RateLimiting\LimitedOutcome`: its `outcome` (an
+`IdentifierChangeOutcome`; `is(IdentifierChangeOutcome::CHANGED)` once the change is made) and, for `rate_limited`, the
+`retryAfter` to answer with.
 
 ```php
 use SineMacula\Laravel\Authentication\Http\ClientContext;
@@ -245,6 +259,8 @@ fails and the queue's retries apply. The new identifier was proven and the reque
 the change back on a mail outage would block the owner while protecting nothing the proof did not. The identity's
 sessions are not revoked: changing an identifier is not a security change of its own; end them with
 `signOutEverywhere()` if your application wants that.
+
+## Refusals and misconfiguration
 
 Every refusal is reported by `AuthenticationFailed` on the `identifier_change` flow, not concealed, since the caller
 holds the identity: `reauthentication_required`, `rate_limited` (with `retryAfter`), `invalid_credentials`,

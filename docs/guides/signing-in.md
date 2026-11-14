@@ -86,9 +86,10 @@ The pins are verified rather than trusted, because they often come from request 
 resolver returns for that identifier on the authenticated identity (same class, same identifier) and must belong to that
 identity (its `getIdentity()` is the authenticated identity), and the session must be one of the identity's own sessions
 (through `HasSessions`, looked up the way a bearer `sid` is), of this guard (a session of another guard, or of none,
-counts as missing), not revoked, not ended, and acting as the principal being bound. A pin that fails either check fails
-the attempt. `login()` is the trusted entry point: it binds exactly what it is given, and reports a sign-in with
-`SignedIn` as `attempt()` does, so only pass it a principal and session you have already proven belong to the identity.
+counts as missing), active (not pending), not revoked, not ended, and acting as the principal being bound. A pin that
+fails either check fails the attempt. `login()` is the trusted entry point: it binds exactly what it is given, and
+reports a sign-in with `SignedIn` as `attempt()` does, so only pass it a principal and session you have already proven
+belong to the identity.
 `setPrincipal()` and `setSession()` are trusted binds in the same way: they do not check ownership, activity, revocation
 or session deadlines, so a principal or session taken from request input (a header that switches the acting membership,
 say) must be verified first, as `attempt()` verifies its pins.
@@ -180,9 +181,9 @@ must be admitted; a password is rehashed when its hash is outdated; and the sign
 sessions](#pending-sessions) sets out: the principals, the one selected or a choice, the identity-level factor policy,
 the selected principal's active tenant, and that tenant's authentication policy (`sso_required`, or a further factor
 owed). Failures are results, not exceptions: Laravel's `Failed` and then `AuthenticationFailed` report them, with the
-reason. A method name that is not registered (exactly: `Password` is not `password`), a method that refuses with any
-reason but `invalid_credentials`, a misconfigured model and database errors still throw. A sign-in whose session starts
-active gives its attempt slots back.
+reason. A method name that is not registered (exactly: `Password` is not `password`), a method that refuses with a
+reason only the session service gives (see [Writing a sign-in method](#writing-a-sign-in-method)), a misconfigured model
+and database errors still throw. A sign-in whose session starts active gives its attempt slots back.
 
 `start($factor, $principal, $method, $context)` begins a session for an identity the application verified itself. The
 `FirstFactor` describes how: its identity is the one signed in, and its channel, observed properties and `amr` values
@@ -354,12 +355,13 @@ is asked, a choice is offered or anything is written. A pending session keeps it
 no later than it. `fromRequest()` never sets a deadline: it is the application's, or a trusted adapter's, to supply,
 never the client's.
 
-`attempt()` and `login()` remain for code that binds the guard itself; neither creates a session. A session is a stored
+`attempt()` and `login()` are for code that binds the guard itself; neither creates a session. A session is a stored
 row, so the session service signs in only identities that implement `HasSessions`: for any other identity `signIn()`,
 `start()` and `signInExternally()` throw a `LogicException` naming its class, since the access token it would issue
-names a session the guard could never find again. Access-only guards (identities without `HasSessions`) sign in with
-`attempt()` and issue access tokens with `Auth::jwt('api')->issueAccessToken()`, a `Secret` to send as the others are
-(see [Secrets in responses](#secrets-in-responses)).
+names a session the guard could never find again (a machine identity is refused, never thrown for). Access-only guards
+(identities without `HasSessions`) sign in with `attempt()` and issue access tokens with
+`Auth::jwt('api')->issueAccessToken()`, a `Secret` to send as the others are (see [Secrets in
+responses](#secrets-in-responses)).
 
 ### Secrets in responses
 
@@ -373,8 +375,10 @@ throws `Exceptions\SecretNotRevealedException`, a `LogicException`: a bug in the
 `var_dump`, `print_r` and Laravel's `dump` and `dd` show `[redacted]` (`Secret::REDACTED`), and a stack trace that
 records arguments holds the object, never the plaintext. The values your code hands in (a password, the input a client
 sent, a refresh token or pending credential a request carried) are strings, covered by `#[\SensitiveParameter]`. A
-method that takes a token or credential back (`refresh()`, `switchTo()`, `signOutWith()`, `pending()`, `satisfy()`,
-`choose()`, `discard()`) takes either that string or the `Secret` the package returned, so there is nothing to reveal
+method that takes a pending credential back (`pending()`, `satisfy()`, `choose()`, `discard()`) takes either that string
+or the `Secret` the package returned, and `refresh()`, `switchTo()` and `signOutWith()` take the refresh token as an
+`Http\PresentedRefreshToken`, which `Auth::refreshTransport()->extract($request)` reads and
+`PresentedRefreshToken::fromBody()` builds from either (see [Refreshing](refreshing.md)), so there is nothing to reveal
 to hand one back.
 
 Answer with `Secrets\SecretResponse::json($data, $status, $headers)`: it reveals every `Secret` in `$data`, at any depth
@@ -418,6 +422,7 @@ answers, under `challenge`:
 Two routes of your own ask for a code and sign in with it, through `Auth::codes()` and the session service:
 
 ```php
+use Illuminate\Http\Request;
 use SineMacula\Laravel\Authentication\Codes\Enums\CodeRequestStatus;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
@@ -456,8 +461,8 @@ Route::post('/sign-in/code', function (Request $request) {
 });
 ```
 
-An email address is used in its normal form throughout: a code requested for `Ben@Example.com` is sent to, bound to and
-signs in with `ben@example.com`, however either step spells it, and the sender's message carries the normal form; an
+An email address is used in its normal form throughout: a code requested for `Jane@Example.com` is sent to, bound to and
+signs in with `jane@example.com`, however either step spells it, and the sender's message carries the normal form; an
 address the `email` normaliser rejects (blank, or not valid UTF-8) is `identifier_invalid`. Everything below applies to
 `email_code` as to `phone_code`, with the address for the number.
 
@@ -478,7 +483,7 @@ reports it verified and is not a machine identity. For anyone else it sends noth
 the statements run and the time taken are the same for a number no one has. "Exactly" is decided by the package, not
 your database: the identity's own identifier, in its normal form, must be byte for byte the requested one. A lookup
 matches whatever the column's collation does, and MySQL's default `utf8mb4_unicode_ci` ignores accents, so
-`ben@examplé.com` (another domain, which anyone can register) finds the holder of `ben@example.com`; such an identity
+`jane@examplé.com` (another domain, which anyone can register) finds the holder of `jane@example.com`; such an identity
 neither receives the code nor signs in with it. Each refusal is reported with `AuthenticationFailed` on the
 `code_request` flow (an invalid number as `invalid_credentials`).
 
@@ -525,6 +530,7 @@ identity registers a passkey:
 
 ```php
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 
 // POST /passkeys/options, behind auth:api
 $identity = Auth::identity();
@@ -839,10 +845,10 @@ account check; a fifth argument decides them instead, so `fn (Identity $identity
 whose accounts have used up their attempts, to test the `invalid_credentials` answer.
 
 Register the method under a lower-case name of its own (a letter, then letters, digits or underscores; `extend()`
-refuses anything else, the package's own `password`, `phone_code`, `email_code` and `passkey`, and the machine
-credential kinds `api_key` and `client_credentials`; see [Extensibility](extending.md#extensibility)), from a service
-provider once the registry resolves (see [Binding order](extending.md#binding-order)), and allow that exact name in each
-application's `application.methods`:
+refuses anything else, the package's own `password`, `phone_code`, `email_code` and `passkey`, the machine credential
+kinds `api_key` and `client_credentials`, and `external_provider`; see [Extensibility](extending.md#extensibility)),
+from a service provider once the registry resolves (see [Binding order](extending.md#binding-order)), and allow that
+exact name in each application's `application.methods`:
 
 ```php
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
@@ -950,6 +956,7 @@ query string or a header): `null` when the body has none, so nothing was present
 
 ```php
 use SineMacula\Laravel\Authentication\Secrets\Secret;
+use SineMacula\Laravel\Authentication\Sessions\Enums\PendingAction;
 use SineMacula\Laravel\Authentication\Sessions\PendingCredential;
 
 $credential = PendingCredential::extract($request);
@@ -999,28 +1006,31 @@ fallback), method, channel and factor, what was observed, the adapter's `Evaluat
 to multifactor authentication), its `amr` values, when it was made, and its `ProofBinding` (the identity, the guard,
 `$pending->id` as the session, and `Purpose::SIGN_IN`, or `Purpose::ENROLLMENT` for the factor that confirms a
 bootstrap enrolment). It is refused as `proof_invalid` when it is any other kind (a reauthentication, external or not,
-never counts), made for another purpose, not accepted, or made after now or before the session began waiting, and as
-`proof_binding_mismatch` when it names another identity, guard or session; `pending_action_not_allowed` when the factor
-is not the first requirement.
+never counts), made over the `recovery` channel, made for another purpose, not accepted, or made after now or before the
+session began waiting, and as `proof_binding_mismatch` when it names another identity, guard or session;
+`pending_action_not_allowed` when the factor is not the first requirement.
 
 Under the session's row lock, the session is checked again (the identity, the method still allowed, and the principal
 and tenant it records, if any), the proof is stored with its other proofs, and what it waits on is judged again, the
 tenant's authentication policy included (its further factor is met only as the bound `RequirementCheck` judges the
 stored proofs, and one that requires a connection refuses the call as `sso_required`, storing nothing): with nothing
 left it activates in place (the guard is bound, the pair issued, the credential consumed, `SessionCreated` and
-`SignedIn` reported, the slots given back), with the choice left it moves on to it (the result is pending again, with no
-new credential and the principals listed), and otherwise it stays pending. The access token's `amr` carries the proof's
-values, and `mfa` when its evaluation reports multifactor authentication. A refusal stores nothing and never revokes the
-session, which waits until its credential expires; every refusal reports `Failed` and `AuthenticationFailed`, and a
-credential that names nothing is `pending_invalid`. An activation's result carries the session and its pair as a
-sign-in's does, answered the same way (`access_token`, `expires_in`, `refresh_token`). The judgement reads the stored
-proofs current, after locking the session the sign-in proved, if it recorded one, so inside your own transaction take
-any session row you need before the call, and on a lock wait timeout, a deadlock or a serialisation failure roll back
-and retry the whole transaction (see [Issuance order](sessions.md#issuance-order)).
+`SignedIn` reported and the slots given back on its first activation, `SessionActivated` reported on a later one), with
+the choice left it moves on to it (the result is pending again, with no new credential and the principals listed), and
+otherwise it stays pending. The access token's `amr` carries the proof's values, and `mfa` when its evaluation reports
+multifactor authentication. A refusal stores nothing and never revokes the session, which waits until its credential
+expires; every refusal reports `Failed` and `AuthenticationFailed`, and a credential that names nothing is
+`pending_invalid`. An activation's result carries the session and its pair as a sign-in's does, answered the same way
+(`access_token`, `expires_in`, `refresh_token`). The judgement reads the stored proofs current, after locking the
+session the sign-in proved, if it recorded one, so inside your own transaction take any session row you need before the
+call, and on a lock wait timeout, a deadlock or a serialisation failure roll back and retry the whole transaction (see
+[Issuance order](sessions.md#issuance-order)).
 
 ### Choosing a principal
 
 ```php
+use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
+
 $result = Auth::sessions('api')->choose($credential, $principal, ClientContext::fromRequest($request), TenantSelection::principalDefault());
 ```
 
@@ -1086,17 +1096,18 @@ request. A body application is never held to the check.
 
 The additional-factor policy (`Contracts\AdditionalFactorPolicy`, by default one that asks for nothing; an MFA package
 or the application binds its own) is asked about the identity, after its first factor is verified and before any
-principal is chosen, with the application, the identity, the first factor's whole proof, the client and the session the
-client proved it holds, if any; it names no principal or tenant (a tenant that asks more does so through its tenant
-authentication policy). It answers a `Requirements\Requirement`: what the session's authentication must include beyond
-its first factor. The bound `Contracts\RequirementCheck` judges whether the session's proofs meet it; the default check
-meets nothing, so a requirement no factor package judges keeps the session pending. At sign-in the check judges the
-first factor alone, so a requirement it meets (a minimum assurance level the sign-in already reaches, say) starts the
-session active. Otherwise the session is pending with `mfa` outstanding, and its `PendingSession::$requirement` names
-what it still falls short of. The policy is asked again, and the check judges again, each time the pending session is
-acted on, when a refresh or a switch returns the session to pending under its tenant's authentication policy (not when
-that policy is met), and when `factorRemoved()` or `factorChanged()` judges the current session again. `attempt()`,
-which cannot wait, refuses as `additional_factor_required` a sign-in whose password alone does not meet the requirement.
+principal is chosen, with the application, the identity, the first factor's whole proof, the client (with the name and
+platform the sign-in gave) and the session the client proved it holds, if any; it names no principal or tenant (a tenant
+that asks more does so through its tenant authentication policy). It answers a `Requirements\Requirement`: what the
+session's authentication must include beyond its first factor. The bound `Contracts\RequirementCheck` judges whether the
+session's proofs meet it; the default check meets nothing, so a requirement no factor package judges keeps the session
+pending. At sign-in the check judges the first factor alone, so a requirement it meets (a minimum assurance level the
+sign-in already reaches, say) starts the session active. Otherwise the session is pending with `mfa` outstanding, and
+its `PendingSession::$requirement` names what it still falls short of. The policy is asked again, and the check judges
+again, each time the pending session is acted on, when a refresh or a switch returns the session to pending under its
+tenant's authentication policy (not when that policy is met), and when `factorRemoved()` or `factorChanged()` judges the
+current session again. `attempt()`, which cannot wait, refuses as `additional_factor_required` a sign-in whose password
+alone does not meet the requirement.
 
 ## Enumeration resistance
 

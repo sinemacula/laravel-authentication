@@ -102,14 +102,14 @@ request](sessions.md#the-caller-of-a-request)).
 
 A refresh is held to the guard as well as the token. A session the row records for another guard (or for none) fails
 with `session_guard_mismatch` and is left alone, even for a token that would be a replay, and a bearer token naming it
-is rejected as if the session were missing. The application policy is asked again on every refresh: the method that
-started the session (the session's `sign_in_method`) must still be one the guard allows (`method_not_allowed`; a session
-that records none fails too), and the policy must still admit the owner as the principal (`principal_ineligible`).
-Neither revokes the session, so the session refreshes again once the policy allows it. Each rotation moves the idle
-deadline by the idle lifetime the policy gives the guard, never past the session's absolute deadline, and never moves
-the absolute deadline: a session capped at its sign-in's own deadline stays capped, and one with no absolute deadline
-(an application that sets no absolute limit) gets none from a refresh. The new refresh token, and the cookie that
-carries it, expire at the session's end, its idle deadline alone when it has no absolute one.
+is rejected with the same reason. The application is asked again on every refresh: the method that started the session
+(the session's `sign_in_method`) must still be one the guard's `ApplicationPolicy` allows (`method_not_allowed`; a
+session that records none fails too), and `ApplicationAccess` must still let the principal use the application
+(`principal_ineligible`). Neither revokes the session, so the session refreshes again once both allow it. Each rotation
+moves the idle deadline by the idle lifetime the policy gives the guard, never past the session's absolute deadline, and
+never moves the absolute deadline: a session capped at its sign-in's own deadline stays capped, and one with no absolute
+deadline (an application that sets no absolute limit) gets none from a refresh. The new refresh token, and the cookie
+that carries it, expire at the session's end, its idle deadline alone when it has no absolute one.
 
 A refresh token is accepted only for the principal its session records. After a switch of principal (see [Switching
 principal or tenant](sessions.md#switching-principal-or-tenant)), the refresh token of the principal switched from fails
@@ -280,8 +280,8 @@ package makes no check there. The adapter that calls it must bind the `state` (a
 browser that began the flow, refuse a callback that does not match, and redeem the result once, through a single-use
 handoff, for that browser.
 
-`Auth::refreshTransport('browser')->isSameSiteRequest($request)` (or `isSameSiteClient()` of a `ClientContext`) is the
-check on its own, for a route of your own, such as one that clears the cookie. A script refreshes with:
+`Auth::refreshTransport('browser')->isSameSiteRequest($request)` (or `isSameSiteClient($client)` for a `ClientContext`)
+is the check on its own, for a route of your own, such as one that clears the cookie. A script refreshes with:
 
 ```js
 await fetch('/auth/refresh', {method: 'POST', credentials: 'include', headers: {'X-Requested-With': 'fetch'}});
@@ -374,8 +374,16 @@ optional `$expectedSession` (an integer or a string), and refuse a token that pr
 `session_mismatch`, inside the action's own flow:
 
 ```php
-Route::patch('/sessions/{session}', function (Request $request, string $session, SessionService $sessions) {
-    $result = $sessions->switchTo(
+use Illuminate\Http\Request;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
+use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
+
+Route::patch('/sessions/{session}', function (Request $request, string $session) {
+    $target = SwitchTarget::tenant(TenantSelection::of($request->input('tenant')));
+    $result = Auth::sessions('api')->switchTo(
         Auth::refreshTransport('api')->extract($request),
         $target,
         ClientContext::fromRequest($request),

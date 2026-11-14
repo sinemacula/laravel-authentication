@@ -72,7 +72,7 @@ are told apart, which claims are checked on every parse, and which the bearer pa
 
 ## Failure / Edge Cases
 
-- A token with a `typ` claim, `pid`, `did` or `grd` and no header type fails the parse: nothing reads those names.
+- A token with no header type fails the parse, whatever claims it carries: a `typ` claim is never read as its type.
 - A token whose header type is the other type's, or that breaks the access shape (`sub_type` not matching `cid`,
   `auth_time` or `amr` without `sid`, a malformed `amr`, an `auth_time` after `iat` plus the leeway, an empty
   `tenant_id`), fails as `token_invalid`.
@@ -123,10 +123,9 @@ are told apart, which claims are checked on every parse, and which the bearer pa
 - `tests/Unit/Jwt/JwtTokenServiceTest.php`
   `testParseHoldsTheTokenToItsHeaderType`, `testParseRejectsATokenWithoutAHeaderType`,
   `testParseRejectsATokenInTheOldProfile`, `testParseRejectsAMisshapenAccessToken`,
-  `testParseRejectsAuthenticationClaimsWithoutASession`
+  `testParseRejectsAuthenticationClaimsWithoutASession`, `testConstructorRejectsAnEmptyIssuerOrAudience`
 - `tests/Unit/Jwt/JwtTokenServiceParseTest.php`
-  `testParseRejectsTokenWithMismatchedIssuer`, `testParseRejectsTokenWithMismatchedAudience`,
-  `testConstructorRejectsAnEmptyIssuerOrAudience`
+  `testParseRejectsTokenWithMismatchedIssuer`, `testParseRejectsTokenWithMismatchedAudience`
 - `tests/Integration/Config/ShippedJwtKeyConfigTest.php`
   `testGuardRejectsShippedConfigWithoutIssuerOrAudience`
 - `tests/Feature/Jwt/SessionTokensTest.php`

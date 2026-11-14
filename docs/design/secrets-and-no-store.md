@@ -25,8 +25,8 @@ which values are secrets and which stay strings, and what the redaction tests ch
   annotated argument of its own frame: an object passed on is recorded whole by a trace, and a closure's captures are
   not covered at all. So a returned secret is a `Secret`; an input is a private `\SensitiveParameterValue` behind an
   accessor (`SignInRequest::input()`); an internal value is held in a private `Secret` (`IssuedCode`, read through
-  `code()` and `secret()`, whose explicit `__serialize()` and `__unserialize()` write and read the plaintext only for the
-  encrypted delivery job, and whose `__debugInfo()` redacts it); and a closure that needs a password or a pending
+  `code()` and `secret()`, whose explicit `__serialize()` and `__unserialize()` write and read the plaintext only for
+  the encrypted delivery job, and whose `__debugInfo()` redacts it); and a closure that needs a password or a pending
   credential captures the `\SensitiveParameterValue`, never the string.
 - Values the application hands in (a password, a sign-in's input, a refresh token or pending credential a request
   carried) stay strings, covered by `#[\SensitiveParameter]` on every parameter that receives one. A method that takes
@@ -78,8 +78,8 @@ which values are secrets and which stay strings, and what the redaction tests ch
 
 ## Authoritative Tests
 
-- `tests/Unit/Secrets/SecretTest.php`, `tests/Unit/Secrets/SecretResponseTest.php`, `tests/Unit/Secrets/PlaintextTest.php`,
-  `tests/Unit/Exceptions/SecretNotRevealedExceptionTest.php`
+- `tests/Unit/Secrets/SecretTest.php`, `tests/Unit/Secrets/SecretResponseTest.php`,
+  `tests/Unit/Secrets/PlaintextTest.php`, `tests/Unit/Exceptions/SecretNotRevealedExceptionTest.php`
 - `tests/Feature/Http/Middleware/NoStoreTest.php`, `tests/Feature/AuthenticationServiceProviderMiddlewareTest.php`
 - `tests/Feature/Secrets/SecretRedactionTest.php`: a throwing sign-in method and throwing listeners during a sign-in,
   refresh, switch, activation and sign-out leave no secret in the trace's arguments, captures or dumped object graphs;

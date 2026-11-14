@@ -26,14 +26,15 @@ package's.
   it, when its caller asks), and are stored with the challenge in `passkey_challenges`, bound to the purpose
   (`register`, `sign_in`, `factor`), the guard, the relying party id, for a registration or a factor the identity, and
   for a factor (or a registration given one) the `ProofBinding`'s session and purpose. An answer uses the challenge up
-  with one conditional `UPDATE` that sets `consumed_at`, matching all of them, `expires_at > now` and `consumed_at IS
-  NULL` (after a writer `SELECT` that reads the options), before the answer is verified, so of two answers only one uses
-  it and a failed answer burns it; the other is told the challenge was used. The row is kept, not deleted. A challenge
-  lives `challenge_ttl_seconds` (30 to 600, 300 by default), which is also the options' `timeout`, and is pruned once it
-  has been expired, used or not, for one more lifetime. The binding is checked before the state is: a challenge that
-  records another ceremony, guard, relying party, owner or binding answers as not found, never as used or expired, so a
-  response learns the lifecycle of its own challenge only. Used means a response was submitted to the challenge, not
-  that it authenticated.
+  with one conditional `UPDATE` that sets `consumed_at`, matching the ceremony, guard, relying party and owner,
+  `expires_at > now` and `consumed_at IS NULL` (after a writer `SELECT` that reads the options and against which every
+  binding column, the session and purpose included, is compared), before the answer is verified, so of two answers only
+  one uses it and a failed answer burns it; the other is told the challenge was used. The row is kept, not deleted. A
+  challenge lives `challenge_ttl_seconds` (30 to 600, 300 by default), which is also the options' `timeout`, and is
+  pruned once it has been expired, used or not, for one more lifetime. The binding is checked before the state is: a
+  challenge that records another ceremony, guard, relying party, owner or binding answers as not found, never as used or
+  expired, so a response learns the lifecycle of its own challenge only. Used means a response was submitted to the
+  challenge, not that it authenticated.
 - Registration asks for a discoverable credential (`residentKey: required`), `attestation: none`, and ES256, EdDSA
   (when sodium is loaded) and RS256, excluding the identity's passkeys. The statement formats webauthn-lib checks
   without further dependencies are accepted for their internal consistency (`none`, `packed`, `fido-u2f`,
@@ -100,46 +101,46 @@ package's.
   summary as its use left it, with `PasskeyUsed`. It counts nothing and reports no failure: the factor's outcome is the
   further-factor package's.
 - Factor gate: registration and removal ask the bound `Contracts\PasskeyFactorGate` inside the transaction on the
-  storage connection that inserts or deletes the passkey's row, before the write: `registering()` with a
-  `RegisteredPasskey` (id, credential id, relying party id, observed properties, time), the binding the options were
-  issued with, the call's `ClientContext` and the pending credential, if one was handed in, which may answer a
-  `PasskeyFactorAssociation`; `removing()` with the passkey's id and credential id and the call's `ClientContext`, which
-  may answer the factor package's completion of the removal. The client is a plain value the registration or removal
-  was given, so a gate's own `satisfy()` or `factorRemoved()` judges, reports and records it and never reads the
-  guard's request. A gate that throws refuses the change, rolled back whole. The association may carry the factor
-  package's completion of the registration (`completion`), and both completions reach the caller untouched
-  (`PasskeyRegistration::$factor->completion`, `PasskeyRemoval::$completion`): they are opaque `?object`s, so the factor
-  package's own result (its judgement of the current session again through `factorChanged()` after a registration under
-  a policy that now asks for a further factor, or `factorRemoved()`'s `FactorRemoval` after a removal, each with any new
-  pending credential) reaches its client without this package naming its type. A credential inserted by another while
-  the gate ran rolls the change back and answers `already_registered` with no association; a passkey deleted by another
-  answers `PasskeyRemoval::notRemoved()`, with no completion. The default, `Passkeys\NoPasskeyFactors`, associates
-  nothing, completes nothing and refuses nothing.
+  storage connection that inserts or deletes the passkey's row, before the write: `registering()` with the identity, the
+  guard, a `RegisteredPasskey` (id, credential id, relying party id, observed properties, time), the binding the options
+  were issued with, the cleaned name, the call's `ClientContext` and the pending credential, if one was handed in, which
+  may answer a `PasskeyFactorAssociation`; `removing()` with the identity, the guard, the passkey's id and credential id
+  and the call's `ClientContext`, which may answer the factor package's completion of the removal. The client is a plain
+  value the registration or removal was given, so a gate's own `satisfy()` or `factorRemoved()` judges, reports and
+  records it and never reads the guard's request. A gate that throws refuses the change, rolled back whole. The
+  association may carry the factor package's completion of the registration (`completion`), and both completions reach
+  the caller untouched (`PasskeyRegistration::$factor->completion`, `PasskeyRemoval::$completion`): they are opaque
+  `?object`s, so the factor package's own result (its judgement of the current session again through `factorChanged()`
+  after a registration under a policy that now asks for a further factor, or `factorRemoved()`'s `FactorRemoval` after a
+  removal, each with any new pending credential) reaches its client without this package naming its type. A credential
+  inserted by another while the gate ran rolls the change back and answers `already_registered` with no association; a
+  passkey deleted by another answers `PasskeyRemoval::notRemoved()`, with no completion. The default,
+  `Passkeys\NoPasskeyFactors`, associates nothing, completes nothing and refuses nothing.
 - Registration on a pending sign-in (a bootstrap enrolment): the options are asked with a `ProofBinding` naming the
-  pending session, and `register(..., $client, pending: PendingCredential::extract($request))` hands in that
-  sign-in's pending credential (the `Secret`, `pending_invalid` for a malformed field, or the application's own value;
-  any other `FailureReason` is an `InvalidArgumentException`, raised before the challenge is used up, and `null` is an
-  ordinary registration). A cookie application's client that did not come from a page of its
-  own site is `cross_site_request` first (`SessionPreconditions::crossSite()`, before the pending session is read or
-  the gate asked); an ordinary registration is not judged, since it sets no cookie and acts for an active session.
-  Then, in the registration's transaction and before the gate is asked or a row written, the package locks the
-  identity's row (`IdentityLock`) and then the pending session's row (`PendingLookup`, the lookup the pending-session
-  actions use), both held to the end of the transaction, and proves the credential names a live pending session of this
-  guard (pending, unrevoked, unexpired, the secret matching, its owner the one the provider returns) whose owner is this
-  identity and, when the challenge records a binding, the very session it names. The credential never retargets a
-  bound challenge. Any failure is `pending_invalid`, the same answer whichever check failed, with no gate call, no
-  passkey row and no `PasskeyAdded`. The gate then receives the credential as a `Secret` and completes the session's
-  factor itself with `satisfy()`, which locks the same session row again in the same transaction. The lock order is the
-  package's: the identity's row, then the session's row, then the gate's own factor locks, then the passkey's row, and
-  the session's proofs after its row. A refusal from `satisfy()` is answered, not thrown, and completion may leave the
-  session pending (another factor still outstanding), so a gate that requires completion checks the result and throws
-  to roll the whole registration back. Both refusals are reported once, as a refused pending action is, with Laravel's
-  `Failed` and `AuthenticationFailed` for the sign-in flow carrying the identity and the call's client and never the
-  credential; the gate's own `satisfy()` reports its own refusals, and a package refusal never reaches the gate, so
-  nothing is reported twice. `PasskeyAdded`, like the gate's activation reports, waits for the commit, and a concurrent
-  duplicate insert discards them all. The challenge is used up whatever the outcome, a pending refusal included, so a
-  retry needs fresh options. A pending session revoked while a registration waits on its row is found revoked once
-  the revocation commits (`ConcurrentPasskeyTest`).
+  pending session, and `register(..., $client, pending: PendingCredential::extract($request))` hands in that sign-in's
+  pending credential (the `Secret`, `pending_invalid` for a malformed field, or the application's own value; any other
+  `FailureReason` is an `InvalidArgumentException`, and an identity off the storage connection a `LogicException`, both
+  raised before the challenge is used up; `null` is an ordinary registration). A cookie application's client that did
+  not come from a page of its own site is `cross_site_request` first (`SessionPreconditions::crossSite()`, before the
+  pending session is read or the gate asked); an ordinary registration is not judged, since it sets no cookie and acts
+  for an active session. Then, in the registration's transaction and before the gate is asked or a row written, the
+  package locks the identity's row (`IdentityLock`) and then the pending session's row (`PendingLookup`, the lookup the
+  pending-session actions use), both held to the end of the transaction, and proves the credential names a live pending
+  session of this guard (pending, unrevoked, unexpired, the secret matching, its owner the one the provider returns)
+  whose owner is this identity and, when the challenge records a binding, the very session it names. The credential
+  never retargets a bound challenge. Any failure is `pending_invalid`, the same answer whichever check failed, with no
+  gate call, no passkey row and no `PasskeyAdded`. The gate then receives the credential as a `Secret` and completes the
+  session's factor itself with `satisfy()`, which locks the same session row again in the same transaction. The lock
+  order is the package's: the identity's row, then the session's row, then the gate's own factor locks, then the
+  passkey's row, and the session's proofs after its row. A refusal from `satisfy()` is answered, not thrown, and
+  completion may leave the session pending (another factor still outstanding), so a gate that requires completion checks
+  the result and throws to roll the whole registration back. Both refusals are reported once, as a refused pending
+  action is, with Laravel's `Failed` and `AuthenticationFailed` for the sign-in flow carrying the identity and the
+  call's client and never the credential; the gate's own `satisfy()` reports its own refusals, and a package refusal
+  never reaches the gate, so nothing is reported twice. `PasskeyAdded`, like the gate's activation reports, waits for
+  the commit, and a concurrent duplicate insert discards them all. The challenge is used up whatever the outcome, a
+  pending refusal included, so a retry needs fresh options. A pending session revoked while a registration waits on its
+  row is found revoked once the revocation commits (`ConcurrentPasskeyTest`).
 - Management: `passkeys($identity)` lists summaries oldest first; `credentialIds($identity)` lists the stored credential
   ids oldest first (public WebAuthn data, whose association with the identity stays the application's to
   access-control); `remove($identity, $id, $client)` finds the identity's passkey of the relying party, asks the gate,
@@ -188,8 +189,8 @@ package's.
 ## Implementation Anchors
 
 - `src/Passkeys/PasskeyService.php`, `src/Passkeys/PasskeySignIn.php`, `src/Passkeys/PasskeyAssertions.php`,
-  `src/Passkeys/UnheldPendingSession.php`, `src/Sessions/PendingLookup.php` (the pending lookup shared with
-  `PendingSessions`).
+  `src/Passkeys/PendingRegistration.php`, `src/Passkeys/UnheldPendingSession.php`, `src/Sessions/PendingLookup.php` (the
+  pending lookup shared with `PendingSessions`).
 - `src/Passkeys/PasskeyRegistration.php`, `src/Passkeys/Enums/PasskeyRegistrationStatus.php`,
   `src/Passkeys/PasskeyFactorResult.php` (see `outcomes.md`).
 - `src/Passkeys/WebAuthn.php` (webauthn-lib: options, parsing, ceremonies), `src/Passkeys/DeferredCounterCheck.php`,
@@ -209,6 +210,9 @@ package's.
 
 - `tests/Feature/Passkeys/PasskeyServiceTest.php`, `tests/Feature/Passkeys/PasskeySignInTest.php`,
   `tests/Feature/Passkeys/PasskeyAssertionsTest.php`, `tests/Feature/Passkeys/PasskeyRoutesTest.php` (over HTTP).
+- `tests/Feature/Passkeys/PasskeyChallengesTest.php` (each challenge answers only its own ceremony, guard, relying
+  party, owner and binding, whatever the collation), `tests/Feature/Passkeys/PasskeyCredentialsTest.php`,
+  `tests/Feature/Passkeys/PasskeyOwnerTest.php`.
 - `tests/Feature/Http/LocalizedMessagesTest.php` `testThrottledSignInOptionsAreInTheLocale`
 - `tests/Feature/Passkeys/WebAuthnTest.php`, `tests/Unit/Passkeys/RelyingPartyTest.php`,
   `tests/Unit/Passkeys/SignCounterTest.php`, with the software authenticator

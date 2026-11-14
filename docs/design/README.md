@@ -13,7 +13,7 @@ Each note follows the same structure:
 - `Authoritative Tests`
 - `Change Triggers`
 
-The current note set is:
+The notes are:
 
 - `guard-lifecycle-and-events.md`: standard Laravel auth events plus the package contextual events, and the exact
   successful event order for `attempt()`, direct `login()`, bearer auth, and refresh.

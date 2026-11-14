@@ -23,10 +23,11 @@ its own type, and the convention is the shape. Laravel's guard methods keep Lara
   named constructors (one per outcome), and says which outcome it is through `is<Outcome>()` predicates. The payload is
   in nullable public properties, set only for the outcome that has it. A refusal is named by `status` or by `reason`
   (`?FailureReason`, the reason the flow reports, concealed where the flow conceals it), and a flow that can be
-  throttled carries `retryAfter` (`?int`). A result with more than two outcomes exposes `status`, a string-backed enum
-  naming every outcome, success included. `SignInResult`, `RefreshResult`, `SwitchResult`, `CodeRequest`, `ResetResult`,
-  `PasswordResult`, `IdentifierChangeRequest`, `PasskeyRegistration`, `PasskeyRemoval`, `PasskeyFactorResult` and
-  `FactorChangeResult` take this shape. A flow whose outcomes an enum already names and that came to be throttled (a
+  throttled carries `retryAfter` (`?int`). `SignInResult`, `CodeRequest`, `ResetResult`, `IdentifierChangeRequest`,
+  `PasskeyRegistration` and `FactorChangeResult`, each with more than two outcomes, expose `status`, a string-backed
+  enum naming every outcome, success included. `RefreshResult`, `SwitchResult`, `SignOutResult` and `PasswordResult`
+  name theirs by predicates and properties alone, and `PasskeyRemoval` and `PasskeyFactorResult` have two. All of these
+  take this shape. A flow whose outcomes an enum already names and that came to be throttled (a
   check of a verification code, a confirmation of a change of identifier) answers a result carrying that enum as
   `outcome` with `retryAfter` (`LimitedOutcome`, generic over the enum, with `is()`; and `FactorCodeCheck` for a factor
   code), so the enum stays the one place its outcomes are named.
@@ -36,7 +37,9 @@ its own type, and the convention is the shape. Laravel's guard methods keep Lara
 - `bool` only for "did this call change something" on an idempotent operation (`discard()`, `signOut()`,
   `revokeSession()`, `apiKeys()->revoke()`, `identifierChanges()->cancel()`), and `int` for how many it changed
   (`signOutEverywhere()`, `revokeSessions()`, the security-change methods). `false` and `0` are not refusals: the thing
-  was already as asked.
+  was already as asked. `factorRemoved()` answers a `FactorRemoval` instead (the count, whether the current session was
+  revoked, and the current session if it returned to pending, with its credential), and `factorChanged()` a
+  `FactorChangeResult`.
 - No union of a success type with a failure type in a return, and no enum of another seam's outcomes mixed with a
   failure reason: one type answers every outcome.
 - Throttling is an outcome. A throttled operation returns `rate_limited`, as its status or its reason, with
@@ -50,10 +53,14 @@ its own type, and the convention is the shape. Laravel's guard methods keep Lara
 - Success is a named outcome: `isSignedIn()`, `isRefreshed()`, `isSwitched()`, `isSent()`, `isReset()`, `isSet()`,
   `isGranted()`, `isRegistered()`, `isVerified()`, or the enum's success case. Its payload (the session, the passkey's
   summary, the code's expiry) is read only once the predicate or the case says it is there.
-- `sessions()->refresh()` answers a `RefreshResult`: refreshed on the same session, with its rotated `TokenPair`, or
-  failed with the exchange's or the transport's reason, `rate_limited` with `retryAfter`, or `session_mismatch` for a
-  token proving a session other than the `$expectedSession` given; one with a presented token says where its token came
-  from (`source`). `switchTo()` and `signOutWith()` refuse the same way.
+- `sessions()->refresh()` answers a `RefreshResult`: refreshed on the same session, with its rotated `TokenPair`,
+  returned to pending (`isPending()`, with the pending session and its credential) when the session falls short of a
+  further factor, or failed with the exchange's or the transport's reason, `rate_limited` with `retryAfter`, or
+  `session_mismatch` for a token proving a session other than the `$expectedSession` given; one with a presented token
+  says where its token came from (`source`). `switchTo()` answers a `SwitchResult` the same way. `signOutWith()`
+  answers a `SignOutResult`: signed out (`isSignedOut()`), nothing to sign out, or failed with the token's reason
+  (`session_mismatch` included) and `source`, each with a cookie application's clearing cookie when it has one
+  (`attachTo()`).
 - Every `TokenPair` (a sign-in's, a pending session's once it activates, a refresh's and its grace retry's, a switch's)
   says when its access token expires, as the token itself does: `expiresAt`, the signed `exp`, and `expiresIn`, `exp`
   minus `iat` in seconds and at least one, the `expires_in` of an RFC 6749 section 5.1 response, so a caller answers a
@@ -104,8 +111,10 @@ its own type, and the convention is the shape. Laravel's guard methods keep Lara
 - Named exceptions to the shape:
   - `ClientCredentialsResult` stays RFC 6749-shaped: its `error` is the protocol's error code and its response the
     protocol's body, so it answers a token endpoint as written; `reason` is the server-side event's alone.
-  - `PasswordResult` and `ResetResult` carry the password policy's structured `violations`, not a `FailureReason`: a
-    refused password is answered rule by rule. A refused reset otherwise says `invalid` without saying why.
+  - `PasswordResult` and `ResetResult` answer a password the policy rejects with its structured `violations`, not a
+    `FailureReason`: a refused password is answered rule by rule. A change or an establishment refused before the
+    policy judged the password carries its `reason` (with `retryAfter` for `rate_limited`); a refused reset otherwise
+    says `invalid` without saying why.
   - `passkeys()->signInOptions()` throws Laravel's `ThrottleRequestsException` (429 with `Retry-After`) once the
     client's IP address has used up its `passkey_options` limit. Throttling there is still an expected refusal,
     delivered as Laravel's own throttle exception, as the `throttle` middleware would: it answers an anonymous ceremony
@@ -127,6 +136,7 @@ its own type, and the convention is the shape. Laravel's guard methods keep Lara
 - `src/Sessions/SignInResult.php`, `src/Sessions/RefreshResult.php`, `src/Sessions/SwitchResult.php`,
   `src/Codes/CodeRequest.php`, `src/Passwords/ResetResult.php`, `src/Passwords/PasswordResult.php`,
   `src/IdentifierChanges/IdentifierChangeRequest.php`, `src/ClientCredentials/ClientCredentialsResult.php`.
+- `src/Sessions/SignOutResult.php`, `src/Sessions/FactorRemoval.php`.
 - `src/Sessions/FactorChangeResult.php`, `src/Sessions/Enums/FactorChangeStatus.php`.
 - `src/Passkeys/PasskeyRegistration.php`, `src/Passkeys/PasskeyRemoval.php`,
   `src/Passkeys/Enums/PasskeyRegistrationStatus.php`, `src/Passkeys/PasskeyFactorResult.php`,

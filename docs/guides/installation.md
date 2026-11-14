@@ -164,5 +164,5 @@ seconds, so a token issued in the cutoff's own second is rejected too. Tokens th
 Bearer requests need none of the package's tables. A guard that signs in with `attempt()` lists `password` in its
 `application.methods` (see [Applications](configuration.md#applications)) and counts its attempts in the `rate_limits`
 table (see [Rate limits](configuration.md#rate-limits)), so publish and run the migrations for it, or set the guard's
-`rate_limits.sign_in` to `null`; the `authentication_sessions` table then stays empty. See
-`docs/design/access-only-mode.md`.
+`rate_limits.sign_in` to `null`; the `authentication_sessions` table then stays empty. See [Access-only
+mode](../design/access-only-mode.md).

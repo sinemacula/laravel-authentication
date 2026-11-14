@@ -20,7 +20,7 @@ attempt limits and the identifier normalisers meet that policy, since a sign-in 
   reads body credentials (Basic needs no permission). A missing, malformed or unknown key, at either level, fails closed
   with an `InvalidArgumentException` naming the guard and the key. Every call reads and checks the whole block, so a
   malformed key fails whichever check runs first and nothing is cached past a configuration change.
-- An empty `methods` list is valid (D21: every feature is opt-in). It allows nothing, through the same refusals as a
+- An empty `methods` list is valid (every feature is opt-in). It allows nothing, through the same refusals as a
   method the application does not list, with no code path of its own: `attempt()`, `signIn()` and `start()` are refused
   as `method_not_allowed` before any attempt slot is reserved or the method runs; a pending further factor or principal
   choice is consumed first (an unknown, expired or spent credential is still `pending_invalid`) and then refused, so the
@@ -32,10 +32,10 @@ attempt limits and the identifier normalisers meet that policy, since a sign-in 
   malformed, so "none" has one spelling. `authentication:check` warns about a `jwt` guard whose package settings list
   nothing, or only `api_key` (which a `jwt` guard never accepts), and reports an `api_key` guard whose policy, whichever
   is bound, does not allow `api_key` as a problem, since such a guard has no other use. Any other name counts,
-  registered or not, since `start()` signs in under it; a policy of the application's own is asked every registered name
-  and `client_credentials` so an exception it throws is reported, and a guard it allows `passkey` has its relying party
-  checked, but no such policy, even one that wraps the package's, gets the warning, since the names it allows are its
-  own to know.
+  registered or not, since `start()` signs in under it; a policy of the application's own is asked every registered
+  name, `external_provider` and `client_credentials` so an exception it throws is reported, and a guard it allows
+  `passkey` has its relying party checked, but no such policy, even one that wraps the package's, gets the warning,
+  since the names it allows are its own to know.
 - A method is allowed only when the guard lists its exact name: the key a method the package runs is registered under on
   the `SignInMethodManager`, or the name the application passes to `start()` for a session it starts itself (which needs
   no registration), and in either case the name a session records in `sign_in_method`. The same list names the machine

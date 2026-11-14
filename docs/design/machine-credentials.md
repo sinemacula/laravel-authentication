@@ -3,8 +3,7 @@
 ## Purpose
 
 This note describes how non-human identities authenticate and what the package guarantees about the scopes their
-credentials carry. It is the convention the other packages of the suite follow: this package carries scopes, an
-authorisation package decides what they allow.
+credentials carry. This package carries scopes; an authorisation package decides what they allow.
 
 ## Invariants
 
@@ -77,13 +76,13 @@ authorisation package decides what they allow.
 ## Success Path
 
 - `Auth::apiKeys($guard)->issue($identity, $principal, $scopes)` resolves the principal for the identity through the
-  guard's resolver (as a pinned principal), asks the application policy to admit it, normalises and registers the
+  guard's resolver (as a pinned principal), asks `ApplicationAccess::mayUse()` to admit it, normalises and registers the
   scopes, records the tenant, draws a public part (again on the unlikely collision with a stored one, at most three
   times) and a secret, inserts the row and returns the key once; `ApiKeyIssued` follows the commit.
 - An `api_key` guard request: parse the bearer key, look its public part up, compare digests, check the guard,
   revocation and expiry, that the application lists `api_key`, then the owner (exactly the recorded identity, a
   `MachineIdentity`, active) and the principal (exactly the recorded one, active, in an active tenant, of the recorded
-  type and tenant, admitted by the application policy); bind with `Authenticated` and `PrincipalAssigned` only, and
+  type and tenant, admitted by `ApplicationAccess`); bind with `Authenticated` and `PrincipalAssigned` only, and
   record the last use at most once per throttle with one conditional update.
 - `rotate()` ends the replaced key at `now + overlap` or its own expiry, whichever comes first, with an explicit `CASE`
   (never `LEAST()` over a nullable column), and inserts the replacement with the same binding and scopes but only the
@@ -107,10 +106,10 @@ authorisation package decides what they allow.
   `PresentedClient`, however it was built.
 - Every failure to authenticate the client (unknown, wrong secret, revoked, expired, another guard's key, owner or
   principal problems) is `invalid_client` (401, always with `WWW-Authenticate: Basic realm="<guard>"`, since a 401
-  carries a challenge whatever method the client used, RFC 7235 3.1), counted per IP address; only a principal the
-  application policy refuses as `principal_ineligible` is `unauthorized_client` (a policy that gives any other reason
-  gets `invalid_client`). A guard whose application does not list `client_credentials` answers `unauthorized_client`
-  before looking at the key. A scope not granted is `invalid_scope`, not counted. Past its limit an address gets 429
+  carries a challenge whatever method the client used, RFC 7235 3.1), counted per IP address; only a principal
+  `ApplicationAccess` refuses (`principal_ineligible`) is `unauthorized_client`. A guard whose application does not
+  list `client_credentials` answers `unauthorized_client` before looking at the key. A scope not granted is
+  `invalid_scope`, not counted. Past its limit an address gets 429
   `slow_down`: the package's own answer, outside RFC 6749 (which defines no rate-limit error), with the code RFC 8628
   registered. `invalid_grant` is never answered (the grant is the client's own authentication), no error carries
   `error_description` (optional in RFC 6749 5.2; the package words nothing a client reads), and TLS on the token route
@@ -142,7 +141,6 @@ authorisation package decides what they allow.
   rotated. Two concurrent revocations report the key once.
 - A key is not issued for a principal whose tenant cannot be loaded; a revocation or rotation reported after the tenant
   went reports no tenant.
-
 - A scope that is not a scope token (empty, spaced, quoted, non-ASCII, too long, not a string) is refused with every
   offending value named; a value that is not a string is named by its type.
 - A registry that names a scope it was not asked about cannot widen the refusal: only scopes being granted are refused.
@@ -177,7 +175,8 @@ authorisation package decides what they allow.
 - `tests/Integration/Facade/AuthScopesIntegrationTest.php`
 - `tests/Integration/ApiKeys/ApiKeyServiceTest.php`, `tests/Integration/ApiKeys/ConcurrentApiKeyRotationTest.php`
 - `tests/Feature/ClientCredentials/ClientCredentialsExchangeTest.php`,
-  `tests/Feature/Guards/ClientTokenBearerAuthenticationTest.php`, `tests/Performance/ClientCredentialsQueryBudgetTest.php`
+  `tests/Feature/Guards/ClientTokenBearerAuthenticationTest.php`,
+  `tests/Performance/ClientCredentialsQueryBudgetTest.php`
 - `tests/Feature/Guards/ApiKeyGuardTest.php`, `tests/Performance/ApiKeyGuardQueryBudgetTest.php`,
   `tests/Integration/ApiKeys/StorageConnectionApiKeysTest.php`
 

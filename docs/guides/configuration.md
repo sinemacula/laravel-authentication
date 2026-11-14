@@ -6,7 +6,10 @@ ones marked per guard in its own `config/auth.php` entry, in a block named after
 password identifier), where a key it sets wins. A value that is malformed or out of range fails closed, naming the key
 (and the guard), when it is first used, and `php artisan authentication:check` reports it before a deploy (see [Checking
 the configuration](operations.md#checking-the-configuration)). Most settings are read each time they are used; a guard's
-JWT settings are read once and kept (see [Configuration lifetimes](operations.md#configuration-lifetimes)).
+JWT settings are read once and kept (see [Configuration lifetimes](operations.md#configuration-lifetimes)). A guard's
+`driver` (`jwt` or `api_key`) and `provider` (an `IdentityProvider`, such as the `model` driver's) are set as in
+[Guards and providers](installation.md#guards-and-providers), and its `principal_resolver` as in [Per-guard principal
+resolvers](#per-guard-principal-resolvers).
 
 | Key                                                  | Default                                                                      | Env                                                        | Per guard | See                                                                   |
 |------------------------------------------------------|------------------------------------------------------------------------------|------------------------------------------------------------|-----------|-----------------------------------------------------------------------|
@@ -189,7 +192,8 @@ so refresh requires an identity model whose auth identifier is its primary key: 
 overridable (`keys`, `active_kid`, `algorithm`, `access_ttl_minutes`, `refresh_idle_ttl_minutes`,
 `refresh_absolute_ttl_minutes`, `refresh_grace_seconds`, `leeway_seconds`, `issuer`, `audience`). `keys` and
 `active_kid` fall back independently: a guard that overrides `keys` should also set `active_kid` to a kid in its own
-map. A guard's `jwt` entry must be an array (or `null` for no overrides). `algorithm` must be a string, and `issuer` and
+map. A guard's `jwt` entry must be an array (or `null` for no overrides). `algorithm` must be `HS256`, `HS384` or
+`HS512`, every key at least 32, 48 or 64 bytes to match (see [Installation](installation.md)), and `issuer` and
 `audience` non-empty strings: they are required, every token carries them as `iss` and `aud`, and every request checks
 them strictly (an `aud` that is an array never matches). A guard's override that is present wins, `null` included, so a
 guard that sets either to `null` or `''` fails closed rather than falling back to the package value; a guard with

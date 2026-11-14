@@ -10,7 +10,7 @@ link contract answers, and the package starts, reauthenticates and ends sessions
 
 ## Invariants
 
-- Off by default (D21), twice over: an application allows external sign-in only by listing `external_provider` in its
+- Off by default, twice over: an application allows external sign-in only by listing `external_provider` in its
   `methods` (`method_not_allowed` otherwise, checked before the link contract is asked), and the default link contract,
   `External\NoExternalLinks`, links nothing, so no result signs anyone in until an application binds its own.
 - A result (`External\ExternalResult`: the connection, issuer and subject, and optionally the connection's tenant, the
@@ -57,7 +57,7 @@ link contract answers, and the package starts, reauthenticates and ends sessions
   was made), whose keys are the contributing package's own. The package reserves and names no key, never interprets a
   value, and only validates, stores and hands it back: `ExternalSignIn` passes it into the `Provenance`,
   `ProofWriter::provenance()` writes it once with the rest, and `SessionProofs::provenance()` reads it back in the same
-  query, for `ContributionSubject::provenance()`. It is absent unless an adapter gives one (D21). It is a non-empty map
+  query, for `ContributionSubject::provenance()`. It is absent unless an adapter gives one. It is a non-empty map
   with string keys whose values are `null`, booleans, integers, finite floats, strings or arrays of them, at most
   `MAX_DEPTH` (4) arrays deep, the map the first, refused otherwise with an `InvalidArgumentException` whose message
   repeats no value; the values are copied, so a reference into the array given changes nothing kept. The package encodes

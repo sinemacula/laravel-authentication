@@ -19,15 +19,17 @@ shared and mutable, how it is rebound, and what a flow may keep from it.
   provider, the resolver and the dispatcher the guard reads; neither keeps a copy of them, and neither has setters.
 - What a session flow may do to its guard's bound state is the internal port `Contracts\GuardBinding` (`user()`,
   `principal()`, `session()`, `tenant()`, `loginStarted()`, `loginVerified()`, `authenticateAs()`, `forgetUser()`,
-  `forgetSession()`, `forgetIdentity()`), which `AbstractGuard` implements. `forgetSession()` forgets a binding only to
-  the session given and `forgetIdentity()` only to the identity given (but one to the session kept), neither resolving
-  the request, so a revocation unbinds just the guards bound to what it ended once it commits:
-  `Sessions\BindingForgetting` asks every guard already resolved and creates none. Its four readers resolve the
-  request's credential on first access, as the guard's accessors do, so a sign-out given the guard reads the session the
-  request carries. The session revocations take the binding per call, only for `signOut()` and `signOutEverywhere()`,
-  and otherwise need nothing of the guard but its context. The session service takes the context and the binding at
-  construction: `AuthManager::sessions()` builds one on each call, with the guard's context, the guard as the binding
-  and the guard's token service (`JwtGuard::tokens()`), so the guard neither builds nor holds a session service, and
+  `forgetSession()`, `forgetIdentity()`, `forgetAuthenticationContext()`, `boundStateVersion()`), which `AbstractGuard`
+  implements. `forgetSession()` forgets a binding only to the session given and `forgetIdentity()` only to the identity
+  given (but one to the session kept), neither resolving the request, so a revocation unbinds just the guards bound to
+  what it ended once it commits: `Sessions\BindingForgetting` asks every guard already resolved and creates none.
+  `forgetAuthenticationContext()` drops the authentication context the guard holds for a session and keeps the binding,
+  and `boundStateVersion()` changes whenever the bound state does. The four readers resolve the request's credential on
+  first access, as the guard's accessors do, so a sign-out given the guard reads the session the request carries. The
+  session revocations take the binding per call, only for `signOut()` and `signOutEverywhere()`, and otherwise need
+  nothing of the guard but its context. The session service takes the context and the binding at construction:
+  `AuthManager::sessions()` builds one on each call, with the guard's context, the guard as the binding and the guard's
+  token service (`JwtGuard::tokens()`), so the guard neither builds nor holds a session service, and
   `Sessions\SessionEstablishment`, which writes a session and schedules its reports, never binds: the service binds
   through the binding once establishment has returned.
 - The code, passkey, API key, client credentials, password and identifier change services (`Codes\CodeService`,
@@ -44,7 +46,7 @@ shared and mutable, how it is rebound, and what a flow may keep from it.
   its context through `HasGuardContext`, failing with a `LogicException` when the application replaced the `jwt` driver
   with a guard that has none (`Runtime\JwtGuardContexts::named()`, which both call). None of the six services'
   namespaces names a `Guards` class, nor does `Sessions`; outside the composition root (`AuthManager`,
-  `AuthenticationServiceProvider`), `Guards`, `Testing` and `Console`, nothing does.
+  `AuthenticationServiceProvider`), the `Auth` facade, `Guards`, `Testing` and `Console`, nothing does.
 - Only the owning guard rebinds a context: `rebindRequest()`, `rebindEvents()` and `rebindResolver()` are internal, and
   the architecture test fails a call of any of them outside `Guards`. The container's rebinds (`wireGuardRebinds()`:
   `request`, `events`, and the global `PrincipalResolver` unless the guard has a resolver of its own), `Event::fake()`,
@@ -113,8 +115,8 @@ shared and mutable, how it is rebound, and what a flow may keep from it.
   `src/Sessions/SessionRevocations.php`; `src/Passwords/PasswordWriter.php`: `write()`.
 - `src/AuthenticationServiceProvider.php`: `createJwtGuard()`, `wireGuardRebinds()`.
 - `src/AuthManager.php`: `jwtGuard()`, `sessions()`, `codes()`, `passkeys()`, `apiKeys()`, `clientCredentials()`,
-  `passwords()`, `identifierChanges()`; the constructors of `src/Sessions/SessionService.php`, `src/Codes/CodeService.php`,
-  `src/Passkeys/PasskeyService.php`, `src/ApiKeys/ApiKeyService.php`,
+  `passwords()`, `identifierChanges()`; the constructors of `src/Sessions/SessionService.php`,
+  `src/Codes/CodeService.php`, `src/Passkeys/PasskeyService.php`, `src/ApiKeys/ApiKeyService.php`,
   `src/ClientCredentials/ClientCredentialsExchange.php`, `src/Passwords/PasswordService.php`,
   `src/Passwords/ResetRequests.php`, `src/Passwords/ResetSubmissions.php`,
   `src/IdentifierChanges/IdentifierChangeService.php`, `src/IdentifierChanges/ChangeRequests.php`,

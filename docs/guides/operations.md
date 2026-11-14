@@ -192,7 +192,7 @@ one transaction; every other model in chunks of one conditional `DELETE` that re
 |---------------------------|---------------------------------------------------------------------------------------------------------------|
 | `Models\Session`          | it has been over (revoked, or past a deadline) for `session.prune_after_days`, with its proofs and provenance |
 | `Models\RateLimit`        | its window has ended                                                                                          |
-| `Models\OneTimeCode`      | it has expired                                                                                                |
+| `Models\OneTimeCode`      | it has expired and its delivery window (`codes.delivery_window_seconds`) has ended                            |
 | `Models\PasskeyChallenge` | it expired, used or not, a challenge lifetime ago (`passkeys.challenge_ttl_seconds`)                          |
 | `Models\ApiKey`           | it was revoked or expired more than `api_keys.prune_after_days` ago                                           |
 | `Models\IdentifierChange` | it has expired                                                                                                |
@@ -269,27 +269,28 @@ the refresh token transport, its own `freshness` block and, when its application
 (which must allow `api_key` whatever the policy, since an `api_key` guard has no other use, and with the package's
 policy, its settings) and rate limits; and, for the whole package, the storage and rate limit connections
 (`authentication.storage.connection`, `authentication.rate_limits.connection`: a connection name configured in
-`database.connections`, or none), the configured session model, which must live on the storage connection, and the
-pruning retention while any `jwt` guard is configured (`authentication.session.prune_after_days`, otherwise checked only
-when `model:prune` runs), the pending credential lifetime (`authentication.session.pending_ttl_seconds`, otherwise
-checked only when a session becomes pending), the password policy settings (`authentication.passwords`), the one-time
-code settings and key (`authentication.codes`) and a bound `OneTimeCodeSender` when any guard allows a code sign-in
-method (`phone_code`, `email_code`, or a `CodeSignIn` you registered), the delivery queue
-(`authentication.delivery.queue`), the passkey challenge lifetime (`authentication.passkeys.challenge_ttl_seconds`), the
-API key settings (`authentication.api_keys`), the identifier change settings (`authentication.identifier_changes`), the
-freshness requirements (`authentication.freshness`) and the revocation settings (`authentication.revocation`). Every
-check runs, so one run lists every problem, each as `[<guard>] <message>` (`[storage]` for the connections, `[session]`
-for the session model, retention and pending lifetime, `[passwords]` for the password policy, `[codes]` for the code
-settings and sender, `[delivery]` for the delivery queue, `[passkeys]` for the challenge lifetime, `[api_keys]` for the
-API key settings, `[identifier_changes]` for the identifier change settings, `[freshness]` for the freshness
-requirements, `[revocation]` for the revocation settings), and a subject without one as `[<guard>] OK`. Delivery on a
-`sync` queue connection, or on a `failover` one that can fall back to `sync`, while any `jwt` guard is configured (any
-of them may send codes, reset links and codes, or identifier change codes and notices), is a `[delivery]` warning that
-leaves the exit code alone, as is a `jwt` guard whose package application settings allow nothing (its `methods` lists
-nothing, or only `api_key`; see [Applications](configuration.md#applications); a policy of your own, even one that wraps
-the package's, gets no such warning, since the names it allows are its own), and a `jwt` guard whose password resets or
-identifier changes would refuse to run: its provider's model on another connection than the storage connection, or, for
-resets, a password identifier other than `email` while Laravel's notification is the reset link sender (see [Password
+`database.connections`, or none), while any `jwt` guard is configured the session model, which must live on the storage
+connection, the pruning retention (`authentication.session.prune_after_days`, otherwise checked only when `model:prune`
+runs) and the pending credential's lifetime and field (`authentication.session.pending_ttl_seconds` and
+`pending_credential_field`, otherwise checked only when a session becomes pending), the password policy settings
+(`authentication.passwords`), the one-time code settings and key (`authentication.codes`) and a bound
+`OneTimeCodeSender` when any guard allows a code sign-in method (`phone_code`, `email_code`, or a `CodeSignIn` you
+registered), the delivery queue (`authentication.delivery.queue`), the passkey challenge lifetime
+(`authentication.passkeys.challenge_ttl_seconds`), the API key settings (`authentication.api_keys`), the identifier
+change settings (`authentication.identifier_changes`), the freshness requirements (`authentication.freshness`) and the
+revocation settings (`authentication.revocation`). Every check runs, so one run lists every problem, each as
+`[<guard>] <message>` (`[storage]` for the connections, `[session]` for the session model, retention and pending
+credential, `[passwords]` for the password policy, `[codes]` for the code settings and sender, `[delivery]` for the
+delivery queue, `[passkeys]` for the challenge lifetime, `[api_keys]` for the API key settings, `[identifier_changes]`
+for the identifier change settings, `[freshness]` for the freshness requirements, `[revocation]` for the revocation
+settings), and a subject without one as `[<guard>] OK`. Delivery on a `sync` queue connection, or on a `failover` one
+that can fall back to `sync`, while any `jwt` guard is configured (any of them may send codes, reset links and codes, or
+identifier change codes and notices), is a `[delivery]` warning that leaves the exit code alone, as is a `jwt` guard
+whose package application settings allow nothing (its `methods` lists nothing, or only `api_key`; see
+[Applications](configuration.md#applications); a policy of your own, even one that wraps the package's, gets no such
+warning, since the names it allows are its own), and a `jwt` guard whose password resets or identifier changes would
+refuse to run: its provider's model on another connection than the storage connection, or, for resets, a password
+identifier other than `email` while Laravel's notification is the reset link sender (see [Password
 reset](passwords.md#password-reset)). Only the named guards are checked with `--guard=api --guard=admin`; a named guard
 that is not configured, or neither a `jwt` nor an `api_key` guard, is a problem. The `[codes]` sender check still asks
 every `jwt` guard's application whether it allows a code sign-in method, and an exception the policy throws for a guard

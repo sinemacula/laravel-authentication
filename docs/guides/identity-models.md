@@ -124,8 +124,9 @@ With that shape:
 - A membership whose `is_active` is `false` cannot sign in, refresh, or authenticate a request (see
   [Active-state enforcement](#active-state-enforcement)).
 
-Implement `ResolvesHintedPrincipal` on the identity to replace the default `principals()->find($hint)` lookup
-with a custom query - for example, joining the tenant row in one SQL so `Auth::tenant()` does not lazy-load.
+Implement `ResolvesHintedPrincipal` on the identity to look a hint up with a custom query - for example, joining the
+tenant row in one SQL so `Auth::tenant()` does not lazy-load. It is tried first; when it returns `null`, the default
+`principals()->find($hint)` lookup runs.
 
 For domain-specific resolution (subdomain, header, session claim), implement `PrincipalResolver` and bind it in
 a service provider. A hint can come from a caller pinning a principal on `attempt()`, so a custom resolver or
@@ -182,10 +183,10 @@ class AppUser extends User implements Identity, Principal
 ```
 
 Setting the attribute stores what the type's normaliser returns: the `email` normaliser trims surrounding whitespace
-and lower-cases the whole address, so `Ben@Example.com` is stored as `ben@example.com`. A value it rejects (blank, or
+and lower-cases the whole address, so `Jane@Example.com` is stored as `jane@example.com`. A value it rejects (blank, or
 not valid UTF-8) throws an `InvalidArgumentException` naming the attribute but never the value; `null` stays `null`.
-Reading returns the stored value unchanged. The `model` provider normalises a credential for a designated attribute
-the same way before it looks the identity up (`attempt(['email' => ' BEN@example.com', ...])` finds `ben@example.com`),
+Reading returns the stored value unchanged. The `model` provider normalises a credential for a designated attribute the
+same way before it looks the identity up (`attempt(['email' => ' JANE@example.com', ...])` finds `jane@example.com`),
 element by element for an array, and a value the normaliser rejects finds nobody without a query. Closures and
 attributes that are not designated are applied as given.
 
@@ -253,8 +254,8 @@ Make the identifier unique on its normalised value, with a unique index on the s
    LOWER(TRIM(email))` for email, checking first for addresses that collide once normalised).
 2. Then add the unique index on the column itself, not on an expression, so it holds whoever writes the row.
 
-Both engines need it: PostgreSQL compares strings case-sensitively, so without normalisation `Ben@x.com` and
-`ben@x.com` are two accounts and a lookup with the other casing finds neither; MySQL's default `_ci` collations
+Both engines need it: PostgreSQL compares strings case-sensitively, so without normalisation `Jane@x.com` and
+`jane@x.com` are two accounts and a lookup with the other casing finds neither; MySQL's default `_ci` collations
 compare them as equal, so lookups match but a unique index rejects the second address only by accident of the
 collation, and `LOWER()` and the collation can disagree on non-ASCII letters. Storing the normal form makes both
 behave the same, and lets the index mean what the application means.
@@ -288,7 +289,7 @@ A type is a lower-case letter followed by lower-case letters, digits and undersc
 verification reads the identity's row again under a lock (`SELECT ... FOR UPDATE`) and sets `<type>_verified_at` only
 when the row's identifier is the proven one byte for byte and still unverified, all in one transaction, so a proof for
 one address can never verify another, even when the address changes while the proof is checked to one the column's
-collation counts as equal (`Ben@` or `bén@` for `ben@`); it fires no model events and leaves `updated_at` alone. When
+collation counts as equal (`Jane@` or `jáne@` for `jane@`); it fires no model events and leaves `updated_at` alone. When
 an identifier changes, clear its `<type>_verified_at` with it, or change it through
 [`Auth::identifierChanges()`](identifier-changes.md), which records the proven one as verified.
 
@@ -300,7 +301,7 @@ contract without the trait implements it over its own storage:
 $holders = AppUser::holdingVerifiedIdentifier('email', $asserted);
 ```
 
-The identifier is normalised as verification normalises it (`Ben@Example.com` finds `ben@example.com`), and one the
+The identifier is normalised as verification normalises it (`Jane@Example.com` finds `jane@example.com`), and one the
 type's normaliser refuses finds nobody without a query. The identities are read on the write connection with the
 model's global scopes, and each must store the normal form byte for byte, whatever the column's collation counts as
 equal. More than one can hold the same identifier unless a unique index on its column stops it, so decide what two
@@ -357,23 +358,6 @@ signature is correct, and the identity only when it was loaded to check the dige
 the link was being checked: nothing is recorded or reported. Laravel's `signed` middleware, if you add it to the route,
 answers an expired link with its own 403 before `consume()` runs, so the route never sees `expired` and nothing is
 reported; leave it off to tell the two apart.
-
-`consume()` answers one enum, `VerificationLinkOutcome`. Match it:
-
-```php
-use SineMacula\Laravel\Authentication\Http\ClientContext;
-use SineMacula\Laravel\Authentication\Http\SignedLink;
-use SineMacula\Laravel\Authentication\Verification\Enums\VerificationLinkOutcome;
-use SineMacula\Laravel\Authentication\Verification\VerificationLinks;
-
-$outcome = app(VerificationLinks::class)->consume(SignedLink::fromRequest($request), ClientContext::fromRequest($request));
-
-return match ($outcome) {
-    VerificationLinkOutcome::VERIFIED, VerificationLinkOutcome::ALREADY_VERIFIED => response()->noContent(),
-    VerificationLinkOutcome::EXPIRED                                             => abort(410, 'Request a new link.'),
-    VerificationLinkOutcome::MISMATCH, VerificationLinkOutcome::INVALID          => abort(403),
-};
-```
 
 Verify by one-time code with `Auth::codes($guard)`: `sendVerification()` sends a code to the identity's current
 identifier of the type and answers its challenge id, and `verify()` checks the code for that challenge and records the
@@ -577,8 +561,8 @@ recorded, until they are pruned or you end them: register the optional `RevokeSe
 changes](sessions.md#revoking-on-security-changes)). A soft delete counts as deletion, and a restore brings no session
 back, a session a sign-in, choice or switch admitted before the delete and wrote after it included (see [Sign-ins racing
 a deactivation or deletion](sessions.md#sign-ins-racing-a-deactivation-or-deletion)). For a model that records a "tokens
-valid after" cutoff (`HasTokensValidAfter`), the soft delete also moves the cutoff, so its session-less access tokens
-issued before stay refused after a restore; without one, they work again until they expire.
+valid after" cutoff (`HasTokensValidAfter`), ending its sessions on a soft delete also moves the cutoff, so its
+session-less access tokens issued before stay refused after a restore; without one, they work again until they expire.
 
 A principal deleted by a database cascade from its identity fires no model event, but the identity's own revocation
 already ends every session acting as its principals, since an identity's sessions are all those it holds: register the
