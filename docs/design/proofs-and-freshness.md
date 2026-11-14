@@ -131,12 +131,12 @@ session holds; the token's claims and every freshness answer are worked out from
   contract is asked first (before any lock of the package's, so after the adapter's own), then under the session's
   locked row the session must still be of the same generation, owned by the link's identity, with a provenance that
   records exactly the result's connection and the link's id, byte for byte (`link_mismatch`; a session recorded with no
-  link never matches), and not begun after the provider's time (`proof_invalid`). With the proof recorded, the session
-  must still meet its tenant's authentication policy, as at every redemption (`sso_required`,
-  `additional_factor_required`; the proof rolls back). The proof is timed at the provider's time, never after now, so
-  the new token's `auth_time` is the later of the session's and the provider's, decided under that lock.
-  `externalStanding()` answers the same checks without writing, under the same lock inside a transaction, reading the
-  provenance current there, and with none outside one (when no link id is given, through any link of the connection).
+  link never matches). With the proof recorded, the session must still meet its tenant's authentication policy, as at
+  every redemption (`sso_required`, `additional_factor_required`; the proof rolls back). The proof is timed at the
+  provider's time, never after now and never moved up to the session's start, so the new token's `auth_time` is the
+  later of the session's and the provider's, decided under that lock. `externalStanding()` answers the same checks
+  without writing, under the same lock inside a transaction, reading the provenance current there, and with none outside
+  one (when no link id is given, through any link of the connection).
 - A step-up (`SessionService::stepUp()`) and a reauthentication (`reauthenticate()`) share `Sessions\ProofIssuance`:
   in one transaction on the session's connection, the session's row is locked; the session must exist, be this guard's,
   live and a person's; the operation's own check runs on the locked row; the session is admitted again as a refresh
@@ -227,9 +227,9 @@ session holds; the token's claims and every freshness answer are worked out from
   connection.
 - An `external_reauthentication` is recorded only by `reauthenticateExternally()`; a step-up and `satisfy()` refuse it.
   A result linked to no identity is `external_result_unlinked`, after `ExternalResultUnlinked`; one without the
-  provider's time, or with one before the session began, is `proof_invalid`. A revocation of the session (a link's
-  removal or widened scope, say) that commits before the reauthentication's lock refuses it as `session_revoked`; one
-  that commits after ends the new token at its next request.
+  provider's time is `proof_invalid`, and one timed before the session began leaves `auth_time` where it was. A
+  revocation of the session (a link's removal or widened scope, say) that commits before the reauthentication's lock
+  refuses it as `session_revoked`; one that commits after ends the new token at its next request.
 - Two reauthentications at the provider racing on one session both record their proofs; `auth_time` is the later
   provider time whichever commits last, since it is derived from the proofs, never written. Each writes the session's
   issuance guard (`SessionRecords\IssuanceGuard`) before its proof and reads the proofs for its token current
@@ -488,8 +488,8 @@ These parts are columns, kinds or values with nothing yet behind them; the guide
   locking only its row; over HTTP through `Auth::sessions()`, and for the subject's given session, never the
   request's.
 - `tests/Feature/Sessions/SessionStepUpTest.php`, `SessionReauthenticationTest.php`, `ExternalReauthenticationTest.php`:
-  every refusal, the token, what is kept, the events; the external one's link checks, the later-time rule, accepted and
-  unaccepted evidence, changes under the lock and the standing.
+  every refusal, the token, what is kept, the events; the external one's link checks, the later time and a time before
+  the session, accepted and unaccepted evidence, changes under the lock and the standing.
 - `tests/Feature/External/EvidenceAcceptanceTest.php`, `tests/Unit/External/ExternalEvidenceTest.php`,
   `tests/Feature/Requirements/RequirementJudgeTest.php`: acceptance and its order, the stored form, the evidence path of
   the judge in memory and stored, and no read for a session no provider established.
