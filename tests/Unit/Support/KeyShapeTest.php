@@ -2,7 +2,7 @@
 
 declare(strict_types = 1);
 
-namespace Tests\Unit\SessionRecords;
+namespace Tests\Unit\Support;
 
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
@@ -12,18 +12,18 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\ValidatesSessionKey;
 use SineMacula\Laravel\Authentication\Models\Session;
-use SineMacula\Laravel\Authentication\SessionRecords\SessionKeyShape;
+use SineMacula\Laravel\Authentication\Support\KeyShape;
 
 /**
- * Unit tests for the `SessionKeyShape` `sid` pre-check.
+ * Unit tests for the `KeyShape` primary key pre-check.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
-#[CoversClass(SessionKeyShape::class)]
-final class SessionKeyShapeTest extends TestCase
+#[CoversClass(KeyShape::class)]
+final class KeyShapeTest extends TestCase
 {
     /** @var string A well-formed UUID v7. */
     private const string UUID = '0190f1d2-7c4e-7a3b-9f10-2b3c4d5e6f70';
@@ -84,7 +84,7 @@ final class SessionKeyShapeTest extends TestCase
     #[DataProvider('provideKeys')]
     public function testMatchesReportsWhetherTheValueCanBeTheModelKey(Model $model, mixed $key, bool $expected): void
     {
-        self::assertSame($expected, SessionKeyShape::matches($model, $key));
+        self::assertSame($expected, KeyShape::matches($model, $key));
     }
 
     /**
@@ -96,7 +96,7 @@ final class SessionKeyShapeTest extends TestCase
      */
     public function testConstructorIsPrivate(): void
     {
-        $reflection  = new \ReflectionClass(SessionKeyShape::class);
+        $reflection  = new \ReflectionClass(KeyShape::class);
         $constructor = $reflection->getConstructor();
 
         self::assertNotNull($constructor);
@@ -105,7 +105,7 @@ final class SessionKeyShapeTest extends TestCase
         $instance = $reflection->newInstanceWithoutConstructor();
         $constructor->invoke($instance);
 
-        self::assertInstanceOf(SessionKeyShape::class, $instance);
+        self::assertInstanceOf(KeyShape::class, $instance);
     }
 
     /**

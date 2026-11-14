@@ -19,7 +19,7 @@ use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
-use SineMacula\Laravel\Authentication\SessionRecords\SessionKeyShape;
+use SineMacula\Laravel\Authentication\Support\KeyShape;
 use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\Integration\Fixtures\PrefixedKeySession;
@@ -35,7 +35,7 @@ use Tests\TestCase;
  *
  * @internal
  */
-#[CoversClass(SessionKeyShape::class)]
+#[CoversClass(KeyShape::class)]
 #[CoversClass(JwtGuard::class)]
 #[CoversClass(RefreshTokenExchange::class)]
 #[CoversTrait(VerifiesPinnedContext::class)]

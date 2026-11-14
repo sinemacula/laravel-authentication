@@ -11,6 +11,7 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Database\StorageConnection;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException;
+use SineMacula\Laravel\Authentication\Support\KeyShape;
 
 /**
  * Finds a session of the configured session model by its identifier, the way
@@ -114,7 +115,7 @@ final class SessionLookup
     {
         $model = self::model();
 
-        if (!SessionKeyShape::matches($model, $id)) {
+        if (!KeyShape::matches($model, $id)) {
             return null;
         }
 

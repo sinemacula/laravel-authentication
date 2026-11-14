@@ -18,13 +18,15 @@ use SineMacula\Laravel\Authentication\External\ExternalLink;
 interface ExternalIdentityLinks
 {
     /**
-     * The link made through the connection for the issuer and subject, with the
-     * identity it maps to, or `null` when there is none.
+     * The link made through the connection for the issuer and subject, and the
+     * subject's SAML `NameID` format when it has one, with the identity it maps
+     * to, or `null` when there is none.
      *
      * @param  string  $connectionId
      * @param  string  $issuer
      * @param  string  $subject
+     * @param  ?string  $nameIdFormat
      * @return ?\SineMacula\Laravel\Authentication\External\ExternalLink
      */
-    public function find(string $connectionId, string $issuer, string $subject): ?ExternalLink;
+    public function find(string $connectionId, string $issuer, string $subject, ?string $nameIdFormat): ?ExternalLink;
 }
