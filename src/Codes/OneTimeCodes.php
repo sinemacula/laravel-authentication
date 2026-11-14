@@ -213,10 +213,11 @@ final readonly class OneTimeCodes
         $digest = $this->keys->binding($binding);
         $row    = CodeRows::find($digest, true);
 
-        return $row !== null
-            && hash_equals($row->challenge_id, $challengeId)
-            && $row->consumed_at !== null
-            && CodeRows::isSameContext($row->context, $this->keys->context($binding))
+        if ($row === null || $row->consumed_at === null || !hash_equals($row->challenge_id, $challengeId)) {
+            return false;
+        }
+
+        return CodeRows::isSameContext($row->context, $this->keys->context($binding))
             && hash_equals($row->code_hash, $this->keys->code($digest, $row->issue_id, $code));
     }
 
