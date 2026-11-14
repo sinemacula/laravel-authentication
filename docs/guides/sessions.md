@@ -355,34 +355,34 @@ $result = Auth::sessions('api')->reauthenticateExternally($redeemed->sessionId, 
 
 Only on an application that allows `external_provider` (`method_not_allowed`), only for one of the guard's live, active
 sessions of a person, as for a step-up (an identifier that names no session, or cannot be a key, is `session_unknown`),
-and only with the time the provider authenticated the identity (`proof_invalid` without one, or with one before the
-session began). The result must come through the very link that established the session: the link contract must link it
-to an identity (`ExternalResultUnlinked`, then `external_result_unlinked`), that identity must own the session, and the
-session's provenance must record exactly the result's connection and the link's id, compared byte for byte
-(`link_mismatch`, as for another link of the same identity through the same connection, a session no link established,
-or a result naming another link than the contract answers). The link contract is asked before anything is locked; the
-session's row is then locked, after every lock the adapter took, and judged again (still the session read before the
-lock, its provenance and the provider's time), so call it inside the adapter's transaction on the storage connection.
-With the proof recorded, the session must still meet its tenant's authentication policy, as at any redemption: a
-connection the tenant no longer admits is `sso_required`, and a further factor it now requires that none of the
-session's accepted evidence, this proof's included, meets is `additional_factor_required`; either rolls the proof back
-and writes nothing, so the next refresh revokes the session or returns it to pending. The tenant's policy and the
-evidence policy are asked then, under the session's row lock, so they must only read, or take no lock the adapter does
-not already hold. A database error, a serialization failure included, propagates for the adapter to retry the whole
-transaction.
+and only with the time the provider authenticated the identity (`proof_invalid` without one). The result must come
+through the very link that established the session: the link contract must link it to an identity
+(`ExternalResultUnlinked`, then `external_result_unlinked`), that identity must own the session, and the session's
+provenance must record exactly the result's connection and the link's id, compared byte for byte (`link_mismatch`, as
+for another link of the same identity through the same connection, a session no link established, or a result naming
+another link than the contract answers). The link contract is asked before anything is locked; the session's row is then
+locked, after every lock the adapter took, and judged again (still the session read before the lock, and its
+provenance), so call it inside the adapter's transaction on the storage connection. With the proof recorded, the session
+must still meet its tenant's authentication policy, as at any redemption: a connection the tenant no longer admits is
+`sso_required`, and a further factor it now requires that none of the session's accepted evidence, this proof's
+included, meets is `additional_factor_required`; either rolls the proof back and writes nothing, so the next refresh
+revokes the session or returns it to pending. The tenant's policy and the evidence policy are asked then, under the
+session's row lock, so they must only read, or take no lock the adapter does not already hold. A database error, a
+serialization failure included, propagates for the adapter to retry the whole transaction.
 
 The proof is recorded as `external_reauthentication`, timed when the provider authenticated the identity (now, when that
-is after now), so the new access token's `auth_time` is the later of the session's and the provider's, decided under the
-lock, after the session's issuance guard, so a racing reauthentication or step-up either committed first and is counted
-in this token, or waits for this one (see [Issuance order](#issuance-order)); inside a transaction of yours at
-PostgreSQL's REPEATABLE READ that read before such a one committed, this one fails to serialise instead, for you to
-retry. Nothing else is renewed: no refresh token is issued, and the session row (apart from its issuance guard), its
-deadlines and its provenance are kept. Its `amr` gains the provider's private value, and `mfa`, only when the
-application's `ExternalEvidencePolicy` accepts the result's evidence (see [Proofs and
-provenance](#proofs-and-provenance)); otherwise only `auth_time` moves. `Reauthenticated` (method `external_provider`)
-reports it once committed, and then `ExternalResultRedeemed` (flow `reauthentication`), whose context carries the
-result's connection and request reference, as a refusal's `AuthenticationFailed` does. A step-up refuses an external
-proof.
+is after now, and as given when it is before the session began, as a provider's clock running behind can give), so the
+new access token's `auth_time` is the later of the session's and the provider's, decided under the lock, after the
+session's issuance guard, so a racing reauthentication or step-up either committed first and is counted in this token,
+or waits for this one (see [Issuance order](#issuance-order)); inside a transaction of yours at PostgreSQL's REPEATABLE
+READ that read before such a one committed, this one fails to serialise instead, for you to retry. Nothing else is
+renewed: no refresh token is issued, and the session row (apart from its issuance guard), its deadlines and its
+provenance are kept. Its `amr` gains the provider's private value, and `mfa`, only when the application's
+`ExternalEvidencePolicy` accepts the result's evidence (see [Proofs and provenance](#proofs-and-provenance)); otherwise
+only `auth_time` moves, and only when the provider's time is the later. `Reauthenticated` (method `external_provider`)
+reports it once committed, whether `auth_time` moved or not, and then `ExternalResultRedeemed` (flow
+`reauthentication`), whose context carries the result's connection and request reference, as a refusal's
+`AuthenticationFailed` does. A step-up refuses an external proof.
 
 An adapter asks `externalStanding($sessionId, $identity, $connectionId, $linkId)` whether a session, by its identifier,
 stands for such a reauthentication: `null` for one of the guard's live, active sessions of a person owned by the
