@@ -86,6 +86,8 @@ session held back by the policy waits as `pending-sessions.md` describes; the pe
   activation judges a further factor itself. Each revocation is one conditional update on the session still acting in
   the tenant and unrevoked, reported by `SessionRevoked` once committed. Inside a transaction on the session model's
   connection or the tenant's own, the same pass runs again once they commit; its revocations are reported, not counted.
+  A sign-in, choice or switch into the tenant that commits after the last pass is judged the same way by its own check
+  after commit (`AdmissionRecheck`), so either the pass reads the session or the check reads the change.
 - `tenantDeactivated()` ends every session acting in the tenant, whatever its principal, as well as the sessions of the
   principals listed for it, each session counted once.
 

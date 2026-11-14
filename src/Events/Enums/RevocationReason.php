@@ -61,7 +61,7 @@ enum RevocationReason: string
     case PRINCIPAL_DELETED = 'principal_deleted';
 
     // The active tenant's authentication policy changed and the session no
-    // longer meets it: `tenantPolicyChanged()` or a refresh
+    // longer meets it: `tenantPolicyChanged()`, a refresh or `AdmissionRecheck`
     case TENANT_POLICY_CHANGED = 'tenant_policy_changed';
 
     // The identity established its first password: `establish()`

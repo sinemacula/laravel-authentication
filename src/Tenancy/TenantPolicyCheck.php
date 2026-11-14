@@ -6,15 +6,19 @@ namespace SineMacula\Laravel\Authentication\Tenancy;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Container\Container;
+use Illuminate\Database\Eloquent\Model;
+use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
 use SineMacula\Laravel\Authentication\Requirements\ProofSource;
 use SineMacula\Laravel\Authentication\Requirements\RequirementJudge;
+use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
 use SineMacula\Laravel\Authentication\Tenancy\Enums\TenantPolicyStanding;
 
 /**
@@ -72,6 +76,84 @@ final class TenantPolicyCheck
     }
 
     /**
+     * Judge the session again against the tenant's policy on its current
+     * proofs, a further factor only when it is not pending; `null` when it
+     * records the very version answered.
+     *
+     * @param  string  $guard
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  \Closure(): bool  $pending
+     * @param  \Carbon\CarbonImmutable  $now
+     * @return ?\SineMacula\Laravel\Authentication\Tenancy\TenantPolicyVerdict
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     */
+    public static function again(
+        string $guard,
+        Identity $identity,
+        Principal $principal,
+        Tenant $tenant,
+        Session $session,
+        \Closure $pending,
+        CarbonImmutable $now,
+    ): ?TenantPolicyVerdict {
+        $recorded = $session->getTenantPolicyVersion();
+        $source   = new ProofSource(current: true);
+        $context  = self::contextFor($guard, $identity, $principal, $tenant, $session, $source, true);
+
+        try {
+            $requirement = self::requirementFor($context);
+
+            if ($recorded !== null && $recorded === $requirement->version) {
+                return null;
+            }
+
+            // A pending session's further factor is judged when it activates.
+            $judged = !$requirement->factor->isEmpty() && $pending()
+                ? new TenantRequirement($requirement->version, connections: $requirement->connections)
+                : $requirement;
+
+            return self::judge($judged, $context, $now, $source);
+        } finally {
+            $context->expire();
+        }
+    }
+
+    /**
+     * Why a committed session no longer meets the tenant's policy as it answers
+     * now; `null` when it does or records the very version answered.
+     *
+     * @param  string  $guard
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
+     * @param  \Carbon\CarbonImmutable  $now
+     * @return ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     */
+    public static function shortfall(string $guard, Identity $identity, Principal $principal, Tenant $tenant, EloquentSession&Model $session, CarbonImmutable $now): ?FailureReason
+    {
+        // Read as stored: the copy given may predate an activation or a return
+        // to pending made since in the same transaction.
+        $pending = static fn (): bool => $session->getConnection()->table($session->getTable())->useWritePdo()
+            ->where($session->getKeyName(), $session->getKey())
+            ->value($session->getStatusName()) === SessionStatus::PENDING->value;
+
+        return match (self::again($guard, $identity, $principal, $tenant, $session, $pending, $now)?->standing) {
+            TenantPolicyStanding::SSO_REQUIRED    => FailureReason::SSO_REQUIRED,
+            TenantPolicyStanding::FACTOR_REQUIRED => FailureReason::ADDITIONAL_FACTOR_REQUIRED,
+            default                               => null,
+        };
+    }
+
+    /**
      * The context the policy is asked about, with its connection found lazily.
      *
      * @param  string  $guard
@@ -80,17 +162,25 @@ final class TenantPolicyCheck
      * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  \SineMacula\Laravel\Authentication\Requirements\ProofSource  $source
+     * @param  bool  $rejudging
      * @return \SineMacula\Laravel\Authentication\Tenancy\TenantPolicyContext
      */
-    public static function contextFor(string $guard, Identity $identity, Principal $principal, Tenant $tenant, ?Session $session, ProofSource $source): TenantPolicyContext
-    {
+    public static function contextFor(
+        string $guard,
+        Identity $identity,
+        Principal $principal,
+        Tenant $tenant,
+        ?Session $session,
+        ProofSource $source,
+        bool $rejudging = false,
+    ): TenantPolicyContext {
         $connectionId = static fn (): ?string => match (true) {
             $source->evidence !== null => $source->evidence->connectionId,
             $session === null          => null,
             default                    => SessionProofs::connectionId($session, $source->current),
         };
 
-        return new TenantPolicyContext($guard, $identity, $principal, $tenant, $session, $connectionId);
+        return new TenantPolicyContext($guard, $identity, $principal, $tenant, $session, $connectionId, $rejudging);
     }
 
     /**

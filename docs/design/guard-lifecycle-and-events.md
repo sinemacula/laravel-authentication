@@ -10,8 +10,10 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - Any sign-in attempt (`attempt()`, `signIn()`, `refresh()`) starts with Laravel's `Attempting` event. A request's
   bearer token is an authentication, not a sign-in (D5): it fires neither `Attempting`, `Validated`, `Login` nor
   `Failed`, only `Authenticated` and the contextual events, or `AuthenticationFailed` with the reason.
-- `Login` and `SignedIn` report real sign-ins only: a sign-in through the session service and a refresh, which also
-  fires `Refreshed`; `SignedIn::$refresh` tells them apart.
+- `Login` and `SignedIn` report real sign-ins only: a sign-in through the session service, `attempt()`, a direct
+  `login()` and a refresh, which also fires `Refreshed`; `SignedIn::$refresh` tells a refresh apart. Each sign-in is
+  reported once: the session service binds through `GuardBinding::loginStarted()`, which fires no `SignedIn`, since the
+  service has already reported the sign-in.
 - The credentials on `Attempting` and `Failed` never carry a password: keys whose name contains `password`
   (case-insensitive) are always removed, plus any fragment in `authentication.events.redacted_credential_keys`. The
   identifier and every other key are kept.
@@ -64,24 +66,28 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 
 ## Success Path
 
-- `attempt()` emits `Attempting -> Validated -> Login -> Authenticated -> PrincipalAssigned -> SessionAuthenticated?`.
-  It starts no session, so it never dispatches `SignedIn`, which reports the sessions the session service starts;
-  Laravel's `Login` reports an `attempt()` sign-in.
+- `attempt()` emits
+  `Attempting -> Validated -> Login -> Authenticated -> PrincipalAssigned -> SessionAuthenticated? -> SignedIn`. It
+  starts no session; its `SignedIn` carries the bind's context (the method `password`, and the session only when one
+  was pinned), so an audit listener on the package's events sees an access-only guard's sign-ins.
 - The session service's `signIn()` emits `Attempting`, then, once the session's transaction is done, `SessionCreated`
   and `SignedIn` when the session's connection commits (at once with no transaction open there), and then, on the same
-  commit, binds through `login()` (`Validated -> Login -> Authenticated -> PrincipalAssigned -> SessionAuthenticated`)
-  while the session is still active; `start()` does the same without `Attempting` (see `session-service.md`). A sign-in
-  whose session is written pending (a further factor or a choice of principal outstanding) binds nothing: it emits
-  `Attempting` (from `signIn()`) and then `SessionPending` once the pending session commits. A `satisfy()` or `choose()`
-  that activates it emits the `signIn()` sequence without `Attempting`; one that leaves it pending emits nothing; a
-  refused one emits `Failed` and then `AuthenticationFailed`; `discard()` emits `SessionRevoked` (`signed_out`).
+  commit, binds through `loginStarted()`
+  (`Validated -> Login -> Authenticated -> PrincipalAssigned -> SessionAuthenticated`) while the session is still
+  active; `start()` does the same without `Attempting` (see `session-service.md`). A sign-in whose session is written
+  pending (a further factor or a choice of principal outstanding) binds nothing: it emits `Attempting` (from `signIn()`)
+  and then `SessionPending` once the pending session commits. A `satisfy()` or `choose()` that activates it emits the
+  `signIn()` sequence without `Attempting`; one that leaves it pending emits nothing; a refused one emits `Failed` and
+  then `AuthenticationFailed`; `discard()` emits `SessionRevoked` (`signed_out`).
 - `switchTo()` is no sign-in: it dispatches `PrincipalSwitched` once the switch commits on the session's connection,
   when it changed the principal or the tenant, and binds through `authenticateAs()` with the destination tenant
   (`Authenticated -> PrincipalAssigned -> SessionAuthenticated`, no `Validated` or `Login`); one whose destination asks
   for a further factor binds nothing, forgets a binding to that session (`forgetUser()`, no event), and emits
   `SessionReturnedToPending` (flow `switch`), as a refresh's return to pending does; a refusal emits only
   `AuthenticationFailed` (flow `switch`), with `SessionRevoked` first for a replayed token.
-- Direct `login()` emits the same sequence without `Attempting`.
+- Direct `login()` emits
+  `Validated -> Login -> Authenticated -> PrincipalAssigned -> SessionAuthenticated? -> SignedIn`, its `SignedIn`
+  carrying the bind's context with the method the session records (none without a session).
 - `setUser()` (behind Laravel's `actingAs()`) clears the previous context (its authentication context and credential
   kind too) and emits `Authenticated -> PrincipalAssigned` for the identity and its default principal, without
   `Validated` or `Login`. An identity with no default principal is rejected with an `InvalidArgumentException` and the
@@ -98,10 +104,10 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   (`Login -> Authenticated -> PrincipalAssigned -> SessionAuthenticated`), through the binding's `loginVerified()` with
   the tenant and sign-in method the exchange established, once the transport has judged the token presented, its own
   events and the bind's `PrincipalAssigned` and `SessionAuthenticated` carrying the client given (a parameter of
-  `loginVerified()` and `login()` for that bind only, never guard state); a request that carries none (or `null` handed in)
-  emits nothing, and one its transport refuses (`refresh_token_conflict`, `refresh_transport_mismatch`,
-  `cross_site_request`, `token_invalid`) emits `Attempting`, `Failed` and `AuthenticationFailed` (flow `refresh`), as
-  any failed refresh does (see `refresh-token-transport.md`).
+  `loginVerified()`, `loginStarted()` and `login()` for that bind only, never guard state); a request that carries none
+  (or `null` handed in) emits nothing, and one its transport refuses (`refresh_token_conflict`,
+  `refresh_transport_mismatch`, `cross_site_request`, `token_invalid`) emits `Attempting`, `Failed` and
+  `AuthenticationFailed` (flow `refresh`), as any failed refresh does (see `refresh-token-transport.md`).
 - A new request (`setRequest()`, which the `request` rebind calls) resets the guard: the bound context, the last
   retrieved identity and whether the request was resolved. A queue worker keeps the application between jobs, so the
   package resets each resolved package guard to the current request when a job starts (`JobProcessing`,
@@ -214,6 +220,7 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   `fireFailedEvent()`, `redactCredentials()`.
 - `src/Guards/AbstractGuard.php`: `user()`, `resolveUserFromRequest()`, `attempt()`, `validate()`, `login()`,
   `authenticateAs()`, `logout()`, `forgetUser()`, `bindAuthenticationLifecycle()`, `bindVerifiedContext()`;
+  `src/Guards/Concerns/BindsContextualState.php`: `loginStarted()`, `loginVerified()`;
   `src/Guards/Concerns/RebindsCollaborators.php`: `setRequest()`; `src/Guards/Concerns/SignsInWithCredentials.php`:
   `signInWithCredentials()`, `admitVerifiedIdentity()`; `src/Sessions/CredentialAttempt.php`: the steps it shares with
   the session service's `signIn()`.
@@ -261,6 +268,10 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   `testAMethodTheGuardDoesNotAllowIsRefusedBeforeAnythingIsCounted`, `testARequiredFactorFailsTheAttempt`
 - `tests/Feature/Guards/AbstractGuardLifecycleTest.php`
   `testLoginFiresValidatedEventBeforeBindingState`
+- `tests/Feature/Guards/AbstractGuardEventContextTest.php` `testLoginReportsTheSignInWithTheBoundContext`,
+  `testLoginReportsWhatItBoundWhenAListenerSignsOut`, `testLoginStartedLeavesTheSignInToTheFlowThatStartedIt`;
+  `tests/Feature/Guards/AbstractGuardTest.php` `testASuccessfulAttemptBindsAsAPasswordSignIn`,
+  `testASuccessfulAttemptReportsWhatItBoundWhenAListenerSignsOut`
 - `tests/Feature/Guards/JwtGuardTest.php`
   `testARateLimitedRefreshFiresFailedAndReturnsTheWait`
 - `tests/Feature/Sessions/SessionRefreshTest.php`
