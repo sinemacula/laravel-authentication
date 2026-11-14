@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace Tests\Feature\Database;
 
+use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Database\StorageConnection;
@@ -136,6 +137,30 @@ final class StorageConnectionTest extends TestCase
         self::assertFalse(StorageConnection::holds($identity));
         self::assertTrue(StorageConnection::holds(new SeparateConnectionSession));
         self::assertTrue(StorageConnection::holds(new Session));
+    }
+
+    /**
+     * A transaction is open on the storage connection only while one is open on
+     * the connection it names.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testATransactionIsOpenOnlyOnTheStorageConnection(): void
+    {
+        config()->set('database.connections.' . SeparateConnectionSession::CONNECTION, ['driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '']);
+
+        self::assertFalse(StorageConnection::isInTransaction());
+
+        DB::transaction(static fn () => self::assertTrue(StorageConnection::isInTransaction()));
+
+        self::assertFalse(StorageConnection::isInTransaction());
+
+        config()->set('authentication.storage.connection', SeparateConnectionSession::CONNECTION);
+
+        DB::transaction(static fn () => self::assertFalse(StorageConnection::isInTransaction()));
+        DB::connection(SeparateConnectionSession::CONNECTION)->transaction(static fn () => self::assertTrue(StorageConnection::isInTransaction()));
     }
 
     /**

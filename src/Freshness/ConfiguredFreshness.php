@@ -6,11 +6,11 @@ namespace SineMacula\Laravel\Authentication\Freshness;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Config\Repository;
-use Illuminate\Database\Connection;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\FreshnessPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Session;
+use SineMacula\Laravel\Authentication\Database\StorageConnection;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
 use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
@@ -89,7 +89,7 @@ final readonly class ConfiguredFreshness implements FreshnessPolicy
         bool $current = false,
     ): ?RecordedProof {
         if ($current) {
-            self::refuseOutsideTransaction(SessionLookup::model()->getConnection());
+            self::refuseOutsideTransaction();
         }
 
         return $this->fresh($session, $operation, $requirement, $excludingFactor, $current)[0] ?? null;
@@ -119,7 +119,7 @@ final readonly class ConfiguredFreshness implements FreshnessPolicy
         bool $current = false,
     ): ?CarbonImmutable {
         if ($current) {
-            self::refuseOutsideTransaction(SessionLookup::model()->getConnection());
+            self::refuseOutsideTransaction();
         }
 
         $fresh = $this->fresh($session, $operation, $requirement, $excludingFactor, $current);
@@ -163,17 +163,17 @@ final readonly class ConfiguredFreshness implements FreshnessPolicy
     }
 
     /**
-     * Refuse a current judgement outside a transaction on the session model's
+     * Refuse a current judgement outside a transaction on the storage
      * connection, where it would not be atomic.
      *
-     * @param  \Illuminate\Database\Connection  $connection
      * @return void
      *
+     * @throws \InvalidArgumentException
      * @throws \LogicException
      */
-    private static function refuseOutsideTransaction(Connection $connection): void
+    private static function refuseOutsideTransaction(): void
     {
-        if ($connection->transactionLevel() === 0) {
+        if (!StorageConnection::isInTransaction()) {
             throw new \LogicException('A current freshness judgement is asked inside a transaction on the session model\'s connection.');
         }
     }

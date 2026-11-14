@@ -102,7 +102,7 @@ final class SessionProofs
             ->when($requirement->multifactor, static fn (Builder $query): Builder => $query->where('multifactor', true)->whereNull('evidence'))
             ->when($requirement->phishingResistant, static fn (Builder $query): Builder => $query->where('phishing_resistant', true))
             ->orderByDesc('authenticated_at')
-            ->orderByDesc('id')
+            ->orderByDesc('sequence')
             ->when($shared, static fn (Builder $query): Builder => $query->sharedLock())
             ->first());
 
@@ -132,7 +132,7 @@ final class SessionProofs
             ->when($from !== null, static fn (Builder $query): Builder => $query->where('authenticated_at', '>=', $model->fromDateTime($from)))
             ->when($kinds !== null, static fn (Builder $query): Builder => $query->whereIn('kind', array_column($kinds ?? [], 'value')))
             ->orderByDesc('authenticated_at')
-            ->orderByDesc('id')
+            ->orderByDesc('sequence')
             ->limit($limit)
             ->when($shared, static fn (Builder $query): Builder => $query->sharedLock())
             ->get()
@@ -159,7 +159,7 @@ final class SessionProofs
         $proof = WriteConnection::during($model, static fn (): mixed => self::counting($session)
             ->where('kind', ProofKind::FIRST_FACTOR->value)
             ->orderBy('authenticated_at')
-            ->orderBy('id')
+            ->orderBy('sequence')
             ->when($shared, static fn (Builder $query): Builder => $query->sharedLock())
             ->first());
 
@@ -183,7 +183,7 @@ final class SessionProofs
             ->whereIn('kind', [ProofKind::FIRST_FACTOR->value, ProofKind::EXTERNAL_REAUTHENTICATION->value])
             ->whereNotNull('evidence')
             ->orderByDesc('authenticated_at')
-            ->orderByDesc('id')
+            ->orderByDesc('sequence')
             ->limit(self::EVIDENCE_LIMIT)
             ->when($shared, static fn (Builder $query): Builder => $query->sharedLock())
             ->get(['evidence'])
