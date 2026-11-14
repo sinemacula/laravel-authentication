@@ -269,7 +269,7 @@ final readonly class RefreshTokenExchange
         CarbonImmutable $now,
         ClientContext $client,
     ): AuthenticationFailed|ExchangedRefresh|ReturnedToPending {
-        $policy = TenantPolicyCheck::check($this->context->name(), $session->identity, $session->principal, $session->tenant, $record, $now, new ProofSource(current: true));
+        $policy = TenantPolicyCheck::check($this->context->name(), $session, $record, $client, $now, new ProofSource(current: true));
 
         if (!$policy->isMet()) {
             return $this->fallShort($record, $session, $policy, $rotationId, $now, $client);

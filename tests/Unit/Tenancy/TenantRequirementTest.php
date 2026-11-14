@@ -48,7 +48,7 @@ final class TenantRequirementTest extends TestCase
      */
     public function testTheDefaultPolicyRequiresNothing(): void
     {
-        $context = new TenantPolicyContext('api', new PlainIdentityFixture(7), new PlainPrincipalFixture(7), new PlainTenantFixture(1), null);
+        $context = new TenantPolicyContext('api', new PlainIdentityFixture(7), new PlainPrincipalFixture(7), new PlainTenantFixture(1), null, null);
         $answer  = (new RequireNothingOfTenants)->requirementFor($context);
 
         self::assertNull($answer->version);

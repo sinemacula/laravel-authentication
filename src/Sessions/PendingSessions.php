@@ -376,7 +376,7 @@ final readonly class PendingSessions
         (EloquentSession&Model)|null $proven,
         AdmissionRecheck $call,
     ): Refused|SignInResult {
-        $policy = $this->evaluation->tenantPolicy($identity, $principal, $tenant, $session, $now, current: true);
+        $policy = $this->evaluation->tenantPolicy($identity, $principal, $tenant, $session, $call->client, $now, current: true);
 
         if ($policy->standing === TenantPolicyStanding::SSO_REQUIRED) {
             return new Refused(FailureReason::SSO_REQUIRED, $identity, $principal, $tenant, $session);
@@ -454,7 +454,7 @@ final readonly class PendingSessions
      */
     private function outstanding(EloquentSession&Model $session, Identity $identity, ?Principal $principal, ?Tenant $tenant, CarbonImmutable $now): array
     {
-        $policy = $this->evaluation->tenantPolicy($identity, $principal, $tenant, $session, $now);
+        $policy = $this->evaluation->tenantPolicy($identity, $principal, $tenant, $session, null, $now);
         $first  = PendingTransitions::firstFactorOf($session, $policy);
         $owed   = $this->evaluation->owedFactorOn($session, $identity, $first, $this->proven($session), $now);
 

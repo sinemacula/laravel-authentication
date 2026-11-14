@@ -194,7 +194,7 @@ final readonly class SessionRefresh
         }
 
         return PrincipalReference::isRecordedOn($session, $admitted->principal)
-            ? $this->underTenantPolicy($admitted, $session, $presented->source, $now)
+            ? $this->underTenantPolicy($admitted, $session, $presented->source, $client, $now)
             : FailureReason::SESSION_PRINCIPAL_MISMATCH;
     }
 
@@ -205,15 +205,21 @@ final readonly class SessionRefresh
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource  $source
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @param  \Carbon\CarbonImmutable  $now
      * @return \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Sessions\RefreshCredential
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      */
-    private function underTenantPolicy(Admitted $admitted, EloquentSession&Model $session, RefreshTokenSource $source, CarbonImmutable $now): FailureReason|RefreshCredential
-    {
-        return match (TenantPolicyCheck::check($this->context->name(), $admitted->identity, $admitted->principal, $admitted->tenant, $session, $now)->standing) {
+    private function underTenantPolicy(
+        Admitted $admitted,
+        EloquentSession&Model $session,
+        RefreshTokenSource $source,
+        ClientContext $client,
+        CarbonImmutable $now,
+    ): FailureReason|RefreshCredential {
+        return match (TenantPolicyCheck::check($this->context->name(), $admitted, $session, $client, $now)->standing) {
             TenantPolicyStanding::SSO_REQUIRED    => FailureReason::SSO_REQUIRED,
             TenantPolicyStanding::FACTOR_REQUIRED => FailureReason::ADDITIONAL_FACTOR_REQUIRED,
             TenantPolicyStanding::MET             => new RefreshCredential($admitted->identity, $admitted->principal, $admitted->tenant, $session, $source),

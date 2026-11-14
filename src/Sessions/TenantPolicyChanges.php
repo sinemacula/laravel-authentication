@@ -6,6 +6,7 @@ namespace SineMacula\Laravel\Authentication\Sessions;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
+use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -235,7 +236,7 @@ final readonly class TenantPolicyChanges
 
         $pending = static fn (): bool => $session->getStatus() === SessionStatus::PENDING;
 
-        return TenantPolicyCheck::again((string) $session->getGuard(), $identity, $principal, $tenant, $session, $pending, $now);
+        return TenantPolicyCheck::again((string) $session->getGuard(), new Admitted($identity, $principal, $tenant), $session, null, $pending, $now);
     }
 
     /**
