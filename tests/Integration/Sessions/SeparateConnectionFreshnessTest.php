@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\FreshnessPolicy;
+use SineMacula\Laravel\Authentication\Database\StorageConnection;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Factors\Enums\FactorChange;
 use SineMacula\Laravel\Authentication\Freshness\ConfiguredFreshness;
@@ -113,6 +114,8 @@ final class SeparateConnectionFreshnessTest extends TestCase
             DB::beginTransaction();
 
             try {
+                self::assertFalse(StorageConnection::isInTransaction());
+
                 $statements = self::statementsDuring(static fn (): \LogicException => self::thrownBy($ask));
             } finally {
                 DB::rollBack();
@@ -141,6 +144,8 @@ final class SeparateConnectionFreshnessTest extends TestCase
 
         $statements = self::statementsDuring(static function () use ($connection, $policy, $session, &$proof, &$until): void {
             $connection->transaction(static function () use ($policy, $session, &$proof, &$until): void {
+                self::assertTrue(StorageConnection::isInTransaction());
+
                 $proof = $policy->freshProof($session, Operations::FACTOR_CHANGE, current: true);
                 $until = $policy->freshUntil($session, Operations::FACTOR_CHANGE, current: true);
             });

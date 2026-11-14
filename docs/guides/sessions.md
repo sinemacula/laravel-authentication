@@ -349,6 +349,7 @@ $result = Auth::sessions('api')->reauthenticateExternally($redeemed->sessionId, 
     authenticatedAt: $redeemed->authenticatedAt,
     evidence: $redeemed->evidence,
     requestReference: $redeemed->requestReference,
+    nameIdFormat: $redeemed->nameIdFormat,
 ), ClientContext::fromRequest($request));
 ```
 
@@ -455,10 +456,12 @@ your transaction ends and judged as above (the same generation and owner, live f
 first (where you already hold it, one more statement and no new lock), and its proofs are read current, so a proof
 voided before the call never counts and one recorded before it does, whatever your transaction read first; still two
 queries. It is asked only inside a transaction on the session model's connection (the storage connection), and throws a
-`LogicException` outside one before anything is read. It takes the session's row and then its proofs, so take any other
-session's row first. On MySQL and MariaDB the proofs' read holds shared locks until you commit, and at REPEATABLE READ
-the gaps beside the session's proofs too (see [Issuance order](#issuance-order)); at PostgreSQL's REPEATABLE READ the
-row's lock fails to serialise when the session was written after your snapshot, for you to retry the whole transaction.
+`LogicException` outside one before anything is read; `Database\StorageConnection::isInTransaction()` answers whether
+one is open, for code reached both inside and outside one. It takes the session's row and then its proofs, so take any
+other session's row first. On MySQL and MariaDB the proofs' read holds shared locks until you commit, and at REPEATABLE
+READ the gaps beside the session's proofs too (see [Issuance order](#issuance-order)); at PostgreSQL's REPEATABLE READ
+the row's lock fails to serialise when the session was written after your snapshot, for you to retry the whole
+transaction.
 
 `freshUntil()` answers until when the session stays fresh for the operation: the second its fresh proof is as old as
 the effective requirement's maximum age, from which second on it is no longer fresh, or `null` when it is not fresh.
