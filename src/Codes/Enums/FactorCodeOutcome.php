@@ -26,9 +26,13 @@ enum FactorCodeOutcome: string
     // or is another binding's; no attempt is counted
     case NOT_FOUND = 'not_found';
 
-    // The binding's own challenge was used up, by its code or by being ended,
-    // whether or not it has expired since; no attempt is counted
+    // The binding's own challenge was used up, by another code or by being
+    // ended, whether or not it has expired since; no attempt is counted
     case USED = 'used';
+
+    // The code is the one that used the binding's own challenge up, whether or
+    // not it has expired since; no attempt is counted
+    case REPLAYED = 'replayed';
 
     // The challenge's code has expired
     case EXPIRED = 'expired';

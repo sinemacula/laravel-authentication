@@ -305,7 +305,7 @@ final class FactorCodesTest extends TestCase
         self::assertNotNull(DB::table('one_time_codes')->value('consumed_at'));
         self::assertSame(0, self::counterHits('mobile', 'factor_code', 'per_ip', self::IP));
 
-        self::assertSame(FactorCodeOutcome::USED, $this->verify($binding, $challenge, self::CODE)->outcome);
+        self::assertSame(FactorCodeOutcome::REPLAYED, $this->verify($binding, $challenge, self::CODE)->outcome);
         self::assertCount(1, $this->counters->reports);
     }
 
@@ -588,30 +588,37 @@ final class FactorCodesTest extends TestCase
     }
 
     /**
-     * Rows of `[what used the challenge up]`.
+     * Rows of `[what used the challenge up, the outcome of its own code]`.
      *
-     * @return iterable<string, array{0: array<string, mixed>}>
+     * @return iterable<string, array{0: array<string, mixed>, 1: \SineMacula\Laravel\Authentication\Codes\Enums\FactorCodeOutcome}>
      */
     public static function provideUsedChallenges(): iterable
     {
+        $used  = ['consumed_at' => '2026-04-06 11:59:00'];
+        $ended = [...$used, 'issue_id' => '00000000-0000-4000-8000-00000000e4d0'];
+
         yield from [
-            'ended'               => [['consumed_at' => '2026-04-06 11:59:00']],
-            'ended and expired'   => [['consumed_at' => '2026-04-06 11:59:00', 'expires_at' => '2026-04-06 12:00:00']],
-            'ended and exhausted' => [['consumed_at' => '2026-04-06 11:59:00', 'attempts' => 5]],
+            'its code'                => [$used, FactorCodeOutcome::REPLAYED],
+            'its code, then expired'  => [[...$used, 'expires_at' => '2026-04-06 12:00:00'], FactorCodeOutcome::REPLAYED],
+            'its code, and exhausted' => [[...$used, 'attempts' => 5], FactorCodeOutcome::REPLAYED],
+            'ended'                   => [$ended, FactorCodeOutcome::USED],
+            'ended, then expired'     => [[...$ended, 'expires_at' => '2026-04-06 12:00:00'], FactorCodeOutcome::USED],
+            'ended and exhausted'     => [[...$ended, 'attempts' => 5], FactorCodeOutcome::USED],
         ];
     }
 
     /**
-     * The binding's own used challenge is used, whether or not it has ended
-     * since.
+     * The binding's own used challenge answers its code as replayed when that
+     * code used it, and as used when it was ended, counting nothing either way.
      *
      * @param  array<string, mixed>  $state
+     * @param  \SineMacula\Laravel\Authentication\Codes\Enums\FactorCodeOutcome  $outcome
      * @return void
      *
      * @throws \Throwable
      */
     #[DataProvider('provideUsedChallenges')]
-    public function testTheBindingsOwnUsedChallengeIsUsed(array $state): void
+    public function testTheBindingsOwnUsedChallengeIsReplayedOrUsed(array $state, FactorCodeOutcome $outcome): void
     {
         $binding   = $this->binding();
         $challenge = (string) $this->send($binding)->challengeId;
@@ -623,7 +630,7 @@ final class FactorCodesTest extends TestCase
         $check  = $this->verify($binding, $challenge, self::CODE);
         $failed = $this->recordedEvent(AuthenticationFailed::class);
 
-        self::assertSame([FactorCodeOutcome::USED, $challenge], [$check->outcome, $check->challengeId]);
+        self::assertSame([$outcome, $challenge], [$check->outcome, $check->challengeId]);
         self::assertSame([FailureReason::INVALID_CREDENTIALS, $challenge], [$failed->reason, $failed->challengeId]);
         self::assertSame([[], $state['attempts'] ?? 0, 1], [$this->counters->reports, self::column('attempts'), self::counterHits('mobile', 'factor_code', 'per_ip', self::IP)]);
     }
