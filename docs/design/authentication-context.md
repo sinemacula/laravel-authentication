@@ -54,6 +54,11 @@ permission: a policy that reads the context is the application's.
   `multifactor`, `seconds_since_step_up`, `credential`, `scopes` (as `Auth::scopes()`) and `ip`. Types are named as
   `EventContext` names them (`Support\MorphClass::of()`: an Eloquent model's morph class, else its class name) and
   identifiers are strings, so a context and an event about the same request agree.
+- `Context\Enums\AuthenticationKey` is the schema of those keys: one case per key, valued with its dot path, and
+  `type()` giving its `Context\Enums\ContextKeyType` (`string`, `list`, `number`, `bool`, `ip` or `time`) when it is not
+  `null`. `auth_time` is a `time`, an instant, and `seconds_since_step_up` a `number`, a duration. The types are the
+  package's own, so it depends on no authorisation package; their names match the key types a policy declares. A test
+  holds the cases to the keys `toArray()` gives, in order, and each value to its type.
 - `mfa`, `recovery_code` and `multifactor` keep three questions apart (AUTH-3.12). `mfa` is an accepted additional
   verification: an `additional_factor` proof, which is one by definition, or an external proof (a first factor or an
   `external_reauthentication`) whose evidence was accepted for an additional verification or multifactor authentication;
@@ -136,7 +141,8 @@ permission: a policy that reads the context is the application's.
   `src/Context/ContextContributors.php`, `src/Context/ContributionSubject.php` (with
   `src/Sessions/ActiveSessionProofs.php` for `proofs()` and `firstFactor()`),
   `src/Context/GuardAuthenticationContexts.php`, `src/Context/ContextForgetting.php`,
-  `src/Context/Enums/CredentialKind.php`
+  `src/Context/Enums/CredentialKind.php`, `src/Context/Enums/AuthenticationKey.php`,
+  `src/Context/Enums/ContextKeyType.php`
 - `src/Contracts/AuthenticationContexts.php`, `src/Contracts/AuthenticationContextContributor.php`,
   `src/Contracts/ContextualGuard.php` (`authenticationContext()`), `src/Contracts/GuardBinding.php`
   (`forgetAuthenticationContext()`)
@@ -156,7 +162,8 @@ permission: a policy that reads the context is the application's.
 
 - `tests/Unit/Context/AuthenticationContextTest.php`, `tests/Unit/Context/ContextKeysTest.php`,
   `tests/Unit/Context/ContextContributorsTest.php`,
-  `tests/Unit/Context/Enums/CredentialKindTest.php`, `tests/Unit/Support/MorphClassTest.php`
+  `tests/Unit/Context/Enums/CredentialKindTest.php`, `tests/Unit/Context/Enums/AuthenticationKeyTest.php`,
+  `tests/Unit/Support/MorphClassTest.php`
 - `tests/Feature/Context/ContextBuilderTest.php`: a session token's context, a step-up read from the proofs and not the
   token, a recovery code kept apart, external evidence counted only when accepted for an additional verification, the
   address through trusted proxies, a trusted bind presenting no credential, contributors and their failures;

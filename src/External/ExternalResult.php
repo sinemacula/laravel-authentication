@@ -33,6 +33,9 @@ final readonly class ExternalResult
     /** @var int Longest authorisation request reference, in characters. */
     public const int REFERENCE_MAX_LENGTH = 255;
 
+    /** @var int Longest SAML `NameID` format, in characters. */
+    public const int NAME_ID_FORMAT_MAX_LENGTH = 255;
+
     /** @var ?\Carbon\CarbonImmutable When the provider authenticated the identity, to the whole second. */
     public ?CarbonImmutable $authenticatedAt;
 
@@ -53,6 +56,7 @@ final readonly class ExternalResult
      * @param  ?string  $linkId
      * @param  ?string  $requestReference
      * @param  ?\SineMacula\Laravel\Authentication\External\ProviderContext  $providerContext
+     * @param  ?string  $nameIdFormat
      *
      * @throws \InvalidArgumentException
      */
@@ -90,6 +94,9 @@ final readonly class ExternalResult
 
         /** Details of how the provider established the session, for the adapter's own context contributor, if any. */
         public ?ProviderContext $providerContext = null,
+
+        /** The format of the SAML `NameID` the subject is, if it is one, compared exactly. */
+        public ?string $nameIdFormat = null,
     ) {
         self::assertText($connectionId, self::ID_MAX_LENGTH, 'connection id');
         self::assertText($issuer, self::ISSUER_MAX_LENGTH, 'issuer');
@@ -98,6 +105,7 @@ final readonly class ExternalResult
         self::assertText($policyVersion, self::VERSION_MAX_LENGTH, 'policy version');
         self::assertText($linkId, self::ID_MAX_LENGTH, 'link id');
         self::assertText($requestReference, self::REFERENCE_MAX_LENGTH, 'request reference');
+        self::assertText($nameIdFormat, self::NAME_ID_FORMAT_MAX_LENGTH, 'NameID format');
 
         $this->authenticatedAt = $authenticatedAt === null ? null : CarbonImmutable::instance($authenticatedAt)->startOfSecond();
         $this->sessionNotAfter = $sessionNotAfter === null ? null : CarbonImmutable::instance($sessionNotAfter)->startOfSecond();

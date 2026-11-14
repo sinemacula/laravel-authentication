@@ -9,7 +9,8 @@ and how the runtime models and the published migrations are kept choosing the sa
 
 - One resolver decides, `Database\StorageConnection`: `name()` is `authentication.storage.connection`, `null` or empty
   for the default connection; `forRateLimits()` is `authentication.rate_limits.connection` when it names a connection,
-  and `name()` otherwise. A value that is neither a name nor `null` or empty fails closed with an
+  and `name()` otherwise; `isInTransaction()` is whether a transaction is open on the `name()` connection, where a
+  session may be read current. A value that is neither a name nor `null` or empty fails closed with an
   `InvalidArgumentException` naming the key, rather than putting a table on another connection than the one meant.
 - Every shipped model takes its connection from the resolver when it is built: `SessionProof`, `SessionProvenance`,
   `OneTimeCode`, `Passkey`, `PasskeyChallenge`, `ApiKey` and `IdentifierChange` from `name()`,
