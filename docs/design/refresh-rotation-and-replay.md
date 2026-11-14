@@ -280,8 +280,8 @@ other rotated token as a replay that revokes the session.
   `refresh_grace_seconds` with the lifetimes in `src/Jwt/JwtTokenServiceFactory.php`.
 - `src/Jwt/JwtTokenService.php`: `issueRefreshToken()` and `issueAccessToken()`, each with `$issuedAt`.
 - `src/Jwt/Enums/RotationMatch.php`: the CURRENT and PREVIOUS verdicts.
-- `src/SessionRecords/SessionKeyShape.php` and `src/Contracts/ValidatesSessionKey.php`: the `sid` shape check run before
-  the session lookup.
+- `src/Support/KeyShape.php` and `src/Contracts/ValidatesSessionKey.php`: the `sid` shape check run before the session
+  lookup.
 - `src/Database/WriteConnection.php`: pins the session and owner reads to the write connection (the principal and tenant
   reads are pinned by the resolver and by `ActivationPolicy`).
 - `src/Admission/ActivationPolicy.php`: the opt-in identity, principal, and tenant activity checks.
