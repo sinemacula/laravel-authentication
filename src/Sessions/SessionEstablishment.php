@@ -194,7 +194,7 @@ final readonly class SessionEstablishment
             return new Refused($tenant, $identity, $principal, session: $proven);
         }
 
-        $policy = $this->evaluation->tenantPolicy($identity, $principal, $tenant, null, $now, $evidence);
+        $policy = $this->evaluation->tenantPolicy($identity, $principal, $tenant, null, $context->client, $now, $evidence);
 
         if ($policy->standing === TenantPolicyStanding::SSO_REQUIRED) {
             return new Refused(FailureReason::SSO_REQUIRED, $identity, $principal, $tenant, $proven);

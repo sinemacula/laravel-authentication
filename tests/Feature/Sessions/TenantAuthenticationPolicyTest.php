@@ -29,6 +29,7 @@ use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 use SineMacula\Laravel\Authentication\External\InsufficientEvidence;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
 use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
@@ -51,6 +52,7 @@ use SineMacula\Laravel\Authentication\Sessions\SessionEstablishment;
 use SineMacula\Laravel\Authentication\Sessions\SessionRefresh;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
+use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use SineMacula\Laravel\Authentication\Sessions\TenantPolicyChanges;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
@@ -360,6 +362,58 @@ final class TenantAuthenticationPolicyTest extends TestCase
 
         self::assertTrue($returned->isPending());
         self::assertSame([PendingRequirement::MFA], $returned->pending?->requires);
+    }
+
+    /**
+     * The policy is asked with the client of the call that asks, and with none
+     * by the policy-change helper and a pending session's lookup.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testThePolicyIsAskedWithTheClientOfTheCallThatAsks(): void
+    {
+        [$member] = $this->seedMember();
+
+        $this->policy->requirement = new TenantRequirement('v1', new Requirement(new RequirementPart));
+
+        $sessions = $this->sessions('members');
+        $pending  = $sessions->signIn('password', self::credentials('member@example.test'), new SignInContext(new ClientContext('203.0.113.1', 'agent')));
+
+        self::assertNotNull($pending->pending);
+        self::assertNotNull($pending->credential);
+        self::assertNotNull($sessions->pending($pending->credential->reveal()));
+
+        $active = $sessions->satisfy(
+            $pending->credential->reveal(),
+            self::adapterProof($member, 'members', $pending->pending->id, Purpose::SIGN_IN),
+            new ClientContext('203.0.113.2', 'agent'),
+        );
+
+        self::assertTrue($active->isSignedIn());
+
+        $refreshed = $sessions->refresh(self::bodyToken($active->session?->tokens), new ClientContext('203.0.113.3', 'agent'));
+
+        self::assertTrue($refreshed->isRefreshed());
+
+        $other  = ActivatableTenant::query()->create(['name' => 'Other', 'is_active' => true]);
+        $second = ActivatableTenantMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $other->getKey()]);
+
+        $switched = $sessions->switchTo(
+            PresentedRefreshToken::fromBody($refreshed->session?->tokens->refreshToken?->reveal() ?? ''),
+            SwitchTarget::principal($second),
+            new ClientContext('203.0.113.4', 'agent'),
+        );
+
+        self::assertTrue($switched->isSwitched());
+
+        $sessions->tenantPolicyChanged($other);
+
+        self::assertSame(
+            ['203.0.113.1', null, '203.0.113.2', '203.0.113.3', '203.0.113.4', null],
+            array_map(static fn (TenantPolicyContext $context): ?string => $context->client?->ip, $this->policy->asked),
+        );
     }
 
     /**

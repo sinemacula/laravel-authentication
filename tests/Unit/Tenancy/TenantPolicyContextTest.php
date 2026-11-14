@@ -95,6 +95,6 @@ final class TenantPolicyContextTest extends TestCase
      */
     private static function context(?\Closure $connectionId = null): TenantPolicyContext
     {
-        return new TenantPolicyContext('api', new PlainIdentityFixture(7), new PlainPrincipalFixture(7), new PlainTenantFixture(1), null, $connectionId);
+        return new TenantPolicyContext('api', new PlainIdentityFixture(7), new PlainPrincipalFixture(7), new PlainTenantFixture(1), null, null, $connectionId);
     }
 }
