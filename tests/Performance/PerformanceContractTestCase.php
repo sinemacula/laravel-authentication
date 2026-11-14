@@ -135,6 +135,6 @@ abstract class PerformanceContractTestCase extends TestCase
      */
     protected function firstFactorReads(): int
     {
-        return count(preg_grep('/authentication_proofs.+order by .?authenticated_at.? asc, .?id.? asc limit 1/i', $this->capturedSql) ?: []);
+        return count(preg_grep('/authentication_proofs.+order by .?authenticated_at.? asc, .?sequence.? asc limit 1/i', $this->capturedSql) ?: []);
     }
 }

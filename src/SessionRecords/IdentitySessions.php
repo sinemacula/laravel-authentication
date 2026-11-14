@@ -10,6 +10,7 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\HasSessions;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
+use SineMacula\Laravel\Authentication\Support\KeyShape;
 
 /**
  * An identity's sessions as the package reads them, through its `sessions()`
@@ -66,7 +67,7 @@ final class IdentitySessions
 
         [$query, $model] = self::query($identity);
 
-        if (!SessionKeyShape::matches($model, $id)) {
+        if (!KeyShape::matches($model, $id)) {
             return null;
         }
 
