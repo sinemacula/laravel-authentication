@@ -13,10 +13,10 @@ principal auth without session tracking or refresh rotation.
   (`rate_limits.sign_in = null`): a deployment that signs in with `attempt()` keeps that table, and the
   `authentication_sessions` table stays empty.
 - Access tokens for this mode must be issued with `session = null`, which means the JWT carries no `sid`, and so no
-  `auth_time` or `amr` either: a token that names no session and carries one of those fails to parse. `sid` is the one
-  access-token claim that may be absent (or `null`); `iss`, `aud`, `client_id`, `sub`, `sub_type` (`person`),
-  `principal`, `jti`, `iat` and `exp`, with the `at+jwt` header type, are required as on every access token. With no
-  session to bound it, such a token lives exactly the guard's `access_ttl_minutes`.
+  `auth_time` or `amr` either: a token that names no session and carries one of those fails to parse. `sid` may be
+  absent (or `null`), as may `tenant_id` when the principal acts in no tenant; `iss`, `aud`, `client_id`, `sub`,
+  `sub_type` (`person`), `principal`, `jti`, `iat` and `exp`, with the `at+jwt` header type, are required as on every
+  access token. With no session to bound it, such a token lives exactly the guard's `access_ttl_minutes`.
 - The identity model does not need to implement `HasSessions`.
 - Bearer auth still rehydrates the identity through the configured provider and resolves the principal through the
   configured resolver.
@@ -49,8 +49,9 @@ principal auth without session tracking or refresh rotation.
   has no `authentication_sessions` table.
 - This mode is bearer-only. `JwtTokenService::issueRefreshToken()` still requires a `Session`, and the refresh exchange
   still depends on an `EloquentSession` model plus persisted session state. The session service refuses to start a
-  session (`signIn()`, `start()`) for an identity without `HasSessions` with a `LogicException`: every session it starts
-  is a persisted one, and the access token it would issue names one this identity can never resolve.
+  session (`signIn()`, `start()`, `signInExternally()`) for an identity without `HasSessions` with a `LogicException`:
+  every session it starts is a persisted one, and the access token it would issue names one this identity can never
+  resolve.
 - Its revocation methods work, and are how session-less tokens end early: for an identity without `HasSessions`, or a
   principal whose owner is one and can still be read, a bulk revocation (`revokeSessions()`, `signOutEverywhere()`, the
   security-change methods, `principalDeactivated()`, `principalDeleted()`, `revokePrincipalSessions()`) only moves the

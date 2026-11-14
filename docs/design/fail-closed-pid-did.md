@@ -13,15 +13,15 @@ and the runtime cannot prove that claim, authentication fails.
   resolver set (lazily, even when the principal was hydrated with lazy loading prevented), must be that identity's class
   and auth identifier, so a resolver whose hinted lookup is not scoped to the identity cannot bind another identity's
   principal. An owner that cannot be read fails closed.
-- A present bearer `sid` must resolve to a real, unrevoked session owned by the resolved identity that has not ended. A
-  session with `revoked_at` set, or past its idle or absolute deadline (or without one), is rejected like a missing one,
-  with its own reason (`session_revoked`, `session_expired`; a session of another guard `session_guard_mismatch`, a
-  missing one `session_unknown`), so revoking or ending a session ends its access tokens at once; the check reads the
-  row the lookup already loaded, with no extra query, and applies no JWT leeway, so an access token cannot outlive its
-  session. Any stored `revoked_at` counts, so a custom model using `ActsAsSession` without a `datetime` cast on the
-  column is rejected too, and a session loaded without one of its state columns throws a `LogicException` instead of
-  being read as not revoked. The same lookup verifies a session pinned on `attempt()`, which must also come back as the
-  same class.
+- A present bearer `sid` must resolve to a real session of this guard, owned by the resolved identity, that is active
+  (not pending), unrevoked and has not ended. A session of another guard, with `revoked_at` set, still pending, or past
+  its idle or absolute deadline (or without an idle one) is rejected like a missing one, with its own reason, checked in
+  that order (`session_guard_mismatch`, `session_revoked`, `session_pending`, `session_expired`; a missing one
+  `session_unknown`), so revoking or ending a session ends its access tokens at once; the check reads the row the
+  lookup already loaded, with no extra query, and applies no JWT leeway, so an access token cannot outlive its session.
+  Any stored `revoked_at` counts, so a custom model using `ActsAsSession` without a `datetime` cast on the column is
+  rejected too, and a session loaded without one of its state columns throws a `LogicException` instead of being read
+  as not revoked. The same lookup verifies a session pinned on `attempt()`, which must also come back as the same class.
 - A bearer `sid` is accepted only in the tenant and for the principal the session records, in that order: the token's
   `tenant_id` (absent for none) must be the session's `tenant_id`, its active tenant, else `session_tenant_mismatch`;
   the session's `principal_type` and `principal_id` must name the token's principal (a session that records none fails

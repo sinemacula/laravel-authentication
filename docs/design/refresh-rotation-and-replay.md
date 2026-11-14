@@ -33,11 +33,11 @@ other rotated token as a replay that revokes the session.
   bearer path rejects it, so no token outlives its session even when the idle lifetime is shorter than the access
   lifetime.
 - The rotation is a single compare-and-swap `UPDATE` on the session's own connection that applies only while the row
-  still holds the presented id as current, is not revoked, and has both deadlines exactly as they were loaded (equality
-  on the raw stored values, exact because the columns are whole-second; a `null` absolute deadline is matched as `IS
-  NULL`, which the query builder writes for a `null` value, on SQLite, PostgreSQL and MySQL alike). It records the
-  presented digest as previous, `$now` as the rotation time, the successor's digest as current, and the new idle
-  deadline. There is never more than one swap per exchange.
+  still holds the presented id as current, is active and not revoked, and has both deadlines exactly as they were
+  loaded (equality on the raw stored values, exact because the columns are whole-second; a `null` absolute deadline is
+  matched as `IS NULL`, which the query builder writes for a `null` value, on SQLite, PostgreSQL and MySQL alike). It
+  records the presented digest as previous, `$now` as the rotation time, the successor's digest as current, and the new
+  idle deadline. There is never more than one swap per exchange.
 - The new pair is issued before the swap, and returned only once the swap has committed. A failure while issuing
   (signing, randomness, an identifier that cannot be read) therefore happens before anything is written and leaves the
   presented refresh token valid.
@@ -62,14 +62,15 @@ other rotated token as a replay that revokes the session.
   principal, and the tenant it acts within must each be active when they implement `CanBeActive`.
 - A session belongs to one guard (its `guard` column, stamped by the session service). Refresh honours a token only for
   a session of the guard exchanging it, checked right after the lookup and before anything else is judged, so a token of
-  one guard can never revoke, rotate, or even classify another guard's session; the bearer path and sign-in pins treat
-  such a session as missing. A session that records no guard belongs to none.
-- Refresh holds every session to the guard's current application policy (`ApplicationPolicy`, resolved from the
-  container on each exchange): the method that started the session (`sign_in_method`) must still be one the guard
-  allows, and the policy must still admit the owner as the principal (asked without an identifier type, so the
-  verified-identifier requirement never applies to a refresh). Neither failure revokes: the session refreshes again once
-  the policy allows it. A rotation's idle lifetime is the one the policy gives the guard; the grace window and leeway
-  are always the guard's token service's, whatever lifetimes the policy returns.
+  one guard can never revoke, rotate, or even classify another guard's session; the bearer path refuses such a session
+  as `session_guard_mismatch`, and sign-in pins treat it as missing. A session that records no guard belongs to none.
+- Refresh holds every session to the guard's current application policy (`ApplicationPolicy` and `ApplicationAccess`,
+  resolved from the container on each exchange): the method that started the session (`sign_in_method`) must still be
+  one the guard allows, and `ApplicationAccess::mayUse()` must still let the principal use the application. The
+  identifier admission (`admitIdentifier()`, with its verified-identifier requirement) is never asked on a refresh.
+  Neither failure revokes: the session refreshes again once both allow it. A rotation's idle lifetime is the one the
+  policy gives the guard; the grace window and leeway are always the guard's token service's, whatever lifetimes the
+  policy returns.
 - Refresh counts failures, not attempts: it cannot guess a secret (signed tokens, 256-bit rotation ids), so each failed
   exchange is counted against the token's session and the client's IP address by the bound `AttemptLimiter`, and
   successful ones are not. Once either count is full, the exchange stops before the session lookup.
@@ -131,8 +132,8 @@ other rotated token as a replay that revokes the session.
 - Reload the session's owner through the guard's identity provider, confirm it is that exact owner (see
   `guard-bound-tokens.md`) and that it is active; resolve the principal (the `principal` one when the token carries it)
   and confirm it and its tenant are active.
-- Ask the application policy: `allowsMethod(guard, sign_in_method)` (a `null` method fails without asking) and
-  `admit(guard, identity, principal, null)`.
+- Ask the application policy `allowsMethod(guard, sign_in_method)` (a `null` method fails without asking) and
+  `ApplicationAccess::mayUse(guard, principal)`.
 - CURRENT: compute the successor and the new idle deadline (from `ApplicationPolicy::lifetimes(guard)`), issue
   the access token and a refresh token carrying the successor at `$now`, then run the compare-and-swap. When it affects
   the row, mirror the new state on the in-memory session and return the pair.
@@ -161,9 +162,9 @@ other rotated token as a replay that revokes the session.
   like any other failure. Nothing is rotated or bound; the issuance guard still commits its sequence bump.
 - A session of another guard, or of none, produces `session_guard_mismatch` without a write to the session, even for a
   token that would be a replay, and nothing is hydrated.
-- A session whose `sign_in_method` the guard no longer allows, or which records none, produces `method_not_allowed`; an
-  owner the application policy no longer admits as the principal produces `principal_ineligible`. Neither writes to the
-  session or revokes it.
+- A session whose `sign_in_method` the guard no longer allows, or which records none, produces `method_not_allowed`; a
+  principal `ApplicationAccess` no longer lets use the application produces `principal_ineligible`. Neither writes to
+  the session or revokes it.
 - Missing or malformed claims produce `token_invalid`: a refresh token must carry the `refresh+jwt` header type and
   `iss`, `aud`, `client_id`, `sid`, `jti`, `iat` and `exp` (`principal` is optional). The token's own `exp` is checked
   by `parse()` (with leeway) before `$now` is taken; the row's deadlines are authoritative and apply without leeway.
@@ -186,7 +187,7 @@ other rotated token as a replay that revokes the session.
   bearer path, refresh tokens with `session_revoked`.
 - "Any id the session never held" covers every validly signed token for the row with an id it never held. A session is
   given a refresh credential outside a rotation only by the session service, when it creates the session: every sign-in
-  creates one (D15), and a session is never given a second credential. A client that proved it holds its previous
+  creates one, and a session is never given a second credential. A client that proved it holds its previous
   session with that session's current refresh token has it revoked (`superseded`) in the same transaction as the new
   session, by one compare-and-swap that applies only while the row still holds the proven digest, owner, principal and
   guard and is not revoked. The previous session's tokens then fail as `session_revoked`, never as replays, so they
@@ -262,18 +263,19 @@ other rotated token as a replay that revokes the session.
 
 ## Implementation Anchors
 
-- `src/Jwt/RefreshTokenExchange.php`: `exchange()` (the limiter check and the failure count), `exchangeClaims()`,
-  `exchangeOn()` (the guard check), `extractRefreshClaims()`, `hydrateRefreshContext()` (the recorded principal),
+- `src/Jwt/RefreshTokenExchange.php`: `exchange()` (the limiter check and the failure count), `exchangeClaims()` (the
+  guard check), `exchangeOn()` (the classification and the expected session), `extractRefreshClaims()`,
+  `hydrateRefreshContext()` (the recorded principal),
   `rotate()`, `afterLostRotation()`, `reissue()`, `fail()`, `revokeSession()`.
 - `src/Jwt/RefreshJudgment.php`: `classify()` and `isGraceRetry()`, the verdict a refresh and a switch share.
 - `src/Jwt/RefreshAdmission.php`: `admit()` (the owner reload, the principal, activity), `admitByPolicy()` (the
-  application policy).
+  application policy and `ApplicationAccess`).
 - `src/Jwt/RefreshRotationStore.php`: `rotate()` (the compare-and-swap), `switchSession()` (the switch's
   compare-and-swap), `revoke()` (the guarded revocation), and `reload()` (the locking re-read on the writer).
 - `src/Database/AfterCommit.php`: defers `SessionRevoked` to the commit of the session's own connection.
 - `src/SessionRecords/SessionLookup.php`: `find()`, the session lookup on the writer.
-- `src/Contracts/ApplicationPolicy.php` and `src/Contracts/AttemptLimiter.php`: the policy and the limiter each exchange
-  resolves from the container.
+- `src/Contracts/ApplicationPolicy.php`, `src/Contracts/ApplicationAccess.php` and `src/Contracts/AttemptLimiter.php`:
+  the policy, the access and the limiter each exchange resolves from the container.
 - `src/Jwt/RefreshTokenHasher.php`: `generate()`, `successor()`, `hash()`, and constant-time `verify()`.
 - `src/SessionRecords/SessionDeadlines.php`: `hasEnded()` and `liveDeadlines()`.
 - `src/Jwt/TokenLifetimes.php`: `idleDeadline()`, `accessExpiry()`, and `isWithinGrace()`; the factory resolves
@@ -349,7 +351,7 @@ other rotated token as a replay that revokes the session.
   `testARateLimitedRefreshFiresFailedAndReturnsTheWait`
 - `tests/Feature/Sessions/SessionRefreshTest.php`
   `testEveryRefusalIsReturnedWithItsReason`, `testARateLimitedRefreshIsReturnedWithItsWait`,
-  `testTheRotationIsReportedBeforeTheBind`, `testTheReportWaitsForTheCallersCommit`
+  `testTheRotationIsReportedBeforeTheBind`, `testTheReportAndTheBindWaitForTheCallersCommit`
 - `tests/Integration/Http/RefreshCookieSessionLifecycleTest.php`
   `testARateLimitedRefreshIsAnsweredWithRetryAfter`
 - `tests/Feature/Guards/VerifiesPinnedContextTest.php`

@@ -17,6 +17,8 @@ enforces this at every entry point that verifies something:
 | An `api_key` guard's `attempt()`                                   | refused as `method_not_allowed`: machines do not sign in     |
 | A one-time code for sign-in                                        | never delivered; one it holds anyway is refused at admission |
 | `Auth::codes()->sendVerification()` / `verify()`                   | refused with an `InvalidArgumentException`                   |
+| `Auth::passwords()->set()`                                         | refused with an `InvalidArgumentException`: it has none      |
+| A password reset link or code                                      | never delivered; refused as `machine_identity` if submitted  |
 | Registering, listing or removing passkeys, or a passkey factor     | refused with an `InvalidArgumentException`: it holds none    |
 | `Auth::identifierChanges()`, every method                          | refused with an `InvalidArgumentException`: it has none      |
 
@@ -47,10 +49,9 @@ with the credential's scopes, so a scope grants nothing the principal could not 
 | Nothing, or a guard that is not the package's                    | `null`                   |
 
 `[]` and `null` differ: `[]` is a credential that grants no scope, `null` is no credential limit at all. A
-`MachineIdentity` is never left without a ceiling, so binding one through the trusted `login()`, `setUser()` or
-`authenticateAs()` (Laravel's `actingAs()` in tests, say) gives it `[]`;
+`MachineIdentity` is never left without a ceiling: a trusted bind gives it `[]`, and
 `authenticateAs($identity, $principal, $session, $scopes)` gives it the scopes named instead (a test acting as a machine
-with scopes, say; see [Testing](testing.md)), and refuses scopes for a human identity with an
+with scopes, say; see [Testing](testing.md)). `authenticateAs()` refuses scopes for a human identity with an
 `InvalidArgumentException`. The scopes are also in every event's context (`$event->context->scopes`), with the
 credential's id in `credentialId`, which the guard's `boundCaller()` also gives with the credential's kind.
 

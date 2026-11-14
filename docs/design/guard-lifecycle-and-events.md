@@ -8,8 +8,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 ## Invariants
 
 - Any sign-in attempt (`attempt()`, `signIn()`, `refresh()`) starts with Laravel's `Attempting` event. A request's
-  bearer token is an authentication, not a sign-in (D5): it fires neither `Attempting`, `Validated`, `Login` nor
-  `Failed`, only `Authenticated` and the contextual events, or `AuthenticationFailed` with the reason.
+  bearer token is an authentication, not a sign-in: it fires neither `Attempting`, `Validated`, `Login` nor `Failed`,
+  only `Authenticated` and the contextual events, or `AuthenticationFailed` with the reason.
 - `Login` and `SignedIn` report real sign-ins only: a sign-in through the session service, `attempt()`, a direct
   `login()` and a refresh, which also fires `Refreshed`; `SignedIn::$refresh` tells a refresh apart. Each sign-in is
   reported once: the session service binds through `GuardBinding::loginStarted()`, which fires no `SignedIn`, since the
@@ -131,7 +131,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   route listing one kind, and a guard asked on a request the middleware did not record (no `auth` middleware, or before
   it runs), read every credential.
 - A rejected bearer token fires only `AuthenticationFailed` (flow `bearer`), once per request, with the first reason in
-  this order: `token_invalid`; `identity_unknown`, `machine_identity`, `identity_inactive`; `principal_mismatch` (the
+  this order: `token_invalid`; for a client credentials token `credential_invalid`, `credential_revoked`,
+  `credential_expired`; `identity_unknown`, `machine_identity`, `identity_inactive`; `principal_mismatch` (the
   `principal` does not resolve to exactly that principal); `principal_inactive`, `tenant_inactive`; and for a token that
   names a session, `session_unknown` (not one of the identity's own, or not a key of the session model),
   `session_guard_mismatch`, `session_revoked`, `session_pending`, `session_expired`, `session_tenant_mismatch`,

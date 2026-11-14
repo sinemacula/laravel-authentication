@@ -76,9 +76,8 @@ checker throws propagates.
 
 `check($password)` gives the policy's verdict, a `PasswordCheck` whose `violations` list every rule the password breaks
 (`passes()` when there is none), as `PasswordViolation` cases: `too_short`, `too_long`, `null_character`, `letters`,
-`mixed_case`, `numbers`,
-`symbols`, and, only once the others pass, `breached` or `breach_check_unavailable`. `rule()` returns
-Laravel's `Password` rule with the same length and composition, for a form request's validation:
+`mixed_case`, `numbers`, `symbols`, and, only once the others pass, `breached` or `breach_check_unavailable`. `rule()`
+returns Laravel's `Password` rule with the same length and composition, for a form request's validation:
 
 ```php
 use SineMacula\Laravel\Authentication\Facades\Auth;
@@ -87,11 +86,11 @@ $request->validate(['password' => ['required', 'confirmed', Auth::passwords('api
 ```
 
 The rule runs no breached check (it does not add `uncompromised()`) and cannot see bcrypt's byte limit or its null
-character, so `set()` (or `check()`)
-has the last word. It is built from the package's settings, not from `Password::defaults()`: a form that
-validates with your own defaults is checked against those, and `set()` still applies the package's policy. The
-policy applies only to passwords being set: the automatic rehash of an outdated hash on sign-in re-encodes the password
-the identity already has, so an older password shorter than today's minimum still signs in, and is rehashed.
+character, so `set()` (or `check()`) has the last word. It is built from the package's settings, not from
+`Password::defaults()`: a form that validates with your own defaults is checked against those, and `set()` still applies
+the package's policy. The policy applies only to passwords being set: the automatic rehash of an outdated hash on
+sign-in re-encodes the password the identity already has, so an older password shorter than today's minimum still signs
+in, and is rehashed.
 
 ## Changing or establishing a password
 
@@ -157,9 +156,10 @@ one reauthenticates first. The freshness is judged under the identity's and the 
 asked current, on the session's proofs as committed (see [Issuance order](sessions.md#issuance-order)): a proof voided
 before the establishment never counts, and one recorded before it does, whatever a transaction of yours around the call
 read first. The password is written only while the row still has none, in the same statement, so of two establishments,
-or an establishment and a reset, at most one writes; every other session ends (`password_established`), and
-`PasswordSet` reports the flow `establishment`. Every refusal but a rejected password is reported by
-`AuthenticationFailed` on the `password_change` flow.
+or an establishment and a reset, at most one writes; every other session ends (`password_established`), with the proofs
+and pending identifier changes a change ends (see [Setting a password](#setting-a-password)), and `PasswordSet` reports
+the flow `establishment`. Every refusal but a rejected password is reported by `AuthenticationFailed` on the
+`password_change` flow.
 
 On MySQL and MariaDB at REPEATABLE READ the judgement's read of the proofs holds the gaps beside the session's proofs
 until the establishment's transaction ends (yours, when you wrap the call), and the establishment then ends the
@@ -268,12 +268,12 @@ is gone, and an identity that is not an Eloquent model; a non-human identity (`M
 throws an `InvalidArgumentException`.
 
 `PasswordSet` reports the password set, with the flow, once the transaction commits on the identity's connection, and
-never for one rolled back; its context names the guard, the client and the identity, and, for a change, the session
-kept. Called inside a transaction of yours, the hash, the cutoff and the revocations are part of it, and every event
-waits for its commit. When the identity lives on another connection than the sessions (the storage connection), the
-sessions are revoked in their own transaction, which commits inside the identity's: a failure after it leaves the
-sessions revoked and the password unchanged, so more is ended, never less, and calling again finishes the job. The
-automatic rehash on sign-in never fires `PasswordSet`.
+never for one rolled back; its context names the guard, the client and the identity, and, for a change or an
+establishment, the session kept. Called inside a transaction of yours, the hash, the cutoff and the revocations are part
+of it, and every event waits for its commit. When the identity lives on another connection than the sessions (the
+storage connection), the sessions are revoked in their own transaction, which commits inside the identity's: a failure
+after it leaves the sessions revoked and the password unchanged, so more is ended, never less, and calling again
+finishes the job. The automatic rehash on sign-in never fires `PasswordSet`.
 
 ## Password reset
 

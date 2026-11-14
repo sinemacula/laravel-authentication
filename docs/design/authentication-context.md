@@ -59,7 +59,7 @@ permission: a policy that reads the context is the application's.
   `null`. `auth_time` is a `time`, an instant, and `seconds_since_step_up` a `number`, a duration. The types are the
   package's own, so it depends on no authorisation package; their names match the key types a policy declares. A test
   holds the cases to the keys `toArray()` gives, in order, and each value to its type.
-- `mfa`, `recovery_code` and `multifactor` keep three questions apart (AUTH-3.12). `mfa` is an accepted additional
+- `mfa`, `recovery_code` and `multifactor` keep three questions apart. `mfa` is an accepted additional
   verification: an `additional_factor` proof, which is one by definition, or an external proof (a first factor or an
   `external_reauthentication`) whose evidence was accepted for an additional verification or multifactor authentication;
   never counted from `amr` and never a recovery code. `recovery_code` is an accepted recovery code. `multifactor` is an

@@ -69,9 +69,10 @@ outdates, and why the change stands when the notice to the old identifier fails.
   counted or written. It locks the identity's row first (`Database\IdentityLock`, the lock order every transaction that
   writes an identity with its proofs follows, so a password write, a reset, a request or a cancellation racing it waits
   rather than deadlocks), refuses an identity no longer stored (`invalid_credentials`) or not active as its row reads
-  under the lock (`identity_inactive`), whatever the instance given says, with nothing counted, reads the change (this
-  guard's, live), checks the proof, deletes the change while it still names its request, looks for another holder
-  through the guard's provider, invalidates the outdated proofs and replaces the identifier conditionally on `previous`
+  under the lock (`identity_inactive`), whatever the instance given says, before the change is read (a confirmation by
+  code keeps the `identifier_change` slot it took), reads the change (this guard's, live), checks the proof, deletes the
+  change while it still names its request, looks for another holder through the guard's provider, invalidates the
+  outdated proofs and replaces the identifier conditionally on `previous`
   (`HasChangeableIdentifiers::replaceIdentifier()`, which records the new one as verified). A refused proof commits, so
   a code's attempt count is durable; any refusal after the proof is accepted throws inside the transaction, so it rolls
   back whole and the proof is not spent.
@@ -81,9 +82,9 @@ outdates, and why the change stands when the notice to the old identifier fails.
   link codes, and the identity's verification codes. A sign-in or reset code names its guard, type and identifier, not
   an identity, so through a guard over another table it belongs to whoever holds the identifier there, and is kept.
   Verification links need nothing: they carry the digest of the identifier they verify.
-- `IdentifierChangeRequested` and `IdentifierChanged` are dispatched once the write commits on the identity's connection;
-  the code's delivery and the notice are queued through `Delivery\QueuedDelivery` on the same commit. A caller's
-  rollback undoes the write and dispatches nothing.
+- `IdentifierChangeRequested` and `IdentifierChanged` are dispatched once the write commits on the identity's
+  connection; the code's delivery and the notice are queued through `Delivery\QueuedDelivery` on the same commit. A
+  caller's rollback undoes the write and dispatches nothing.
 - A machine identity has no identifiers to change: every method throws `InvalidArgumentException`. An identity that is
   not an Eloquent model implementing `HasChangeableIdentifiers` throws `LogicException`; so does an unbound
   `IdentifierChangeNotifier`, on requests and confirmations.
@@ -125,10 +126,11 @@ outdates, and why the change stands when the notice to the old identifier fails.
   the transaction rolls back, `invalid`.
 - A confirmation through another guard, or a link signed for another guard: `invalid`; the change is left waiting.
 - A confirmation for an identity that is not active (`ActivationPolicy::isActive()`, on the row as locked): `invalid`,
-  reported as `identity_inactive`, before anything else is read, counted or spent. The link needs no session, so no
-  guard has checked the identity, and an account suspended after the request must keep its identifier; once active
-  again, the change can still be confirmed while it waits, unless the suspension ended its sessions through
-  `identityDeactivated()`, which cancels it (below).
+  reported as `identity_inactive`, before the change is read or its proof checked, so nothing is spent (a confirmation
+  by code keeps the `identifier_change` slot it took). The link needs no session, so no guard has checked the identity,
+  and an account suspended after the request must keep its identifier; once active again, the change can still be
+  confirmed while it waits, unless the suspension ended its sessions through `identityDeactivated()`, which cancels it
+  (below).
 - An expired change: `expired` (`code_expired`, or `link_expired` for a link, also when the link's own signature has
   not yet expired at the change's last second).
 - The notifier fails: the job fails and the queue retries; the change stands. The new identifier was proven and the
@@ -146,14 +148,14 @@ outdates, and why the change stands when the notice to the old identifier fails.
   connection (`PendingChanges::forget()`, from `Sessions\RevocationWriter` for the scope
   `SessionService::revokeSessions()` builds): `signOutEverywhere()`, `revokeSessions()`, `passwordChanged()`,
   `passwordReset()`, `credentialRemoved()`, `factorRemoved()`, `factorReset()`, `identityDeactivated()`,
-  `identityDeleted()`, and so `PasswordService::set()` for a change or a reset, a reset by link or code, and the
-  listeners. A link needs no session, so a change requested from a session that ended (an attacker's) would otherwise
-  still move the account to the requester's address once its owner had signed it out, reset its password or had it
-  suspended, whether or not the identity has a password at all. The change's code needs nothing: it is checked only
-  against its pending change's binding, so without the row it confirms nothing until it is pruned. Revoking one session,
-  ending a principal's sessions and a registration leave the identity's other sessions, and so its pending changes. A
-  deactivation that only clears the identity's active flag, without `identityDeactivated()`, keeps them, and the change
-  can be confirmed once the identity is active again.
+  `identityDeleted()`, and so `PasswordService::change()`, `establish()`, `set()` for a change or a reset, a reset by
+  link or code, and the listeners. A link needs no session, so a change requested from a session that ended (an
+  attacker's) would otherwise still move the account to the requester's address once its owner had signed it out, reset
+  its password or had it suspended, whether or not the identity has a password at all. The change's code needs nothing:
+  it is checked only against its pending change's binding, so without the row it confirms nothing until it is pruned.
+  Revoking one session, ending a principal's sessions and a registration leave the identity's other sessions, and so its
+  pending changes. A deactivation that only clears the identity's active flag, without `identityDeactivated()`, keeps
+  them, and the change can be confirmed once the identity is active again.
 
 ## Implementation Anchors
 

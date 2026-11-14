@@ -11,14 +11,14 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 
 - Failures are results (`SignInResult::failed()` with a `FailureReason`), each reported with Laravel's `Failed` and then
   `AuthenticationFailed` (flow `sign_in`). A concealed reason (`account_rate_limited`, `code_expired`, `code_exhausted`,
-  `passkey_counter_regressed`) reaches only the event; the result says `invalid_credentials`, with no wait. Exceptions
-  are reserved for misconfiguration (an unknown method, a method that refuses with a reason that is not a sign-in method
-  reason, an identity that is not an Eloquent model or does not implement `HasSessions`, an invalid session model, an
-  `UnresolvableIdentityException`) and server errors. An identity without `HasSessions` is refused before it is admitted
-  (in `signIn()`, after its slot was taken; in `start()`, before anything is written), because a bearer token names a
-  session the guard can only find through that relation, so the session's access token would never authenticate. A
-  `MachineIdentity` is the exception: it is let through to admission, which refuses it as a result (`machine_identity`),
-  since a non-human identity has no session whatever it implements.
+  `link_expired`, `passkey_counter_regressed`) reaches only the event; the result says `invalid_credentials`, with no
+  wait. Exceptions are reserved for misconfiguration (an unknown method, a method that refuses with a reason that is not
+  a sign-in method reason, an identity that is not an Eloquent model or does not implement `HasSessions`, an invalid
+  session model, an `UnresolvableIdentityException`) and server errors. An identity without `HasSessions` is refused
+  before it is admitted (in `signIn()`, after its slot was taken; in `start()`, before anything is written), because a
+  bearer token names a session the guard can only find through that relation, so the session's access token would never
+  authenticate. A `MachineIdentity` is the exception: it is let through to admission, which refuses it as a result
+  (`machine_identity`), since a non-human identity has no session whatever it implements.
 - Every sign-in, pending, proof and session action takes the client it acts for as a required plain value and never
   reads the guard's request for it: `signIn()`, `start()` and `signInExternally()` (the `SignInContext`), `refresh()`,
   `switchTo()`, `signOutWith()`, `satisfy()`, `choose()`, `discard()`, `stepUp()`, `reauthenticate()` and
@@ -95,7 +95,7 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   shipped policy are the guard's token service's (see `application-policy.md`), the absolute one capped at the
   context's own deadline (`SignInContext::$notAfter`, into which `signInExternally()` folds the provider's); a context
   whose deadline is `$now` or earlier is refused as `session_expired` before anything is written.
-- Every sign-in creates a new session (D15): a new key, a new rotation id, both deadlines from `$now`. An active
+- Every sign-in creates a new session: a new key, a new rotation id, both deadlines from `$now`. An active
   session is written in one transaction on the session's connection: the revocation of a proven session first, then the
   new session, then its proofs and its provenance, then both tokens, so any failure while issuing, or an insert a model
   event cancels (a `LogicException`), rolls all of it and the revocation back. Only the digest of the rotation id is
@@ -119,9 +119,9 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   (`parseRefreshProof()`: every `parse()` check except expiry), and the session, read from the writer, is owned by the
   identity, records this guard and the same principal, and is not revoked. Anything else is no proof: a new session,
   nothing failed, revoked or reported. The IP address, user agent, client name and platform never count. The proof is
-  the client's device key in this package's reading of D15: possession of the previous session's credential, the only
-  one a client holds; no other key material exists. Passing it in `SignInContext::$refreshToken` is the application's
-  opt-in (D21).
+  the client's device key in this package's reading: possession of the previous session's credential, the only one a
+  client holds; no other key material exists. Passing it in `SignInContext::$refreshToken` is the application's
+  opt-in.
 - Replacing a proven session (`SessionWriter::replace()`) revokes it with one compare-and-swap on the row exactly as it
   was proven (digest, owner, principal, guard, active, not revoked), writing `revoked_at`, the reason `superseded` and
   null digests as any revocation does, then inserts the new session as `create()` does, except that a client name or
@@ -250,7 +250,7 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   `src/Sessions/Concerns/ProvesSessions.php`: `stepUp()` and `reauthenticate()`, delegated to
   `src/Sessions/SessionStepUp.php` and `src/Sessions/SessionReauthentication.php` over `src/Sessions/ProofIssuance.php`
   (see `proofs-and-freshness.md`). `src/Sessions/Concerns/LooksUpSessions.php`: `session()`, `sessionRecord()`,
-  `principal()`, `proofs()` and `firstFactor()`, delegated to `src/Sessions/ActiveSessions.php`,
+  `principal()`, `proofs()`, `firstFactor()` and `provenance()`, delegated to `src/Sessions/ActiveSessions.php`,
   `src/SessionRecords/IdentitySessions.php`, `src/Sessions/PendingEvaluation.php` and
   `src/Sessions/ActiveSessionProofs.php` (a trait for the same reason).
 - `src/Sessions/SessionEstablishment.php`: `select()`, `proceed()`, `establish()`, `wait()`, `write()`, `signedIn()`:

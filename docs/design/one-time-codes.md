@@ -30,9 +30,10 @@ the same whether or not anyone has the identifier, and who a code is ever delive
   live is not delivered (`rate_limited`, with the wait until the window ends), since it could expire before another may
   be asked for; a reset link's token works for its own lifetime.
 - The code is `length` digits from `random_int()`, zero-padded, stored only as `HMAC-SHA256(key'', "code\0binding
-  digest\0issue id\0code")`, compared with `hash_equals()`. `key'` and `key''` are separate derivations of
+  digest\0issue id\0code")`, compared with `hash_equals()`. `key'`, `key''` and `key'''` are separate derivations of
   `authentication.codes.key` (at least 32 bytes) or, when it is not set, of `app.key`. The table holds no code and no
-  identifier; `OneTimeCode::toArray()` hides the binding digest, the issuance and the hash.
+  identifier; `OneTimeCode::toArray()` hides the binding digest, the challenge id, the transaction digest, the issuance
+  and the hash.
 - A password reset link's token (`issueToken()`) is the binding's live secret in the same row: 32 random bytes,
   base64url (43 characters), stored as the same keyed hash, under the same resend cooldown, with the lifetime the caller
   gives. `checkToken()` counts no attempt (256 bits cannot be guessed), answers `expired` only for the right token, and
@@ -63,29 +64,31 @@ the same whether or not anyone has the identifier, and who a code is ever delive
   otherwise `invalid`). A matching code is accepted only when `UPDATE ... SET consumed_at = now WHERE id AND issue_id
   AND consumed_at IS NULL` changed the row, so of two correct submissions exactly one is accepted; a counted attempt
   that is not accepted is `wrong`.
-- A factor code (`CodeService::sendFactorCode()`, `verifyFactorCode()`) asks the bound `FactorCodeCounters` inside one
-  transaction on the storage connection: `admit($binding, $client)` before the delivery or the check (not admitted:
-  `locked` or `refused`, nothing written), and `report($binding, $challengeId, $passed, $client)` exactly once for each
-  counted attempt, in the transaction that counts it, each with the client the send or the check was handed; a check
-  that counts nothing reports nothing. The report's answer stands: a matching code is verified only when it is admitted.
-  The default counters refuse every code. A factor code check tells the adapter `not_found` (a malformed, unknown,
-  replaced or other-binding challenge id), `used` (the binding's own challenge, used up by another code or ended) and
-  `replayed` (the code that used the binding's own challenge up: its issuance survives the use, and ending a challenge
-  replaces it, so only that code matches) from `invalid` (a malformed code, or a wrong one, which alone is counted and
-  reported). None of `not_found`, `used` and `replayed` is a guess at a live code, so none counts or reports, though
-  every check takes its IP slot first, before the challenge id and the code are judged: a full limit answers
-  `rate_limited` even for a malformed check, and a malformed one keeps its slot. Every refusal reports
-  `AuthenticationFailed`: as `rate_limited` with its wait once the limit is full, and as `invalid_credentials`
-  otherwise. A rate-limited refusal is reported too, so the volume of failure events is bounded by the application's own
-  request throttling. Code sign-in and verification by code keep one concealed answer for all of them, so they say
-  nothing about the challenge.
+- A factor code (`CodeService::sendFactorCode()`, `verifyFactorCode()`) is sent after the `code_request` limits, and
+  asks the bound `FactorCodeCounters` inside one transaction on the storage connection: `admit($binding, $client)`
+  before the delivery or the check (not admitted: `locked` or `refused`, nothing written), and `report($binding,
+  $challengeId, $passed, $client)` exactly once for each counted attempt, in the transaction that counts it, each with
+  the client the send or the check was handed; a check that counts nothing reports nothing. The report's answer stands:
+  a matching code is verified only when it is admitted. The default counters refuse every code. A factor code check
+  tells the adapter `not_found` (a malformed, unknown, replaced or other-binding challenge id), `used` (the binding's
+  own challenge, used up by another code or ended) and `replayed` (the code that used the binding's own challenge up:
+  its issuance survives the use, and ending a challenge replaces it, so only that code matches) from `invalid` (a
+  malformed code, or a wrong one, which alone is counted and reported). None of `not_found`, `used` and `replayed` is a
+  guess at a live code, so none counts or reports, though every check takes its IP slot first, before the challenge id
+  and the code are judged: a full limit answers `rate_limited` even for a malformed check, and a malformed one keeps its
+  slot. Every refusal of a send or a check reports `AuthenticationFailed` on the `factor_code` flow: `rate_limited` with
+  its wait once a limit is full, `code_expired`, `code_exhausted`, `factor_code_locked` or `factor_code_refused` for
+  those outcomes, and `invalid_credentials` otherwise (`deliveries_exhausted` for a send the delivery window refuses). A
+  rate-limited refusal is reported too, so the volume of failure events is bounded by the application's own request
+  throttling. Code sign-in and verification by code keep one concealed answer for all of them, so they say nothing about
+  the challenge.
 - Every time is a whole second; one `now` per operation; a deadline has passed from the second it names.
 - Every read that decides a code, its recipient or a verification is on the write connection.
 - A request for a sign-in code does no identity-dependent work: the method must be allowed, the identifier must be one
   its type's normaliser accepts, the `code_request` limits (per identifier, in normal form, and per IP address) must
-  have room, taken on every request and never given back, and the cooldown must have passed. A code is then issued for
-  any identifier and its delivery queued, so the result, the statements and the time are the same for an identifier no
-  one has.
+  have room, taken on every request and never given back, the cooldown must have passed and the delivery window must
+  have room. A code is then issued for any identifier and its delivery queued, so the result, the statements and the
+  time are the same for an identifier no one has.
 - Delivery is the `SendOneTimeCode` job (`ShouldQueue`, `ShouldBeEncrypted`), dispatched through
   `Delivery\QueuedDelivery` (every delivery job the package queues goes through it, with the
   `authentication.delivery.queue` settings), which waits on `AfterCommit` for the code row's connection, so only a
@@ -102,19 +105,20 @@ the same whether or not anyone has the identifier, and who a code is ever delive
   is an `Identity`, not a `MachineIdentity`, active, `HasVerifiableIdentifiers`, holds exactly the bound identifier
   (`CodeIdentifiers::isHeldBy()`: its own identifier of the type, read on the write connection, canonical, compared with
   `hash_equals`), and reports it verified. The lookup alone never decides who holds an identifier: it matches what the
-  column's collation does, and MySQL's `utf8mb4_unicode_ci` matches accented look-alikes (`ben@examplé.com`, a domain
-  anyone can register, finds the holder of `ben@example.com`). The message's identifier is therefore always the
+  column's collation does, and MySQL's `utf8mb4_unicode_ci` matches accented look-alikes (`jane@examplé.com`, a domain
+  anyone can register, finds the holder of `jane@example.com`). The message's identifier is therefore always the
   recipient's own, in normal form. A verification code goes only to the identity it carries, read again from the write
   connection, not a `MachineIdentity`, whose identifier of the type still normalises to the bound one. Otherwise nothing
   is sent, and nothing says so.
 - A sign-in by code (`CodeSignIn::authenticate()`, inside the session service's credential timebox) refuses a missing or
-  malformed identifier or a code that is not exactly `length` ASCII digits as `invalid_credentials`, counting nothing;
-  looks the identity up, treating one that does not hold exactly the bound identifier as none (so a look-alike neither
-  signs in nor counts against the holder's account); reserves an account attempt for a known identity (refused:
-  `invalid_credentials`, the code untouched); then checks the code against the sign-in binding whether or not an
-  identity was found. `expired` and `exhausted` answer `code_expired` and `code_exhausted`, concealed as
-  `invalid_credentials` in the result. An accepted code for no identity is `invalid_credentials`, for an identity that
-  does not report the identifier verified `identifier_unverified`, otherwise the identity.
+  malformed identifier, a challenge id that is not a lower-case UUID or a code that is not exactly `length` ASCII digits
+  as `invalid_credentials`, counting nothing; looks the identity up, treating one that does not hold exactly the bound
+  identifier as none (so a look-alike neither signs in nor counts against the holder's account); reserves an account
+  attempt for a known identity (refused: `invalid_credentials`, the code untouched); then checks the code against the
+  sign-in binding whether or not an identity was found. `expired` and `exhausted` answer `code_expired` and
+  `code_exhausted`, concealed as `invalid_credentials` in the result. An accepted code for no identity is
+  `invalid_credentials`, for an identity that does not report the identifier verified `identifier_unverified`, otherwise
+  the identity.
 - Verification by code (`CodeService::sendVerification()` / `verify()`) binds the code to the identity and its current
   identifier of the type in normal form, as the identity given reports it. An accepted code hands that identifier to
   `IdentifierVerifier::verify()`, which records it only if it is still the identity's, and `verify()` answers the
@@ -130,11 +134,11 @@ the same whether or not anyone has the identifier, and who a code is ever delive
 ## Success Path
 
 - `Auth::codes('mobile')->send('phone_code', ['phone' => '+447700900123'], $client)`: method resolved and allowed;
-  identifier normalised; `code_request` reservation; `OneTimeCodes::issue()` (an `UPDATE`, plus an `INSERT` the first
-  time); `SendOneTimeCode` dispatched once committed; `CodeRequest::sent($expiresAt, $resendAvailableAt, $challengeId)`,
-  where `$resendAvailableAt` is worked out from the row just written by the rules that refuse a delivery: the cooldown
-  after it, or the window's end when the window would by then have had all its deliveries or (for a code) have less than
-  the cooldown left.
+  identifier normalised; settings validated; `code_request` reservation; `OneTimeCodes::issue()` (a read, then an
+  `INSERT` the first time or an `UPDATE` after); `SendOneTimeCode` dispatched once committed;
+  `CodeRequest::sent($expiresAt, $resendAvailableAt, $challengeId)`, where `$resendAvailableAt` is worked out from the
+  row just written by the rules that refuse a delivery: the cooldown after it, or the window's end when the window would
+  by then have had all its deliveries or (for a code) have less than the cooldown left.
 - The worker runs the job: live issuance; recipient found and eligible; `OneTimeCodeSender::send(OneTimeCodeMessage)`.
 - `Auth::sessions('mobile')->signIn('phone_code', ['phone' => ..., 'challenge' => $challengeId, 'code' => ...],
   $context)`: the session service's `Attempting`, method check and `sign_in` reservation; `CodeSignIn::authenticate()`
@@ -147,8 +151,9 @@ the same whether or not anyone has the identifier, and who a code is ever delive
 ## Failure / Edge Cases
 
 - Request refusals: `method_not_allowed` (nothing counted), `identifier_invalid` (nothing counted; reported as
-  `invalid_credentials`), `rate_limited` with the limit's wait, or with the cooldown's seconds left. Each dispatches
-  `AuthenticationFailed` on the `code_request` flow with the identifier as given.
+  `invalid_credentials`), `rate_limited` with the limit's wait, or with the cooldown's seconds left, and
+  `deliveries_exhausted` with the wait until the delivery window ends. Each dispatches `AuthenticationFailed` on the
+  `code_request` flow with the identifier as given.
 - After `max_attempts` checks a code is locked until another is requested, which the cooldown and the `code_request`
   limits bound; per identifier and per IP address the `sign_in` limits, and per account the account limit shared with
   the password method, bound the checks as well.
@@ -170,9 +175,9 @@ the same whether or not anyone has the identifier, and who a code is ever delive
 - Malformed settings (`length` 6 to 10, `ttl_seconds` 60 to 3600, `max_attempts` 1 to 20, `resend_cooldown_seconds` 0 to
   `ttl_seconds`, `max_deliveries` 1 to 10, `delivery_window_seconds` `ttl_seconds` to 86400, a queue connection that is
   not configured, a key shorter than 32 bytes, no key and no `app.key`) fail closed with an `InvalidArgumentException`
-  naming the key before anything is counted or issued, and `authentication:check` reports each under `[codes]`, with a
-  guard that allows a code method (any registered method that builds as a `CodeSignIn`, the application's own included)
-  while no `OneTimeCodeSender` is bound.
+  naming the key before anything is counted or issued, and `authentication:check` reports each under `[codes]` (the
+  queue connection under `[delivery]`), with a guard that allows a code method (any registered method that builds as a
+  `CodeSignIn`, the application's own included) while no `OneTimeCodeSender` is bound.
 - Expired rows are deleted by `model:prune` with `Models\OneTimeCode` once their delivery window has ended too
   (`expires_at <= now` and `window_started_at <= now - delivery_window_seconds`), so pruning never resets a delivery
   cap; the cooldown, never longer than the lifetime, has ended with them.
@@ -198,6 +203,10 @@ criterion, and the signing-in guide's "Enumeration resistance" table lists every
 
 - `src/Codes/OneTimeCodes.php` (engine), `src/Codes/CodeKeys.php`, `src/Codes/CodeBinding.php`,
   `src/Codes/CodeSettings.php`, `src/Codes/Enums/CodeCheck.php`, `src/Codes/Enums/VerificationOutcome.php`.
+- `src/Codes/ChallengeDeliveries.php` (issue, resend and the delivery window), `src/Codes/CodeRows.php`.
+- `src/Codes/FactorCodes.php`, `src/Codes/FactorCodeBinding.php`, `src/Contracts/FactorCodeCounters.php`,
+  `src/Codes/RefuseFactorCodes.php` (the default counters).
+- `src/Delivery/QueuedDelivery.php`, `src/Delivery/DeliverySettings.php`.
 - `src/Codes/CodeService.php` (`Auth::codes()`), `src/Codes/CodeSignIn.php` (`phone_code`, `email_code`),
   `src/Codes/SendOneTimeCode.php`, `src/Runtime/JwtGuardContexts.php` (how the job finds its guard's context),
   `src/Codes/CodeIdentifiers.php` (an identity's own identifier, and whether it holds the bound one).
@@ -210,7 +219,10 @@ criterion, and the signing-in guide's "Enumeration resistance" table lists every
 
 - `tests/Integration/Codes/OneTimeCodesTest.php`: issue, cooldown, replacement, attempts, expiry, single use, the
   repeated-digits resend and checks overtaken between read and write.
+- `tests/Integration/Codes/ChallengeDeliveriesTest.php`: the delivery window, resends and `resendAvailableAt`.
 - `tests/Integration/Codes/ConcurrentOneTimeCodesTest.php`: races on PostgreSQL and MySQL.
+- `tests/Integration/Codes/FactorCodesTest.php`, `tests/Integration/Codes/ConcurrentFactorCodesTest.php`: factor codes,
+  the counters' admission and reports, and their races.
 - `tests/Integration/Codes/SendOneTimeCodeTest.php`: recipients (the exact holder only), live issuance, the guard a
   sign-in job resolves by name, encrypted payload on a real queue, a deleted identity's job dropped, after-response
   delivery on `sync` and on a `failover` that falls back to it.

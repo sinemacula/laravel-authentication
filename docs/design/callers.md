@@ -37,8 +37,8 @@ uses for the caller's own instance, are the application's: the package binds no 
     revokes its session as `rotation_reuse`, as every path that accepts a refresh token does, so a read route behind
     `authentication.refresh` can revoke a session.
   - pending: the `session.pending_credential_field` body field (JSON or form body, never the query string or a header),
-    named by `pending()`, and the session must allow the declared action now (the first outstanding requirement's
-    actions).
+    whose session `SessionService::pending()` finds, and the session must allow the declared action now (the first
+    outstanding requirement's actions).
   - A refresh or pending caller's `scopes` are `null`: it is not a general access caller, and scopes do not apply to it.
   - A refresh or pending credential the request carries and that is refused is reported once, by `AuthenticationFailed`
     (flow `refresh` with the refresh's reason; flow `sign_in` with `pending_invalid` or `pending_action_not_allowed`),
@@ -52,7 +52,7 @@ uses for the caller's own instance, are the application's: the package binds no 
   credential's kind and id with the identity it replaces.
 - `Caller::owns()` judges the model as it is given, by class and key, and reads nothing but a principal's admission:
   - a session: of the caller's guard, owned by the caller's identity (`SessionOwnership::isOwner()`), and with a refresh
-    or pending credential the very session that credential proves (D13, D19); with the access credential any session of
+    or pending credential the very session that credential proves; with the access credential any session of
     the identity and guard, so a screen can revoke another one; a session model that is not an `EloquentSession` is not;
   - an identity: the caller's (same class and identifier);
   - a principal: the one the caller acts as; or, with a pending credential, one the pending session offers for the

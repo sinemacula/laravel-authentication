@@ -15,18 +15,18 @@ stored hashed; consumed atomically with the password and the revocation; the sam
 unknown identifier; per-identifier and per-IP limits counted in the database; every read that decides a proof on the
 write connection):
 
-- **The stock `PasswordBroker` with `DatabaseTokenRepository`.** `sendResetLink()` answers `INVALID_USER` for an
+- The stock `PasswordBroker` with `DatabaseTokenRepository`: `sendResetLink()` answers `INVALID_USER` for an
   unknown identifier and `RESET_THROTTLED` only for a known one, and sends the notification inline, so the answer and
   the timing say whether the identifier is held. `reset()` tells `INVALID_USER` from `INVALID_TOKEN` and runs
   `exists()`, the callback and `delete()` with no lock or conditional consume, so one token can reset twice, and nothing
   ties the token to ending the sessions. The repository reads through the connection's read PDO (a lagging replica can
   accept a used token), keys tokens by `getEmailForPasswordReset()` only (no phone, no guard), throttles per email only,
   and its cache variant keeps authentication state in a cache.
-- **A custom `TokenRepositoryInterface`.** It could fix the storage (the writer, keyed hashes), but every method takes
+- A custom `TokenRepositoryInterface`: it could fix the storage (the writer, keyed hashes), but every method takes
   a `CanResetPassword` user, so issuing needs the identity first: an unknown identifier then does different work. The
   broker still answers `INVALID_USER` before the repository runs, and still runs the callback outside any transaction
   the repository could hold.
-- **A `PasswordBroker` subclass or decorator.** Fixing enumeration, atomicity and the transaction means overriding
+- A `PasswordBroker` subclass or decorator: fixing enumeration, atomicity and the transaction means overriding
   `sendResetLink()`, `reset()` and `validateReset()`, that is every behaviour; what would be left is the contract's
   status strings. `PasswordBrokerManager` has no `extend()`, so registering it as `Password::broker()` would mean
   replacing the manager too.
@@ -36,15 +36,15 @@ it already has (keyed HMAC at rest, one live secret per binding, a conditional s
 cooldown, invalidation), with no new table. Laravel's pieces are reused where they fit: the `Hasher`, the `Timebox`,
 the `Password` validation rule, and the default link delivery, Laravel's `ResetPassword` notification through
 `CanResetPassword::sendPasswordResetNotification($token)` with its `createUrlUsing()` and `toMailUsing()` hooks.
-Laravel's `Illuminate\Auth\Events\PasswordReset` is not dispatched (in Laravel it is the application controller's event);
-`RevokeSessionsOnPasswordReset` stays for applications that keep Laravel's broker.
+Laravel's `Illuminate\Auth\Events\PasswordReset` is not dispatched (in Laravel it is the application controller's
+event); `RevokeSessionsOnPasswordReset` stays for applications that keep Laravel's broker.
 
 Laravel's own breached-password seam was assessed too: `Password::uncompromised()` asks the container's
 `Illuminate\Contracts\Validation\UncompromisedVerifier`, whose default `NotPwnedVerifier::search()` catches every
 exception, reports it and treats an empty or unsuccessful answer as "not breached". It always fails open, so it cannot
 carry `breached.when_unavailable`, and its contract has no way to say "could not answer". The package's own
-`Contracts\BreachedPasswordChecker` says so with `BreachedPasswordCheckUnavailableException`. `rule()` therefore does not
-add `uncompromised()`, and builds its rule from the package's settings with `Password::min()`, not from an
+`Contracts\BreachedPasswordChecker` says so with `BreachedPasswordCheckUnavailableException`. `rule()` therefore does
+not add `uncompromised()`, and builds its rule from the package's settings with `Password::min()`, not from an
 application's `Password::defaults()`: a form validated with the application's defaults is judged by those, and `check()`
 and `set()` still apply the package's policy.
 
@@ -66,8 +66,8 @@ fields, and a copy would only duplicate them.
 - While Laravel's hashing driver is bcrypt, a password of more than 72 bytes is `too_long` (bcrypt reads only 72 and,
   with `hashing.bcrypt.limit`, `make()` would throw), and `min_length` may be at most 72.
 - The composition rules (`letters`, `mixed_case`, `numbers`, `symbols`, off by default) use exactly the expressions of
-  Laravel's `Password` rule, and `rule()` builds that rule from the same settings, so a form and `check()` agree on every
-  password the rule can judge. The three differences are deliberate and pinned by a parity test: the rule runs no
+  Laravel's `Password` rule, and `rule()` builds that rule from the same settings, so a form and `check()` agree on
+  every password the rule can judge. The three differences are deliberate and pinned by a parity test: the rule runs no
   breached check, and cannot see bcrypt's byte ceiling or its refusal of a null character.
 - The breached check runs only for a password that passes the other rules. The default `BreachedPasswordChecker`,
   `NoBreachedPasswordCheck`, finds nothing. A checker that cannot answer throws
@@ -78,47 +78,48 @@ fields, and a copy would only duplicate them.
   `authentication:check` reports it under `[passwords]`.
 - `set()` is a trusted call: the caller authorises the change and chooses the `PasswordFlow` on the server. A
   `MachineIdentity` never gets a password (`InvalidArgumentException`); an identity that is not an Eloquent model, a
-  change or reset of an identity not stored, and a session to keep on any flow but a change are misconfigurations. A
-  registration sets only a first password: on a stored identity its `UPDATE` matches the row only while the password
-  column is `null` or empty, so it can never replace a password without ending the sessions a change ends.
+  change or reset of an identity not stored, a session to keep on any flow but a change, and the establishment flow,
+  which only `establish()` writes, are misconfigurations. A registration sets only a first password: on a stored
+  identity its `UPDATE` matches the row only while the password column is `null` or empty, so it can never replace a
+  password without ending the sessions a change ends.
 - A password that breaks the policy writes nothing and dispatches nothing. Only a password that passes is hashed with
   the container's `Hasher`.
 - The write, the cutoff and the revocation run in one transaction on the identity's connection; `PasswordSet` is
   dispatched once that commits (`Database\AfterCommit`), never for a rollback, and never by the automatic rehash.
-- A new password outdates every reset link and code still waiting for the identity, whatever the flow, and a change or a
-  reset, which end sessions, outdates its sign-in codes too, and their revocation cancels its pending identifier changes
-  (a registration ends no session and leaves them): the same transaction invalidates them (`OutdatedProofs`,
-  `RevocationWriter`), so a link or code someone else obtained earlier (a forwarded mail, a mailbox read while it was
-  compromised) cannot take the account back after its owner recovers it, through any guard whose provider can return the
-  identity. A guard whose provider reads another table binds its links and codes to the identities there, so they are
-  kept (`JwtGuards::namesFor()`).
+- A new password outdates every reset link and code still waiting for the identity, whatever the flow, and a change, an
+  establishment or a reset, which end sessions, outdates its sign-in codes too, and their revocation cancels its pending
+  identifier changes (a registration ends no session and leaves them): the same transaction invalidates them
+  (`OutdatedProofs`, `RevocationWriter`), so a link or code someone else obtained earlier (a forwarded mail, a mailbox
+  read while it was compromised) cannot take the account back after its owner recovers it, through any guard whose
+  provider can return the identity. A guard whose provider reads another table binds its links and codes to the
+  identities there, so they are kept (`JwtGuards::namesFor()`).
 
 ## Success Path
 
-1. `settable()`: refuse a machine, a non-model, a change or reset of an unsaved model, and `$except` outside a change.
+1. `settable()`: refuse a machine, a non-model, a change or reset of an unsaved model, `$except` outside a change, and
+   the establishment flow, which only `establish()` writes.
 2. `PasswordPolicy::check()`: validate every setting, then length (`too_short` / `too_long`, with bcrypt's bytes), then
    bcrypt's null character (`null_character`), then the enabled composition rules, then, only when none failed, the
    breached check.
 3. `PasswordWriter::write()`: hash outside the transaction (the costly part), then in
    `$identity->getConnection()->transaction()`:
    - a stored identity: one query-builder `UPDATE` of the password column (and `updated_at` when the model keeps
-     timestamps) on its row by key without scopes, and for a registration only while the column is `null` or empty; 0
-     rows is a `LogicException`. No other dirty attribute is saved or discarded and no model event fires, so
-     `RevokeSessionsOnPasswordChange` neither sees the write nor undoes the session a change kept. The model is given
-     the hash with `forceFill()` and `syncOriginalAttributes()`.
+     timestamps) on its row by key without scopes, and for a registration or an establishment only while the column is
+     `null` or empty; 0 rows is a `LogicException` (`PasswordAlreadySet` for an establishment). No other dirty attribute
+     is saved or discarded and no model event fires, so `RevokeSessionsOnPasswordChange` neither sees the write nor
+     undoes the session a change kept. The model is given the hash with `forceFill()` and `syncOriginalAttributes()`.
    - an unsaved identity (registration only): `forceFill()->save()`; a save a model event cancels is a `LogicException`.
    - `OutdatedProofs::invalidate()`: one `UPDATE` on the codes' table (see `one-time-codes.md`; each row keeps its
-     delivery window and cooldown) that ends the reset link and code bindings, and for a change or a reset the sign-in
-     code bindings, of every `jwt` guard whose provider can return the identity (its
-     configured model reads the identity's table on the identity's connection, or it names no model) for each identifier
-     the identity holds, in canonical form, of a type a reset can be bound to (each guard's password identifier, for
-     links, and every type with a registered normaliser, for codes). The identifiers are read from the identity's row as
-     stored (`fresh()`, on the write connection inside the transaction), never from the caller's model, which may have
-     loaded only some columns or be older than the row, while a reset finds the identity by its row. An identifier is
-     read as `ResetRecipient` reads it (through `HasVerifiableIdentifiers`, else the attribute named after the type,
-     skipped when the model has none); a type the identity's verification throws a `LogicException` for has nothing to
-     invalidate, since a reset of it would fail the same way, but an `InvalidArgumentException` (a normaliser that
-     cannot be built) fails the write closed.
+     delivery window and cooldown) that ends the reset link and code bindings, and for every flow but a registration the
+     sign-in code bindings, of every `jwt` guard whose provider can return the identity (its configured model reads the
+     identity's table on the identity's connection, or it names no model) for each identifier the identity holds, in
+     canonical form, of each guard's password identifier type and every type with a registered normaliser. The
+     identifiers are read from the identity's row as stored (`fresh()`, on the write connection inside the transaction),
+     never from the caller's model, which may have loaded only some columns or be older than the row, while a reset
+     finds the identity by its row. An identifier is read as `ResetRecipient` reads it (through
+     `HasVerifiableIdentifiers`, else the attribute named after the type, skipped when the model has none); a type the
+     identity's verification throws a `LogicException` for has nothing to invalidate, since a reset of it would fail the
+     same way, but an `InvalidArgumentException` (a normaliser that cannot be built) fails the write closed.
    - `CHANGE`: `SessionRevocations::revokeSessions($identity, PASSWORD_CHANGED, $except, client: $client)`;
      `ESTABLISHMENT`: the same with `PASSWORD_ESTABLISHED`; `RESET`: with `PASSWORD_RESET` and no session kept (every
      guard's sessions, the identity's "tokens valid after" cutoff moved, pending sessions ended with the rest and, for a
@@ -126,7 +127,7 @@ fields, and a copy would only duplicate them.
      registered normaliser, their events after their commit; see the identifier changes note); `REGISTRATION`: nothing.
      Each `SessionRevoked` and the `SignedOutEverywhere` carry the client given, as `PasswordSet` does.
    - `PasswordSet($context, $flow)` queued on the identity connection's commit; the context names the guard, the client,
-     the identity and, for a change, the session kept.
+     the identity and, for a change or an establishment, the session kept.
 4. `PasswordResult::set($revoked)`.
 
 ## Changing and establishing (`change()`, `establish()`)

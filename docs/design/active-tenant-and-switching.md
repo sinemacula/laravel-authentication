@@ -71,9 +71,11 @@ session held back by the policy waits as `pending-sessions.md` describes; the pe
   records it and waits on `mfa`); at activation (either refuses, the session left pending); at every refresh (a
   connection revokes the session as `tenant_policy_changed` and refuses as `sso_required`; a factor returns it to
   pending); at a switch (a connection refuses and changes nothing; a factor returns it to pending with the destination
-  recorded); at `attempt()`, which cannot wait (`sso_required` or `additional_factor_required`); and when
-  `Auth::caller()` reads a refresh credential, which cannot wait either and writes nothing (the same two reasons). Never
-  on a bearer request.
+  recorded); when a factor change judges the current session again (`factorRemoved()`, `factorChanged()`: a connection
+  revokes it; a factor returns it to pending); at an external reauthentication, which issues nothing when either falls
+  short (`sso_required` or `additional_factor_required`); at `attempt()`, which cannot wait (the same two reasons); and
+  when `Auth::caller()` reads a refresh credential, which cannot wait either and writes nothing (the same two reasons).
+  Never on a bearer request.
 - The version answered is recorded on the session (`tenant_policy_version`) at activation, at a refresh and at a switch,
   and is part of the refresh's and the switch's compare-and-swap, so a version written by the helper in between makes
   them judge the session again.
@@ -113,10 +115,9 @@ session held back by the policy waits as `pending-sessions.md` describes; the pe
   second.
 - A policy published while a sign-in is in flight: called inside the publishing transaction, the helper judges the
   tenant's sessions again once that commits (`AfterCommit::runAcross()`, at the time then), skipping every session it
-  recorded at the new version, so a session that entered the tenant during the first scan is judged too. The race is
-  narrowed, not closed: a sign-in that read the old policy and commits after that second pass is judged at its first
-  refresh, which always asks the policy (the sign-in's own admission check does not), so the window is at most one
-  access-token lifetime.
+  recorded at the new version, so a session that entered the tenant during the first scan is judged too. A sign-in that
+  read the old policy and commits after that second pass is judged by its own check after commit (`AdmissionRecheck`),
+  which asks the policy as it answers then and revokes the session as `tenant_policy_changed` when it falls short.
 - A `null` version is never taken as already checked: the helper judges every session whose recorded or answered
   version is `null`.
 - A switch that races the helper either wins (the helper's conditional revocation then finds the session acting
@@ -154,7 +155,7 @@ session held back by the policy waits as `pending-sessions.md` describes; the pe
   `tests/Unit/Requirements/RequirementSubjectTest.php`
 - `tests/Feature/Sessions/RevocationScopeTest.php` `testATenantsScopeHoldsTheSessionsActingInIt`
 - `tests/Feature/Sessions/TenantPolicyChangesTest.php`, `tests/Integration/Sessions/TenantPolicyChangesTest.php` (the
-  two passes: every session locked before the first proof read, only the sessions the first pass found judged)
+  second pass after the commit; every session locked before the first proof read)
 - `tests/Integration/Sessions/CurrentProofReadsTest.php` `testAPolicyChangeCountsAStepUpCommittedMeanwhile`,
   `testAPolicyChangeJudgesAReusedKeyOnItsOwnProvenance`
 - `tests/Performance/SessionRevocationQueryBudgetTest.php` `testATenantPolicyChangeIsLinearInTheTenantsSessions`

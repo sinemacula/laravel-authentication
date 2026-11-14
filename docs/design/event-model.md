@@ -75,10 +75,12 @@ to these events, so the shape and the timing are a contract.
   the tenant the bound session records, or without a session the principal's own, on the write connection and
   unchecked, and reports none when it cannot be loaded (`TenantUnavailableException`, which `tenant()` then throws),
   while a principal loaded without its tenant's key is a misconfiguration whose `LogicException` propagates.
-- One failure event, `AuthenticationFailed`, reports every failed sign-in, refresh, switch, bearer token, API
-  key, client credentials exchange, request for a one-time code and verification by code or link, with the flow
-  (`AuthenticationFlow`) and a reason (`FailureReason`), the identifier a sign-in named, and the wait of a rate-limited
-  failure. A failure of a check against a challenge (a one-time code checked by `FactorCodes`, `CodeService::verify()`,
+- One failure event, `AuthenticationFailed`, reports every failed sign-in, refresh, switch, sign-out by refresh
+  credential, step-up, reauthentication, bearer token, API key, client credentials exchange, request for a one-time
+  code, verification by code or link, password reset request or submission, identifier change request or confirmation,
+  factor code request or check, and change or establishment of a password, with the flow (`AuthenticationFlow`) and a
+  reason (`FailureReason`), the identifier a sign-in named, and the wait of a rate-limited failure. A failure of a check
+  against a challenge (a one-time code checked by `FactorCodes`, `CodeService::verify()`,
   `IdentifierChangeService::confirmByCode()` or a code reset, and every sign-in method failure in `signIn()` and a
   first-factor `reauthenticate()`) also names the challenge it answered (`challengeId`), when the id is in the form the
   package issues, else `null`; the session service never reads a method's input itself, but asks the method
@@ -100,8 +102,9 @@ to these events, so the shape and the timing are a contract.
   `code_expired`, `code_exhausted`, `link_expired`, `passkey_counter_regressed`) reaches only the event:
   `SignInResult::failed()` answers it as `invalid_credentials`, with no wait, so the client learns nothing a guess could
   use.
-- `RefreshTokenExchange::exchange()` returns its `AuthenticationFailed` undispatched and its caller (the guard)
-  dispatches it; the exchange itself dispatches only `SessionRevoked`, after commit.
+- `RefreshTokenExchange::exchange()` returns its `AuthenticationFailed` undispatched and its caller, the session
+  service's refresh (`Sessions\SessionRefresh`), dispatches it; the exchange itself dispatches only `SessionRevoked`,
+  after commit.
 
 ## Success Path
 
@@ -120,8 +123,8 @@ to these events, so the shape and the timing are a contract.
   which of the two changed (`principalChanged`, `tenantChanged`), after the switch commits on the session's
   connection; it is scheduled before the guard binds the switched session, and only when something changed. A switch
   whose destination asks for a further factor dispatches `SessionReturnedToPending` (flow `switch`) instead.
-- Refresh: the guard dispatches `Refreshed` and `SignedIn` with the session's context, including the session's active
-  tenant the exchange admitted and the method the session records, after the rotation commits on the session's
+- Refresh: the session service dispatches `Refreshed` and `SignedIn` with the session's context, including the session's
+  active tenant the exchange admitted and the method the session records, after the rotation commits on the session's
   connection, scheduling them before it binds the exchanged session.
 - A guard's `attempt()` and `login()`, which write no session: `SignedIn` after the bind's events, with the context
   `PrincipalAssigned` carries (the method `password` for `attempt()`, the method a given session records for

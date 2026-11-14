@@ -165,7 +165,7 @@ pending, are in `pending-sessions.md`; the active tenant and the tenant authenti
   the switch's commit the check reads the destination again, and one deactivated or deleted after admission revokes the
   session (reported by `SessionRevoked`) and the switch answers `AuthenticationFailed` (flow `switch`, naming the
   session) instead; `PrincipalSwitched` and `SessionReturnedToPending` both wait for the check and are never reported
-  once it failed. A switch to no tenant registers no check.
+  once it failed. A switch that changes only the tenant, to none, registers no check.
 - A lost switch response: the client retries with the old token inside the grace window and receives the current
   credential for the destination, with no second `PrincipalSwitched`. Presented to the session service's `refresh()`,
   the same token fails as `session_principal_mismatch` without revoking.

@@ -404,7 +404,8 @@ session holds; the token's claims and every freshness answer are worked out from
 
 ## Seams Left
 
-These parts are columns, kinds or values with nothing yet behind them; the guides say so where they describe them.
+These are the columns, kinds and values left as seams for the application and other packages; the guides say so
+where they describe them.
 
 - Voiding: `voided_at` is respected by every read and written only by `factorRemoved()`, for the current session's
   proofs made with the removed factor (`ProofWriter::void()`), whether that session is active or pending, so a pending
@@ -412,7 +413,7 @@ These parts are columns, kinds or values with nothing yet behind them; the guide
   voided. A removed first-factor credential (`credentialRemoved()`) voids nothing.
 - Provenance by connection or tenant: the connection index finds the sessions a connection established for
   `connectionDisabled()` and `connectionDeleted()` (`Sessions\ConnectionRevocations`); there is no lookup or listing of
-  the sessions of a connection or of a tenant's connections, and the tenant index has no reader yet.
+  the sessions of a connection or of a tenant's connections, and the tenant index has no reader.
 - The freshness requirement (proof kinds, maximum age, multifactor, phishing resistance) is what the stored proofs can
   show. A tenant's further factor is a `Requirements\Requirement` instead (additional verification, multifactor, a
   minimum assurance level, phishing resistance, each with an optional maximum age), and whether a session meets it is
@@ -424,8 +425,7 @@ These parts are columns, kinds or values with nothing yet behind them; the guide
   replacement or removal names, before the change, under the session's lock and on its proofs as committed; once it is
   made, a removal or replacement judges the current session again with `factorRemoved()` and an addition with
   `factorChanged()`, which writes the session's issuance guard, then reads the proofs current, whatever the caller's
-  transaction read first, and voids none. A sibling that needs more rebinds `FreshnessPolicy` until the value is
-  extended.
+  transaction read first, and voids none. A package that needs more rebinds `FreshnessPolicy`.
 - A pending session records its first factor and provenance as any session does, when it is written; the further
   factor `satisfy()` accepts is stored with them (the requirement check reads it when the policy is asked again), and
   none counts for a token until the session activates.

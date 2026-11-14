@@ -22,10 +22,10 @@ resistance, key protection: each `null` when it was not observed, which never co
 provider's evidence is only when accepted for one or for multifactor authentication; none for a proof the package
 verified itself, except an external one whose evidence was accepted), the external provider's evidence once accepted,
 its `amr` values, its time and its binding (the identity, the application, the session and the purpose: `sign_in`,
-`reauthenticate` or `step_up`). A proof is never changed once recorded, except to be marked void, after which it never
-counts: when the factor package removes a factor, `factorRemoved()` voids the proofs the current session made with it,
-and the identity's other sessions end (see [Sign-in factors](#sign-in-factors)). A removed first-factor credential
-(`credentialRemoved()`) voids nothing.
+`reauthenticate`, `step_up` or `enrollment`). A proof is never changed once recorded, except to be marked void, after
+which it never counts: when the factor package removes a factor, `factorRemoved()` voids the proofs the current session
+made with it, and the identity's other sessions end (see [Sign-in factors](#sign-in-factors)). A removed first-factor
+credential (`credentialRemoved()`) voids nothing.
 
 A session an external provider established (`signInExternally()`, see [External
 sign-in](signing-in.md#external-sign-in)) also records its provenance, once, in `proofs.provenance_table`: the
@@ -678,14 +678,14 @@ switch to the principal and tenant the session already records rotates the crede
 switch.
 
 With the previous rotation id inside the grace window, the current credential for the destination is handed back,
-writing nothing, only when the session records the destination principal and tenant and either its last rotation was the
-switch to them (a lost switch response, retried) or the token's own principal is the destination; anything else is
-`rotation_conflict`, without revoking, and the client retries with its current token. The retry is held to the
-destination tenant's authentication policy as a refresh with the same token is: a tenant that now requires a connection
-the session was not established through refuses it as `sso_required`, leaving the session as it was, and one that asks
-for a further factor the session lacks returns the session to pending. When another request changes the session between
-the switch's read and its write, the row is read again with a lock and judged once more under the same rules; the swap
-is never tried twice.
+writing nothing but the issuance guard, only when the session records the destination principal and tenant and either
+its last rotation was the switch to them (a lost switch response, retried) or the token's own principal is the
+destination; anything else is `rotation_conflict`, without revoking, and the client retries with its current token. The
+retry is held to the destination tenant's authentication policy as a refresh with the same token is: a tenant that now
+requires a connection the session was not established through refuses it as `sso_required`, leaving the session as it
+was, and one that asks for a further factor the session lacks returns the session to pending. When another request
+changes the session between the switch's read and its write, the row is read again with a lock and judged once more
+under the same rules; the swap is never tried twice.
 
 A switch schedules `PrincipalSwitched` for its commit on the session's connection, with the new principal and tenant in
 its context, the previous principal as the session recorded it (`previousPrincipalType`, `previousPrincipalId`), the
@@ -1063,17 +1063,17 @@ is reloaded through the guard's provider, and must still be that identity (`iden
 or a switch moves the session to, is resolved again through the guard's resolver and must still be that principal
 (`principal_unresolved`, `principal_deleted`), active (`principal_inactive`, `principal_deactivated`) and in an active
 tenant of its own (`tenant_inactive`, `tenant_deactivated`); the active tenant the session records must still resolve
-and be active (`tenant_inactive`, `tenant_deactivated`). A switch is checked for what it changed only (a switch to no
-tenant for nothing; a switch of tenant alone also needs its principal to resolve, since the tenant is resolved through
-it, and ends as `principal_unresolved`, `principal_deleted`, when it no longer does), and `satisfy()` for nothing (its
-session already records what it acts as, so every revocation of those finds it). A check still waiting (for your
-commit) when a later switch or choice in the same request or job moves the same session on judges only what the session
-still acts as: the principal or tenant it left is not judged, and an active tenant it keeps under another principal is
-judged by the later call's check, through that principal. Nothing an access contract (`ApplicationAccess`,
-`TenantAccess`) or the application policy says is asked again: those are not what a deactivation or deletion changes,
-and their own triggers end sessions. The authentication policy of an active tenant the session newly acts in is asked
-again, since `tenantPolicyChanged()` finds no session written after it ran (see [Tenant authentication
-policies](#tenant-authentication-policies)).
+and be active (`tenant_inactive`, `tenant_deactivated`). A switch is checked for what it changed only (a switch of
+tenant alone checks nothing when it moves to no tenant, and otherwise also needs its principal to resolve, since the
+tenant is resolved through it, and ends as `principal_unresolved`, `principal_deleted`, when it no longer does), and
+`satisfy()` for nothing (its session already records what it acts as, so every revocation of those finds it). A check
+still waiting (for your commit) when a later switch or choice in the same request or job moves the same session on
+judges only what the session still acts as: the principal or tenant it left is not judged, and an active tenant it keeps
+under another principal is judged by the later call's check, through that principal. Nothing an access contract
+(`ApplicationAccess`, `TenantAccess`) or the application policy says is asked again: those are not what a deactivation
+or deletion changes, and their own triggers end sessions. The authentication policy of an active tenant the session
+newly acts in is asked again, since `tenantPolicyChanged()` finds no session written after it ran (see [Tenant
+authentication policies](#tenant-authentication-policies)).
 
 A session that fails the check is revoked with the reason, by the conditional revocation every other one uses. Outside a
 transaction of yours the check runs before the call returns, and the call answers the refusal instead of the session: a
@@ -1145,11 +1145,12 @@ reach, so it is reported through Laravel's exception handler and the rest still 
 
 A sign-in factor is anything the identity signs in with: a first-factor credential (a passkey, or a phone number or
 email address it signs in with) or one of the factor package's further factors. A removed first-factor credential is
-yours to answer, per event, with `credentialRemoved()` or `RevokeSessionsOnPasskeyRemoval` (see above). The factor
-package calls these itself, inside the transaction that makes its change and after its own locks, never through a
-listener. Its two triggers, `factorRemoved()` and `factorReset()`, are mandatory, and no setting turns them off. A
-replaced factor is a removed one, so a replacement calls `factorRemoved()` for the factor it replaces. `factorChanged()`
-judges the current session again after an addition to its factors, a change that removes none:
+yours to answer, per event, with `credentialRemoved()` or `RevokeSessionsOnPasskeyRemoval` (see [Using
+passkeys](signing-in.md#using-passkeys)). The factor package calls these itself, inside the transaction that makes its
+change and after its own locks, never through a listener. Its two triggers, `factorRemoved()` and `factorReset()`, are
+mandatory, and no setting turns them off. A replaced factor is a removed one, so a replacement calls `factorRemoved()`
+for the factor it replaces. `factorChanged()` judges the current session again after an addition to its factors, a
+change that removes none:
 
 | Method                                                                 | Ends                                                                                  | Reason                                                   |
 |------------------------------------------------------------------------|---------------------------------------------------------------------------------------|----------------------------------------------------------|
@@ -1387,9 +1388,9 @@ through one of its connections (single sign-on). The package asks the bound `Con
 default, `RequireNothingOfTenants`, asks nothing; see
 [Tenant authentication policies](extending.md#tenant-authentication-policies)) whenever a session comes to act in a
 tenant or keeps acting in it: at sign-in once a principal is selected, at a choice of principal, when a pending session
-activates, at every refresh, for the destination of a switch, when `Auth::caller()` reads a refresh credential, and at a
-reauthentication at the external provider (`reauthenticateExternally()`), never on a bearer request. A session that
-falls short:
+activates, at every refresh, for the destination of a switch, when the factor package judges the current session again
+(`factorRemoved()`, `factorChanged()`), when `Auth::caller()` reads a refresh credential, and at a reauthentication at
+the external provider (`reauthenticateExternally()`), never on a bearer request. A session that falls short:
 
 | Where                                 | Needs a connection                                                       | Lacks a further factor                                                   |
 |---------------------------------------|--------------------------------------------------------------------------|--------------------------------------------------------------------------|
@@ -1398,6 +1399,7 @@ falls short:
 | Satisfying a further factor           | refused as `sso_required`, the session stays pending until it expires    | stays pending                                                            |
 | Refresh                               | refused as `sso_required`, the session revoked (`tenant_policy_changed`) | returned to pending: the result `isPending()`, with a pending credential |
 | Switch                                | refused as `sso_required`, the session unchanged                         | returned to pending with the destination recorded, as for a refresh      |
+| Factor removed or added               | the current session revoked (`factor_removed` or `factor_changed`)       | the current session returned to pending                                  |
 | `attempt()`                           | refused as `sso_required`                                                | refused as `additional_factor_required`                                  |
 | The caller of a refresh credential    | no caller (`sso_required`), nothing written                              | no caller (`additional_factor_required`), nothing written                |
 | External reauthentication             | refused as `sso_required`, the proof rolled back, nothing written        | refused as `additional_factor_required`, the proof rolled back           |

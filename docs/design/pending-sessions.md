@@ -198,7 +198,8 @@ checked before it gets here is in `session-service.md`; the choice of principal 
   `tests/Feature/Sessions/SessionActivationTest.php` (an activation's compare-and-swap and what it writes)
 - `tests/Feature/Sessions/TenantAuthenticationPolicyTest.php` (a tenant's factor or connections at sign-in, at the
   choice, at activation and at refresh)
-- `tests/Feature/Sessions/SessionSwitchTest.php` `testADestinationAskingForAFactorReturnsTheSessionToPendingUntilItIsMet`
+- `tests/Feature/Sessions/SessionSwitchTest.php`
+  `testADestinationAskingForAFactorReturnsTheSessionToPendingUntilItIsMet`
 - `tests/Feature/Proofs/ProofAcceptanceTest.php`, `tests/Unit/Sessions/PendingSessionTest.php`,
   `tests/Unit/Sessions/PendingStateTest.php`, `tests/Unit/Sessions/Enums/PendingRequirementTest.php`,
   `tests/Unit/Traits/RecordsSessionStandingTest.php`, `tests/Unit/SessionRecords/SwitchFloorTest.php`
