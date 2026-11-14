@@ -5,7 +5,6 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Sessions;
 
 use Carbon\CarbonImmutable;
-use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Admission\Refused;
@@ -116,7 +115,7 @@ final readonly class ExternalReauthentication
         $issued = $this->issuance->issue(
             $stored->getSessionIdentifier(),
             $proof,
-            static fn (EloquentSession&Model $locked, CarbonInterface $startedAt): ?FailureReason => self::refusal($locked, $stored, $link, $result->connectionId, $at, $startedAt),
+            static fn (EloquentSession&Model $locked): ?FailureReason => self::refusal($locked, $stored, $link, $result->connectionId),
             static fn (Admitted $admitted, EloquentSession&Model $locked, CarbonImmutable $now): ?FailureReason => self::shortfall($guard, $admitted, $locked, $now),
         );
 
@@ -269,24 +268,15 @@ final readonly class ExternalReauthentication
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $stored
      * @param  \SineMacula\Laravel\Authentication\External\ExternalLink  $link
      * @param  string  $connectionId
-     * @param  \Carbon\CarbonImmutable  $at
-     * @param  \Carbon\CarbonInterface  $startedAt
      * @return ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
      *
      * @throws \InvalidArgumentException
      */
-    private static function refusal(
-        EloquentSession&Model $locked,
-        EloquentSession&Model $stored,
-        ExternalLink $link,
-        string $connectionId,
-        CarbonImmutable $at,
-        CarbonInterface $startedAt,
-    ): ?FailureReason {
+    private static function refusal(EloquentSession&Model $locked, EloquentSession&Model $stored, ExternalLink $link, string $connectionId): ?FailureReason
+    {
         return match (true) {
             !SessionGeneration::isSame($locked, $stored)                                    => FailureReason::SESSION_UNKNOWN,
             !self::isEstablishedThrough($locked, $link->identity, $connectionId, $link->id) => FailureReason::LINK_MISMATCH,
-            $at->getTimestamp() < $startedAt->getTimestamp()                                => FailureReason::PROOF_INVALID,
             default                                                                         => null,
         };
     }

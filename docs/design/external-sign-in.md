@@ -129,8 +129,9 @@ link contract answers, and the package starts, reauthenticates and ends sessions
   reports `AuthenticationFailed` (flow `reauthentication`) and is answered, never thrown. Both failures, and
   `ExternalResultUnlinked`, carry the result's connection and request reference, so a refusal correlates with the
   provider-side completion too; a rolled-back redemption reports no `ExternalResultRedeemed`.
-- A reauthentication without the provider's time, or with one before the session began, is `proof_invalid`; through
-  another link, another connection, another identity, or on a session no link established, `link_mismatch`.
+- A reauthentication without the provider's time is `proof_invalid`, and one timed before the session began leaves
+  `auth_time` where it was; through another link, another connection, another identity, or on a session no link
+  established, `link_mismatch`.
 - A change committed while the reauthentication waits for the session's lock (a revocation, a reissued key, a
   rewritten owner) is judged under the lock: `session_revoked`, `session_unknown` or `link_mismatch`.
 - A reauthentication whose session, with its proof recorded, no longer meets its tenant's authentication policy, judged
@@ -193,9 +194,9 @@ link contract answers, and the package starts, reauthenticates and ends sessions
   `start()` admits, the principal, accepted evidence meeting the identity's and a tenant's requirement, a result never
   arriving as input, the redemption reported after the session's own events (active, pending, rolled back, refused), the
   provider context recorded but in no event or serialised model, a cookie application's cross-site sign-in not refused.
-- `tests/Feature/Sessions/ExternalReauthenticationTest.php`: the renewal and the later-time rule, every link mismatch,
-  the refusals, changes under the lock, the standing and its provenance read current under the lock, the redemption
-  reported after `Reauthenticated`, the provider context the session began with kept.
+- `tests/Feature/Sessions/ExternalReauthenticationTest.php`: the renewal, the later time and a time before the session,
+  every link mismatch, the refusals, changes under the lock, the standing and its provenance read current under the
+  lock, the redemption reported after `Reauthenticated`, the provider context the session began with kept.
 - `tests/Integration/Sessions/CurrentProofReadsTest.php`
   `testAnExternalReauthenticationCountsAStepUpCommittedMeanwhile`, `testAStandingAnswersAReusedKeyOnItsOwnProvenance`:
   the reauthentication's tenant judgement and the standing, inside an adapter's transaction that read first, see what

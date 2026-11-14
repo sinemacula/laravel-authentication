@@ -459,7 +459,7 @@ final class ExternalReauthenticationTest extends TestCase
     }
 
     /**
-     * A disallowed method, or a result with no or too early a time, is refused.
+     * A disallowed method, or a result with no time, is refused.
      *
      * @return void
      *
@@ -483,13 +483,31 @@ final class ExternalReauthenticationTest extends TestCase
         self::assertInstanceOf(AuthenticationFailed::class, $this->recorded[1]);
         EventContextAssertions::assertSession(null, $this->recorded[1]->context);
         self::assertCount($asked, $this->externalLinks()->asked);
-
-        config()->set('auth.guards.api.application', ['methods' => ['external_provider']]);
-
-        $early = $this->throughTheLink(authenticatedAt: $this->now->subSecond());
-
-        self::assertSame(FailureReason::PROOF_INVALID, $this->sessions()->reauthenticateExternally($signedIn->record->getKey(), $early, self::requestClient())->reason);
         self::assertSame(0, SessionProof::query()->where('kind', 'external_reauthentication')->count());
+    }
+
+    /**
+     * A provider time before the session began is recorded as given and leaves
+     * the authentication time where it was.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAProviderTimeBeforeTheSessionBeganLeavesTheAuthenticationTime(): void
+    {
+        $signedIn = $this->signedInExternally();
+        $early    = $this->now->subSeconds(30);
+
+        $this->clockAt($this->now->addSeconds(10));
+        $this->recordEvents([Reauthenticated::class, AuthenticationFailed::class]);
+
+        $result = $this->sessions()->reauthenticateExternally($signedIn->record->getKey(), $this->throughTheLink(authenticatedAt: $early), self::requestClient());
+
+        self::assertTrue($result->isIssued());
+        self::assertSame([$this->now->getTimestamp(), [FirstFactor::EXTERNAL_PROVIDER_METHOD]], self::authenticationOf($result));
+        self::assertSame($early->getTimestamp(), SessionProof::query()->where('kind', 'external_reauthentication')->sole()->authenticated_at->getTimestamp());
+        self::assertSame([Reauthenticated::class], $this->recordedClasses());
     }
 
     /**
