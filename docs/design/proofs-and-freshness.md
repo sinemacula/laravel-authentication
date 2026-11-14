@@ -19,6 +19,10 @@ session holds; the token's claims and every freshness answer are worked out from
   session, purpose) and, for an external provider's proof, the evidence the provider asserted once it was accepted. A
   proof is never changed once recorded; a voided one never counts, and a further factor or recovery code counts only
   when its adapter accepted it.
+- Proofs read in time order, and proofs of the same second in the order they were recorded: the table's primary key is
+  an auto-incrementing `sequence`, and the proof's UUIDv7 `id` is only unique. An id keeps no order across processes,
+  hosts whose clocks differ or a clock stepped back, while each of a session's proofs is recorded in a transaction that
+  holds the session's row, so the sequence orders them.
 - Every session the package writes records a generation, a random UUID written when the row is inserted and never
   changed (`EloquentSession::getGenerationName()`, `SessionRecords\SessionGeneration`): it tells a session apart from
   any other a model that reissues keys puts under its key, of the same owner and in the same second included, which
