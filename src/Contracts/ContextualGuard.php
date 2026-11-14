@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Contracts;
 
 use Illuminate\Contracts\Auth\Guard;
+use SineMacula\Laravel\Authentication\Callers\BoundCaller;
 use SineMacula\Laravel\Authentication\Context\AuthenticationContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 
@@ -90,6 +91,16 @@ interface ContextualGuard extends Guard
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     public function scopes(): ?array;
+
+    /**
+     * Return what the guard is already bound to, or `null` when no identity is,
+     * without resolving the request.
+     *
+     * @return ?\SineMacula\Laravel\Authentication\Callers\BoundCaller
+     *
+     * @phpstan-impure
+     */
+    public function boundCaller(): ?BoundCaller;
 
     /**
      * Return the authentication context of what the guard bound, or `null` for

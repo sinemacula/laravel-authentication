@@ -9,7 +9,10 @@ use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Validated;
 use Illuminate\Contracts\Events\Dispatcher;
 use Mockery\MockInterface;
+use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
+use SineMacula\Laravel\Authentication\Callers\BoundCaller;
+use SineMacula\Laravel\Authentication\Context\Enums\CredentialKind;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
@@ -35,6 +38,7 @@ use Tests\Unit\Stubs\StubRequestResolvingGuard;
  *
  * @internal
  */
+#[CoversClass(BoundCaller::class)]
 #[CoversTrait(BindsContextualState::class)]
 final class BindsContextualStateTest extends AbstractGuardTestCase
 {
@@ -581,6 +585,117 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
     }
 
     /**
+     * `boundCaller()` is `null` before anything is bound and never resolves the
+     * request.
+     *
+     * @return void
+     */
+    public function testBoundCallerNeverResolvesTheRequest(): void
+    {
+        $guard = new StubRequestResolvingGuard(self::GUARD_NAME, $this->provider, $this->resolver, $this->events, $this->request, $this->timebox);
+
+        $guard->resolvable = $this->identity;
+
+        self::assertNull($guard->boundCaller());
+        self::assertSame(0, $guard->resolutions);
+
+        self::assertSame($this->identity, $guard->identity());
+
+        $caller = $guard->boundCaller();
+
+        self::assertNotNull($caller);
+        self::assertSame($this->identity, $caller->identity);
+        self::assertNull($caller->principal);
+        self::assertSame(1, $guard->resolutions);
+    }
+
+    /**
+     * `boundCaller()` gives the bound identity, principal, session and tenant,
+     * with no credential for a sign-in, and `null` once the guard is forgotten.
+     *
+     * @return void
+     */
+    public function testBoundCallerGivesWhatTheGuardIsBoundTo(): void
+    {
+        $guard = $this->makeGuard();
+
+        $guard->loginVerified($this->identity, $this->principal, $this->session, $this->tenant, 'password');
+
+        $caller = $guard->boundCaller();
+
+        self::assertNotNull($caller);
+        self::assertSame($this->identity, $caller->identity);
+        self::assertSame($this->principal, $caller->principal);
+        self::assertSame($this->session, $caller->session);
+        self::assertSame($this->tenant, $caller->tenant());
+        self::assertNull($caller->credentialKind);
+        self::assertNull($caller->credentialId);
+
+        $guard->forgetUser();
+
+        self::assertNull($guard->boundCaller());
+    }
+
+    /**
+     * `boundCaller()` gives the kind and id of the credential the guard
+     * authenticated, until another bind replaces it.
+     *
+     * @return void
+     */
+    public function testBoundCallerGivesTheCredentialsKindAndId(): void
+    {
+        $machine = $this->mockIdentity(MachineIdentity::class);
+        $guard   = new StubCredentialGuard(self::GUARD_NAME, $this->provider, $this->resolver, $this->events, $this->request, $this->timebox);
+
+        $guard->bindCredential($machine, $this->principal, 'key-1', ['invoices:read']);
+
+        $caller = self::boundCallerOf($guard);
+
+        self::assertSame(CredentialKind::API_KEY, $caller->credentialKind);
+        self::assertSame('key-1', $caller->credentialId);
+        self::assertNull($caller->session);
+        self::assertNull($caller->tenant());
+
+        $guard->bindIdentity($machine);
+
+        self::assertNull(self::boundCallerOf($guard)->credentialKind);
+        self::assertNull(self::boundCallerOf($guard)->credentialId);
+
+        $guard->bindCredential($machine, $this->principal, 'key-2', []);
+        $guard->authenticateAs($machine, $this->principal);
+
+        self::assertNull(self::boundCallerOf($guard)->credentialKind);
+        self::assertNull(self::boundCallerOf($guard)->credentialId);
+    }
+
+    /**
+     * A bound tenant that cannot be loaded leaves the rest of `boundCaller()`
+     * readable, and its `tenant()` throws the reason as the guard's does.
+     *
+     * @return void
+     */
+    public function testBoundCallerThrowsTheReasonATenantCannotBeLoaded(): void
+    {
+        $unavailable = new TenantUnavailableException('The tenant is not available.');
+
+        $principal = $this->mockPrincipal();
+        $principal->shouldReceive('getTenant')->andThrow($unavailable);
+
+        $guard = $this->makeGuard();
+
+        $guard->authenticateAs($this->identity, $principal);
+
+        $caller = $guard->boundCaller();
+
+        self::assertNotNull($caller);
+        self::assertSame($principal, $caller->principal);
+
+        $this->expectExceptionObject($unavailable);
+
+        $caller->tenant();
+    }
+
+    /**
      * `loginVerified()` binds as a sign-in, reporting the tenant and method it
      * is given.
      *
@@ -920,6 +1035,21 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
         }
 
         return $contexts;
+    }
+
+    /**
+     * What the guard is bound to, failing the test when nothing is.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Guards\AbstractGuard  $guard
+     * @return \SineMacula\Laravel\Authentication\Callers\BoundCaller
+     */
+    private static function boundCallerOf(AbstractGuard $guard): BoundCaller
+    {
+        $caller = $guard->boundCaller();
+
+        self::assertNotNull($caller);
+
+        return $caller;
     }
 
     /**
