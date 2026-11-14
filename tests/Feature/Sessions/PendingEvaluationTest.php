@@ -875,8 +875,10 @@ final class PendingEvaluationTest extends TestCase
         self::assertSame([false], self::proofReadLocks(static fn (): mixed => $evaluation->owedFactorOn($session, $member, $first, null, $now)));
         self::assertSame([$locked], self::proofReadLocks(static fn (): mixed => $evaluation->owedFactor($member, $first, $client, null, null, null, $session, $now, null, true)));
         self::assertSame([false], self::proofReadLocks(static fn (): mixed => $evaluation->owedFactor($member, $first, $client, null, null, null, $session, $now)));
-        self::assertSame([$locked, $locked], self::proofReadLocks(static fn (): mixed => $evaluation->tenantPolicy($member, $membership, $tenant, $session, $now, current: true)));
-        self::assertSame([false, false], self::proofReadLocks(static fn (): mixed => $evaluation->tenantPolicy($member, $membership, $tenant, $session, $now)));
+        $policy = static fn (bool $current): mixed => $evaluation->tenantPolicy($member, $membership, $tenant, $session, null, $now, current: $current);
+
+        self::assertSame([$locked, $locked], self::proofReadLocks(static fn (): mixed => $policy(true)));
+        self::assertSame([false, false], self::proofReadLocks(static fn (): mixed => $policy(false)));
     }
 
     /**
@@ -918,13 +920,13 @@ final class PendingEvaluationTest extends TestCase
         app()->instance(TenantAuthenticationPolicy::class, $policy);
 
         $now  = CarbonImmutable::now();
-        $none = $this->evaluation('members')->tenantPolicy($member, null, $tenant, null, $now);
+        $none = $this->evaluation('members')->tenantPolicy($member, null, $tenant, null, null, $now);
 
         self::assertSame(TenantPolicyStanding::MET, $none->standing);
         self::assertNull($none->version);
         self::assertCount(0, $policy->asked);
 
-        $judged = $this->evaluation('members')->tenantPolicy($member, $membership, $tenant, null, $now, SessionEvidence::of(UndescribedSignInProof::of('password', $now)));
+        $judged = $this->evaluation('members')->tenantPolicy($member, $membership, $tenant, null, null, $now, SessionEvidence::of(UndescribedSignInProof::of('password', $now)));
 
         self::assertSame(TenantPolicyStanding::SSO_REQUIRED, $judged->standing);
         self::assertSame('v1', $judged->version);

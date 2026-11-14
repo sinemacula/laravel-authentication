@@ -51,7 +51,8 @@ session held back by the policy waits as `pending-sessions.md` describes; the pe
 - A tenant's authentication policy (`TenantAuthenticationPolicy::requirementFor()`, default `RequireNothingOfTenants`)
   answers a `TenantRequirement`: a further factor (a `Requirement`), the connections the session must have been
   established through (`null` for no requirement, `[]` for none that satisfies), and a version. It is asked inside
-  `WriteConnection::during()` for the tenant, with the application, identity, principal, session and a lazy
+  `WriteConnection::during()` for the tenant, with the application, identity, principal, session, the client of the
+  asking call (none for `tenantPolicyChanged()` and a pending session's lookup, which act for no client) and a lazy
   `connectionId()` (the connection the session was established through, found when the policy or the judgement first
   asks, and once: `TenantPolicyContext`), so exemptions are its own answer; a destination of no tenant
   has no policy and asks nothing.

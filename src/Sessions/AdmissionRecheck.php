@@ -358,7 +358,7 @@ final class AdmissionRecheck
 
         return TenantAdmission::recorded($current, $tenantId, false) instanceof FailureReason
             ? FailureReason::TENANT_INACTIVE
-            : TenantPolicyCheck::shortfall($this->context->name(), $identity, $current, $checked, $session, CarbonImmutable::now()->startOfSecond());
+            : TenantPolicyCheck::shortfall($this->context->name(), new Admitted($identity, $current, $checked), $session, $this->client, CarbonImmutable::now()->startOfSecond());
     }
 
     /**
