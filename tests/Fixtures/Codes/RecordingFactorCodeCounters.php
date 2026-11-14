@@ -9,6 +9,7 @@ use SineMacula\Laravel\Authentication\Codes\FactorCodeAdmission;
 use SineMacula\Laravel\Authentication\Codes\FactorCodeBinding;
 use SineMacula\Laravel\Authentication\Contracts\FactorCodeCounters;
 use SineMacula\Laravel\Authentication\Database\StorageConnection;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 
 /**
  * Factor code counters that answer as scripted, record every call and, like the
@@ -26,6 +27,9 @@ final class RecordingFactorCodeCounters implements FactorCodeCounters
 
     /** @var list<array{0: \SineMacula\Laravel\Authentication\Codes\FactorCodeBinding, 1: string, 2: bool, 3: int}> Each report: the binding, the challenge, whether it passed, and the open transaction level. */
     public array $reports = [];
+
+    /** @var list<\SineMacula\Laravel\Authentication\Http\ClientContext> The client each admission and report was given, in order. */
+    public array $clients = [];
 
     /** @var ?\Closure(string): void Told `admit` or `report` as each call is made, when set. */
     public ?\Closure $observer = null;
@@ -53,16 +57,18 @@ final class RecordingFactorCodeCounters implements FactorCodeCounters
      * Record the binding and answer the scripted admission.
      *
      * @param  \SineMacula\Laravel\Authentication\Codes\FactorCodeBinding  $binding
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Codes\FactorCodeAdmission
      *
      * @throws \LogicException
      */
     #[\Override]
-    public function admit(FactorCodeBinding $binding): FactorCodeAdmission
+    public function admit(FactorCodeBinding $binding, ClientContext $client): FactorCodeAdmission
     {
         self::requireTransaction();
 
         $this->admitted[] = $binding;
+        $this->clients[]  = $client;
 
         $this->observe('admit');
 
@@ -75,14 +81,16 @@ final class RecordingFactorCodeCounters implements FactorCodeCounters
      * @param  \SineMacula\Laravel\Authentication\Codes\FactorCodeBinding  $binding
      * @param  string  $challengeId
      * @param  bool  $passed
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Codes\FactorCodeAdmission
      *
      * @throws \Throwable
      */
     #[\Override]
-    public function report(FactorCodeBinding $binding, string $challengeId, bool $passed): FactorCodeAdmission
+    public function report(FactorCodeBinding $binding, string $challengeId, bool $passed, ClientContext $client): FactorCodeAdmission
     {
         $this->reports[] = [$binding, $challengeId, $passed, self::requireTransaction()];
+        $this->clients[] = $client;
 
         $this->observe('report');
 

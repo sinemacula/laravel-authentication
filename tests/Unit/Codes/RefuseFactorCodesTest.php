@@ -10,6 +10,7 @@ use SineMacula\Laravel\Authentication\Codes\Enums\FactorCodeRefusal;
 use SineMacula\Laravel\Authentication\Codes\Enums\FactorCodeStanding;
 use SineMacula\Laravel\Authentication\Codes\FactorCodeBinding;
 use SineMacula\Laravel\Authentication\Codes\RefuseFactorCodes;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Proofs\Channel;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
@@ -38,8 +39,11 @@ final class RefuseFactorCodesTest extends TestCase
         $counters = new RefuseFactorCodes;
         $proof    = new ProofBinding(new PlainIdentityFixture(7), 'mobile', 'session-1', Purpose::SIGN_IN);
         $binding  = new FactorCodeBinding($proof, 'factor-1', new Channel(ChannelKind::SMS, '+447700900123'));
+        $client   = new ClientContext('203.0.113.7', 'Phone/1.0');
 
-        foreach ([$counters->admit($binding), $counters->report($binding, 'challenge-1', true), $counters->report($binding, 'challenge-1', false)] as $answer) {
+        $answers = [$counters->admit($binding, $client), $counters->report($binding, 'challenge-1', true, $client), $counters->report($binding, 'challenge-1', false, $client)];
+
+        foreach ($answers as $answer) {
             self::assertSame([FactorCodeStanding::REFUSED, FactorCodeRefusal::TYPE_NOT_ENABLED, null], [$answer->standing, $answer->refusal, $answer->lockedUntil]);
         }
     }
