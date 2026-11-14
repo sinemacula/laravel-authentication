@@ -118,13 +118,14 @@ final class ProofTablesSchemaTest extends TestCase
             'multifactor'             => true,
             'phishing_resistant'      => true,
             'purpose'                 => false,
+            'sequence'                => false,
             'session_id'              => false,
             'user_presence'           => true,
             'user_verification'       => true,
             'voided_at'               => true,
         ], $columns);
 
-        self::assertSame([['id']], self::primaryColumns(self::PROOFS));
+        self::assertSame([['sequence']], self::primaryColumns(self::PROOFS));
     }
 
     /**
@@ -237,7 +238,10 @@ final class ProofTablesSchemaTest extends TestCase
      */
     public function testIndexesTheirLookups(): void
     {
-        self::assertSame([[self::PROOFS . '_session_index', ['session_id', 'kind', 'authenticated_at']]], self::secondaryIndexes(self::PROOFS));
+        self::assertEqualsCanonicalizing(
+            [[self::PROOFS . '_id_unique', ['id']], [self::PROOFS . '_session_index', ['session_id', 'kind', 'authenticated_at']]],
+            self::secondaryIndexes(self::PROOFS),
+        );
         self::assertEqualsCanonicalizing(
             [[self::PROVENANCE . '_provider_index', ['connection_id']], [self::PROVENANCE . '_tenant_index', ['tenant_id', 'connection_id']]],
             self::secondaryIndexes(self::PROVENANCE),
@@ -367,7 +371,7 @@ final class ProofTablesSchemaTest extends TestCase
             self::runMigrationStep(self::load(self::PROOFS_MIGRATION));
             self::runMigrationStep(self::load(self::PROVENANCE_MIGRATION));
 
-            self::assertSame([$proofs . '_session_index'], array_column(self::secondaryIndexes($proofs), 0));
+            self::assertEqualsCanonicalizing([$proofs . '_id_unique', $proofs . '_session_index'], array_column(self::secondaryIndexes($proofs), 0));
             self::assertEqualsCanonicalizing([$provenance . '_provider_index', $provenance . '_tenant_index'], array_column(self::secondaryIndexes($provenance), 0));
             self::assertSame([['connection_id', 'slot']], self::primaryColumns($guards));
         } finally {
