@@ -18,6 +18,8 @@ use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Ramsey\Uuid\Uuid;
+use Ramsey\Uuid\UuidInterface;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Facades\Auth;
@@ -301,6 +303,42 @@ final class LooksUpSessionsTest extends TestCase
         self::assertSame(['first_factor'], array_column((array) $others->json('proofs'), 'kind'));
 
         $others->assertJsonPath('first_factor.kind', 'first_factor');
+    }
+
+    /**
+     * Proofs of the same second read newest first in the order they were
+     * recorded, whatever order their ids sort in.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testProofsOfOneSecondReadInTheOrderTheyWereRecorded(): void
+    {
+        CarbonImmutable::setTestNow(CarbonImmutable::now()->startOfSecond());
+
+        $identity = $this->seedIdentity();
+        $key      = $this->signIn('api', 'Phone')->record->getKey();
+        $earlier  = CarbonImmutable::now();
+
+        // Each id a millisecond older than the last: a clock stepped back.
+        Str::createUuidsUsing(static function () use (&$earlier): UuidInterface {
+            $earlier = $earlier->subMillisecond();
+
+            return Uuid::uuid7($earlier);
+        });
+
+        try {
+            foreach (['otp', 'sms', 'hwk'] as $method) {
+                self::assertTrue($this->sessions()->stepUp(self::adapterProof($identity, 'api', $key, methods: [$method]), self::requestClient())->isIssued());
+            }
+        } finally {
+            Str::createUuidsNormally();
+        }
+
+        $methods = array_map(static fn (RecordedProof $proof): array => $proof->methods, $this->sessions()->proofs($key));
+
+        self::assertSame([['hwk'], ['sms'], ['otp'], ['pwd']], $methods);
     }
 
     /**
