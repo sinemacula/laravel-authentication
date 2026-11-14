@@ -164,18 +164,19 @@ session holds; the token's claims and every freshness answer are worked out from
 - `freshProof()` and `freshUntil()` carry a read mode (`$current`, last, `false` by default). Asked plainly, both read
   and lock nothing. Asked current, they answer on the session as committed, for a caller that acts on the answer
   atomically (`freshUntil()` for a grant's expiry): they are asked only inside a transaction on the session model's
-  connection (the default throws a `LogicException` outside one, before anything is read: outside one the row's read
-  and the proofs' read are two statements whose locks end with each, no atomic judgement), and the default reads the
-  session's row with `SessionLookup::lock()`, judges it as a plain answer does (the same generation and owner, live for
-  its guard), and reads its proofs current (`SessionProofs::newestMeeting(..., true)`), still two queries. So the
-  caller need take no lock first; one that judges the row for more of its own locks it before (one more statement and
-  no new lock), as every caller in the package does, since a rebound policy is never trusted to judge the row for it.
-  The read mode is on the contract, so a rebound policy is asked it too and honours it (a decorator of the default
-  passes it on; one of its own locks the session's row, judges it and reads its proofs as committed), and the package
-  asks it only where the call site holds the session's row, never whenever a transaction happens to be open (see the
-  freshness judgements under the lock, below). No judgement of the package under a lock asks `freshUntil()`: the gate
-  takes its grant's expiry from the current proof and the requirement; the mode serves a caller of its own that grants
-  on the answer.
+  connection (`Database\StorageConnection::isInTransaction()` answers whether one is open, so a caller reached both
+  inside and outside one need not probe the connection itself; the default throws a `LogicException` outside one, before
+  anything is read: outside one the row's read and the proofs' read are two statements whose locks end with each, no
+  atomic judgement), and the default reads the session's row with `SessionLookup::lock()`, judges it as a plain answer
+  does (the same generation and owner, live for its guard), and reads its proofs current
+  (`SessionProofs::newestMeeting(..., true)`), still two queries. So the caller need take no lock first; one that judges
+  the row for more of its own locks it before (one more statement and no new lock), as every caller in the package does,
+  since a rebound policy is never trusted to judge the row for it. The read mode is on the contract, so a rebound policy
+  is asked it too and honours it (a decorator of the default passes it on; one of its own locks the session's row,
+  judges it and reads its proofs as committed), and the package asks it only where the call site holds the session's
+  row, never whenever a transaction happens to be open (see the freshness judgements under the lock, below). No
+  judgement of the package under a lock asks `freshUntil()`: the gate takes its grant's expiry from the current proof
+  and the requirement; the mode serves a caller of its own that grants on the answer.
 - An identifier change proves a recent authentication with the `identifier_change` operation: a session proof must still
   be the session given (of its generation) and one of the identity's live sessions of the guard, as stored, and the
   policy must find a proof for it; inside the change's transaction both are checked again on the session's locked row,

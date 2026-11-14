@@ -10,7 +10,8 @@ use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
 
 /**
  * Decides whether a session's authentication is fresh enough for an operation,
- * judged on the newest proof that meets its requirement.
+ * judged on the newest proof that meets its requirement. A current judgement is
+ * asked only while `StorageConnection::isInTransaction()` is true.
  *
  * @api
  *
