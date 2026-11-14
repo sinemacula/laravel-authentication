@@ -94,6 +94,8 @@ final class SendOneTimeCode implements ShouldBeEncrypted, ShouldQueue
             $this->issued->secret(),
             $this->issued->expiresAt,
             $recipient,
+            $this->binding->proofPurpose,
+            $this->binding->factor,
         ));
     }
 

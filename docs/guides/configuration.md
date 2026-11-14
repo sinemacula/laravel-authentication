@@ -728,7 +728,9 @@ final class SmsCodeSender implements OneTimeCodeSender
 
 The message also carries the guard, the purpose (`CodePurpose::SIGN_IN`, `VERIFICATION`, `MFA`, `ENROLLMENT`,
 `PASSWORD_RESET` or `CHANGE_IDENTIFIER`, to word it) and the recipient identity. A factor code's `type` is its channel's
-kind (`sms` or `email`).
+kind (`sms` or `email`), its `proofPurpose` says what it proves (`Purpose::SIGN_IN` for a sign-in's further factor,
+`STEP_UP` or `ENROLLMENT`), so a step-up's code can be worded apart from a sign-in's, and its `factor` is the factor
+package's reference to the factor; both are `null` for every other code.
 
 A sender that throws fails the job, and your queue's retry policy applies; a retry checks the code first, so a code
 that expired or was replaced is never sent. Requests for codes are limited by the `code_request` rate limits (see

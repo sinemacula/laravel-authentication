@@ -128,6 +128,45 @@ final class SendOneTimeCodeTest extends TestCase
         self::assertSame([self::PHONE, self::CODE], [$message->identifier, $message->code->reveal()]);
         self::assertTrue($this->now->addSeconds(600)->equalTo($message->expiresAt));
         self::assertIsModel($identity, $message->identity);
+        self::assertSame([null, null], [$message->proofPurpose, $message->factor]);
+    }
+
+    /**
+     * Rows of `[what the factor code proves, its grant, its code purpose]`.
+     *
+     * @return iterable<string, array{0: \SineMacula\Laravel\Authentication\Proofs\Enums\Purpose, 1: ?string, 2: \SineMacula\Laravel\Authentication\Codes\Enums\CodePurpose}>
+     */
+    public static function provideFactorCodePurposes(): iterable
+    {
+        yield from [
+            'a sign-in'    => [Purpose::SIGN_IN, null, CodePurpose::MFA],
+            'a step-up'    => [Purpose::STEP_UP, null, CodePurpose::MFA],
+            'an enrolment' => [Purpose::ENROLLMENT, 'grant-1', CodePurpose::ENROLLMENT],
+        ];
+    }
+
+    /**
+     * A factor code's message says what the code proves and names its factor.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Proofs\Enums\Purpose  $purpose
+     * @param  ?string  $grant
+     * @param  \SineMacula\Laravel\Authentication\Codes\Enums\CodePurpose  $codePurpose
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideFactorCodePurposes')]
+    public function testAFactorCodesMessageSaysWhatItProvesAndNamesItsFactor(Purpose $purpose, ?string $grant, CodePurpose $codePurpose): void
+    {
+        $identity = self::seedCodeIdentity();
+        $proof    = new ProofBinding($identity, 'mobile', 'session-1', $purpose);
+        $binding  = CodeBinding::factor('mobile', new FactorCodeBinding($proof, 'factor-1', new Channel(ChannelKind::SMS, self::PHONE), $grant));
+
+        (new SendOneTimeCode($binding, $this->issue($binding, $this->now), $identity))->handle(app());
+
+        $message = $this->sender->sent()[0];
+
+        self::assertSame([$codePurpose, $purpose, 'factor-1'], [$message->purpose, $message->proofPurpose, $message->factor]);
     }
 
     /**
