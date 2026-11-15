@@ -183,7 +183,8 @@ session holds; the token's claims and every freshness answer are worked out from
   and the requirement; the mode serves a caller of its own that grants on the answer.
 - `metUntil()` judges a `Requirement`, a minimum level included, through `RequirementJudge` on the stored session, and
   answers the earlier of the operation's configured deadline and the met answer's `metUntil`, judged apart. A part with
-  no maximum age, or one over a day, throws; no reported `metUntil`, or one not after now, is `null`.
+  no maximum age, or one over a day, throws; no reported `metUntil`, or one not after now, is `null`. The proofs of an
+  excluded factor count in neither judgement.
 - An identifier change proves a recent authentication with the `identifier_change` operation: a session proof must still
   be the session given (of its generation) and one of the identity's live sessions of the guard, as stored, and the
   policy must find a proof for it; inside the change's transaction both are checked again on the session's locked row,
@@ -271,19 +272,20 @@ session holds; the token's claims and every freshness answer are worked out from
   committed: the factor-change gate (`FactorChangeGate::judge()`, inside its own transaction on the session model's
   connection), an identifier change request's check under the identity's lock (`RecentAuthentication::stands()`) and a
   password establishment (`PasswordChanges::establish()`, under the identity's and then the session's lock). Each asks
-  the bound policy's `freshProof()` current (`current: true`) on the locked row, and the default's budget stays two
-  queries. So on MySQL and MariaDB at REPEATABLE READ, inside a caller's transaction whose first plain read came before
-  another transaction voided a step-up (a factor's removal, which writes the session's issuance guard before it voids),
-  a factor change, an identifier change request or an establishment is refused, where the snapshot read allowed it
-  (failing open), and a step-up committed meanwhile is counted, where the snapshot read missed it (failing closed). A
-  rebound policy is asked the same way and reads as committed when asked, as the contract requires. At PostgreSQL's
-  REPEATABLE READ the session's lock fails to serialise when the session was written after the snapshot, as for every
-  judgement under the lock. The identifier change request's first check, before its transaction
-  (`RecentAuthentication::refusal()`), reads plainly and locks nothing: run inside a caller's transaction at REPEATABLE
-  READ (on MySQL and on PostgreSQL alike, since nothing is locked yet), it misses a step-up committed after the caller's
-  snapshot and refuses (failing closed), and a voided step-up it still counts is refused by the check under the lock.
-  Locking there would take the session's row and proofs before the identity's row, inverting the identity-then-session
-  order an identifier change and a password change from one session both take.
+  the bound policy current (`current: true`) on the locked row, the gate `metUntil()` and the others `freshProof()`, and
+  the default's budget stays two queries for a judgement with no requirement of the caller's. So on MySQL and MariaDB at
+  REPEATABLE READ, inside a caller's transaction whose first plain read came before another transaction voided a step-up
+  (a factor's removal, which writes the session's issuance guard before it voids), a factor change, an identifier change
+  request or an establishment is refused, where the snapshot read allowed it (failing open), and a step-up committed
+  meanwhile is counted, where the snapshot read missed it (failing closed). A rebound policy is asked the same way and
+  reads as committed when asked, as the contract requires. At PostgreSQL's REPEATABLE READ the session's lock fails to
+  serialise when the session was written after the snapshot, as for every judgement under the lock. The identifier
+  change request's first check, before its transaction (`RecentAuthentication::refusal()`), reads plainly and locks
+  nothing: run inside a caller's transaction at REPEATABLE READ (on MySQL and on PostgreSQL alike, since nothing is
+  locked yet), it misses a step-up committed after the caller's snapshot and refuses (failing closed), and a voided
+  step-up it still counts is refused by the check under the lock. Locking there would take the session's row and proofs
+  before the identity's row, inverting the identity-then-session order an identifier change and a password change from
+  one session both take.
 - The current reads keep the lock order of session rows before proof rows. `satisfy()` and `choose()` lock the session
   the sign-in's client proved it holds, whenever the sign-in recorded one, once the action is admitted, before they
   check it and before the pending session's guard and proofs, so the supersede its first activation makes takes no row
@@ -383,19 +385,20 @@ session holds; the token's claims and every freshness answer are worked out from
   session's range, and the provenance only when connections are named), happen only on MySQL and MariaDB at REPEATABLE
   READ, last as long as the judging transaction, and are of the class the sessions guide already documents for an
   issuance inside a caller's transaction; and InnoDB gives no narrower current read at REPEATABLE READ.
-- Measured the same way for a freshness judgement under the lock (a gate verdict, `freshProof()` asked current), the
-  session's row held `X,REC_NOT_GAP`: for `factor_change` (its two kinds, `additional_factor` and `recovery_code`) on
-  the middle of three sessions with a first factor and one step-up, a next-key lock on the session's own
-  `additional_factor` and `first_factor` entries, a next-key lock on the next session's first entry in the index (its
-  `additional_factor`), and a record lock on the answered proof's row; on the newest session the same, with the supremum
-  in place of the next session's entry. With the caller's requirement taking `additional_factor` alone, the session's
-  own entry and the gap before its `first_factor` entry, and no neighbour's entry or supremum. For the five kinds
-  `identifier_change` and `password_establishment` take by default, with about sixty sessions, the gate's shape and a
-  record lock on each row read; on a near-empty table (three sessions, six proofs) the optimiser scanned the primary key
-  and next-key-locked every proof row and the supremum until the transaction ended, as any locking read of a tiny table
-  does (the requirement judgements' included). The trade is the requirement judgements': a stale read fails open on a
-  voided step-up, and the waits fall at the edges of the judged session's range, only on MySQL and MariaDB at REPEATABLE
-  READ, for as long as the judging transaction (the gate's, as long as the factor package's).
+- Measured the same way for a freshness judgement under the lock (`freshProof()` asked current, or a gate verdict with
+  no requirement of the factor package's), the session's row held `X,REC_NOT_GAP`: for `factor_change` (its two kinds,
+  `additional_factor` and `recovery_code`) on the middle of three sessions with a first factor and one step-up, a
+  next-key lock on the session's own `additional_factor` and `first_factor` entries, a next-key lock on the next
+  session's first entry in the index (its `additional_factor`), and a record lock on the answered proof's row; on the
+  newest session the same, with the supremum in place of the next session's entry. With a caller's freshness requirement
+  taking `additional_factor` alone, the session's own entry and the gap before its `first_factor` entry, and no
+  neighbour's entry or supremum. For the five kinds `identifier_change` and `password_establishment` take by default,
+  with about sixty sessions, the gate's shape and a record lock on each row read; on a near-empty table (three sessions,
+  six proofs) the optimiser scanned the primary key and next-key-locked every proof row and the supremum until the
+  transaction ended, as any locking read of a tiny table does (the requirement judgements' included). The trade is the
+  requirement judgements': a stale read fails open on a voided step-up, and the waits fall at the edges of the judged
+  session's range, only on MySQL and MariaDB at REPEATABLE READ, for as long as the judging transaction (the gate's, as
+  long as the factor package's).
 - An exception from the evidence policy or the link contract, and a database error (a serialization failure, a lock
   wait timeout or a deadlock included), propagates, and the package never retries. Laravel rethrows a concurrency error
   raised inside a savepoint without rolling the caller's transaction back, and MySQL rolls back only the statement on a
@@ -424,12 +427,13 @@ where they describe them.
   each meeting nothing by default; the identity-level factor policy answers a `Requirement` too, judged the same way
   (`RequirementJudge`). `freshProof()` and `freshUntil()` use neither, and so no provider's evidence: a proof carrying
   accepted evidence never meets a multifactor freshness requirement; `metUntil()` judges a `Requirement` through
-  `RequirementJudge`, evidence included. The factor-change gate (`SessionService::factorChange()`) asks freshness
-  for `factor_change`, or `first_additional_factor` for an identity's first additional factor, excluding the factor a
-  replacement or removal names, before the change, under the session's lock and on its proofs as committed; once it is
-  made, a removal or replacement judges the current session again with `factorRemoved()` and an addition with
-  `factorChanged()`, which writes the session's issuance guard, then reads the proofs current, whatever the caller's
-  transaction read first, and voids none. A package that needs more rebinds `FreshnessPolicy`.
+  `RequirementJudge`, evidence included. The factor-change gate (`SessionService::factorChange()`) asks `metUntil()` for
+  `factor_change`, or `first_additional_factor` for an identity's first additional factor, with the factor package's
+  `Requirement`, excluding the factor a replacement or removal names, before the change, under the session's lock and on
+  its proofs as committed; once it is made, a removal or replacement judges the current session again with
+  `factorRemoved()` and an addition with `factorChanged()`, which writes the session's issuance guard, then reads the
+  proofs current, whatever the caller's transaction read first, and voids none. A package that needs more rebinds
+  `FreshnessPolicy`.
 - A pending session records its first factor and provenance as any session does, when it is written; the further
   factor `satisfy()` accepts is stored with them (the requirement check reads it when the policy is asked again), and
   none counts for a token until the session activates.

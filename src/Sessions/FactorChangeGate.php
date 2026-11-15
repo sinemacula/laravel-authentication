@@ -14,7 +14,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Factors\Enums\FactorChange;
 use SineMacula\Laravel\Authentication\Factors\FactorChangeVerdict;
 use SineMacula\Laravel\Authentication\Factors\FactorReference;
-use SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\SessionRecords\OwnedSession;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
@@ -51,14 +51,14 @@ final readonly class FactorChangeGate
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  \SineMacula\Laravel\Authentication\Factors\Enums\FactorChange  $change
-     * @param  ?\SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement  $requirement
+     * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $requirement
      * @param  ?string  $factor
      * @return \SineMacula\Laravel\Authentication\Factors\FactorChangeVerdict
      *
      * @throws \InvalidArgumentException
      * @throws \Throwable
      */
-    public function verdict(Session $session, FactorChange $change, ?FreshnessRequirement $requirement, ?string $factor): FactorChangeVerdict
+    public function verdict(Session $session, FactorChange $change, Requirement $requirement, ?string $factor): FactorChangeVerdict
     {
         self::assertFactor($change, $factor);
 
@@ -70,15 +70,16 @@ final readonly class FactorChangeGate
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  \SineMacula\Laravel\Authentication\Factors\Enums\FactorChange  $change
-     * @param  ?\SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement  $requirement
+     * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $requirement
      * @param  ?string  $factor
      * @return \SineMacula\Laravel\Authentication\Factors\FactorChangeVerdict
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
-    private function judge(Session $session, FactorChange $change, ?FreshnessRequirement $requirement, ?string $factor): FactorChangeVerdict
+    private function judge(Session $session, FactorChange $change, Requirement $requirement, ?string $factor): FactorChangeVerdict
     {
         $locked = $this->locked($session, CarbonImmutable::now()->startOfSecond());
 
@@ -86,16 +87,11 @@ final readonly class FactorChangeGate
             return FactorChangeVerdict::refused($locked);
         }
 
-        $policy    = $this->container->make(FreshnessPolicy::class);
-        $operation = $change->operation();
-        $effective = $policy->requirement($this->context->name(), $operation, $requirement);
-        $proof     = $effective === null ? null : $policy->freshProof($locked, $operation, $requirement, $factor, current: true);
+        $until = $this->container->make(FreshnessPolicy::class)->metUntil($locked, $change->operation(), $requirement, $factor, current: true);
 
-        if ($effective === null || $proof === null) {
-            return FactorChangeVerdict::refused($change === FactorChange::ADD_FIRST ? FailureReason::REAUTHENTICATION_REQUIRED : FailureReason::STEP_UP_REQUIRED);
-        }
-
-        return FactorChangeVerdict::allowed($proof, $proof->authenticatedAt->addSeconds($effective->maxAgeSeconds));
+        return $until === null
+            ? FactorChangeVerdict::refused($change === FactorChange::ADD_FIRST ? FailureReason::REAUTHENTICATION_REQUIRED : FailureReason::STEP_UP_REQUIRED)
+            : FactorChangeVerdict::allowed($until);
     }
 
     /**

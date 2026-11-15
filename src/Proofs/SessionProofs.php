@@ -94,9 +94,7 @@ final class SessionProofs
 
         $proof = WriteConnection::during($model, static fn (): mixed => self::counting($session)
             ->whereIn('kind', array_column($requirement->proofs, 'value'))
-            ->when($excludingFactor !== null, static fn (Builder $query): Builder => $query->where(
-                static fn (Builder $factor): Builder => $factor->whereNull('factor_reference')->orWhere('factor_reference', '<>', $excludingFactor),
-            ))
+            ->where(self::excluding($excludingFactor))
             ->where('authenticated_at', '>', $model->fromDateTime($now->subSeconds($requirement->maxAgeSeconds)))
             ->where('authenticated_at', '<=', $model->fromDateTime($now))
             ->when($requirement->multifactor, static fn (Builder $query): Builder => $query->where('multifactor', true)->whereNull('evidence'))
@@ -111,18 +109,19 @@ final class SessionProofs
 
     /**
      * A page of the session's counting proofs, newest first, filtered by time
-     * and kind when given.
+     * and kind when given, and without the factor's when one is given.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  ?\Carbon\CarbonInterface  $since
      * @param  ?list<\SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind>  $kinds
      * @param  int  $limit
+     * @param  ?string  $excludingFactor
      * @param  bool  $current
      * @return list<\SineMacula\Laravel\Authentication\Proofs\RecordedProof>
      *
      * @throws \InvalidArgumentException
      */
-    public static function query(Session $session, ?CarbonInterface $since, ?array $kinds, int $limit, bool $current = false): array
+    public static function query(Session $session, ?CarbonInterface $since, ?array $kinds, int $limit, ?string $excludingFactor = null, bool $current = false): array
     {
         $model  = new SessionProof;
         $shared = self::sharesLock($model, $current);
@@ -131,6 +130,7 @@ final class SessionProofs
         $proofs = WriteConnection::during($model, static fn (): array => self::counting($session)
             ->when($from !== null, static fn (Builder $query): Builder => $query->where('authenticated_at', '>=', $model->fromDateTime($from)))
             ->when($kinds !== null, static fn (Builder $query): Builder => $query->whereIn('kind', array_column($kinds ?? [], 'value')))
+            ->where(self::excluding($excludingFactor))
             ->orderByDesc('authenticated_at')
             ->orderByDesc('sequence')
             ->limit($limit)
@@ -262,6 +262,18 @@ final class SessionProofs
             ExternalEvidence::fromStored($row->accepted_evidence),
             ProviderContext::fromStored($row->provider_context),
         ) : null;
+    }
+
+    /**
+     * A nested where that leaves out the factor's proofs, or adds nothing when
+     * no factor is given.
+     *
+     * @param  ?string  $factor
+     * @return \Closure(\Illuminate\Database\Eloquent\Builder<\SineMacula\Laravel\Authentication\Models\SessionProof>): mixed
+     */
+    private static function excluding(?string $factor): \Closure
+    {
+        return static fn (Builder $query): Builder => $factor === null ? $query : $query->whereNull('factor_reference')->orWhere('factor_reference', '<>', $factor);
     }
 
     /**

@@ -39,19 +39,12 @@ interface FreshnessPolicy
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  string  $operation
      * @param  ?\SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement  $requirement
-     * @param  ?string  $excludingFactor
      * @param  bool  $current
      * @return ?\SineMacula\Laravel\Authentication\Proofs\RecordedProof
      *
      * @throws \LogicException
      */
-    public function freshProof(
-        Session $session,
-        string $operation,
-        ?FreshnessRequirement $requirement = null,
-        ?string $excludingFactor = null,
-        bool $current = false,
-    ): ?RecordedProof;
+    public function freshProof(Session $session, string $operation, ?FreshnessRequirement $requirement = null, bool $current = false): ?RecordedProof;
 
     /**
      * Until when the session stays fresh for the operation, or `null` when
@@ -60,33 +53,27 @@ interface FreshnessPolicy
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  string  $operation
      * @param  ?\SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement  $requirement
-     * @param  ?string  $excludingFactor
      * @param  bool  $current
      * @return ?\Carbon\CarbonImmutable
      *
      * @throws \LogicException
      */
-    public function freshUntil(
-        Session $session,
-        string $operation,
-        ?FreshnessRequirement $requirement = null,
-        ?string $excludingFactor = null,
-        bool $current = false,
-    ): ?CarbonImmutable;
+    public function freshUntil(Session $session, string $operation, ?FreshnessRequirement $requirement = null, bool $current = false): ?CarbonImmutable;
 
     /**
      * Until when the session stays both fresh for the operation and meeting the
      * requirement, each part of which gives a maximum age of at most a day, or
-     * `null` when it is not both now.
+     * `null` when it is not both now; the excluded factor's proofs never count.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  string  $operation
      * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $requirement
+     * @param  ?string  $excludingFactor
      * @param  bool  $current
      * @return ?\Carbon\CarbonImmutable
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
      */
-    public function metUntil(Session $session, string $operation, Requirement $requirement, bool $current = false): ?CarbonImmutable;
+    public function metUntil(Session $session, string $operation, Requirement $requirement, ?string $excludingFactor = null, bool $current = false): ?CarbonImmutable;
 }

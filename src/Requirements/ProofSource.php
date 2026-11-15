@@ -22,6 +22,7 @@ final readonly class ProofSource
      *
      * @param  ?\SineMacula\Laravel\Authentication\Tenancy\SessionEvidence  $evidence
      * @param  bool  $current
+     * @param  ?string  $excludingFactor
      */
     public function __construct(
 
@@ -30,5 +31,8 @@ final readonly class ProofSource
 
         /** Whether the session's stored proofs are read current. */
         public bool $current = false,
+
+        /** The factor whose stored proofs are left out, when one is given. */
+        public ?string $excludingFactor = null,
     ) {}
 }

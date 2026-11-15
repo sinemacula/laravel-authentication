@@ -315,7 +315,7 @@ final class CurrentProofReadsTest extends TestCase
             fn (): FactorChangeVerdict => $this->sessions()->factorChange($session->record, FactorChange::ADD),
         );
 
-        self::assertSame([false, FailureReason::STEP_UP_REQUIRED, null], [$verdict->isAllowed(), $verdict->reason, $verdict->proof]);
+        self::assertSame([false, FailureReason::STEP_UP_REQUIRED, null], [$verdict->isAllowed(), $verdict->reason, $verdict->freshUntil]);
     }
 
     /**
@@ -344,7 +344,6 @@ final class CurrentProofReadsTest extends TestCase
         );
 
         self::assertTrue($verdict->isAllowed());
-        self::assertSame('factor-1', $verdict->proof?->factor);
     }
 
     /**

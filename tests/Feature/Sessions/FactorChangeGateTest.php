@@ -17,13 +17,13 @@ use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\FreshnessPolicy;
+use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Reauthenticated;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Factors\Enums\FactorChange;
 use SineMacula\Laravel\Authentication\Factors\FactorChangeVerdict;
 use SineMacula\Laravel\Authentication\Freshness\ConfiguredFreshness;
-use SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Proofs\Channel;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
@@ -33,6 +33,11 @@ use SineMacula\Laravel\Authentication\Proofs\Evaluation;
 use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
 use SineMacula\Laravel\Authentication\Proofs\ProofBinding;
 use SineMacula\Laravel\Authentication\Proofs\ProofResult;
+use SineMacula\Laravel\Authentication\Requirements\Enums\AssuranceLevel;
+use SineMacula\Laravel\Authentication\Requirements\LevelRequirement;
+use SineMacula\Laravel\Authentication\Requirements\MeetNoRequirement;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\GatesFactorChanges;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingAction;
 use SineMacula\Laravel\Authentication\Sessions\FactorChangeGate;
@@ -41,6 +46,7 @@ use Tests\Concerns\InteractsWithSessions;
 use Tests\Concerns\MarksSharedLocks;
 use Tests\Fixtures\Database\LockMarkingSQLiteGrammar;
 use Tests\Fixtures\Factors\AlwaysRequireAdditionalFactor;
+use Tests\Fixtures\Freshness\AgeingRequirementCheck;
 use Tests\Fixtures\Freshness\DecoratingFreshness;
 use Tests\Fixtures\Freshness\ScriptedFreshness;
 use Tests\Integration\Fixtures\MachineClient;
@@ -134,8 +140,6 @@ final class FactorChangeGateTest extends TestCase
         $verdict = Auth::sessions('api')->factorChange($signedIn->record, $change, factor: $factor);
 
         self::assertTrue($verdict->isAllowed());
-        self::assertSame(ProofKind::ADDITIONAL_FACTOR, $verdict->proof?->kind);
-        self::assertSame('factor-current', $verdict->proof->factor);
         self::assertSame($this->now->addMinute()->addSeconds(900)->getTimestamp(), $verdict->freshUntil?->getTimestamp());
 
         $this->clockAt($this->now->addMinute()->addSeconds(900));
@@ -168,7 +172,6 @@ final class FactorChangeGateTest extends TestCase
         $verdict = $this->sessions()->factorChange($signedIn->record, FactorChange::ADD_FIRST);
 
         self::assertTrue($verdict->isAllowed());
-        self::assertSame(ProofKind::FIRST_FACTOR_REAUTHENTICATION, $verdict->proof?->kind);
         self::assertSame($this->now->addMinutes(5)->addSeconds(900)->getTimestamp(), $verdict->freshUntil?->getTimestamp());
 
         $this->clockAt($this->now->addMinutes(20));
@@ -192,30 +195,84 @@ final class FactorChangeGateTest extends TestCase
         $this->assertRefused($this->sessions()->factorChange($signedIn->record, FactorChange::REMOVE, factor: 'factor-a'), FailureReason::STEP_UP_REQUIRED);
         $this->assertRefused($this->sessions()->factorChange($signedIn->record, FactorChange::REPLACE, factor: 'factor-a'), FailureReason::STEP_UP_REQUIRED);
 
-        self::assertSame('factor-a', $this->sessions()->factorChange($signedIn->record, FactorChange::REMOVE, factor: 'factor-b')->proof?->factor);
-        self::assertSame('factor-a', $this->sessions()->factorChange($signedIn->record, FactorChange::ADD)->proof?->factor);
+        self::assertTrue($this->sessions()->factorChange($signedIn->record, FactorChange::REMOVE, factor: 'factor-b')->isAllowed());
+        self::assertTrue($this->sessions()->factorChange($signedIn->record, FactorChange::ADD)->isAllowed());
     }
 
     /**
-     * A caller's requirement is applied with the configured one, the stricter
-     * winning.
+     * The factor changed never meets a caller's requirement for its own change,
+     * though it is the session's newest.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testACallersRequirementIsAppliedWithTheConfiguredOne(): void
+    public function testTheFactorChangedNeverMeetsACallersRequirement(): void
+    {
+        $signedIn    = $this->signedIn();
+        $requirement = new Requirement(minimumLevel: new LevelRequirement(AssuranceLevel::AAL2, 600));
+
+        app()->instance(RequirementCheck::class, new AgeingRequirementCheck);
+
+        $this->stepUp($signedIn, 'factor-b', $this->now->addMinute());
+        $this->stepUp($signedIn, 'factor-a', $this->now->addMinutes(5));
+        $this->clockAt($this->now->addMinutes(6));
+
+        $verdict = $this->sessions()->factorChange($signedIn->record, FactorChange::REMOVE, $requirement, 'factor-a');
+
+        self::assertSame($this->now->addMinute()->addSeconds(600)->getTimestamp(), $verdict->freshUntil?->getTimestamp());
+
+        $this->clockAt($this->now->addMinutes(12));
+
+        $this->assertRefused($this->sessions()->factorChange($signedIn->record, FactorChange::REMOVE, $requirement, 'factor-a'), FailureReason::STEP_UP_REQUIRED);
+        self::assertTrue($this->sessions()->factorChange($signedIn->record, FactorChange::REMOVE, $requirement, 'factor-b')->isAllowed());
+    }
+
+    /**
+     * A caller's requirement is judged apart from the configured one, the
+     * earlier deadline winning.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testACallersRequirementIsJudgedApartFromTheConfiguredOne(): void
     {
         $signedIn = $this->signedIn();
+
+        app()->instance(RequirementCheck::class, new AgeingRequirementCheck);
 
         $this->stepUp($signedIn, 'factor-a', $this->now);
         $this->clockAt($this->now->addMinutes(2));
 
-        $this->assertRefused($this->sessions()->factorChange($signedIn->record, FactorChange::ADD, FreshnessRequirement::within(60)), FailureReason::STEP_UP_REQUIRED);
+        $this->assertRefused($this->sessions()->factorChange($signedIn->record, FactorChange::ADD, self::verifiedWithin(60)), FailureReason::STEP_UP_REQUIRED);
 
-        $verdict = $this->sessions()->factorChange($signedIn->record, FactorChange::ADD, FreshnessRequirement::within(300));
+        $verdict = $this->sessions()->factorChange($signedIn->record, FactorChange::ADD, self::verifiedWithin(300));
 
         self::assertSame($this->now->addSeconds(300)->getTimestamp(), $verdict->freshUntil?->getTimestamp());
+        $configured = $this->sessions()->factorChange($signedIn->record, FactorChange::ADD, self::verifiedWithin(1200));
+
+        self::assertSame($this->now->addSeconds(900)->getTimestamp(), $configured->freshUntil?->getTimestamp());
+
+        app()->instance(RequirementCheck::class, new MeetNoRequirement);
+
+        $this->assertRefused($this->sessions()->factorChange($signedIn->record, FactorChange::ADD, self::verifiedWithin(300)), FailureReason::STEP_UP_REQUIRED);
+    }
+
+    /**
+     * A caller's requirement with a part of any age is refused.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARequirementOfAnyAgeIsRefused(): void
+    {
+        $signedIn = $this->signedIn();
+
+        $this->expectException(\InvalidArgumentException::class);
+
+        $this->sessions()->factorChange($signedIn->record, FactorChange::ADD, new Requirement(additionalVerification: new RequirementPart));
     }
 
     /**
@@ -247,21 +304,21 @@ final class FactorChangeGateTest extends TestCase
     public function testTheBoundFreshnessPolicyIsAsked(): void
     {
         $signedIn = $this->signedIn();
-        $policy   = new ScriptedFreshness(FreshnessRequirement::within(120));
+        $policy   = new ScriptedFreshness(null);
 
         app()->instance(FreshnessPolicy::class, $policy);
 
         $verdict = $this->sessions()->factorChange($signedIn->record, FactorChange::REMOVE, factor: 'factor-a');
 
-        self::assertSame(['requirement:api:factor_change', 'freshProof:factor_change:factor-a (current)'], $policy->asked);
-        self::assertSame($this->now->addSeconds(120)->getTimestamp(), $verdict->freshUntil?->getTimestamp());
+        self::assertSame(['metUntil:factor_change:factor-a (current)'], $policy->asked);
+        self::assertSame($this->now->addMinute()->getTimestamp(), $verdict->freshUntil?->getTimestamp());
 
-        $refusing = new ScriptedFreshness(null);
+        $refusing = new ScriptedFreshness(null, false);
 
         app()->instance(FreshnessPolicy::class, $refusing);
 
         $this->assertRefused($this->sessions()->factorChange($signedIn->record, FactorChange::ADD_FIRST), FailureReason::REAUTHENTICATION_REQUIRED);
-        self::assertSame(['requirement:api:first_additional_factor'], $refusing->asked);
+        self::assertSame(['metUntil:first_additional_factor (current)'], $refusing->asked);
     }
 
     /**
@@ -475,7 +532,7 @@ final class FactorChangeGateTest extends TestCase
         app()->instance(FreshnessPolicy::class, $decorating);
 
         self::assertSame([self::takesSharedLocks()], self::proofReadLocks($gate));
-        self::assertSame(['requirement', 'freshProof (current)'], $decorating->asked);
+        self::assertSame(['metUntil (current)'], $decorating->asked);
     }
 
     /**
@@ -548,8 +605,7 @@ final class FactorChangeGateTest extends TestCase
     }
 
     /**
-     * Assert the change was refused with the reason, with no proof and no
-     * deadline.
+     * Assert the change was refused with the reason and no deadline.
      *
      * @param  \SineMacula\Laravel\Authentication\Factors\FactorChangeVerdict  $verdict
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
@@ -559,8 +615,18 @@ final class FactorChangeGateTest extends TestCase
     {
         self::assertFalse($verdict->isAllowed());
         self::assertSame($reason, $verdict->reason);
-        self::assertNull($verdict->proof);
         self::assertNull($verdict->freshUntil);
+    }
+
+    /**
+     * A requirement of an additional verification within the age given.
+     *
+     * @param  int  $seconds
+     * @return \SineMacula\Laravel\Authentication\Requirements\Requirement
+     */
+    private static function verifiedWithin(int $seconds): Requirement
+    {
+        return new Requirement(additionalVerification: new RequirementPart($seconds));
     }
 
     /**

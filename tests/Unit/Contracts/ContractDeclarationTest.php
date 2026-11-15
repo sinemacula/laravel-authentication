@@ -616,19 +616,24 @@ final class ContractDeclarationTest extends TestCase
     }
 
     /**
-     * `freshProof()` and `freshUntil()` each take, last, whether the session is
-     * judged as committed.
+     * `freshProof()`, `freshUntil()` and `metUntil()` each take, last, whether
+     * the session is judged as committed.
      *
      * @return void
      */
     public function testTheFreshnessContractCarriesItsReadMode(): void
     {
-        foreach (['freshProof', 'freshUntil'] as $method) {
-            $parameters = (new \ReflectionMethod(FreshnessPolicy::class, $method))->getParameters();
-            $names      = array_map(static fn (\ReflectionParameter $parameter): string => $parameter->getName(), $parameters);
-            $current    = $parameters[4];
+        $expected = [
+            'freshProof' => ['session', 'operation', 'requirement', 'current'],
+            'freshUntil' => ['session', 'operation', 'requirement', 'current'],
+            'metUntil'   => ['session', 'operation', 'requirement', 'excludingFactor', 'current'],
+        ];
 
-            self::assertSame(['session', 'operation', 'requirement', 'excludingFactor', 'current'], $names, $method);
+        foreach ($expected as $method => $names) {
+            $parameters = (new \ReflectionMethod(FreshnessPolicy::class, $method))->getParameters();
+            $current    = $parameters[count($parameters) - 1];
+
+            self::assertSame($names, array_map(static fn (\ReflectionParameter $parameter): string => $parameter->getName(), $parameters), $method);
             self::assertSame('bool', (string) $current->getType(), $method);
             self::assertFalse($current->getDefaultValue(), $method);
         }

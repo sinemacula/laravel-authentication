@@ -115,13 +115,13 @@ reads plainly: a refresh credential's (`Auth::caller()`'s), and `pending()`'s. W
 `RequirementCheck`, `ExternalEvidencePolicy` or `TenantAuthenticationPolicy` reads of its own tables is its own.
 
 Every freshness judgement made while the package holds the session's row reads the same way: the factor-change gate's
-(`factorChange()`), an identifier change request's check under the identity's lock, and a password establishment's.
-The bound freshness policy is asked `freshProof()` with its read mode set (`current: true`); the package's reads the
-locked row again and the session's proofs current, so a step-up voided before the judgement never counts and one
-committed before it does, whatever your transaction read first, and a policy you bind reads current when asked (see
-[Freshness](#freshness)). A freshness judgement made without the session's lock reads plainly: `freshProof()` and
-`freshUntil()` asked by you without the read mode, and an identifier change request's first check, before its
-transaction.
+(`factorChange()`), an identifier change request's check under the identity's lock, and a password establishment's. The
+bound freshness policy is asked with its read mode set (`current: true`), `metUntil()` for the gate and `freshProof()`
+for the others; the package's reads the locked row again and the session's proofs current, so a step-up voided before
+the judgement never counts and one committed before it does, whatever your transaction read first, and a policy you bind
+reads current when asked (see [Freshness](#freshness)). A freshness judgement made without the session's lock reads
+plainly: `freshProof()` and `freshUntil()` asked by you without the read mode, and an identifier change request's first
+check, before its transaction.
 
 A lock wait timeout, a deadlock and a serialisation failure propagate as every database error does, and the package
 never retries. Laravel rethrows one raised inside the package's savepoint without rolling your transaction back, and
@@ -466,14 +466,13 @@ transaction.
 `freshUntil()` answers until when the session stays fresh for the operation: the second its fresh proof is as old as
 the effective requirement's maximum age, from which second on it is no longer fresh, or `null` when it is not fresh.
 It takes the same read mode, so a grant you record in the same transaction takes its expiry from
-`freshUntil(..., current: true)`, under the same rules. Both take an excluded factor after the requirement
-(`freshProof($session, $operation, $requirement, $factor)`): a proof made with that factor never counts, so a factor's
-removal is authorised only by the session's other proofs.
+`freshUntil(..., current: true)`, under the same rules.
 
 `metUntil($session, $operation, $requirement)` answers until when the session stays fresh for the operation and meets a
 `Requirements\Requirement`, such as a minimum assurance level within an age: the earlier of the two, judged apart, or
-`null` when either is unmet or the check reports no time. Each part needs a maximum age of at most a day. It takes the
-same read mode as `freshUntil()`.
+`null` when either is unmet or the check reports no time. Each part needs a maximum age of at most a day. It takes an
+excluded factor after the requirement (`metUntil($session, $operation, $requirement, $factor)`), whose proofs never
+count, so a factor's removal is authorised only by the session's other proofs, and the same read mode as `freshUntil()`.
 
 The package binds `Freshness\ConfiguredFreshness`. Rebind the contract for a requirement the stored proofs cannot show,
 such as an additional verification of your own; an implementation keeps no state between calls, and honours the read
@@ -513,15 +512,15 @@ An identity with no further factor has nothing to step up with, so its first one
 never the sign-in's own first factor: whoever holds a session must prove the first factor again before enrolling a
 factor on it. Only the factor package knows whether the identity has a factor, so it names `ADD_FIRST`. A replacement or
 a removal names the factor it acts on (and only those name one: an `InvalidArgumentException` otherwise), whose own
-proofs never count. A requirement of the factor package's own is passed as the third argument, and the stricter
-applies. An allowed `FactorChangeVerdict` carries the fresh `proof` and `freshUntil`, the second the session stops being
-fresh for the change; a refused one carries the `reason`. The gate writes nothing and reports nothing: once a removal
-or a replacement is made, in that same transaction, the factor package ends the sessions it affects with
-`factorRemoved()` for the factor removed or replaced, and after an addition (an enrolment confirmed, a passkey
-associated as a factor) it judges the current session again with `factorChanged()` (see
-[Sign-in factors](#sign-in-factors)). Generating recovery codes removes no factor, so it never calls `factorRemoved()`:
-the proofs a session already made with a recovery code stay recorded and count, and `factorChanged()` follows only when
-the factor package's policy can change with the codes.
+proofs never count. A requirement of the factor package's own, a `Requirements\Requirement` such as a minimum assurance
+level within an age, is passed as the third argument and judged as `metUntil()` judges it, apart from the operation's
+setting: both must be met. An allowed `FactorChangeVerdict` carries `freshUntil`, the second the session stops being
+fresh for the change; a refused one carries the `reason`. The gate writes nothing and reports nothing: once a removal or
+a replacement is made, in that same transaction, the factor package ends the sessions it affects with `factorRemoved()`
+for the factor removed or replaced, and after an addition (an enrolment confirmed, a passkey associated as a factor) it
+judges the current session again with `factorChanged()` (see [Sign-in factors](#sign-in-factors)). Generating recovery
+codes removes no factor, so it never calls `factorRemoved()`: the proofs a session already made with a recovery code
+stay recorded and count, and `factorChanged()` follows only when the factor package's policy can change with the codes.
 
 On MySQL and MariaDB at REPEATABLE READ the gate's read of the proofs holds the gaps beside the session's proofs until
 the factor package's transaction ends, so a step-up, a reauthentication or a new session's first proof that falls there

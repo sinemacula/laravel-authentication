@@ -579,8 +579,7 @@ final class ConfiguredFreshnessTest extends TestCase
                 self::assertNull(self::policy()->freshUntil($session, Operations::IDENTIFIER_CHANGE));
                 self::assertNull(DB::transaction(static fn (): ?RecordedProof => self::policy()->freshProof($session, Operations::IDENTIFIER_CHANGE, current: true)));
                 self::assertNull(DB::transaction(static fn (): ?CarbonImmutable => self::policy()->freshUntil($session, Operations::IDENTIFIER_CHANGE, current: true)));
-                self::assertNull(self::policy()->metUntil($session, Operations::IDENTIFIER_CHANGE, self::level(600)));
-                self::assertNull(DB::transaction(static fn (): ?CarbonImmutable => self::policy()->metUntil($session, Operations::IDENTIFIER_CHANGE, self::level(600), true)));
+                self::assertNull(self::metUntil($session, Operations::IDENTIFIER_CHANGE, self::level(600)));
             });
 
             self::assertSame([], $statements, $contract);
@@ -633,20 +632,20 @@ final class ConfiguredFreshnessTest extends TestCase
     {
         $record = $this->signedIn();
 
+        app()->instance(RequirementCheck::class, new AgeingRequirementCheck);
+
         ProofWriter::record($record, 'api', self::stepUp('factor-a', $this->now->subMinutes(2)));
         ProofWriter::record($record, 'api', self::stepUp('factor-b', $this->now->subMinute()));
 
-        $policy = self::policy();
-
-        self::assertSame('factor-b', $policy->freshProof($record, Operations::FACTOR_CHANGE)?->factor);
-        self::assertSame('factor-a', $policy->freshProof($record, Operations::FACTOR_CHANGE, null, 'factor-b')?->factor);
-        self::assertSame($this->now->subMinutes(2)->addSeconds(900)->getTimestamp(), self::freshUntil($record, Operations::FACTOR_CHANGE, null, 'factor-b')?->getTimestamp());
+        self::assertEquals($this->now->subMinute()->addSeconds(600), self::metUntil($record, Operations::FACTOR_CHANGE, self::level(600)));
+        self::assertEquals($this->now->subMinutes(2)->addSeconds(600), self::metUntil($record, Operations::FACTOR_CHANGE, self::level(600), 'factor-b'));
+        self::assertEquals($this->now->subMinutes(2)->addSeconds(900), self::metUntil($record, Operations::FACTOR_CHANGE, new Requirement, 'factor-b'));
 
         DB::table('authentication_proofs')->where('factor_reference', 'factor-a')->delete();
 
-        self::assertNull($policy->freshProof($record, Operations::FACTOR_CHANGE, null, 'factor-b'));
-        self::assertNull(self::freshUntil($record, Operations::FACTOR_CHANGE, null, 'factor-b'));
-        self::assertNotNull($policy->freshProof($record, Operations::FACTOR_CHANGE, null, 'factor-c'));
+        self::assertNull(self::metUntil($record, Operations::FACTOR_CHANGE, new Requirement, 'factor-b'));
+        self::assertNull(self::metUntil($record, Operations::FACTOR_CHANGE, self::level(600), 'factor-b'));
+        self::assertNotNull(self::metUntil($record, Operations::FACTOR_CHANGE, new Requirement, 'factor-c'));
     }
 
     /**
@@ -881,7 +880,7 @@ final class ConfiguredFreshnessTest extends TestCase
         self::markSharedLocks();
 
         $policy  = self::policy();
-        $judge   = static fn (): ?CarbonImmutable => $policy->metUntil($record, Operations::IDENTIFIER_CHANGE, self::level(600), true);
+        $judge   = static fn (): ?CarbonImmutable => $policy->metUntil($record, Operations::IDENTIFIER_CHANGE, self::level(600), current: true);
         $current = self::statementsDuring(static fn (): mixed => DB::transaction($judge));
         $plain   = self::statementsDuring(static fn (): ?CarbonImmutable => $policy->metUntil($record, Operations::IDENTIFIER_CHANGE, self::level(600)));
         $reads   = array_values(array_filter($current, self::readsProofs(...)));
@@ -1012,16 +1011,15 @@ final class ConfiguredFreshnessTest extends TestCase
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  string  $operation
      * @param  ?\SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement  $requirement
-     * @param  ?string  $excludingFactor
      * @return ?\SineMacula\Laravel\Authentication\Proofs\RecordedProof
      *
      * @throws \Throwable
      */
-    private static function freshProof(Contract $session, string $operation, ?FreshnessRequirement $requirement = null, ?string $excludingFactor = null): ?RecordedProof
+    private static function freshProof(Contract $session, string $operation, ?FreshnessRequirement $requirement = null): ?RecordedProof
     {
         $policy  = self::policy();
-        $plain   = $policy->freshProof($session, $operation, $requirement, $excludingFactor);
-        $current = DB::transaction(static fn (): ?RecordedProof => $policy->freshProof($session, $operation, $requirement, $excludingFactor, true));
+        $plain   = $policy->freshProof($session, $operation, $requirement);
+        $current = DB::transaction(static fn (): ?RecordedProof => $policy->freshProof($session, $operation, $requirement, true));
 
         self::assertEquals($plain, $current);
 
@@ -1035,16 +1033,15 @@ final class ConfiguredFreshnessTest extends TestCase
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  string  $operation
      * @param  ?\SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement  $requirement
-     * @param  ?string  $excludingFactor
      * @return ?\Carbon\CarbonImmutable
      *
      * @throws \Throwable
      */
-    private static function freshUntil(Contract $session, string $operation, ?FreshnessRequirement $requirement = null, ?string $excludingFactor = null): ?CarbonImmutable
+    private static function freshUntil(Contract $session, string $operation, ?FreshnessRequirement $requirement = null): ?CarbonImmutable
     {
         $policy  = self::policy();
-        $plain   = $policy->freshUntil($session, $operation, $requirement, $excludingFactor);
-        $current = DB::transaction(static fn (): ?CarbonImmutable => $policy->freshUntil($session, $operation, $requirement, $excludingFactor, true));
+        $plain   = $policy->freshUntil($session, $operation, $requirement);
+        $current = DB::transaction(static fn (): ?CarbonImmutable => $policy->freshUntil($session, $operation, $requirement, true));
 
         self::assertEquals($plain, $current);
 
@@ -1058,15 +1055,16 @@ final class ConfiguredFreshnessTest extends TestCase
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  string  $operation
      * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $requirement
+     * @param  ?string  $excludingFactor
      * @return ?\Carbon\CarbonImmutable
      *
      * @throws \Throwable
      */
-    private static function metUntil(Contract $session, string $operation, Requirement $requirement): ?CarbonImmutable
+    private static function metUntil(Contract $session, string $operation, Requirement $requirement, ?string $excludingFactor = null): ?CarbonImmutable
     {
         $policy  = self::policy();
-        $plain   = $policy->metUntil($session, $operation, $requirement);
-        $current = DB::transaction(static fn (): ?CarbonImmutable => $policy->metUntil($session, $operation, $requirement, true));
+        $plain   = $policy->metUntil($session, $operation, $requirement, $excludingFactor);
+        $current = DB::transaction(static fn (): ?CarbonImmutable => $policy->metUntil($session, $operation, $requirement, $excludingFactor, true));
 
         self::assertEquals($plain, $current);
 

@@ -9,7 +9,6 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Factors\FactorChangeVerdict;
-use Tests\Fixtures\Proofs\UndescribedSignInProof;
 
 /**
  * Unit tests for the factor-change gate's answer.
@@ -23,26 +22,23 @@ use Tests\Fixtures\Proofs\UndescribedSignInProof;
 final class FactorChangeVerdictTest extends TestCase
 {
     /**
-     * An allowed change carries the fresh proof and until when the session
-     * stays fresh for it, and no reason.
+     * An allowed change carries until when the session stays fresh for it, and
+     * no reason.
      *
      * @return void
      */
-    public function testAnAllowedChangeCarriesItsProofAndDeadline(): void
+    public function testAnAllowedChangeCarriesItsDeadline(): void
     {
-        $proof = UndescribedSignInProof::of('password', CarbonImmutable::now())->recorded();
-        $until = CarbonImmutable::parse('2026-04-06 12:15:00');
-
-        $verdict = FactorChangeVerdict::allowed($proof, $until);
+        $until   = CarbonImmutable::parse('2026-04-06 12:15:00');
+        $verdict = FactorChangeVerdict::allowed($until);
 
         self::assertTrue($verdict->isAllowed());
-        self::assertSame($proof, $verdict->proof);
         self::assertSame($until, $verdict->freshUntil);
         self::assertNull($verdict->reason);
     }
 
     /**
-     * A refused change carries why, and neither a proof nor a deadline.
+     * A refused change carries why, and no deadline.
      *
      * @return void
      */
@@ -52,7 +48,6 @@ final class FactorChangeVerdictTest extends TestCase
 
         self::assertFalse($verdict->isAllowed());
         self::assertSame(FailureReason::STEP_UP_REQUIRED, $verdict->reason);
-        self::assertNull($verdict->proof);
         self::assertNull($verdict->freshUntil);
     }
 
