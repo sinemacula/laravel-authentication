@@ -6,6 +6,7 @@ namespace SineMacula\Laravel\Authentication\External;
 
 use SineMacula\Laravel\Authentication\Contracts\ExternalEvidencePolicy;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementEvaluation;
 
 /**
  * The default external evidence policy: no provider's evidence is accepted or
@@ -33,16 +34,16 @@ final readonly class InsufficientEvidence implements ExternalEvidencePolicy
     }
 
     /**
-     * Find the evidence insufficient.
+     * Leave every part of the requirement unmet.
      *
      * @param  \SineMacula\Laravel\Authentication\External\ExternalEvidence  $evidence
      * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $requirement
      * @param  \SineMacula\Laravel\Authentication\External\EvidenceSubject  $subject
-     * @return bool
+     * @return \SineMacula\Laravel\Authentication\Requirements\RequirementEvaluation
      */
     #[\Override]
-    public function meets(ExternalEvidence $evidence, Requirement $requirement, EvidenceSubject $subject): bool
+    public function meets(ExternalEvidence $evidence, Requirement $requirement, EvidenceSubject $subject): RequirementEvaluation
     {
-        return false;
+        return new RequirementEvaluation($requirement->kinds());
     }
 }

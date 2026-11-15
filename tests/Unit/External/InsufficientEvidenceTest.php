@@ -10,7 +10,9 @@ use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\External\EvidenceSubject;
 use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 use SineMacula\Laravel\Authentication\External\InsufficientEvidence;
+use SineMacula\Laravel\Authentication\Requirements\Enums\RequirementKind;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementEvaluation;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use Tests\Unit\Stubs\PlainIdentityFixture;
 
@@ -27,7 +29,7 @@ use Tests\Unit\Stubs\PlainIdentityFixture;
 final class InsufficientEvidenceTest extends TestCase
 {
     /**
-     * The default meets no requirement with any evidence.
+     * The default leaves every part of any requirement unmet by any evidence.
      *
      * @return void
      */
@@ -38,8 +40,10 @@ final class InsufficientEvidenceTest extends TestCase
         $subject  = new EvidenceSubject(new PlainIdentityFixture(7), 'api', 'conn-a', $now);
         $policy   = new InsufficientEvidence;
 
-        self::assertFalse($policy->meets($evidence, new Requirement(additionalVerification: new RequirementPart), $subject));
-        self::assertFalse($policy->meets($evidence, new Requirement(multifactor: new RequirementPart), $subject));
+        $either = new Requirement(new RequirementPart, new RequirementPart);
+
+        self::assertEquals(new RequirementEvaluation([RequirementKind::ADDITIONAL_VERIFICATION]), $policy->meets($evidence, new Requirement(new RequirementPart), $subject));
+        self::assertEquals(new RequirementEvaluation([RequirementKind::ADDITIONAL_VERIFICATION, RequirementKind::MULTIFACTOR]), $policy->meets($evidence, $either, $subject));
     }
 
     /**

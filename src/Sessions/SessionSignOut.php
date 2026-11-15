@@ -11,7 +11,6 @@ use Illuminate\Contracts\Container\Container;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\GuardBinding;
-use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -159,7 +158,7 @@ final readonly class SessionSignOut
             return $this->refuseMismatch($session, $source, $client);
         }
 
-        $owner = $this->owner($session);
+        $owner = SessionOwnership::reloadedOwner($session, $this->context->provider());
         $event = new SessionRevoked(
             new EventContext($session->getGuard(), $client, $owner, session: $session, method: $session->getSignInMethod(), fromSession: true),
             RevocationReason::SIGNED_OUT,
@@ -194,21 +193,6 @@ final readonly class SessionSignOut
         ));
 
         return SignOutResult::failed(FailureReason::SESSION_MISMATCH, $source, null);
-    }
-
-    /**
-     * The session's owner, reloaded through the guard's provider, when it
-     * returns that very owner.
-     *
-     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
-     * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
-     */
-    private function owner(EloquentSession&Model $session): ?Identity
-    {
-        $key      = SessionOwnership::ownerKey($session);
-        $identity = $key === null ? null : $this->context->provider()->retrieveById($key);
-
-        return $identity instanceof Identity && SessionOwnership::isOwner($session, $identity) ? $identity : null;
     }
 
     /**

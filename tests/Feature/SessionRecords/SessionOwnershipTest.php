@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Relations\Relation;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
 use Tests\Concerns\InteractsWithSessionRecords;
@@ -88,6 +89,30 @@ final class SessionOwnershipTest extends TestCase
     public function testIsOwnerRejectsEveryIdentityForASessionWithoutAnOwnerKey(): void
     {
         self::assertFalse(SessionOwnership::isOwner($this->record(StubIdentity::class, null), new StubIdentity));
+    }
+
+    /**
+     * The owner reloaded through the provider is returned only when it is the
+     * session's exact owner, and nothing is looked up without an owner key.
+     *
+     * @return void
+     */
+    public function testTheReloadedOwnerIsTheExactOwnerOnly(): void
+    {
+        $owner    = (new StubIdentity)->forceFill(['id' => 9]);
+        $provider = \Mockery::mock(IdentityProvider::class);
+
+        $provider->shouldReceive('retrieveById')->with('9')->andReturn($owner, (new StubPrincipal)->forceFill(['id' => 9]), null);
+
+        self::assertSame($owner, SessionOwnership::reloadedOwner($this->record(StubIdentity::class, '9'), $provider));
+        self::assertNull(SessionOwnership::reloadedOwner($this->record(StubIdentity::class, '9'), $provider));
+        self::assertNull(SessionOwnership::reloadedOwner($this->record(StubIdentity::class, '9'), $provider));
+
+        $none = \Mockery::mock(IdentityProvider::class);
+
+        $none->shouldNotReceive('retrieveById');
+
+        self::assertNull(SessionOwnership::reloadedOwner($this->record(StubIdentity::class, null), $none));
     }
 
     /**

@@ -58,22 +58,53 @@ final class RequirementJudge
         ProofSource $source,
         Requirement|TenantFactor $requirement,
     ): bool {
+        return self::metEvaluation($application, $identity, $session, $firstFactor, $now, $source, $requirement) !== null;
+    }
+
+    /**
+     * The evaluation of whichever route meets the requirement, the evidence's
+     * before the check's, or `null` when neither does.
+     *
+     * @param  string  $application
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  ?\SineMacula\Laravel\Authentication\Proofs\RecordedProof  $firstFactor
+     * @param  \Carbon\CarbonImmutable  $now
+     * @param  \SineMacula\Laravel\Authentication\Requirements\ProofSource  $source
+     * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement|\SineMacula\Laravel\Authentication\Tenancy\TenantFactor  $requirement
+     * @return ?\SineMacula\Laravel\Authentication\Requirements\RequirementEvaluation
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     */
+    public static function metEvaluation(
+        string $application,
+        Identity $identity,
+        ?Session $session,
+        ?RecordedProof $firstFactor,
+        CarbonImmutable $now,
+        ProofSource $source,
+        Requirement|TenantFactor $requirement,
+    ): ?RequirementEvaluation {
         [$requirement, $tenant] = $requirement instanceof TenantFactor ? [$requirement->requirement, $requirement->tenant] : [$requirement, null];
 
         if ($requirement->isEmpty()) {
-            return true;
+            return new RequirementEvaluation([]);
         }
 
         $firstFactor = self::firstFactor($session, $firstFactor, $source);
 
         if ($firstFactor === null) {
-            return false;
+            return null;
         }
 
         $connectionId = $firstFactor->channel->kind === ChannelKind::EXTERNAL_PROVIDER ? $firstFactor->channel->reference : null;
 
-        return ($connectionId !== null && self::meetsByEvidence(new EvidenceSubject($identity, $application, $connectionId, $now, $tenant), $session, $source, $requirement))
-            || self::meetsByCheck(new RequirementSubject($identity, $application, $session, $firstFactor, $now, self::reader($session, $source)), $requirement);
+        $byEvidence = $connectionId === null
+            ? null
+            : self::metByEvidence(new EvidenceSubject($identity, $application, $connectionId, $now, $tenant), $session, $source, $requirement);
+
+        return $byEvidence ?? self::metByCheck(new RequirementSubject($identity, $application, $session, $firstFactor, $now, self::reader($session, $source)), $requirement);
     }
 
     /**
@@ -95,50 +126,53 @@ final class RequirementJudge
     }
 
     /**
-     * Whether the bound `RequirementCheck` finds the requirement met for the
-     * subject.
+     * The bound `RequirementCheck`'s evaluation of the subject when it finds
+     * the requirement met, else `null`.
      *
      * @param  \SineMacula\Laravel\Authentication\Requirements\RequirementSubject  $subject
      * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $requirement
-     * @return bool
+     * @return ?\SineMacula\Laravel\Authentication\Requirements\RequirementEvaluation
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    private static function meetsByCheck(RequirementSubject $subject, Requirement $requirement): bool
+    private static function metByCheck(RequirementSubject $subject, Requirement $requirement): ?RequirementEvaluation
     {
-        $check = Container::getInstance()->make(RequirementCheck::class);
+        $check      = Container::getInstance()->make(RequirementCheck::class);
+        $evaluation = WriteConnection::during($subject->identity, static fn (): RequirementEvaluation => $check->evaluate($subject, $requirement));
 
-        return WriteConnection::during($subject->identity, static fn (): bool => $check->evaluate($subject, $requirement)->isMet());
+        return $evaluation->isMet() ? $evaluation : null;
     }
 
     /**
-     * Whether any accepted external evidence the session or sign-in holds meets
-     * the whole requirement, as the bound `ExternalEvidencePolicy` says.
+     * The bound `ExternalEvidencePolicy`'s evaluation of the first accepted
+     * evidence the session or sign-in holds that meets the whole requirement,
+     * else `null`.
      *
      * @param  \SineMacula\Laravel\Authentication\External\EvidenceSubject  $subject
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  \SineMacula\Laravel\Authentication\Requirements\ProofSource  $source
      * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $requirement
-     * @return bool
+     * @return ?\SineMacula\Laravel\Authentication\Requirements\RequirementEvaluation
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      */
-    private static function meetsByEvidence(EvidenceSubject $subject, ?Session $session, ProofSource $source, Requirement $requirement): bool
+    private static function metByEvidence(EvidenceSubject $subject, ?Session $session, ProofSource $source, Requirement $requirement): ?RequirementEvaluation
     {
         $evidence = $source->evidence;
         $held     = $evidence !== null || $session === null ? array_filter([$evidence?->externalEvidence]) : SessionProofs::acceptedEvidence($session, $source->current);
         $policy   = Container::getInstance()->make(ExternalEvidencePolicy::class);
 
         foreach ($held as $external) {
-            $judged = EvidenceAcceptance::asOf($external, $subject);
+            $judged     = EvidenceAcceptance::asOf($external, $subject);
+            $evaluation = WriteConnection::during($subject->identity, static fn (): RequirementEvaluation => $policy->meets($judged, $requirement, $subject));
 
-            if (WriteConnection::during($subject->identity, static fn (): bool => $policy->meets($judged, $requirement, $subject))) {
-                return true;
+            if ($evaluation->isMet()) {
+                return $evaluation;
             }
         }
 
-        return false;
+        return null;
     }
 
     /**

@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
@@ -67,6 +68,22 @@ final class SessionOwnership
             && $identity instanceof Model
             && $identity->getMorphClass()                         === $session->getAttribute($session->authenticatable()->getMorphType())
             && IdentifierCoercion::stringify($identity->getKey()) === $ownerKey;
+    }
+
+    /**
+     * The session's owner, reloaded through the provider, when it is that exact
+     * owner.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
+     * @param  \SineMacula\Laravel\Authentication\Contracts\IdentityProvider  $provider
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
+     */
+    public static function reloadedOwner(EloquentSession&Model $session, IdentityProvider $provider): ?Identity
+    {
+        $key      = self::ownerKey($session);
+        $identity = $key === null ? null : $provider->retrieveById($key);
+
+        return $identity instanceof Identity && self::isOwner($session, $identity) ? $identity : null;
     }
 
     /**

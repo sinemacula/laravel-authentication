@@ -201,12 +201,13 @@ Whether a session's proofs meet a further factor is `Contracts\RequirementCheck`
 time, and `proofs($since, $kinds, $limit)`, a bounded query over its counting proofs, newest first, at most
 `RequirementSubject::MAX_LIMIT`, only those made at or after `$since` when it is given, any Carbon time, the same
 instant in any time zone) and the `Requirement`, and answers a `Requirements\RequirementEvaluation` listing the kinds
-left unmet. It judges the identity-level requirement the additional-factor policy answers as well as a tenant's. The
-default, `MeetNoRequirement`, meets nothing: an identity or a tenant that requires a further factor admits no session
-until a factor package binds its check. The package never asks it with an empty requirement, nor when an external
-provider's accepted evidence already meets the whole requirement (see below). An external provider's proof reads back
-with no evaluation: its evidence was accepted for the whole application, of any age and for no tenant, so the evidence
-policy alone judges it, and a check counts no part of a requirement met by one.
+left unmet. A met answer for an age-bounded requirement reports `metUntil`, when it stops holding as its proofs age, or
+`FreshnessPolicy::metUntil()` reads it as not fresh. It judges the identity-level requirement the additional-factor
+policy answers as well as a tenant's. The default, `MeetNoRequirement`, meets nothing: an identity or a tenant that
+requires a further factor admits no session until a factor package binds its check. The package never asks it with an
+empty requirement, nor when an external provider's accepted evidence already meets the whole requirement (see below). An
+external provider's proof reads back with no evaluation: its evidence was accepted for the whole application, of any age
+and for no tenant, so the evidence policy alone judges it, and a check counts no part of a requirement met by one.
 
 Whether an external identity provider's evidence counts is `Contracts\ExternalEvidencePolicy`'s to say, in two
 questions about an `External\ExternalEvidence` (the provider's `amr` values, its `acr` value or SAML authentication
@@ -214,18 +215,20 @@ context class reference, and the time it is for), a `Requirement` and an `Extern
 application, the connection that asserted it, the time it is judged at, and the tenant whose requirement it is judged
 against: `null` for the identity-level requirement and for the evidence's acceptance). `accepts()` answers whether the
 evidence, from that connection, is credible for the requirement, of any age, to anyone it may later be judged for: the
-identity level, or any tenant that trusts the connection. `meets()` answers whether accepted evidence meets the whole
-requirement for the subject. One tenant's trust in a connection is not another's: the administrators of the tenant a
-connection belongs to control what its provider asserts, so `meets()` judging a tenant's requirement must refuse
-evidence from a connection that tenant does not trust, or an identity linked through one tenant's connection would meet
-another tenant's requirement with it. The default, `External\InsufficientEvidence`, accepts and meets nothing, so a
-provider's evidence counts for nothing until you bind a policy that trusts it:
+identity level, or any tenant that trusts the connection. `meets()` answers a `RequirementEvaluation` of whether
+accepted evidence meets the whole requirement for the subject; as with the check, a met answer for an age-bounded
+requirement reports `metUntil`, or freshness reads it as not fresh. One tenant's trust in a connection is not another's:
+the administrators of the tenant a connection belongs to control what its provider asserts, so `meets()` judging a
+tenant's requirement must refuse evidence from a connection that tenant does not trust, or an identity linked through
+one tenant's connection would meet another tenant's requirement with it. The default, `External\InsufficientEvidence`,
+accepts and meets nothing, so a provider's evidence counts for nothing until you bind a policy that trusts it:
 
 ```php
 use SineMacula\Laravel\Authentication\Contracts\ExternalEvidencePolicy;
 use SineMacula\Laravel\Authentication\External\EvidenceSubject;
 use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementEvaluation;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 
 final class TrustedProviderEvidence implements ExternalEvidencePolicy
@@ -239,10 +242,12 @@ final class TrustedProviderEvidence implements ExternalEvidencePolicy
         return $trusted && $requirement->phishingResistance === null && in_array('mfa', $evidence->methods, true);
     }
 
-    public function meets(ExternalEvidence $evidence, Requirement $requirement, EvidenceSubject $subject): bool
+    public function meets(ExternalEvidence $evidence, Requirement $requirement, EvidenceSubject $subject): RequirementEvaluation
     {
+        $unmet = new RequirementEvaluation($requirement->kinds());
+
         if ($requirement->minimumLevel !== null || $requirement->phishingResistance !== null) {
-            return false; // parts this policy cannot vouch for
+            return $unmet; // parts this policy cannot vouch for
         }
 
         $trusted = TrustedConnection::query()
@@ -255,9 +260,11 @@ final class TrustedProviderEvidence implements ExternalEvidencePolicy
             $requirement->multifactor?->maxAgeSeconds,
         ) ?? 43200;
 
-        return $trusted
-            && in_array('mfa', $evidence->methods, true)
-            && $evidence->authenticatedAt->greaterThan($subject->now->subSeconds($maxAge));
+        $metUntil = $evidence->authenticatedAt->addSeconds($maxAge);
+
+        return $trusted && in_array('mfa', $evidence->methods, true) && $metUntil->greaterThan($subject->now)
+            ? new RequirementEvaluation([], $metUntil)
+            : $unmet;
     }
 }
 

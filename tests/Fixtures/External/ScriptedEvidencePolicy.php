@@ -10,6 +10,7 @@ use SineMacula\Laravel\Authentication\Database\PinningConnectionResolver;
 use SineMacula\Laravel\Authentication\External\EvidenceSubject;
 use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementEvaluation;
 
 /**
  * External evidence policy that trusts a provider's evidence for the
@@ -29,11 +30,15 @@ final class ScriptedEvidencePolicy implements ExternalEvidencePolicy
      * Constructor.
      *
      * @param  list<\SineMacula\Laravel\Authentication\Requirements\Enums\RequirementKind>  $trusted
+     * @param  ?int  $metForSeconds
      */
     public function __construct(
 
         /** The kinds of requirement the evidence meets. */
         private readonly array $trusted = [],
+
+        /** How long after its time the evidence is reported met until, `null` for no such time. */
+        private readonly ?int $metForSeconds = null,
     ) {}
 
     /**
@@ -51,17 +56,22 @@ final class ScriptedEvidencePolicy implements ExternalEvidencePolicy
     }
 
     /**
-     * Meet the requirement when every kind of it is trusted.
+     * Meet the requirement when every kind of it is trusted, until the time
+     * scripted.
      *
      * @param  \SineMacula\Laravel\Authentication\External\ExternalEvidence  $evidence
      * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $requirement
      * @param  \SineMacula\Laravel\Authentication\External\EvidenceSubject  $subject
-     * @return bool
+     * @return \SineMacula\Laravel\Authentication\Requirements\RequirementEvaluation
      */
     #[\Override]
-    public function meets(ExternalEvidence $evidence, Requirement $requirement, EvidenceSubject $subject): bool
+    public function meets(ExternalEvidence $evidence, Requirement $requirement, EvidenceSubject $subject): RequirementEvaluation
     {
-        return $this->isTrusted($evidence, $requirement, $subject, false);
+        if (!$this->isTrusted($evidence, $requirement, $subject, false)) {
+            return new RequirementEvaluation($requirement->kinds());
+        }
+
+        return new RequirementEvaluation([], $this->metForSeconds === null ? null : $evidence->authenticatedAt->addSeconds($this->metForSeconds));
     }
 
     /**

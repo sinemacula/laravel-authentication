@@ -181,6 +181,9 @@ session holds; the token's claims and every freshness answer are worked out from
   row, never whenever a transaction happens to be open (see the freshness judgements under the lock, below). No
   judgement of the package under a lock asks `freshUntil()`: the gate takes its grant's expiry from the current proof
   and the requirement; the mode serves a caller of its own that grants on the answer.
+- `metUntil()` judges a `Requirement`, a minimum level included, through `RequirementJudge` on the stored session, and
+  answers the earlier of the operation's configured deadline and the met answer's `metUntil`, judged apart. A part with
+  no maximum age, or one over a day, throws; no reported `metUntil`, or one not after now, is `null`.
 - An identifier change proves a recent authentication with the `identifier_change` operation: a session proof must still
   be the session given (of its generation) and one of the identity's live sessions of the guard, as stored, and the
   policy must find a proof for it; inside the change's transaction both are checked again on the session's locked row,
@@ -419,8 +422,9 @@ where they describe them.
   minimum assurance level, phishing resistance, each with an optional maximum age), and whether a session meets it is
   the accepted evidence's (`Contracts\ExternalEvidencePolicy`) or its proofs' (`Contracts\RequirementCheck`) answer,
   each meeting nothing by default; the identity-level factor policy answers a `Requirement` too, judged the same way
-  (`RequirementJudge`). Freshness uses neither, and so no provider's evidence: a proof carrying accepted evidence never
-  meets a multifactor freshness requirement. The factor-change gate (`SessionService::factorChange()`) asks freshness
+  (`RequirementJudge`). `freshProof()` and `freshUntil()` use neither, and so no provider's evidence: a proof carrying
+  accepted evidence never meets a multifactor freshness requirement; `metUntil()` judges a `Requirement` through
+  `RequirementJudge`, evidence included. The factor-change gate (`SessionService::factorChange()`) asks freshness
   for `factor_change`, or `first_additional_factor` for an identity's first additional factor, excluding the factor a
   replacement or removal names, before the change, under the session's lock and on its proofs as committed; once it is
   made, a removal or replacement judges the current session again with `factorRemoved()` and an addition with

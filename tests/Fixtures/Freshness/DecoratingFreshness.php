@@ -10,6 +10,7 @@ use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Freshness\ConfiguredFreshness;
 use SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement;
 use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
 
 /**
  * Freshness policy that delegates every question to `ConfiguredFreshness` and
@@ -96,5 +97,22 @@ final class DecoratingFreshness implements FreshnessPolicy
         $this->asked[] = $current ? 'freshUntil (current)' : 'freshUntil';
 
         return $this->inner->freshUntil($session, $operation, $requirement, $excludingFactor, $current);
+    }
+
+    /**
+     * The package's answer, read as asked.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  string  $operation
+     * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $requirement
+     * @param  bool  $current
+     * @return ?\Carbon\CarbonImmutable
+     */
+    #[\Override]
+    public function metUntil(Session $session, string $operation, Requirement $requirement, bool $current = false): ?CarbonImmutable
+    {
+        $this->asked[] = $current ? 'metUntil (current)' : 'metUntil';
+
+        return $this->inner->metUntil($session, $operation, $requirement, $current);
     }
 }

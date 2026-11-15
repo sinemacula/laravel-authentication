@@ -14,6 +14,7 @@ use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
 use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
 
 /**
  * Freshness policy that answers a scripted requirement and proof, whatever the
@@ -26,7 +27,7 @@ use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
  */
 final class ScriptedFreshness implements FreshnessPolicy
 {
-    /** @var list<string> What the policy was asked, in order: `requirement:<application>:<operation>`, `freshProof:<operation>[:<excluded factor>]` or `freshUntil:<operation>`, each followed by ` (current)` when asked current. */
+    /** @var list<string> What the policy was asked, in order: `requirement:<application>:<operation>`, `freshProof:<operation>[:<excluded factor>]`, `freshUntil:<operation>` or `metUntil:<operation>`, each followed by ` (current)` when asked current. */
     public array $asked = [];
 
     /**
@@ -133,6 +134,24 @@ final class ScriptedFreshness implements FreshnessPolicy
         bool $current = false,
     ): ?CarbonImmutable {
         $this->asked[] = $current ? "freshUntil:{$operation} (current)" : "freshUntil:{$operation}";
+
+        return ($current ? $this->freshWhenCurrent ?? $this->fresh : $this->fresh) ? CarbonImmutable::now()->startOfSecond()->addMinute() : null;
+    }
+
+    /**
+     * A minute from now, or never, whatever the session and requirement, as
+     * scripted for the read asked.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  string  $operation
+     * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $requirement
+     * @param  bool  $current
+     * @return ?\Carbon\CarbonImmutable
+     */
+    #[\Override]
+    public function metUntil(Session $session, string $operation, Requirement $requirement, bool $current = false): ?CarbonImmutable
+    {
+        $this->asked[] = $current ? "metUntil:{$operation} (current)" : "metUntil:{$operation}";
 
         return ($current ? $this->freshWhenCurrent ?? $this->fresh : $this->fresh) ? CarbonImmutable::now()->startOfSecond()->addMinute() : null;
     }

@@ -7,6 +7,7 @@ namespace SineMacula\Laravel\Authentication\Contracts;
 use Carbon\CarbonImmutable;
 use SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement;
 use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
 
 /**
  * Decides whether a session's authentication is fresh enough for an operation,
@@ -72,4 +73,20 @@ interface FreshnessPolicy
         ?string $excludingFactor = null,
         bool $current = false,
     ): ?CarbonImmutable;
+
+    /**
+     * Until when the session stays both fresh for the operation and meeting the
+     * requirement, each part of which gives a maximum age of at most a day, or
+     * `null` when it is not both now.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  string  $operation
+     * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $requirement
+     * @param  bool  $current
+     * @return ?\Carbon\CarbonImmutable
+     *
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     */
+    public function metUntil(Session $session, string $operation, Requirement $requirement, bool $current = false): ?CarbonImmutable;
 }

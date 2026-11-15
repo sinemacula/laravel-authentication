@@ -31,6 +31,7 @@ use SineMacula\Laravel\Authentication\Requirements\Enums\RequirementKind;
 use SineMacula\Laravel\Authentication\Requirements\MeetNoRequirement;
 use SineMacula\Laravel\Authentication\Requirements\ProofSource;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementEvaluation;
 use SineMacula\Laravel\Authentication\Requirements\RequirementJudge;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Requirements\RequirementSubject;
@@ -42,6 +43,7 @@ use Tests\Concerns\InteractsWithSessions;
 use Tests\Concerns\MarksSharedLocks;
 use Tests\Fixtures\External\MethodTrustingEvidencePolicy;
 use Tests\Fixtures\External\ScriptedEvidencePolicy;
+use Tests\Fixtures\Freshness\AgeingRequirementCheck;
 use Tests\Fixtures\Proofs\UndescribedSignInProof;
 use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\TestCase;
@@ -638,6 +640,39 @@ final class RequirementJudgeTest extends TestCase
         $constructor->invoke($instance);
 
         self::assertInstanceOf(RequirementJudge::class, $instance);
+    }
+
+    /**
+     * The evaluation of whichever route meets the requirement is answered with
+     * the time it is met until, and none when neither meets it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheMeetingRoutesEvaluationIsAnswered(): void
+    {
+        [$member] = $this->seedMember();
+
+        $now         = CarbonImmutable::now()->startOfSecond();
+        $session     = $this->signedIn();
+        $requirement = new Requirement(multifactor: new RequirementPart(600));
+
+        app()->instance(RequirementCheck::class, new AgeingRequirementCheck);
+
+        self::assertEquals(new RequirementEvaluation([]), RequirementJudge::metEvaluation('members', $member, $session, null, $now, new ProofSource, new Requirement));
+        self::assertNull(RequirementJudge::metEvaluation('members', $member, $session, null, $now, new ProofSource, $requirement));
+
+        self::recordProof($session, ProofKind::ADDITIONAL_FACTOR, $now->subMinute(), ['otp'], new Evaluation(true, true));
+
+        self::assertEquals($now->addSeconds(540), RequirementJudge::metEvaluation('members', $member, $session, null, $now, new ProofSource, $requirement)?->metUntil);
+
+        app()->instance(ExternalEvidencePolicy::class, new ScriptedEvidencePolicy([RequirementKind::MULTIFACTOR], 300));
+
+        $accepted = new ExternalEvidence(['mfa'], null, $now->subMinutes(2));
+        $evidence = SessionEvidence::of(SignInProof::external('sso', new Provenance('conn-a', evidence: $accepted), $now, new Evaluation(true, true)));
+
+        self::assertEquals($now->addMinutes(3), RequirementJudge::metEvaluation('members', $member, null, null, $now, new ProofSource($evidence), $requirement)?->metUntil);
     }
 
     /**

@@ -19,7 +19,9 @@ use SineMacula\Laravel\Authentication\Requirements\RequirementSubject;
 interface RequirementCheck
 {
     /**
-     * Judge the subject's proofs against the requirement.
+     * Judge the subject's proofs against the requirement; a met answer for an
+     * age-bounded requirement reports its `metUntil`, or freshness reads it as
+     * not fresh.
      *
      * @param  \SineMacula\Laravel\Authentication\Requirements\RequirementSubject  $subject
      * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $requirement

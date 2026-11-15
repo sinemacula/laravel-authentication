@@ -7,6 +7,7 @@ namespace SineMacula\Laravel\Authentication\Contracts;
 use SineMacula\Laravel\Authentication\External\EvidenceSubject;
 use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementEvaluation;
 
 /**
  * Decides whether an external identity provider's evidence is accepted, and
@@ -32,12 +33,13 @@ interface ExternalEvidencePolicy
 
     /**
      * Whether the provider's accepted evidence, with its time, meets the whole
-     * requirement for the subject.
+     * requirement for the subject; a met answer for an age-bounded requirement
+     * reports its `metUntil`, or freshness reads it as not fresh.
      *
      * @param  \SineMacula\Laravel\Authentication\External\ExternalEvidence  $evidence
      * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $requirement
      * @param  \SineMacula\Laravel\Authentication\External\EvidenceSubject  $subject
-     * @return bool
+     * @return \SineMacula\Laravel\Authentication\Requirements\RequirementEvaluation
      */
-    public function meets(ExternalEvidence $evidence, Requirement $requirement, EvidenceSubject $subject): bool;
+    public function meets(ExternalEvidence $evidence, Requirement $requirement, EvidenceSubject $subject): RequirementEvaluation;
 }

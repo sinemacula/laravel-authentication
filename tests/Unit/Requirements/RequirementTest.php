@@ -10,12 +10,11 @@ use SineMacula\Laravel\Authentication\Requirements\Enums\AssuranceLevel;
 use SineMacula\Laravel\Authentication\Requirements\Enums\RequirementKind;
 use SineMacula\Laravel\Authentication\Requirements\LevelRequirement;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
-use SineMacula\Laravel\Authentication\Requirements\RequirementEvaluation;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 
 /**
- * Unit tests for the requirement value: the kinds it lists, the strictest of
- * several requirements, and an evaluation of one.
+ * Unit tests for the requirement value: the kinds it lists and the strictest of
+ * several requirements.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -23,7 +22,6 @@ use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
  * @internal
  */
 #[CoversClass(Requirement::class)]
-#[CoversClass(RequirementEvaluation::class)]
 final class RequirementTest extends TestCase
 {
     /**
@@ -95,16 +93,5 @@ final class RequirementTest extends TestCase
 
         self::assertSame(AssuranceLevel::AAL2, $higherSecond->minimumLevel?->level);
         self::assertSame(30, $higherSecond->minimumLevel->maxAgeSeconds);
-    }
-
-    /**
-     * An evaluation is met only when it leaves no kind unmet.
-     *
-     * @return void
-     */
-    public function testAnEvaluationIsMetWithNothingUnmet(): void
-    {
-        self::assertTrue((new RequirementEvaluation([]))->isMet());
-        self::assertFalse((new RequirementEvaluation([RequirementKind::MULTIFACTOR]))->isMet());
     }
 }
