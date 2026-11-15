@@ -931,6 +931,31 @@ final class ConfiguredFreshnessTest extends TestCase
     }
 
     /**
+     * A session whose owner type its guard's provider does not load never meets
+     * a requirement, though an identity under the same key is loaded.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASessionOwnedByATypeItsProviderDoesNotLoadIsNeverMet(): void
+    {
+        $record = $this->signedIn();
+
+        app()->instance(RequirementCheck::class, new AgeingRequirementCheck);
+
+        self::recordProof($record, ProofKind::ADDITIONAL_FACTOR, $this->now, ['otp'], new Evaluation(true, true));
+
+        self::assertNotNull(self::metUntil($record, 'mfa.add_factor', self::level(600)));
+
+        DB::table('authentication_sessions')->where('id', $record->getKey())->update(['authenticatable_type' => MachineClient::class]);
+        DB::table('authentication_proofs')->where('session_id', $record->getKey())->update(['authenticatable_type' => MachineClient::class]);
+        $record->setAttribute('authenticatable_type', MachineClient::class);
+
+        self::assertNull(self::metUntil($record, 'mfa.add_factor', self::level(600)));
+    }
+
+    /**
      * A session whose guard is no longer one of the package's never meets a
      * requirement, its owner having no provider to be reloaded through.
      *

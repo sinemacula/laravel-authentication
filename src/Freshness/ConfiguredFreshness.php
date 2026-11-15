@@ -215,7 +215,8 @@ final readonly class ConfiguredFreshness implements FreshnessPolicy
             $deadlines[] = $owner === null ? null : RequirementJudge::metEvaluation($guard, $owner, $session, null, $now, $source, $requirement)?->metUntil;
         }
 
-        return $deadlines === [] || in_array(null, $deadlines, true) ? null : min($deadlines);
+        /** @var non-empty-list<?\Carbon\CarbonImmutable> $deadlines */
+        return in_array(null, $deadlines, true) ? null : min($deadlines);
     }
 
     /**
