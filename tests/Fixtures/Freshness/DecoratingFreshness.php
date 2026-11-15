@@ -59,21 +59,15 @@ final class DecoratingFreshness implements FreshnessPolicy
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  string  $operation
      * @param  ?\SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement  $requirement
-     * @param  ?string  $excludingFactor
      * @param  bool  $current
      * @return ?\SineMacula\Laravel\Authentication\Proofs\RecordedProof
      */
     #[\Override]
-    public function freshProof(
-        Session $session,
-        string $operation,
-        ?FreshnessRequirement $requirement = null,
-        ?string $excludingFactor = null,
-        bool $current = false,
-    ): ?RecordedProof {
+    public function freshProof(Session $session, string $operation, ?FreshnessRequirement $requirement = null, bool $current = false): ?RecordedProof
+    {
         $this->asked[] = $current ? 'freshProof (current)' : 'freshProof';
 
-        return $this->inner->freshProof($session, $operation, $requirement, $excludingFactor, $current);
+        return $this->inner->freshProof($session, $operation, $requirement, $current);
     }
 
     /**
@@ -82,21 +76,15 @@ final class DecoratingFreshness implements FreshnessPolicy
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  string  $operation
      * @param  ?\SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement  $requirement
-     * @param  ?string  $excludingFactor
      * @param  bool  $current
      * @return ?\Carbon\CarbonImmutable
      */
     #[\Override]
-    public function freshUntil(
-        Session $session,
-        string $operation,
-        ?FreshnessRequirement $requirement = null,
-        ?string $excludingFactor = null,
-        bool $current = false,
-    ): ?CarbonImmutable {
+    public function freshUntil(Session $session, string $operation, ?FreshnessRequirement $requirement = null, bool $current = false): ?CarbonImmutable
+    {
         $this->asked[] = $current ? 'freshUntil (current)' : 'freshUntil';
 
-        return $this->inner->freshUntil($session, $operation, $requirement, $excludingFactor, $current);
+        return $this->inner->freshUntil($session, $operation, $requirement, $current);
     }
 
     /**
@@ -106,13 +94,14 @@ final class DecoratingFreshness implements FreshnessPolicy
      * @param  string  $operation
      * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $requirement
      * @param  bool  $current
+     * @param  ?string  $excludingFactor
      * @return ?\Carbon\CarbonImmutable
      */
     #[\Override]
-    public function metUntil(Session $session, string $operation, Requirement $requirement, bool $current = false): ?CarbonImmutable
+    public function metUntil(Session $session, string $operation, Requirement $requirement, bool $current = false, ?string $excludingFactor = null): ?CarbonImmutable
     {
         $this->asked[] = $current ? 'metUntil (current)' : 'metUntil';
 
-        return $this->inner->metUntil($session, $operation, $requirement, $current);
+        return $this->inner->metUntil($session, $operation, $requirement, $current, $excludingFactor);
     }
 }

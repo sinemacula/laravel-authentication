@@ -238,7 +238,7 @@ final class ProofQueryBudgetTest extends PerformanceContractTestCase
         );
 
         self::assertNotNull($this->assertQueryBudget(2, 0, static fn (): ?RecordedProof => $policy->freshProof($record, Operations::IDENTIFIER_CHANGE)));
-        self::assertNotNull($this->assertQueryBudget(2, 0, static fn (): ?CarbonImmutable => $policy->freshUntil($record, Operations::IDENTIFIER_CHANGE, null, 'factor-a')));
+        self::assertNotNull($this->assertQueryBudget(2, 0, static fn (): ?CarbonImmutable => $policy->freshUntil($record, Operations::IDENTIFIER_CHANGE)));
         self::assertNotNull($this->assertQueryBudget(2, 0, static fn (): ?RecordedProof => $current($record, Operations::IDENTIFIER_CHANGE)));
         self::assertNotNull($this->assertQueryBudget(2, 0, static fn (): ?CarbonImmutable => DB::transaction(
             static fn (): ?CarbonImmutable => $policy->freshUntil($record, Operations::IDENTIFIER_CHANGE, current: true),

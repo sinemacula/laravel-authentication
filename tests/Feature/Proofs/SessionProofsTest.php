@@ -233,8 +233,8 @@ final class SessionProofsTest extends TestCase
     }
 
     /**
-     * With a factor excluded, the newest proof meeting a requirement is never
-     * one made with that exact factor.
+     * With a factor excluded, neither the newest proof meeting a requirement
+     * nor a page of proofs holds one made with that exact factor.
      *
      * @return void
      *
@@ -265,6 +265,8 @@ final class SessionProofsTest extends TestCase
         self::assertSame('factor-a', SessionProofs::newestMeeting($record, $requirement, $later, 'factor-b')?->factor);
         self::assertSame('factor-b', SessionProofs::newestMeeting($record, $requirement, $later, 'FACTOR-A')?->factor);
         self::assertSame('factor-b', SessionProofs::newestMeeting($record, $requirement, $later, 'factor-a')?->factor);
+        self::assertSame(['factor-a'], array_column(SessionProofs::query($record, null, null, 1, 'factor-b'), 'factor'));
+        self::assertSame(['factor-a', null], array_column(SessionProofs::query($record, null, null, 5, 'factor-b'), 'factor'));
 
         DB::table('authentication_proofs')->where('factor_reference', 'factor-a')->delete();
 
@@ -422,7 +424,7 @@ final class SessionProofsTest extends TestCase
         $now         = $this->now;
 
         $reads = [
-            'page'              => static fn (bool ...$current): array => SessionProofs::query($session, null, $kinds, 5, ...$current),
+            'page'              => static fn (bool ...$current): array => SessionProofs::query($session, null, $kinds, 5, null, ...$current),
             'newest meeting'    => static fn (bool ...$current): ?RecordedProof => SessionProofs::newestMeeting($session, $requirement, $now, null, ...$current),
             'first factor'      => static fn (bool ...$current): ?RecordedProof => SessionProofs::firstFactor($session, ...$current),
             'accepted evidence' => static fn (bool ...$current): array => SessionProofs::acceptedEvidence($session, ...$current),
@@ -471,8 +473,8 @@ final class SessionProofsTest extends TestCase
         $stepUp = new FreshnessRequirement(900, [ProofKind::ADDITIONAL_FACTOR]);
         $held   = SessionProofs::query($record, null, [ProofKind::ADDITIONAL_FACTOR], 1)[0];
         $read   = static fn (bool $current): array => [
-            SessionProofs::query($record, null, null, 5, $current),
-            SessionProofs::query($record, $since, [ProofKind::ADDITIONAL_FACTOR], 5, $current),
+            SessionProofs::query($record, null, null, 5, current: $current),
+            SessionProofs::query($record, $since, [ProofKind::ADDITIONAL_FACTOR], 5, current: $current),
             SessionProofs::firstFactor($record, $current),
             SessionProofs::acceptedEvidence($record, $current),
             SessionProofs::connectionId($record, $current),

@@ -185,7 +185,7 @@ final class ConcurrentFactorChangeTest extends TestCase
 
                 DB::commit();
 
-                return ['failure' => $failure, 'reason' => $verdict->reason?->value, 'proof' => $verdict->proof?->id];
+                return ['failure' => $failure, 'reason' => $verdict->reason?->value, 'until' => $verdict->freshUntil];
             },
             static function () use ($level): void {
                 self::beginTransactionAt($level);
@@ -195,7 +195,7 @@ final class ConcurrentFactorChangeTest extends TestCase
         );
 
         self::assertSame([0, false, false], $removal);
-        self::assertSame([$snapshot ? '40001' : null, FailureReason::STEP_UP_REQUIRED->value, null], [$second['failure'], $second['reason'], $second['proof']]);
+        self::assertSame([$snapshot ? '40001' : null, FailureReason::STEP_UP_REQUIRED->value, null], [$second['failure'], $second['reason'], $second['until']]);
         self::assertGreaterThanOrEqual(self::LEAST_WAIT_SECONDS, $second['waited']);
         self::assertSame(1, DB::table('authentication_proofs')->whereNotNull('voided_at')->count());
     }

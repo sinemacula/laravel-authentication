@@ -7,7 +7,7 @@ namespace SineMacula\Laravel\Authentication\Sessions\Concerns;
 use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Factors\Enums\FactorChange;
 use SineMacula\Laravel\Authentication\Factors\FactorChangeVerdict;
-use SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Sessions\FactorChangeGate;
 
 /**
@@ -32,14 +32,14 @@ trait GatesFactorChanges
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  \SineMacula\Laravel\Authentication\Factors\Enums\FactorChange  $change
-     * @param  ?\SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement  $requirement
+     * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $requirement
      * @param  ?string  $factor
      * @return \SineMacula\Laravel\Authentication\Factors\FactorChangeVerdict
      *
      * @throws \InvalidArgumentException
      * @throws \Throwable
      */
-    public function factorChange(Session $session, FactorChange $change, ?FreshnessRequirement $requirement = null, ?string $factor = null): FactorChangeVerdict
+    public function factorChange(Session $session, FactorChange $change, Requirement $requirement = new Requirement, ?string $factor = null): FactorChangeVerdict
     {
         return $this->factorChanges->verdict($session, $change, $requirement, $factor);
     }

@@ -183,7 +183,6 @@ final class SeparateConnectionFreshnessTest extends TestCase
 
         foreach ([$outside, $inside] as $verdict) {
             self::assertTrue($verdict->isAllowed());
-            self::assertSame(ProofKind::ADDITIONAL_FACTOR, $verdict->proof?->kind);
             self::assertSame($this->now->subMinute()->addSeconds(900)->getTimestamp(), $verdict->freshUntil?->getTimestamp());
         }
     }

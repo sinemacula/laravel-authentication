@@ -6,11 +6,9 @@ namespace SineMacula\Laravel\Authentication\Factors;
 
 use Carbon\CarbonImmutable;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
-use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
 
 /**
- * The factor-change gate's answer: allowed, with the fresh proof that allows
- * it, or refused, with why.
+ * The factor-change gate's answer: allowed, until when, or refused, with why.
  *
  * @api
  *
@@ -22,14 +20,10 @@ final readonly class FactorChangeVerdict
     /**
      * Constructor.
      *
-     * @param  ?\SineMacula\Laravel\Authentication\Proofs\RecordedProof  $proof
      * @param  ?\Carbon\CarbonImmutable  $freshUntil
      * @param  ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
      */
     private function __construct(
-
-        /** The fresh proof that allows the change, when it is allowed. */
-        public ?RecordedProof $proof,
 
         /** The second the session stops being fresh for the change, when it is allowed. */
         public ?CarbonImmutable $freshUntil,
@@ -41,13 +35,12 @@ final readonly class FactorChangeVerdict
     /**
      * An allowed change.
      *
-     * @param  \SineMacula\Laravel\Authentication\Proofs\RecordedProof  $proof
      * @param  \Carbon\CarbonImmutable  $freshUntil
      * @return self
      */
-    public static function allowed(RecordedProof $proof, CarbonImmutable $freshUntil): self
+    public static function allowed(CarbonImmutable $freshUntil): self
     {
-        return new self($proof, $freshUntil, null);
+        return new self($freshUntil, null);
     }
 
     /**
@@ -58,7 +51,7 @@ final readonly class FactorChangeVerdict
      */
     public static function refused(FailureReason $reason): self
     {
-        return new self(null, null, $reason);
+        return new self(null, $reason);
     }
 
     /**

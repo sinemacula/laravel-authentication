@@ -54,7 +54,7 @@ final class ActiveSessionProofs
 
         $active = self::active($guard, $session);
 
-        return $active === null ? [] : SessionProofs::query($active[0], $since, $kinds, $limit, $active[1]);
+        return $active === null ? [] : SessionProofs::query($active[0], $since, $kinds, $limit, current: $active[1]);
     }
 
     /**

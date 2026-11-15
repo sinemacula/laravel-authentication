@@ -81,7 +81,6 @@ final readonly class ConfiguredFreshness implements FreshnessPolicy
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  string  $operation
      * @param  ?\SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement  $requirement
-     * @param  ?string  $excludingFactor
      * @param  bool  $current
      * @return ?\SineMacula\Laravel\Authentication\Proofs\RecordedProof
      *
@@ -90,18 +89,13 @@ final readonly class ConfiguredFreshness implements FreshnessPolicy
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
     #[\Override]
-    public function freshProof(
-        Session $session,
-        string $operation,
-        ?FreshnessRequirement $requirement = null,
-        ?string $excludingFactor = null,
-        bool $current = false,
-    ): ?RecordedProof {
+    public function freshProof(Session $session, string $operation, ?FreshnessRequirement $requirement = null, bool $current = false): ?RecordedProof
+    {
         if ($current) {
             self::refuseOutsideTransaction();
         }
 
-        return $this->fresh($session, $operation, $requirement, $excludingFactor, $current)[0] ?? null;
+        return $this->fresh($session, $operation, $requirement, $current)[0] ?? null;
     }
 
     /**
@@ -111,7 +105,6 @@ final readonly class ConfiguredFreshness implements FreshnessPolicy
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  string  $operation
      * @param  ?\SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement  $requirement
-     * @param  ?string  $excludingFactor
      * @param  bool  $current
      * @return ?\Carbon\CarbonImmutable
      *
@@ -120,18 +113,13 @@ final readonly class ConfiguredFreshness implements FreshnessPolicy
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
     #[\Override]
-    public function freshUntil(
-        Session $session,
-        string $operation,
-        ?FreshnessRequirement $requirement = null,
-        ?string $excludingFactor = null,
-        bool $current = false,
-    ): ?CarbonImmutable {
+    public function freshUntil(Session $session, string $operation, ?FreshnessRequirement $requirement = null, bool $current = false): ?CarbonImmutable
+    {
         if ($current) {
             self::refuseOutsideTransaction();
         }
 
-        $fresh = $this->fresh($session, $operation, $requirement, $excludingFactor, $current);
+        $fresh = $this->fresh($session, $operation, $requirement, $current);
 
         return $fresh === null ? null : $fresh[0]->authenticatedAt->addSeconds($fresh[1]->maxAgeSeconds);
     }
@@ -144,6 +132,7 @@ final readonly class ConfiguredFreshness implements FreshnessPolicy
      * @param  string  $operation
      * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $requirement
      * @param  bool  $current
+     * @param  ?string  $excludingFactor
      * @return ?\Carbon\CarbonImmutable
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -152,7 +141,7 @@ final readonly class ConfiguredFreshness implements FreshnessPolicy
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
     #[\Override]
-    public function metUntil(Session $session, string $operation, Requirement $requirement, bool $current = false): ?CarbonImmutable
+    public function metUntil(Session $session, string $operation, Requirement $requirement, bool $current = false, ?string $excludingFactor = null): ?CarbonImmutable
     {
         self::assertAgeBounded($requirement);
 
@@ -174,7 +163,7 @@ final readonly class ConfiguredFreshness implements FreshnessPolicy
         }
 
         [$row, $now] = $stored;
-        $until       = $this->earliestDeadline($row, $guard, $configured, $requirement, $now, $current);
+        $until       = $this->earliestDeadline($row, $guard, $configured, $requirement, $now, new ProofSource(current: $current, excludingFactor: $excludingFactor));
 
         return $until?->greaterThan($now) === true ? $until : null;
     }
@@ -188,7 +177,7 @@ final readonly class ConfiguredFreshness implements FreshnessPolicy
      * @param  ?\SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement  $configured
      * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $requirement
      * @param  \Carbon\CarbonImmutable  $now
-     * @param  bool  $current
+     * @param  \SineMacula\Laravel\Authentication\Requirements\ProofSource  $source
      * @return ?\Carbon\CarbonImmutable
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -200,18 +189,18 @@ final readonly class ConfiguredFreshness implements FreshnessPolicy
         ?FreshnessRequirement $configured,
         Requirement $requirement,
         CarbonImmutable $now,
-        bool $current,
+        ProofSource $source,
     ): ?CarbonImmutable {
         $deadlines = [];
 
         if ($configured !== null) {
-            $deadlines[] = SessionProofs::newestMeeting($session, $configured, $now, null, $current)?->authenticatedAt->addSeconds($configured->maxAgeSeconds);
+            $proof       = SessionProofs::newestMeeting($session, $configured, $now, $source->excludingFactor, $source->current);
+            $deadlines[] = $proof?->authenticatedAt->addSeconds($configured->maxAgeSeconds);
         }
 
         if (!$requirement->isEmpty()) {
             $resolved    = $this->auth->guard($guard);
             $owner       = $resolved instanceof HasGuardContext ? SessionOwnership::reloadedOwner($session, $resolved->context()->provider()) : null;
-            $source      = new ProofSource(current: $current);
             $deadlines[] = $owner === null ? null : RequirementJudge::metEvaluation($guard, $owner, $session, null, $now, $source, $requirement)?->metUntil;
         }
 
@@ -226,7 +215,6 @@ final readonly class ConfiguredFreshness implements FreshnessPolicy
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  string  $operation
      * @param  ?\SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement  $requirement
-     * @param  ?string  $excludingFactor
      * @param  bool  $current
      * @return ?array{0: \SineMacula\Laravel\Authentication\Proofs\RecordedProof, 1: \SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement}
      *
@@ -234,7 +222,7 @@ final readonly class ConfiguredFreshness implements FreshnessPolicy
      * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
-    private function fresh(Session $session, string $operation, ?FreshnessRequirement $requirement, ?string $excludingFactor, bool $current): ?array
+    private function fresh(Session $session, string $operation, ?FreshnessRequirement $requirement, bool $current): ?array
     {
         $guard     = WriteConnection::during($session, static fn (): ?string => $session->getGuard());
         $effective = $guard === null ? null : $this->requirement($guard, $operation, $requirement);
@@ -244,7 +232,7 @@ final readonly class ConfiguredFreshness implements FreshnessPolicy
             return null;
         }
 
-        $proof = SessionProofs::newestMeeting($stored[0], $effective, $stored[1], $excludingFactor, $current);
+        $proof = SessionProofs::newestMeeting($stored[0], $effective, $stored[1], current: $current);
 
         return $proof === null ? null : [$proof, $effective];
     }
