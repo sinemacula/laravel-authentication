@@ -29,7 +29,7 @@ payloads. MFA, authorisation, SSO and audit packages plug into its extension poi
 | Concept         | What it is                                                                                                                    |
 |-----------------|-------------------------------------------------------------------------------------------------------------------------------|
 | **Identity**    | Who logged in. The account behind the request - a person or a service account.                                                |
-| **Principal**   | Who the request is acting as. Often the same as the identity; can be a role or membership.                                    |
+| **Principal**   | Who the request is acting as. Often the same as the identity; else a membership of a tenant, or a platform principal.         |
 | **Session**     | One sign-in, on one application, on one device: a browser, a mobile app, a CLI. Refresh and revocation live here.             |
 | **Tenant**      | The isolation boundary a principal belongs to; a session acts in one, its active tenant (`Auth::tenant()`). Optional.         |
 | **Application** | The app being signed into, e.g. `admin`, `console`, `mobile`. Each application is a guard with its own methods and lifetimes. |

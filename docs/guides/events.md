@@ -87,14 +87,18 @@ final class AuthenticationAuditMapper implements EventMapper
             return null;
         }
 
-        $context = $event->context();
+        $context   = $event->context();
+        $reference = static fn (?string $type, ?string $id): ?Reference => $type === null || $id === null ? null : Reference::of($type, $id);
 
         $record->event($code)
-            ->by(Reference::of($context->identityType, $context->identityId))
-            ->asPrincipal(Reference::of($context->principalType, $context->principalId))
-            ->forTenant(Reference::of($context->tenantType, $context->tenantId))
-            ->usingCredential($context->credentialId)
+            ->by($reference($context->identityType, $context->identityId))
+            ->asPrincipal($reference($context->principalType, $context->principalId))
+            ->forTenant($reference($context->tenantType, $context->tenantId))
             ->withProperties(['guard' => $context->guard, 'session' => $context->sessionId, 'method' => $context->method]);
+
+        if ($context->credentialId !== null) {
+            $record->usingCredential($context->credentialId);
+        }
 
         return $event instanceof AuthenticationFailed ? $record->failed($event->reason->value) : $record;
     }
