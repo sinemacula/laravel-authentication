@@ -91,7 +91,7 @@ final readonly class RefreshAdmission
      */
     public function admitPrincipal(EloquentSession&Model $session, mixed $principalHint): Admitted|Refused
     {
-        $identity = $this->owner($session);
+        $identity = SessionOwnership::reloadedOwner($session, $this->provider);
 
         if ($identity === null) {
             return new Refused(FailureReason::IDENTITY_UNKNOWN);
@@ -183,21 +183,6 @@ final readonly class RefreshAdmission
         return $tenant instanceof FailureReason
             ? Refused::after($tenant, $admitted)
             : new Admitted($admitted->identity, $admitted->principal, $tenant, $session);
-    }
-
-    /**
-     * Reload the session's owner through the guard's identity provider and
-     * confirm it is that exact owner.
-     *
-     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
-     * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
-     */
-    private function owner(EloquentSession&Model $session): ?Identity
-    {
-        $ownerKey = SessionOwnership::ownerKey($session);
-        $identity = $ownerKey === null ? null : $this->provider->retrieveById($ownerKey);
-
-        return $identity instanceof Identity && SessionOwnership::isOwner($session, $identity) ? $identity : null;
     }
 
     /**

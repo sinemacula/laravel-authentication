@@ -71,7 +71,7 @@ final readonly class PendingLookup
     public function find(#[\SensitiveParameter] Secret|string $credential, CarbonImmutable $now, bool $lock): ?array
     {
         $session  = $this->session($credential, $now, $lock);
-        $identity = $session === null ? null : $this->owner($session);
+        $identity = $session === null ? null : SessionOwnership::reloadedOwner($session, $this->context->provider());
 
         if ($session === null || $identity === null) {
             return null;
@@ -137,21 +137,6 @@ final readonly class PendingLookup
 
             return $waiting && $session->getRevokedAt() === null && !SessionDeadlines::hasEnded($session, $now);
         });
-    }
-
-    /**
-     * The session's owner, reloaded through the guard's provider, when it
-     * returns that very owner, active or not.
-     *
-     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
-     * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
-     */
-    private function owner(EloquentSession&Model $session): ?Identity
-    {
-        $key      = SessionOwnership::ownerKey($session);
-        $identity = $key === null ? null : $this->context->provider()->retrieveById($key);
-
-        return $identity instanceof Identity && SessionOwnership::isOwner($session, $identity) ? $identity : null;
     }
 
     /**

@@ -99,7 +99,8 @@ final class RequirementJudge
         }
 
         $connectionId = $firstFactor->channel->kind === ChannelKind::EXTERNAL_PROVIDER ? $firstFactor->channel->reference : null;
-        $byEvidence   = $connectionId               === null
+
+        $byEvidence = $connectionId === null
             ? null
             : self::metByEvidence(new EvidenceSubject($identity, $application, $connectionId, $now, $tenant), $session, $source, $requirement);
 

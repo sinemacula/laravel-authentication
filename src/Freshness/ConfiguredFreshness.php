@@ -11,7 +11,6 @@ use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\FreshnessPolicy;
 use SineMacula\Laravel\Authentication\Contracts\HasGuardContext;
-use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Database\StorageConnection;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
@@ -210,7 +209,8 @@ final readonly class ConfiguredFreshness implements FreshnessPolicy
         }
 
         if (!$requirement->isEmpty()) {
-            $owner       = $this->owner($session, $guard);
+            $resolved    = $this->auth->guard($guard);
+            $owner       = $resolved instanceof HasGuardContext ? SessionOwnership::reloadedOwner($session, $resolved->context()->provider()) : null;
             $source      = new ProofSource(current: $current);
             $deadlines[] = $owner === null ? null : RequirementJudge::metEvaluation($guard, $owner, $session, null, $now, $source, $requirement)?->metUntil;
         }
@@ -273,23 +273,6 @@ final readonly class ConfiguredFreshness implements FreshnessPolicy
         $now    = CarbonImmutable::now()->startOfSecond();
 
         return SessionOwnership::isSameSession($session, $stored) && OwnedSession::refusal($stored, $guard, $now) === null ? [$stored, $now] : null;
-    }
-
-    /**
-     * The session's owner, reloaded through its guard's identity provider, when
-     * it is that very owner.
-     *
-     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
-     * @param  string  $guard
-     * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
-     */
-    private function owner(EloquentSession&Model $session, string $guard): ?Identity
-    {
-        $resolved = $this->auth->guard($guard);
-        $key      = SessionOwnership::ownerKey($session);
-        $identity = $key === null || !$resolved instanceof HasGuardContext ? null : $resolved->context()->provider()->retrieveById($key);
-
-        return $identity instanceof Identity && SessionOwnership::isOwner($session, $identity) ? $identity : null;
     }
 
     /**

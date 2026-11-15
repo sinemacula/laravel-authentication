@@ -181,13 +181,9 @@ session holds; the token's claims and every freshness answer are worked out from
   row, never whenever a transaction happens to be open (see the freshness judgements under the lock, below). No
   judgement of the package under a lock asks `freshUntil()`: the gate takes its grant's expiry from the current proof
   and the requirement; the mode serves a caller of its own that grants on the answer.
-- `metUntil($session, $operation, $requirement, $current)` judges a `Requirement` (a minimum level included) within an
-  age: each part gives a maximum age of at most a day, or it throws. The default reads the session as `freshUntil()`
-  does, reloads its owner through the guard's provider, and asks `RequirementJudge::metEvaluation()` (the evidence route
-  first, then the check, as `isMet()` does) on the stored session's own first factor and proofs, at the same judgement
-  time. It answers the earlier of the operation's configured deadline, when it has one, and the met answer's `metUntil`,
-  judged apart, so different proofs may meet them; `null` when either is unmet, the met answer reports no `metUntil`, or
-  the deadline is not after now. `metUntil` holds only while the proofs and the policy stay unchanged.
+- `metUntil()` judges a `Requirement`, a minimum level included, through `RequirementJudge` on the stored session, and
+  answers the earlier of the operation's configured deadline and the met answer's `metUntil`, judged apart. A part with
+  no maximum age, or one over a day, throws; no reported `metUntil`, or one not after now, is `null`.
 - An identifier change proves a recent authentication with the `identifier_change` operation: a session proof must still
   be the session given (of its generation) and one of the identity's live sessions of the guard, as stored, and the
   policy must find a proof for it; inside the change's transaction both are checked again on the session's locked row,
