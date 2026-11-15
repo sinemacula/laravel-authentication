@@ -87,7 +87,7 @@ final readonly class FactorChangeGate
             return FactorChangeVerdict::refused($locked);
         }
 
-        $until = $this->container->make(FreshnessPolicy::class)->metUntil($locked, $change->operation(), $requirement, $factor, current: true);
+        $until = $this->container->make(FreshnessPolicy::class)->metUntil($locked, $change->operation(), $requirement, current: true, excludingFactor: $factor);
 
         return $until === null
             ? FactorChangeVerdict::refused($change === FactorChange::ADD_FIRST ? FailureReason::REAUTHENTICATION_REQUIRED : FailureReason::STEP_UP_REQUIRED)

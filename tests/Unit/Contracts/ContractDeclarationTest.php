@@ -616,8 +616,8 @@ final class ContractDeclarationTest extends TestCase
     }
 
     /**
-     * `freshProof()`, `freshUntil()` and `metUntil()` each take, last, whether
-     * the session is judged as committed.
+     * `freshProof()`, `freshUntil()` and `metUntil()` each take, after the
+     * requirement, whether the session is judged as committed.
      *
      * @return void
      */
@@ -626,12 +626,12 @@ final class ContractDeclarationTest extends TestCase
         $expected = [
             'freshProof' => ['session', 'operation', 'requirement', 'current'],
             'freshUntil' => ['session', 'operation', 'requirement', 'current'],
-            'metUntil'   => ['session', 'operation', 'requirement', 'excludingFactor', 'current'],
+            'metUntil'   => ['session', 'operation', 'requirement', 'current', 'excludingFactor'],
         ];
 
         foreach ($expected as $method => $names) {
             $parameters = (new \ReflectionMethod(FreshnessPolicy::class, $method))->getParameters();
-            $current    = $parameters[count($parameters) - 1];
+            $current    = $parameters[3];
 
             self::assertSame($names, array_map(static fn (\ReflectionParameter $parameter): string => $parameter->getName(), $parameters), $method);
             self::assertSame('bool', (string) $current->getType(), $method);

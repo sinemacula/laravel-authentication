@@ -68,12 +68,12 @@ interface FreshnessPolicy
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  string  $operation
      * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $requirement
-     * @param  ?string  $excludingFactor
      * @param  bool  $current
+     * @param  ?string  $excludingFactor
      * @return ?\Carbon\CarbonImmutable
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
      */
-    public function metUntil(Session $session, string $operation, Requirement $requirement, ?string $excludingFactor = null, bool $current = false): ?CarbonImmutable;
+    public function metUntil(Session $session, string $operation, Requirement $requirement, bool $current = false, ?string $excludingFactor = null): ?CarbonImmutable;
 }

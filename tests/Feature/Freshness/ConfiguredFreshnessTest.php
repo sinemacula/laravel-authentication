@@ -1063,8 +1063,8 @@ final class ConfiguredFreshnessTest extends TestCase
     private static function metUntil(Contract $session, string $operation, Requirement $requirement, ?string $excludingFactor = null): ?CarbonImmutable
     {
         $policy  = self::policy();
-        $plain   = $policy->metUntil($session, $operation, $requirement, $excludingFactor);
-        $current = DB::transaction(static fn (): ?CarbonImmutable => $policy->metUntil($session, $operation, $requirement, $excludingFactor, true));
+        $plain   = $policy->metUntil($session, $operation, $requirement, excludingFactor: $excludingFactor);
+        $current = DB::transaction(static fn (): ?CarbonImmutable => $policy->metUntil($session, $operation, $requirement, true, $excludingFactor));
 
         self::assertEquals($plain, $current);
 

@@ -470,9 +470,10 @@ It takes the same read mode, so a grant you record in the same transaction takes
 
 `metUntil($session, $operation, $requirement)` answers until when the session stays fresh for the operation and meets a
 `Requirements\Requirement`, such as a minimum assurance level within an age: the earlier of the two, judged apart, or
-`null` when either is unmet or the check reports no time. Each part needs a maximum age of at most a day. It takes an
-excluded factor after the requirement (`metUntil($session, $operation, $requirement, $factor)`), whose proofs never
-count, so a factor's removal is authorised only by the session's other proofs, and the same read mode as `freshUntil()`.
+`null` when either is unmet or the check reports no time. Each part needs a maximum age of at most a day. It takes the
+same read mode as `freshUntil()`, and after it an excluded factor (`metUntil($session, $operation, $requirement,
+excludingFactor: $factor)`), whose proofs never count, so a factor's removal is authorised only by the session's other
+proofs.
 
 The package binds `Freshness\ConfiguredFreshness`. Rebind the contract for a requirement the stored proofs cannot show,
 such as an additional verification of your own; an implementation keeps no state between calls, and honours the read
