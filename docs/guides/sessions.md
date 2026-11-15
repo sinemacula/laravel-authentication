@@ -514,13 +514,14 @@ factor on it. Only the factor package knows whether the identity has a factor, s
 a removal names the factor it acts on (and only those name one: an `InvalidArgumentException` otherwise), whose own
 proofs never count. A requirement of the factor package's own, a `Requirements\Requirement` such as a minimum assurance
 level within an age, is passed as the third argument and judged as `metUntil()` judges it, apart from the operation's
-setting: both must be met. An allowed `FactorChangeVerdict` carries `freshUntil`, the second the session stops being
-fresh for the change; a refused one carries the `reason`. The gate writes nothing and reports nothing: once a removal or
-a replacement is made, in that same transaction, the factor package ends the sessions it affects with `factorRemoved()`
-for the factor removed or replaced, and after an addition (an enrolment confirmed, a passkey associated as a factor) it
-judges the current session again with `factorChanged()` (see [Sign-in factors](#sign-in-factors)). Generating recovery
-codes removes no factor, so it never calls `factorRemoved()`: the proofs a session already made with a recovery code
-stay recorded and count, and `factorChanged()` follows only when the factor package's policy can change with the codes.
+setting: both must be met, so with the default `RequirementCheck`, which meets nothing, any requirement refuses the
+change. An allowed `FactorChangeVerdict` carries `freshUntil`, the second the session stops being fresh for the change;
+a refused one carries the `reason`. The gate writes nothing and reports nothing: once a removal or a replacement is
+made, in that same transaction, the factor package ends the sessions it affects with `factorRemoved()` for the factor
+removed or replaced, and after an addition (an enrolment confirmed, a passkey associated as a factor) it judges the
+current session again with `factorChanged()` (see [Sign-in factors](#sign-in-factors)). Generating recovery codes
+removes no factor, so it never calls `factorRemoved()`: the proofs a session already made with a recovery code stay
+recorded and count, and `factorChanged()` follows only when the factor package's policy can change with the codes.
 
 On MySQL and MariaDB at REPEATABLE READ the gate's read of the proofs holds the gaps beside the session's proofs until
 the factor package's transaction ends, so a step-up, a reauthentication or a new session's first proof that falls there

@@ -612,9 +612,9 @@ seam has a default that works alone.
   factor never counts, so whoever holds a session cannot enrol a factor on it without proving the first factor again. A
   replacement or removal names its factor (required for those, refused for the others), whose own proofs never count for
   its change. `$requirement` is a `Requirements\Requirement` of the factor package's own, each part with a maximum age
-  of at most a day, judged apart from the operation's setting. The answer, a `Factors\FactorChangeVerdict`, carries
-  `freshUntil` (when the session stops being fresh for it, for a grant that outlives the request), or the reason; it
-  writes and reports nothing.
+  of at most a day, judged apart from the operation's setting (the default `RequirementCheck` meets none). The answer, a
+  `Factors\FactorChangeVerdict`, carries `freshUntil` (when the session stops being fresh for it, for a grant that
+  outlives the request), or the reason; it writes and reports nothing.
 - A factor removed, inside the same transaction and after the same locks: `Auth::sessions()->factorRemoved($identity,
   $factor->reference(), Auth::session())` ends the identity's other sessions, voids the current session's proofs made
   with that factor, and judges the current session again: it stays active, returns to pending (its

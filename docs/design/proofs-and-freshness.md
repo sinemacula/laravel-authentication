@@ -179,8 +179,8 @@ session holds; the token's claims and every freshness answer are worked out from
   is asked it too and honours it (a decorator of the default passes it on; one of its own locks the session's row,
   judges it and reads its proofs as committed), and the package asks it only where the call site holds the session's
   row, never whenever a transaction happens to be open (see the freshness judgements under the lock, below). No
-  judgement of the package under a lock asks `freshUntil()`: the gate takes its grant's expiry from the current proof
-  and the requirement; the mode serves a caller of its own that grants on the answer.
+  judgement of the package under a lock asks `freshUntil()`: the gate takes its grant's expiry from `metUntil()`; the
+  mode serves a caller of its own that grants on the answer.
 - `metUntil()` judges a `Requirement`, a minimum level included, through `RequirementJudge` on the stored session, and
   answers the earlier of the operation's configured deadline and the met answer's `metUntil`, judged apart. A part with
   no maximum age, or one over a day, throws; no reported `metUntil`, or one not after now, is `null`. The proofs of an
