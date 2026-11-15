@@ -234,7 +234,7 @@ final class FactorCodesTest extends TestCase
 
         self::assertSame([CodeRequestStatus::REFUSED, FactorCodeRefusal::TYPE_NOT_ENABLED, null], [$request->status, $request->refusal, $request->challengeId]);
         self::assertSame([AuthenticationFlow::FACTOR_CODE, FailureReason::FACTOR_CODE_REFUSED], [$failed->flow, $failed->reason]);
-        self::assertSame([null, null], [$failed->identifier, $failed->challengeId]);
+        self::assertSame([null, null, 'session-1'], [$failed->identifier, $failed->challengeId, $failed->context->sessionId]);
         self::assertSame(0, DB::table('one_time_codes')->count());
 
         Queue::assertNothingPushed();
@@ -331,7 +331,7 @@ final class FactorCodesTest extends TestCase
 
         self::assertSame([FactorCodeOutcome::INVALID, $until, null], [$check->outcome, $check->lockedUntil, $check->verifiedAt]);
         self::assertSame([[$binding, $challenge, false]], array_map(static fn (array $report): array => array_slice($report, 0, 3), $this->counters->reports));
-        self::assertSame([FailureReason::INVALID_CREDENTIALS, $challenge], [$failed->reason, $failed->challengeId]);
+        self::assertSame([FailureReason::INVALID_CREDENTIALS, $challenge, 'session-1'], [$failed->reason, $failed->challengeId, $failed->context->sessionId]);
         self::assertSame([1, 1], [self::column('attempts'), self::counterHits('mobile', 'factor_code', 'per_ip', self::IP)]);
 
         $this->counters->report = FactorCodeAdmission::refused(FactorCodeRefusal::NOT_ACCEPTED);
