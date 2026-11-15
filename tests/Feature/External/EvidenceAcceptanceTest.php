@@ -14,6 +14,7 @@ use SineMacula\Laravel\Authentication\Proofs\Evaluation;
 use SineMacula\Laravel\Authentication\Requirements\Enums\AssuranceLevel;
 use SineMacula\Laravel\Authentication\Requirements\Enums\RequirementKind;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementEvaluation;
 use Tests\Fixtures\External\ScriptedEvidencePolicy;
 use Tests\TestCase;
 use Tests\Unit\Stubs\PlainIdentityFixture;
@@ -156,12 +157,12 @@ final class EvidenceAcceptanceTest extends TestCase
              * @param  \SineMacula\Laravel\Authentication\External\ExternalEvidence  $evidence
              * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $requirement
              * @param  \SineMacula\Laravel\Authentication\External\EvidenceSubject  $subject
-             * @return bool
+             * @return \SineMacula\Laravel\Authentication\Requirements\RequirementEvaluation
              */
             #[\Override]
-            public function meets(ExternalEvidence $evidence, Requirement $requirement, EvidenceSubject $subject): bool
+            public function meets(ExternalEvidence $evidence, Requirement $requirement, EvidenceSubject $subject): RequirementEvaluation
             {
-                return false;
+                return new RequirementEvaluation($requirement->kinds());
             }
         });
 

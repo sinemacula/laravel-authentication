@@ -11,12 +11,14 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\ExternalEvidencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\FreshnessPolicy;
+use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Contracts\Session as Contract;
 use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 use SineMacula\Laravel\Authentication\External\ExternalResult;
@@ -35,12 +37,19 @@ use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
 use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
 use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
 use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
+use SineMacula\Laravel\Authentication\Requirements\Enums\AssuranceLevel;
 use SineMacula\Laravel\Authentication\Requirements\Enums\RequirementKind;
+use SineMacula\Laravel\Authentication\Requirements\LevelRequirement;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use Tests\Concerns\InteractsWithExternalSignIns;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Concerns\MarksSharedLocks;
 use Tests\Fixtures\External\ScriptedEvidencePolicy;
+use Tests\Fixtures\Freshness\AgeingRequirementCheck;
+use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
+use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\Integration\Fixtures\MachineClient;
 use Tests\TestCase;
 
@@ -525,6 +534,7 @@ final class ConfiguredFreshnessTest extends TestCase
         foreach ([Operations::IDENTIFIER_CHANGE, 'mfa.add_factor'] as $operation) {
             $asks["freshProof: {$operation}"] = static fn (): ?RecordedProof => self::policy()->freshProof($record, $operation, current: true);
             $asks["freshUntil: {$operation}"] = static fn (): ?CarbonImmutable => self::policy()->freshUntil($record, $operation, current: true);
+            $asks["metUntil: {$operation}"]   = static fn (): ?CarbonImmutable => self::policy()->metUntil($record, $operation, self::level(600), current: true);
         }
 
         foreach ($asks as $asked => $ask) {
@@ -569,6 +579,8 @@ final class ConfiguredFreshnessTest extends TestCase
                 self::assertNull(self::policy()->freshUntil($session, Operations::IDENTIFIER_CHANGE));
                 self::assertNull(DB::transaction(static fn (): ?RecordedProof => self::policy()->freshProof($session, Operations::IDENTIFIER_CHANGE, current: true)));
                 self::assertNull(DB::transaction(static fn (): ?CarbonImmutable => self::policy()->freshUntil($session, Operations::IDENTIFIER_CHANGE, current: true)));
+                self::assertNull(self::policy()->metUntil($session, Operations::IDENTIFIER_CHANGE, self::level(600)));
+                self::assertNull(DB::transaction(static fn (): ?CarbonImmutable => self::policy()->metUntil($session, Operations::IDENTIFIER_CHANGE, self::level(600), true)));
             });
 
             self::assertSame([], $statements, $contract);
@@ -659,6 +671,290 @@ final class ConfiguredFreshnessTest extends TestCase
     }
 
     /**
+     * A minimum level within an age is met until the proof meeting it is too
+     * old, and never once it is.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testALevelWithinAnAgeIsMetUntilItsProofIsTooOld(): void
+    {
+        $record = $this->signedIn();
+
+        app()->instance(RequirementCheck::class, new AgeingRequirementCheck);
+
+        self::assertNull(self::metUntil($record, 'mfa.add_factor', self::level(600)));
+
+        self::recordProof($record, ProofKind::ADDITIONAL_FACTOR, $this->now->subSeconds(100), ['otp'], new Evaluation(true, true));
+
+        self::assertEquals($this->now->addSeconds(500), self::metUntil($record, 'mfa.add_factor', self::level(600)));
+
+        $this->clockAt($this->now->addSeconds(499));
+
+        self::assertEquals($this->now->addSeconds(500), self::metUntil($record, 'mfa.add_factor', self::level(600)));
+
+        $this->clockAt($this->now->addSeconds(500));
+
+        self::assertNull(self::metUntil($record, 'mfa.add_factor', self::level(600)));
+    }
+
+    /**
+     * A requirement met with no time it is met until is never fresh.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARequirementMetWithNoTimeItIsMetUntilIsNeverFresh(): void
+    {
+        $record = $this->signedIn();
+
+        app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
+
+        self::recordProof($record, ProofKind::ADDITIONAL_FACTOR, $this->now, ['otp'], new Evaluation(true, true));
+
+        self::assertNull(self::metUntil($record, 'mfa.add_factor', self::level(600)));
+    }
+
+    /**
+     * A provider's accepted evidence meets a requirement until the time its
+     * policy reports, and only with one.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAProvidersEvidenceMeetsARequirementUntilTheTimeItsPolicyReports(): void
+    {
+        app()->instance(ExternalEvidencePolicy::class, new ScriptedEvidencePolicy([RequirementKind::MINIMUM_LEVEL], 600));
+
+        $identity = $this->seedIdentity();
+        $evidence = new ExternalEvidence(['mfa'], 'urn:example:acr:silver', $this->now->subMinute());
+        $record   = $this->sessions()->signInExternally($this->linkedResult($identity, subject: 'subject-1', evidence: $evidence), self::requestContext())->session?->record;
+
+        self::assertInstanceOf(Session::class, $record);
+
+        self::assertEquals($this->now->addSeconds(540), self::metUntil($record, 'mfa.add_factor', self::level(600)));
+
+        app()->instance(ExternalEvidencePolicy::class, new ScriptedEvidencePolicy([RequirementKind::MINIMUM_LEVEL]));
+
+        self::assertNull(self::metUntil($record, 'mfa.add_factor', self::level(600)));
+    }
+
+    /**
+     * With an operation's configured requirement, the earlier of its deadline
+     * and the requirement's is answered, and neither unless both are met.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheEarlierOfTheConfiguredAndTheRequirementsDeadlineIsAnswered(): void
+    {
+        $record = $this->signedIn();
+
+        config()->set('authentication.freshness.identifier_change.proofs', ['first_factor']);
+
+        app()->instance(RequirementCheck::class, new AgeingRequirementCheck);
+
+        $this->clockAt($this->now->addSeconds(200));
+
+        self::assertNull(self::metUntil($record, Operations::IDENTIFIER_CHANGE, self::level(600)));
+
+        self::recordProof($record, ProofKind::ADDITIONAL_FACTOR, $this->now->addSeconds(200), ['otp'], new Evaluation(true, true));
+
+        self::assertEquals($this->now->addSeconds(800), self::metUntil($record, Operations::IDENTIFIER_CHANGE, self::level(600)));
+        self::assertEquals($this->now->addSeconds(900), self::metUntil($record, Operations::IDENTIFIER_CHANGE, self::level(FreshnessRequirement::MAX_AGE_SECONDS)));
+
+        $this->clockAt($this->now->addSeconds(850));
+
+        self::assertNull(self::metUntil($record, Operations::IDENTIFIER_CHANGE, self::level(600)));
+        self::assertEquals($this->now->addSeconds(900), self::metUntil($record, Operations::IDENTIFIER_CHANGE, self::level(3600)));
+
+        $this->clockAt($this->now->addSeconds(900));
+
+        self::assertNull(self::metUntil($record, Operations::IDENTIFIER_CHANGE, self::level(3600)));
+        self::assertEquals($this->now->addSeconds(3800), self::metUntil($record, 'mfa.add_factor', self::level(3600)));
+    }
+
+    /**
+     * An empty requirement answers the operation's configured deadline alone.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnEmptyRequirementAnswersTheConfiguredDeadlineAlone(): void
+    {
+        $record = $this->signedIn();
+        $check  = new ProofJudgingRequirementCheck;
+
+        app()->instance(RequirementCheck::class, $check);
+
+        self::assertEquals($this->now->addSeconds(900), self::metUntil($record, Operations::IDENTIFIER_CHANGE, new Requirement));
+        self::assertNull(self::metUntil($record, Operations::FACTOR_CHANGE, new Requirement));
+        self::assertSame([], $check->judged);
+
+        $statements = self::statementsDuring(static fn (): ?CarbonImmutable => self::policy()->metUntil($record, 'mfa.add_factor', new Requirement));
+
+        self::assertSame([], $statements);
+    }
+
+    /**
+     * An operation name that is not one answers `null` without a query.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnInvalidOperationIsNeverMetAndReadsNothing(): void
+    {
+        $record = $this->signedIn();
+
+        app()->instance(RequirementCheck::class, new AgeingRequirementCheck);
+
+        self::recordProof($record, ProofKind::ADDITIONAL_FACTOR, $this->now, ['otp'], new Evaluation(true, true));
+
+        $statements = self::statementsDuring(static fn (): ?CarbonImmutable => self::policy()->metUntil($record, 'Not An Operation', self::level(600)));
+
+        self::assertSame([], $statements);
+        self::assertNull(self::policy()->metUntil($record, 'Not An Operation', self::level(600)));
+    }
+
+    /**
+     * The requirements with a part of any age or older than a day.
+     *
+     * @return iterable<string, array{\SineMacula\Laravel\Authentication\Requirements\Requirement}>
+     */
+    public static function unboundedRequirements(): iterable
+    {
+        $tooOld = FreshnessRequirement::MAX_AGE_SECONDS + 1;
+
+        yield 'an additional verification of any age' => [new Requirement(new RequirementPart, minimumLevel: new LevelRequirement(AssuranceLevel::AAL2, 600))];
+
+        yield 'multifactor of any age' => [new Requirement(multifactor: new RequirementPart)];
+
+        yield 'a level of any age' => [new Requirement(minimumLevel: new LevelRequirement(AssuranceLevel::AAL2))];
+
+        yield 'phishing resistance of any age' => [new Requirement(phishingResistance: new RequirementPart)];
+
+        yield 'a level older than a day' => [self::level($tooOld)];
+
+        yield 'phishing resistance older than a day' => [new Requirement(phishingResistance: new RequirementPart($tooOld))];
+    }
+
+    /**
+     * A requirement with a part of any age or older than a day is refused.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $requirement
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('unboundedRequirements')]
+    public function testARequirementWithAPartOfAnyAgeOrOlderThanADayIsRefused(Requirement $requirement): void
+    {
+        $record = $this->signedIn();
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Each part of a requirement judged for freshness must give a maximum age from 1 to 86400 seconds.');
+
+        self::policy()->metUntil($record, 'mfa.add_factor', $requirement);
+    }
+
+    /**
+     * Asked current inside a transaction, the policy locks the session's row
+     * and reads its proofs with a shared lock to judge the requirement.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAskingUntilMetCurrentLocksTheSessionAndReadsItsProofsCurrent(): void
+    {
+        $record = $this->signedIn();
+
+        app()->instance(RequirementCheck::class, new AgeingRequirementCheck);
+
+        self::recordProof($record, ProofKind::ADDITIONAL_FACTOR, $this->now, ['otp'], new Evaluation(true, true));
+        self::markSharedLocks();
+
+        $policy  = self::policy();
+        $judge   = static fn (): ?CarbonImmutable => $policy->metUntil($record, Operations::IDENTIFIER_CHANGE, self::level(600), true);
+        $current = self::statementsDuring(static fn (): mixed => DB::transaction($judge));
+        $plain   = self::statementsDuring(static fn (): ?CarbonImmutable => $policy->metUntil($record, Operations::IDENTIFIER_CHANGE, self::level(600)));
+        $reads   = array_values(array_filter($current, self::readsProofs(...)));
+
+        self::assertTrue(str_contains($current[0], 'authentication_sessions') && self::locksForUpdate($current[0]));
+        self::assertCount(3, $reads);
+        self::assertSame(array_fill(0, 3, self::takesSharedLocks()), array_map(self::sharesLock(...), $reads));
+        self::assertSame([], array_filter($plain, static fn (string $sql): bool => self::locksForUpdate($sql) || self::sharesLock($sql)));
+        self::assertSame(str_replace([' /* for update */', ' /* lock in share mode */', ' for update', ' lock in share mode'], '', $current), $plain);
+    }
+
+    /**
+     * A session no longer stored as the caller holds it, or whose owner is
+     * gone, never meets a requirement.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASessionNotStoredAsHeldOrWhoseOwnerIsGoneIsNeverMet(): void
+    {
+        $record = $this->signedIn();
+
+        app()->instance(RequirementCheck::class, new AgeingRequirementCheck);
+
+        self::recordProof($record, ProofKind::ADDITIONAL_FACTOR, $this->now, ['otp'], new Evaluation(true, true));
+
+        self::assertNotNull(self::metUntil($record, 'mfa.add_factor', self::level(600)));
+
+        $owner = DB::table('authentication_sessions')->value('authenticatable_id');
+
+        DB::table('authentication_sessions')->update(['revoked_at' => $this->now]);
+
+        self::assertNull(self::metUntil($record, 'mfa.add_factor', self::level(600)));
+
+        DB::table('authentication_sessions')->update(['revoked_at' => null, 'authenticatable_id' => 'another-identity']);
+
+        self::assertNull(self::metUntil($record, 'mfa.add_factor', self::level(600)));
+
+        DB::table('authentication_sessions')->update(['authenticatable_id' => $owner]);
+
+        self::assertNotNull(self::metUntil($record, 'mfa.add_factor', self::level(600)));
+
+        IntegrationIdentity::query()->delete();
+
+        self::assertNull(self::metUntil($record, 'mfa.add_factor', self::level(600)));
+    }
+
+    /**
+     * A session whose guard is no longer one of the package's never meets a
+     * requirement, its owner having no provider to be reloaded through.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASessionOfAGuardNotThePackagesIsNeverMet(): void
+    {
+        $record = $this->signedIn();
+
+        app()->instance(RequirementCheck::class, new AgeingRequirementCheck);
+
+        self::recordProof($record, ProofKind::ADDITIONAL_FACTOR, $this->now, ['otp'], new Evaluation(true, true));
+
+        self::assertNotNull(self::metUntil($record, 'mfa.add_factor', self::level(600)));
+
+        config()->set('auth.guards.api.driver', 'session');
+        Auth::forgetGuards();
+
+        self::assertNull(self::metUntil($record, 'mfa.add_factor', self::level(600)));
+    }
+
+    /**
      * Configure the session guards.
      *
      * @param  mixed  $app
@@ -728,6 +1024,39 @@ final class ConfiguredFreshnessTest extends TestCase
         self::assertEquals($plain, $current);
 
         return $plain;
+    }
+
+    /**
+     * Until when the policy answers the session meets the requirement, asked
+     * plainly and, inside a transaction, current, which must answer alike.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  string  $operation
+     * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $requirement
+     * @return ?\Carbon\CarbonImmutable
+     *
+     * @throws \Throwable
+     */
+    private static function metUntil(Contract $session, string $operation, Requirement $requirement): ?CarbonImmutable
+    {
+        $policy  = self::policy();
+        $plain   = $policy->metUntil($session, $operation, $requirement);
+        $current = DB::transaction(static fn (): ?CarbonImmutable => $policy->metUntil($session, $operation, $requirement, true));
+
+        self::assertEquals($plain, $current);
+
+        return $plain;
+    }
+
+    /**
+     * A requirement of an assurance level of AAL2 within the age given.
+     *
+     * @param  int  $maxAgeSeconds
+     * @return \SineMacula\Laravel\Authentication\Requirements\Requirement
+     */
+    private static function level(int $maxAgeSeconds): Requirement
+    {
+        return new Requirement(minimumLevel: new LevelRequirement(AssuranceLevel::AAL2, $maxAgeSeconds));
     }
 
     /**

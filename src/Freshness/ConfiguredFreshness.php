@@ -5,15 +5,21 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Freshness;
 
 use Carbon\CarbonImmutable;
+use Illuminate\Contracts\Auth\Factory as AuthFactory;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\FreshnessPolicy;
+use SineMacula\Laravel\Authentication\Contracts\HasGuardContext;
+use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Database\StorageConnection;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
 use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
+use SineMacula\Laravel\Authentication\Requirements\ProofSource;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementJudge;
 use SineMacula\Laravel\Authentication\SessionRecords\OwnedSession;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
@@ -31,11 +37,15 @@ final readonly class ConfiguredFreshness implements FreshnessPolicy
      * Constructor.
      *
      * @param  \Illuminate\Contracts\Config\Repository  $config
+     * @param  \Illuminate\Contracts\Auth\Factory  $auth
      */
     public function __construct(
 
         /** Configuration the requirements are read from on every call. */
         private Repository $config,
+
+        /** The auth manager a session's owner is reloaded through. */
+        private AuthFactory $auth,
     ) {}
 
     /**
@@ -128,6 +138,87 @@ final readonly class ConfiguredFreshness implements FreshnessPolicy
     }
 
     /**
+     * Until when the session stays both fresh for the operation and meeting the
+     * requirement, judged apart, or `null` when it is not both now.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  string  $operation
+     * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $requirement
+     * @param  bool  $current
+     * @return ?\Carbon\CarbonImmutable
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
+     */
+    #[\Override]
+    public function metUntil(Session $session, string $operation, Requirement $requirement, bool $current = false): ?CarbonImmutable
+    {
+        self::assertAgeBounded($requirement);
+
+        if ($current) {
+            self::refuseOutsideTransaction();
+        }
+
+        $guard      = WriteConnection::during($session, static fn (): ?string => $session->getGuard());
+        $configured = $guard === null ? null : $this->requirement($guard, $operation);
+
+        if ($guard === null || !FreshnessSettings::isOperation($operation) || ($configured === null && $requirement->isEmpty())) {
+            return null;
+        }
+
+        $stored = self::stored($session, $guard, $current);
+
+        if ($stored === null) {
+            return null;
+        }
+
+        [$row, $now] = $stored;
+        $until       = $this->earliestDeadline($row, $guard, $configured, $requirement, $now, $current);
+
+        return $until?->greaterThan($now) === true ? $until : null;
+    }
+
+    /**
+     * The earlier of the configured requirement's deadline and the time the
+     * requirement is met until, each given, or `null` when either has none.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
+     * @param  string  $guard
+     * @param  ?\SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement  $configured
+     * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $requirement
+     * @param  \Carbon\CarbonImmutable  $now
+     * @param  bool  $current
+     * @return ?\Carbon\CarbonImmutable
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     */
+    private function earliestDeadline(
+        EloquentSession&Model $session,
+        string $guard,
+        ?FreshnessRequirement $configured,
+        Requirement $requirement,
+        CarbonImmutable $now,
+        bool $current,
+    ): ?CarbonImmutable {
+        $deadlines = [];
+
+        if ($configured !== null) {
+            $deadlines[] = SessionProofs::newestMeeting($session, $configured, $now, null, $current)?->authenticatedAt->addSeconds($configured->maxAgeSeconds);
+        }
+
+        if (!$requirement->isEmpty()) {
+            $owner       = $this->owner($session, $guard);
+            $source      = new ProofSource(current: $current);
+            $deadlines[] = $owner === null ? null : RequirementJudge::metEvaluation($guard, $owner, $session, null, $now, $source, $requirement)?->metUntil;
+        }
+
+        return $deadlines === [] || in_array(null, $deadlines, true) ? null : min($deadlines);
+    }
+
+    /**
      * The newest proof that meets the effective requirement now, with that
      * requirement, or `null` (see `freshProof()`).
      *
@@ -146,8 +237,33 @@ final readonly class ConfiguredFreshness implements FreshnessPolicy
     {
         $guard     = WriteConnection::during($session, static fn (): ?string => $session->getGuard());
         $effective = $guard === null ? null : $this->requirement($guard, $operation, $requirement);
+        $stored    = $guard === null || $effective === null ? null : self::stored($session, $guard, $current);
 
-        if ($guard === null || $effective === null || !$session instanceof EloquentSession || !$session instanceof Model) {
+        if ($effective === null || $stored === null) {
+            return null;
+        }
+
+        $proof = SessionProofs::newestMeeting($stored[0], $effective, $stored[1], $excludingFactor, $current);
+
+        return $proof === null ? null : [$proof, $effective];
+    }
+
+    /**
+     * The session's row, read again, and the time it is judged at, when the row
+     * is still that session and live for its guard.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  string  $guard
+     * @param  bool  $current
+     * @return ?array{0: \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession, 1: \Carbon\CarbonImmutable}
+     *
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
+     */
+    private static function stored(Session $session, string $guard, bool $current): ?array
+    {
+        if (!$session instanceof EloquentSession || !$session instanceof Model) {
             return null;
         }
 
@@ -155,11 +271,43 @@ final readonly class ConfiguredFreshness implements FreshnessPolicy
         $stored = $current ? SessionLookup::lock($key) : SessionLookup::find($key);
         $now    = CarbonImmutable::now()->startOfSecond();
 
-        $proof = !SessionOwnership::isSameSession($session, $stored) || OwnedSession::refusal($stored, $guard, $now) !== null
-            ? null
-            : SessionProofs::newestMeeting($stored, $effective, $now, $excludingFactor, $current);
+        return SessionOwnership::isSameSession($session, $stored) && OwnedSession::refusal($stored, $guard, $now) === null ? [$stored, $now] : null;
+    }
 
-        return $proof === null ? null : [$proof, $effective];
+    /**
+     * The session's owner, reloaded through its guard's identity provider, when
+     * it is that very owner.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
+     * @param  string  $guard
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
+     */
+    private function owner(EloquentSession&Model $session, string $guard): ?Identity
+    {
+        $resolved = $this->auth->guard($guard);
+        $key      = SessionOwnership::ownerKey($session);
+        $identity = $key === null || !$resolved instanceof HasGuardContext ? null : $resolved->context()->provider()->retrieveById($key);
+
+        return $identity instanceof Identity && SessionOwnership::isOwner($session, $identity) ? $identity : null;
+    }
+
+    /**
+     * Refuse a requirement with a part of any age or older than a day.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $requirement
+     * @return void
+     *
+     * @throws \InvalidArgumentException
+     */
+    private static function assertAgeBounded(Requirement $requirement): void
+    {
+        foreach ([$requirement->additionalVerification, $requirement->multifactor, $requirement->minimumLevel, $requirement->phishingResistance] as $part) {
+            if ($part !== null && ($part->maxAgeSeconds === null || $part->maxAgeSeconds > FreshnessRequirement::MAX_AGE_SECONDS)) {
+                $message = sprintf('Each part of a requirement judged for freshness must give a maximum age from 1 to %d seconds.', FreshnessRequirement::MAX_AGE_SECONDS);
+
+                throw new \InvalidArgumentException($message);
+            }
+        }
     }
 
     /**

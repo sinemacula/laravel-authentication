@@ -8,6 +8,7 @@ use SineMacula\Laravel\Authentication\Contracts\ExternalEvidencePolicy;
 use SineMacula\Laravel\Authentication\External\EvidenceSubject;
 use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementEvaluation;
 
 /**
  * External evidence policy that trusts each `amr` value for the requirement
@@ -54,14 +55,14 @@ final class MethodTrustingEvidencePolicy implements ExternalEvidencePolicy
      * @param  \SineMacula\Laravel\Authentication\External\ExternalEvidence  $evidence
      * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $requirement
      * @param  \SineMacula\Laravel\Authentication\External\EvidenceSubject  $subject
-     * @return bool
+     * @return \SineMacula\Laravel\Authentication\Requirements\RequirementEvaluation
      */
     #[\Override]
-    public function meets(ExternalEvidence $evidence, Requirement $requirement, EvidenceSubject $subject): bool
+    public function meets(ExternalEvidence $evidence, Requirement $requirement, EvidenceSubject $subject): RequirementEvaluation
     {
         $this->judged[] = $evidence->methods;
 
-        return $this->covers($evidence, $requirement);
+        return new RequirementEvaluation($this->covers($evidence, $requirement) ? [] : $requirement->kinds());
     }
 
     /**

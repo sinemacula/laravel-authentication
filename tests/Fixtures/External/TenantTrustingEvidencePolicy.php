@@ -8,6 +8,7 @@ use SineMacula\Laravel\Authentication\Contracts\ExternalEvidencePolicy;
 use SineMacula\Laravel\Authentication\External\EvidenceSubject;
 use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementEvaluation;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
@@ -59,15 +60,15 @@ final class TenantTrustingEvidencePolicy implements ExternalEvidencePolicy
      * @param  \SineMacula\Laravel\Authentication\External\ExternalEvidence  $evidence
      * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $requirement
      * @param  \SineMacula\Laravel\Authentication\External\EvidenceSubject  $subject
-     * @return bool
+     * @return \SineMacula\Laravel\Authentication\Requirements\RequirementEvaluation
      */
     #[\Override]
-    public function meets(ExternalEvidence $evidence, Requirement $requirement, EvidenceSubject $subject): bool
+    public function meets(ExternalEvidence $evidence, Requirement $requirement, EvidenceSubject $subject): RequirementEvaluation
     {
         $this->subjects[] = $subject;
 
         $tenant = IdentifierCoercion::stringify($subject->tenant?->getTenantIdentifier()) ?? '';
 
-        return in_array($subject->connectionId, $this->trusted[$tenant] ?? [], true);
+        return new RequirementEvaluation(in_array($subject->connectionId, $this->trusted[$tenant] ?? [], true) ? [] : $requirement->kinds());
     }
 }
