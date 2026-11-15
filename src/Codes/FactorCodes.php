@@ -21,6 +21,7 @@ use SineMacula\Laravel\Authentication\Models\OneTimeCode;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
  * Sends and checks a factor package's codes for a guard, as
@@ -64,7 +65,7 @@ final readonly class FactorCodes
     public function send(FactorCodeBinding $binding, QueuedDelivery $delivery, ClientContext $client): CodeRequest
     {
         $guard   = $this->application($binding);
-        $context = new EventContext($guard, $client, $binding->binding->identity);
+        $context = new EventContext($guard, $client, $binding->binding->identity, sessionId: IdentifierCoercion::stringify($binding->binding->sessionId));
         $code    = CodeBinding::factor($guard, $binding);
 
         $reservation = $this->container->make(AttemptLimiter::class)->acquire(
@@ -102,7 +103,7 @@ final readonly class FactorCodes
     public function verify(FactorCodeBinding $binding, string $challengeId, #[\SensitiveParameter] string $code, ClientContext $client): FactorCodeCheck
     {
         $guard   = $this->application($binding);
-        $context = new EventContext($guard, $client, $binding->binding->identity);
+        $context = new EventContext($guard, $client, $binding->binding->identity, sessionId: IdentifierCoercion::stringify($binding->binding->sessionId));
         $codes   = $this->container->make(OneTimeCodes::class);
 
         $limiter     = $this->container->make(AttemptLimiter::class);
