@@ -942,13 +942,14 @@ binds a fake `AuthenticationContexts`.
   reads its provenance current (see [Issuance order](sessions.md#issuance-order)), so a key another sign-in reused
   after the transaction's first read is answered on its own provenance; it answers `null` or the reason.
 - When a link is removed, or its scope widened so it may act for more than its sessions were established for, the
-  adapter calls `linkRemoved($identity, $connectionId, $linkId)` or `linkScopeWidened(...)` in the same transaction (see
-  [Connections and links](sessions.md#connections-and-links)): each ends only the identity's sessions established
-  through that link. `linkScopeWidened()` is mandatory and safe to repeat; `linkRemoved()` honours its setting. Any
-  isolation level will do: a sign-in through the link and the revocation both write the link's connection guard first
-  (a connection's disabling or deletion every guard of the connection), so at PostgreSQL's REPEATABLE READ or
-  SERIALIZABLE, where no read sees a session a sign-in committed after the transaction's snapshot, the later of the two
-  fails to serialise (40001) instead, and the adapter retries its whole transaction.
+  adapter calls `linkRemoved($identity, $connectionId, $linkId)` or `linkScopeWidened(...)`, or their
+  `...ByReference($identityType, $identityId, $connectionId, $linkId)` variants for an identity that is no longer stored
+  or in scope, in the same transaction (see [Connections and links](sessions.md#connections-and-links)): each ends only
+  the identity's sessions established through that link. `linkScopeWidened()` is mandatory and safe to repeat;
+  `linkRemoved()` honours its setting. Any isolation level will do: a sign-in through the link and the revocation both
+  write the link's connection guard first (a connection's disabling or deletion every guard of the connection), so at
+  PostgreSQL's REPEATABLE READ or SERIALIZABLE, where no read sees a session a sign-in committed after the transaction's
+  snapshot, the later of the two fails to serialise (40001) instead, and the adapter retries its whole transaction.
 
 ### Audit (`laravel-audit-log`)
 

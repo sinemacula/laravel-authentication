@@ -79,6 +79,29 @@ trait EndsConnectionSessions
     }
 
     /**
+     * End every live session of the referenced identity established through the
+     * removed link, as `linkRemoved()` does, whether or not it is still stored
+     * or in scope.
+     *
+     * @param  string  $identityType
+     * @param  string  $identityId
+     * @param  string  $connectionId
+     * @param  string  $linkId
+     * @return int
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
+     * @throws \Throwable
+     */
+    public function linkRemovedByReference(string $identityType, string $identityId, string $connectionId, string $linkId): int
+    {
+        $now = CarbonImmutable::now()->startOfSecond();
+
+        return $this->connectionRevocations->linkByReference($identityType, $identityId, $connectionId, $linkId, RevocationReason::LINK_REMOVED, $now);
+    }
+
+    /**
      * End every live session of the identity established through the widened
      * link, inside the transaction that widens it.
      *
@@ -95,5 +118,28 @@ trait EndsConnectionSessions
     public function linkScopeWidened(Identity $identity, string $connectionId, string $linkId): int
     {
         return $this->connectionRevocations->link($identity, $connectionId, $linkId, RevocationReason::LINK_SCOPE_WIDENED, CarbonImmutable::now()->startOfSecond());
+    }
+
+    /**
+     * End every live session of the referenced identity established through the
+     * widened link, as `linkScopeWidened()` does, whether or not it is still
+     * stored or in scope.
+     *
+     * @param  string  $identityType
+     * @param  string  $identityId
+     * @param  string  $connectionId
+     * @param  string  $linkId
+     * @return int
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
+     * @throws \Throwable
+     */
+    public function linkScopeWidenedByReference(string $identityType, string $identityId, string $connectionId, string $linkId): int
+    {
+        $now = CarbonImmutable::now()->startOfSecond();
+
+        return $this->connectionRevocations->linkByReference($identityType, $identityId, $connectionId, $linkId, RevocationReason::LINK_SCOPE_WIDENED, $now);
     }
 }

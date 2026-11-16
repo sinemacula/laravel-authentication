@@ -74,9 +74,11 @@ link contract answers, and the package starts, reauthenticates and ends sessions
   its issuance guard), its deadlines and its provenance are untouched, so a result's provider context is not recorded at
   reauthentication.
 - A link's sessions end only through that link: `linkRemoved()` and `linkScopeWidened()` revoke the identity's live
-  sessions, pending ones included, whose provenance records exactly the connection and the link id, leaving its
-  sessions through any other link. `linkRemoved()` honours `authentication.revocation.link_removed`;
-  `linkScopeWidened()` is mandatory and idempotent. An empty connection or link id is an `InvalidArgumentException`
+  sessions, pending ones included, whose provenance records exactly the connection and the link id, leaving its sessions
+  through any other link. `linkRemoved()` honours `authentication.revocation.link_removed`; `linkScopeWidened()` is
+  mandatory and idempotent. `linkRemovedByReference()` and `linkScopeWidenedByReference()` take the owner's morph class
+  and key instead, read no identity, and refuse a type that is not an Eloquent identity model's morph class or an id
+  without its key's shape. An empty connection or link id, or a refused reference, is an `InvalidArgumentException`
   before any setting is read.
 - A sign-in through a link and every revocation of the sessions a link or connection established serialise on rows of
   the package's own, whatever the isolation level: the connection guards (`Sessions\ConnectionGuards`,
@@ -115,10 +117,10 @@ link contract answers, and the package starts, reauthenticates and ends sessions
    with no link id (any link of the connection) and outside a transaction when a reauthentication flow starts, locking
    nothing; with the link id inside the redemption's transaction, before it renews, locking the row until it ends.
 6. When a link is removed or its scope widened, the adapter calls `linkRemoved()` or `linkScopeWidened()` in that
-   transaction (`Sessions\ConnectionRevocations::link()`): the link's connection guard is written, then the identity's
-   live session keys are read 500 at a time, then their provenance by key filtered on the connection and link and
-   compared byte for byte in PHP, then each chunk locked in key order and revoked; the binding is forgotten and
-   `SessionRevoked` reported once it commits.
+   transaction (`Sessions\ConnectionRevocations::link()`, or `linkByReference()`): the link's connection guard is
+   written, then the identity's live session keys are read 500 at a time and kept only where the owner matches byte for
+   byte, then their provenance by key filtered on the connection and link and compared byte for byte in PHP, then each
+   chunk locked in key order and revoked; the binding is forgotten and `SessionRevoked` reported once it commits.
 
 ## Failure / Edge Cases
 

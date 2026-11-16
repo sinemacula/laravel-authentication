@@ -30,9 +30,10 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   flows or listeners, the package's opt-in listeners among them (`revokeSession()`, `revokeSessions()`,
   `revokePrincipalSessions()`, `passwordChanged()`, `passwordReset()`, `credentialRemoved()`, `factorRemoved()`,
   `factorChanged()`, `factorReset()`, `identityDeactivated()`, `principalDeactivated()`, `tenantDeactivated()`,
-  `tenantPolicyChanged()`, `connectionDisabled()`, `connectionDeleted()`, `linkRemoved()`, `linkScopeWidened()`); the
-  deletion methods (`identityDeleted()`, `principalDeleted()`) and the opt-in `RevokeSessionsOnDeletion` observer that
-  calls them; and `ApiKeyService`'s `issue()`, `rotate()` and `revoke()`.
+  `tenantPolicyChanged()`, `connectionDisabled()`, `connectionDeleted()`, `linkRemoved()`, `linkScopeWidened()`,
+  `linkRemovedByReference()`, `linkScopeWidenedByReference()`); the deletion methods (`identityDeleted()`,
+  `principalDeleted()`) and the opt-in `RevokeSessionsOnDeletion` observer that calls them; and `ApiKeyService`'s
+  `issue()`, `rotate()` and `revoke()`.
 - No event ever receives the sign-in input. `Attempting` and `Failed` carry only `[type => identifier]` (or
   `['identifier' => ...]` for a method without a type, or nothing); `AuthenticationFailed` carries the identifier as
   given.

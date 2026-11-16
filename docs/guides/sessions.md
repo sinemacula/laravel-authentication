@@ -1300,6 +1300,8 @@ DB::transaction(function () use ($connection) {
 Auth::sessions()->connectionDeleted($connectionId);
 Auth::sessions()->linkRemoved($user, $connectionId, $linkId);
 Auth::sessions()->linkScopeWidened($user, $connectionId, $linkId);
+Auth::sessions()->linkRemovedByReference($identityType, $identityId, $connectionId, $linkId);
+Auth::sessions()->linkScopeWidenedByReference($identityType, $identityId, $connectionId, $linkId);
 ```
 
 `connectionDisabled()` and `connectionDeleted()` revoke every live session whose provenance records the connection (of
@@ -1318,6 +1320,11 @@ your transaction ends) and no gap another identity's sign-in would write into. O
 request has resolved that is bound to one of them forgets it, so the rest of the request is not authenticated as it even
 when a listener throws, and then `SessionRevoked` reports each. No cutoff moves and no `SignedOutEverywhere` is
 reported: the scope is how the sessions began, not the identity, whose other sessions stay.
+
+`linkRemovedByReference()` and `linkScopeWidenedByReference()` do the same for the identity its sessions record by morph
+class and key, so they need no identity model and serve one that is soft-deleted, outside a global scope or no longer
+stored. A type that is not an Eloquent identity model's morph class, or an id without its key's shape, is an
+`InvalidArgumentException` before any setting is read, and each `SessionRevoked` names the owner its session records.
 
 On PostgreSQL at REPEATABLE READ or SERIALIZABLE even a locking read sees only your transaction's first snapshot, so a
 session a sign-in committed after it would be invisible. A sign-in through a link therefore writes its link's guard (one
