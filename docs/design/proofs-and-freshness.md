@@ -123,9 +123,9 @@ session holds; the token's claims and every freshness answer are worked out from
   carry evidence is not read, which fails closed (the session needs a further factor or a new reauthentication). The
   policy is told the connection and the tenant whose requirement it judges (`EvidenceSubject::$tenant`, `null` for the
   identity level and for acceptance), so it can refuse evidence from a connection that tenant does not trust. Met,
-  `RequirementCheck` is not asked; otherwise it judges the session's proofs as it does any session's. Evidence never
-  meets part of a requirement and leaves the rest to the factor package's proofs, and a session no provider established
-  reads nothing more.
+  `RequirementCheck` is not asked; otherwise it judges the session's proofs as it does any session's, told the same
+  tenant (`RequirementSubject::$tenant`). Evidence never meets part of a requirement and leaves the rest to the factor
+  package's proofs, and a session no provider established reads nothing more.
 - An `external_reauthentication` is recorded only by `reauthenticateExternally()` (`Sessions\ExternalReauthentication`),
   through `ProofIssuance` like the others, and only through the very link that established the session: the link
   contract is asked first (before any lock of the package's, so after the adapter's own), then under the session's

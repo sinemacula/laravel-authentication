@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\ExternalEvidencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
+use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 use SineMacula\Laravel\Authentication\External\InsufficientEvidence;
 use SineMacula\Laravel\Authentication\Models\Session;
@@ -427,6 +428,28 @@ final class RequirementJudgeTest extends TestCase
         self::assertSame([$requirement, $tenant], [$policy->asked[0]['requirement'], $policy->asked[0]['subject']->tenant]);
         self::assertSame([$requirement, null], [$policy->asked[1]['requirement'], $policy->asked[1]['subject']->tenant]);
         self::assertSame(0, $this->judgedCount());
+    }
+
+    /**
+     * The check is told the tenant whose requirement it judges, and no tenant
+     * for the identity level.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheCheckIsToldTheTenantWhoseRequirementItJudges(): void
+    {
+        [$member, , $tenant] = $this->seedMember();
+
+        $now         = CarbonImmutable::now();
+        $requirement = new Requirement(new RequirementPart);
+        $source      = new ProofSource(SessionEvidence::of(UndescribedSignInProof::of('password', $now)));
+
+        RequirementJudge::isMet('members', $member, null, null, $now, $source, new TenantFactor($tenant, $requirement));
+        RequirementJudge::isMet('members', $member, null, null, $now, $source, $requirement);
+
+        self::assertSame([$tenant, null], array_map(static fn (RequirementSubject $subject): ?Tenant => $subject->tenant, $this->check->judged));
     }
 
     /**
