@@ -8,11 +8,12 @@ use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Session;
+use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
 
 /**
  * What a requirement check judges: the identity, session and first factor, the
- * time, and a bounded query over its counting proofs.
+ * tenant, the time, and a bounded query over its counting proofs.
  *
  * @api
  *
@@ -39,6 +40,7 @@ final readonly class RequirementSubject
      * @param  \SineMacula\Laravel\Authentication\Proofs\RecordedProof  $firstFactor
      * @param  \Carbon\CarbonImmutable  $now
      * @param  \Closure(?\Carbon\CarbonImmutable, ?list<\SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind>, int): list<\SineMacula\Laravel\Authentication\Proofs\RecordedProof>  $reader
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
      *
@@ -63,6 +65,9 @@ final readonly class RequirementSubject
 
         /** Reads the counting proofs, newest first. */
         private \Closure $reader,
+
+        /** The tenant whose requirement is judged; `null` for the identity level and for freshness. */
+        public ?Tenant $tenant = null,
     ) {}
 
     /**

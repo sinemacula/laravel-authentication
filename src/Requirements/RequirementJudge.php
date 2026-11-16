@@ -104,7 +104,10 @@ final class RequirementJudge
             ? null
             : self::metByEvidence(new EvidenceSubject($identity, $application, $connectionId, $now, $tenant), $session, $source, $requirement);
 
-        return $byEvidence ?? self::metByCheck(new RequirementSubject($identity, $application, $session, $firstFactor, $now, self::reader($session, $source)), $requirement);
+        return $byEvidence ?? self::metByCheck(
+            new RequirementSubject($identity, $application, $session, $firstFactor, $now, self::reader($session, $source), $tenant),
+            $requirement,
+        );
     }
 
     /**
