@@ -13,7 +13,8 @@ return [
     | Storage
     |---------------------------------------------------------------------------
     |
-    | The connection every package table lives on (`null` for the default). The
+    | The connection every package table lives on (`null` for the default), the
+    | attempt counters too unless `rate_limits.connection` names another. The
     | tables share one connection because several flows write more than one of
     | them in a single transaction. Keep it fixed while the application runs.
     |
@@ -215,7 +216,9 @@ return [
     | hold across servers without a cache. `null` turns a limit off. A guard
     | overrides any limit in a `rate_limits` block on its `config/auth.php`
     | entry. Counters are keyed from `app.key`, so rotating it resets every
-    | window.
+    | window. `connection` (`null` for the storage connection) gives them a
+    | connection of their own, so a caller's rollback on the storage connection
+    | cannot undo them.
     |
     */
 
