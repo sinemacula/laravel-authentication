@@ -7,6 +7,7 @@ namespace Tests\Feature\Sessions;
 use Carbon\CarbonImmutable;
 use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
@@ -29,6 +30,7 @@ use SineMacula\Laravel\Authentication\Sessions\ConnectionRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use SineMacula\Laravel\Authentication\Support\MorphClass;
 use Tests\Concerns\InteractsWithExternalSignIns;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Events\EventContextAssertions;
@@ -323,6 +325,20 @@ final class ConnectionRevocationsTest extends TestCase
             static fn (SessionService $sessions, Identity $identity, string $connection, string $link): int => $sessions->linkScopeWidened($identity, $connection, $link),
             RevocationReason::LINK_SCOPE_WIDENED,
         ];
+
+        yield 'removed, by reference' => [
+            static fn (SessionService $sessions, Identity $identity, string $connection, string $link): int => $sessions->linkRemovedByReference(
+                ...self::reference($identity, $connection, $link),
+            ),
+            RevocationReason::LINK_REMOVED,
+        ];
+
+        yield 'scope widened, by reference' => [
+            static fn (SessionService $sessions, Identity $identity, string $connection, string $link): int => $sessions->linkScopeWidenedByReference(
+                ...self::reference($identity, $connection, $link),
+            ),
+            RevocationReason::LINK_SCOPE_WIDENED,
+        ];
     }
 
     /**
@@ -387,6 +403,7 @@ final class ConnectionRevocationsTest extends TestCase
         ]);
 
         self::assertSame(0, $this->sessions()->linkRemoved($identity, 'conn-a', 'link-1'));
+        self::assertSame(0, $this->sessions()->linkRemovedByReference(...self::reference($identity)));
         self::assertSame(1, $this->sessions()->linkScopeWidened($identity, 'conn-a', 'link-1'));
         self::assertSame([RevocationReason::LINK_SCOPE_WIDENED->value], $this->reasonsOf([$session]));
     }
@@ -744,6 +761,154 @@ final class ConnectionRevocationsTest extends TestCase
     }
 
     /**
+     * A link's sessions end by reference once the identity is deleted, each
+     * reported with the owner the session records.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testADeletedIdentitysLinkSessionsEndByReference(): void
+    {
+        $identity    = $this->seedIdentity();
+        $session     = $this->external($identity, 'conn-a');
+        [$type, $id] = self::reference($identity);
+
+        $identity->delete();
+
+        $this->recordEvents([SessionRevoked::class]);
+
+        self::assertSame(1, $this->sessions()->linkRemovedByReference($type, $id, 'conn-a', 'link-1'));
+        self::assertSame([RevocationReason::LINK_REMOVED->value], $this->reasonsOf([$session]));
+
+        $context = $this->recordedEvent(SessionRevoked::class)->context;
+
+        self::assertSame([$type, $id], [$context->identityType, $context->identityId]);
+    }
+
+    /**
+     * A link removed with its trigger turned off reads nothing of the identity,
+     * so an enforced morph map that leaves it out is never asked.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testALinkRemovedWithItsTriggerOffAsksNothingOfTheIdentity(): void
+    {
+        $identity = $this->seedIdentity();
+        $session  = $this->external($identity, 'conn-a');
+
+        config()->set('authentication.revocation.link_removed', false);
+
+        Relation::requireMorphMap();
+
+        try {
+            self::assertSame(0, $this->sessions()->linkRemoved($identity, 'conn-a', 'link-1'));
+        } finally {
+            Relation::requireMorphMap(false);
+        }
+
+        self::assertSame([null], $this->reasonsOf([$session]));
+    }
+
+    /**
+     * Rows of `[the reference trigger, the reference type, its id or `null` for
+     * the identity's own, the refusal, whether the morph map aliases it]`.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @return iterable<string, array{0: \Closure(\SineMacula\Laravel\Authentication\Sessions\SessionService, string, string): int, 1: string, 2: ?string, 3: string, 4: bool}>
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
+     */
+    public static function provideRefusedReferences(): iterable
+    {
+        $unnamed   = 'An identity reference is named by the morph class of an Eloquent identity model.';
+        $misshapen = 'An identity reference\'s id must have the shape of its model\'s key.';
+
+        $triggers = [
+            'removed'       => static fn (SessionService $sessions, string $type, string $id): int => $sessions->linkRemovedByReference($type, $id, 'conn-a', 'link-1'),
+            'scope widened' => static fn (SessionService $sessions, string $type, string $id): int => $sessions->linkScopeWidenedByReference($type, $id, 'conn-a', 'link-1'),
+        ];
+
+        foreach ($triggers as $name => $trigger) {
+            yield $name . ', a model that is no identity' => [$trigger, Session::class, null, $unnamed, false];
+            yield $name . ', no class' => [$trigger, 'unknown', null, $unnamed, false];
+            yield $name . ', a key of another shape' => [$trigger, IntegrationIdentity::class, 'one', $misshapen, false];
+            yield $name . ', the class name of an alias' => [$trigger, IntegrationIdentity::class, null, $unnamed, true];
+        }
+    }
+
+    /**
+     * A reference that cannot name an identity is refused before its setting is
+     * read or any session changes.
+     *
+     * @param  \Closure(\SineMacula\Laravel\Authentication\Sessions\SessionService, string, string): int  $trigger
+     * @param  string  $type
+     * @param  ?string  $id
+     * @param  string  $message
+     * @param  bool  $aliased
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideRefusedReferences')]
+    public function testAReferenceThatCannotNameAnIdentityIsRefused(\Closure $trigger, string $type, ?string $id, string $message, bool $aliased): void
+    {
+        $identity = $this->seedIdentity();
+        $session  = $this->external($identity, 'conn-a');
+        $morphs   = Relation::morphMap();
+
+        config()->set('authentication.revocation.link_removed', false);
+
+        if ($aliased) {
+            Relation::morphMap(['member' => IntegrationIdentity::class]);
+        }
+
+        try {
+            $trigger($this->sessions(), $type, $id ?? self::reference($identity)[1]);
+
+            self::fail('Expected the reference to be refused.');
+        } catch (\InvalidArgumentException $exception) {
+            self::assertSame($message, $exception->getMessage());
+        } finally {
+            Relation::morphMap($morphs, false);
+        }
+
+        self::assertSame([null], $this->reasonsOf([$session]));
+    }
+
+    /**
+     * A reference by the morph alias its sessions record ends them.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAReferenceByMorphAliasEndsTheLinksSessions(): void
+    {
+        $morphs = Relation::morphMap();
+
+        Relation::morphMap(['member' => IntegrationIdentity::class]);
+
+        try {
+            $identity = $this->seedIdentity();
+            $session  = $this->external($identity, 'conn-a');
+
+            self::assertSame('member', self::reference($identity)[0]);
+            self::assertSame(1, $this->sessions()->linkRemovedByReference(...self::reference($identity)));
+            self::assertSame([RevocationReason::LINK_REMOVED->value], $this->reasonsOf([$session]));
+        } finally {
+            Relation::morphMap($morphs, false);
+        }
+    }
+
+    /**
      * Register the session guards.
      *
      * @param  mixed  $app
@@ -853,6 +1018,20 @@ final class ConnectionRevocationsTest extends TestCase
         self::assertNotNull($session);
 
         return $session->record->getKey();
+    }
+
+    /**
+     * The identity's reference as its sessions record it, then the connection
+     * and link: `[type, id, connection, link]`.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  string  $connection
+     * @param  string  $link
+     * @return array{0: string, 1: string, 2: string, 3: string}
+     */
+    private static function reference(Identity $identity, string $connection = 'conn-a', string $link = 'link-1'): array
+    {
+        return [MorphClass::of($identity), (string) IdentifierCoercion::stringify($identity->getAuthIdentifier()), $connection, $link];
     }
 
     /**

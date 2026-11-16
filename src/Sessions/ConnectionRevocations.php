@@ -9,6 +9,7 @@ use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
@@ -21,6 +22,8 @@ use SineMacula\Laravel\Authentication\Models\SessionProvenance;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use SineMacula\Laravel\Authentication\Support\KeyShape;
+use SineMacula\Laravel\Authentication\Support\MorphClass;
 
 /**
  * Ends the sessions an external provider's connection established, or an
@@ -120,16 +123,75 @@ final readonly class ConnectionRevocations
      */
     public function link(Identity $identity, string $connectionId, string $linkId, RevocationReason $reason, CarbonImmutable $now): int
     {
-        self::assertNamed('A connection', $connectionId);
-        self::assertNamed('A link', $linkId);
+        self::assertLinkNamed($connectionId, $linkId);
 
-        if (!$this->isEnabled($reason) || !$identity instanceof Model) {
+        $key = $identity instanceof Model ? IdentifierCoercion::stringify($identity->getKey()) : null;
+
+        if ($key === null || !$this->isEnabled($reason)) {
             return 0;
         }
 
+        return $this->ownersLink($identity->getMorphClass(), $key, $identity, $connectionId, $linkId, $reason, $now);
+    }
+
+    /**
+     * End every live session of the identity the reference names established
+     * through the link, as `link()` does, whether or not the identity is still
+     * stored or in scope.
+     *
+     * @param  string  $identityType
+     * @param  string  $identityId
+     * @param  string  $connectionId
+     * @param  string  $linkId
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
+     * @param  \Carbon\CarbonImmutable  $now
+     * @return int
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
+     * @throws \Throwable
+     */
+    public function linkByReference(string $identityType, string $identityId, string $connectionId, string $linkId, RevocationReason $reason, CarbonImmutable $now): int
+    {
+        self::assertLinkNamed($connectionId, $linkId);
+
+        $class = Relation::getMorphedModel($identityType) ?? $identityType;
+
+        if (!is_subclass_of($class, Model::class) || !is_subclass_of($class, Identity::class) || MorphClass::of(new $class) !== $identityType) {
+            throw new \InvalidArgumentException('An identity reference is named by the morph class of an Eloquent identity model.');
+        }
+
+        if (!KeyShape::matches(new $class, $identityId)) {
+            throw new \InvalidArgumentException('An identity reference\'s id must have the shape of its model\'s key.');
+        }
+
+        return $this->isEnabled($reason) ? $this->ownersLink($identityType, $identityId, null, $connectionId, $linkId, $reason, $now) : 0;
+    }
+
+    /**
+     * End the owner's live sessions established through the link; the identity,
+     * when given, is the events'.
+     *
+     * @param  string  $type
+     * @param  string  $id
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  string  $connectionId
+     * @param  string  $linkId
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
+     * @param  \Carbon\CarbonImmutable  $now
+     * @return int
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
+     * @throws \Throwable
+     */
+    private function ownersLink(string $type, string $id, ?Identity $identity, string $connectionId, string $linkId, RevocationReason $reason, CarbonImmutable $now): int
+    {
         $model = SessionLookup::model();
 
-        return $model->getConnection()->transaction(function () use ($model, $identity, $connectionId, $linkId, $reason, $now): int {
+        return $model->getConnection()->transaction(function () use ($model, $type, $id, $identity, $connectionId, $linkId, $reason, $now): int {
 
             ConnectionGuards::link($model->getConnection(), $connectionId, $linkId);
 
@@ -138,10 +200,10 @@ final readonly class ConnectionRevocations
             $after   = null;
 
             do {
-                $keys = self::owned($model, $identity, $after, $now);
-                $revoked += $this->revoke($model, self::through($keys, $connectionId, $linkId), $identity, $reason, $now, $ended);
-                $after = $keys === [] ? null : $keys[count($keys) - 1];
-            } while (count($keys) === self::CHUNK);
+                $rows = self::owned($model, $type, $id, $after, $now);
+                $revoked += $this->revoke($model, self::through(self::ownedExactly($rows, $type, $id), $connectionId, $linkId), $identity, $reason, $now, $ended);
+                $after = $rows === [] ? null : IdentifierCoercion::stringify($rows[count($rows) - 1][0]);
+            } while (count($rows) === self::CHUNK);
 
             return $revoked;
         });
@@ -161,6 +223,21 @@ final readonly class ConnectionRevocations
         if ($id === '') {
             throw new \InvalidArgumentException(sprintf('%s is named by its id, which may not be empty.', $what));
         }
+    }
+
+    /**
+     * Refuse an empty connection or link id.
+     *
+     * @param  string  $connectionId
+     * @param  string  $linkId
+     * @return void
+     *
+     * @throws \InvalidArgumentException
+     */
+    private static function assertLinkNamed(string $connectionId, string $linkId): void
+    {
+        self::assertNamed('A connection', $connectionId);
+        self::assertNamed('A link', $linkId);
     }
 
     /**
@@ -222,28 +299,50 @@ final readonly class ConnectionRevocations
     }
 
     /**
-     * The next chunk of the keys of the identity's live external sessions after
-     * the key given, in key order, locked until the transaction ends.
+     * The next chunk of the owner's live external sessions after the key given,
+     * in key order, as `[session key, owner type, owner key]`, locked until the
+     * transaction ends.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $model
-     * @param  \Illuminate\Database\Eloquent\Model  $identity
+     * @param  string  $type
+     * @param  string  $id
      * @param  ?string  $after
      * @param  \Carbon\CarbonImmutable  $now
-     * @return list<string>
+     * @return list<array{0: mixed, 1: mixed, 2: mixed}>
      */
-    private static function owned(EloquentSession&Model $model, Model $identity, ?string $after, CarbonImmutable $now): array
+    private static function owned(EloquentSession&Model $model, string $type, string $id, ?string $after, CarbonImmutable $now): array
     {
-        $owner = $model->authenticatable();
-        $query = self::live(WriteConnection::query($model->newQuery()), $model, $now)
-            ->where($owner->getMorphType(), $identity->getMorphClass())
-            ->where($owner->getForeignKeyName(), IdentifierCoercion::stringify($identity->getKey()))
+        $owner   = $model->authenticatable();
+        $columns = [$model->getKeyName(), $owner->getMorphType(), $owner->getForeignKeyName()];
+        $query   = self::live(WriteConnection::query($model->newQuery()), $model, $now)
+            ->where($owner->getMorphType(), $type)
+            ->where($owner->getForeignKeyName(), $id)
             ->where($model->getSignInMethodName(), SignInMethodManager::EXTERNAL_METHOD)
             ->when($after !== null, static fn (Builder $query): Builder => $query->where($model->getKeyName(), '>', $after))
             ->orderBy($model->getKeyName())
             ->limit(self::CHUNK)
             ->lockForUpdate();
 
-        return self::strings(WriteConnection::during($model, static fn (): array => $query->pluck($model->getKeyName())->all()));
+        /** @var list<\stdClass> $rows */
+        $rows = WriteConnection::during($model, static fn (): array => $query->toBase()->select($columns)->get()->all());
+
+        return array_map(static fn (\stdClass $row): array => [$row->{$columns[0]}, $row->{$columns[1]}, $row->{$columns[2]}], $rows);
+    }
+
+    /**
+     * The session keys, as strings, of the rows that record the owner byte for
+     * byte, whatever the columns' collation.
+     *
+     * @param  list<array{0: mixed, 1: mixed, 2: mixed}>  $rows
+     * @param  string  $type
+     * @param  string  $id
+     * @return list<string>
+     */
+    private static function ownedExactly(array $rows, string $type, string $id): array
+    {
+        $kept = array_filter($rows, static fn (array $row): bool => $row[1] === $type && IdentifierCoercion::stringify($row[2]) === $id);
+
+        return self::strings(array_column($kept, 0));
     }
 
     /**

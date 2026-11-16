@@ -6,6 +6,7 @@ namespace Tests\Integration\Sessions;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
@@ -22,6 +23,7 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithFoldingCollations;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\CutoffIdentity;
+use Tests\Integration\Fixtures\KeySelectingSession;
 use Tests\TestCase;
 
 /**
@@ -220,6 +222,50 @@ final class ConnectionRevocationsTest extends TestCase
     }
 
     /**
+     * An owner the collation counts as equal keeps its sessions.
+     *
+     * @param  string  $folded
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideFoldedKeys')]
+    public function testAnOwnerTheCollationCountsAsEqualKeepsItsSessions(string $folded): void
+    {
+        self::foldColumns('authentication_sessions', ['authenticatable_id']);
+
+        $alice = self::namedIdentity('alice');
+
+        $this->insertSessions($alice, 'conn-a', 1);
+
+        self::assertColumnFolds('authentication_sessions', 'authenticatable_id', $folded);
+
+        $this->insertSessions(self::namedIdentity($folded), 'conn-a', 2);
+
+        self::assertSame(1, Auth::sessions('api')->linkRemoved($alice, 'conn-a', 'link-1'));
+        self::assertSame(2, Auth::sessions('api')->linkRemovedByReference($alice->getMorphClass(), $folded, 'conn-a', 'link-1'));
+    }
+
+    /**
+     * A link's sessions are found by their owner whatever columns a session
+     * scope selects.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testALinksSessionsAreFoundWhateverASessionScopeSelects(): void
+    {
+        config()->set('authentication.session.model', KeySelectingSession::class);
+
+        $ada = $this->seedCutoffIdentity('ada@example.test');
+
+        $this->insertSessions($ada, 'conn-a', 2);
+
+        self::assertSame(2, Auth::sessions('api')->linkRemoved($ada, 'conn-a', 'link-1'));
+    }
+
+    /**
      * Rows of `[the trigger]`.
      *
      * @return iterable<string, array{0: \Closure(\Tests\Integration\Fixtures\CutoffIdentity): int}>
@@ -332,13 +378,13 @@ final class ConnectionRevocationsTest extends TestCase
      * Insert live sessions of the identity, established through the connection
      * and link, or by password.
      *
-     * @param  \Tests\Integration\Fixtures\CutoffIdentity  $identity
+     * @param  \Illuminate\Database\Eloquent\Model  $identity
      * @param  ?string  $connection
      * @param  int  $count
      * @param  ?string  $link
      * @return void
      */
-    private function insertSessions(CutoffIdentity $identity, ?string $connection, int $count, ?string $link = 'link-1'): void
+    private function insertSessions(Model $identity, ?string $connection, int $count, ?string $link = 'link-1'): void
     {
         $keys = array_map(static fn (): string => (string) Str::uuid7(), range(1, $count));
 
