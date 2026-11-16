@@ -151,23 +151,23 @@ be inserted, and so does `externalStanding()` asked inside your transaction. A r
 factor inside your transaction (the session service's, or a contribution subject's) holds the proofs' locks as a
 judgement does, until you commit.
 
-The waiting side then commits; the wait never deadlocks on its own, but it can when your transaction, after the
-issuance or judgement, goes on to take a lock the waiting side already holds: an external sign-in holds its link's guard
-row, and a neighbour's step-up, reauthentication or `satisfy()` holds that session's row, so signing in through the
-same link, or revoking, refreshing or switching that session (or signing its identity out everywhere) in the same
-transaction can deadlock, and MySQL then fails one of them as a deadlock for you to retry. Take every session row your
-transaction needs before such a call, as the package takes every session row before any proof. Session rows have no one
-order across calls, though. A call that ends or judges several sessions locks them in key order, oldest first:
+The waiting side then commits; the wait never deadlocks on its own, but it can when your transaction, after the issuance
+or judgement, goes on to take a lock the waiting side already holds: an external sign-in holds its link's guard row, and
+a neighbour's step-up, reauthentication or `satisfy()` holds that session's row, so signing in through the same link, or
+revoking, refreshing or switching that session (or signing its identity out everywhere) in the same transaction can
+deadlock, and MySQL then fails one of them as a deadlock for you to retry. Take every session row your transaction needs
+before such a call, as the package takes every session row before any proof. Session rows have no one order across
+calls, though. A call that ends or judges several sessions locks them in key order, oldest first:
 `tenantPolicyChanged()` and every bulk revocation (`revokeSessions()`, `revokePrincipalSessions()`,
 `signOutEverywhere()`, `passwordChanged()`, `passwordReset()`, a first password's establishment, `credentialRemoved()`,
 `factorRemoved()`, `factorReset()`, a deactivation, a deletion, `connectionDisabled()`, `connectionDeleted()`,
-`linkRemoved()` and `linkScopeWidened()`). `satisfy()` and `choose()` on a pending session whose sign-in proved it holds
-another session lock the pending session and then that older one, whatever the action goes on to decide. So such a call
-over both can deadlock with the pending action, the database failing one for its caller to roll back and retry whole. At
-PostgreSQL's REPEATABLE READ the lock on that older session also fails to serialise when it was written after your
-transaction's snapshot (a refresh of it from the client's other tab, say), whatever the action then decides; roll back
-and retry the whole transaction. At READ COMMITTED MySQL locks no gap, and PostgreSQL takes no shared lock, so nothing
-waits there.
+`linkRemoved()`, `linkScopeWidened()` and their `...ByReference()` variants). `satisfy()` and `choose()` on a pending
+session whose sign-in proved it holds another session lock the pending session and then that older one, whatever the
+action goes on to decide. So such a call over both can deadlock with the pending action, the database failing one for
+its caller to roll back and retry whole. At PostgreSQL's REPEATABLE READ the lock on that older session also fails to
+serialise when it was written after your transaction's snapshot (a refresh of it from the client's other tab, say),
+whatever the action then decides; roll back and retry the whole transaction. At READ COMMITTED MySQL locks no gap, and
+PostgreSQL takes no shared lock, so nothing waits there.
 
 ### Reading a session's proofs
 
@@ -1491,8 +1491,8 @@ Every revocation records one of these reasons in the session's `revoked_reason` 
 | `factor_changed`        | The factor package's `factorChanged()`: the current session, no longer admitted after an addition (`factor_removed` for `FACTOR_REMOVED`)  |
 | `connection_disabled`   | `connectionDisabled()`: the sessions the connection established                                                                            |
 | `connection_deleted`    | `connectionDeleted()`: the sessions the connection established                                                                             |
-| `link_removed`          | `linkRemoved()`: the identity's sessions established through the link                                                                      |
-| `link_scope_widened`    | `linkScopeWidened()`: the identity's sessions established through the link, mandatory                                                      |
+| `link_removed`          | `linkRemoved()`, `linkRemovedByReference()`: the identity's sessions established through the link                                          |
+| `link_scope_widened`    | `linkScopeWidened()`, `linkScopeWidenedByReference()`: the identity's sessions established through the link, mandatory                     |
 
 `revokeSession()`, `revokeSessions()` and `revokePrincipalSessions()` take the reason as an argument (`REVOKED` in the
 examples above); the others set their own.

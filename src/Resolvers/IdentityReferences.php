@@ -40,6 +40,31 @@ final class IdentityReferences
      */
     public static function resolve(string $type, string $id): (Identity&Model)|null
     {
+        $model = self::model($type);
+
+        if ($model === null || !KeyShape::matches($model, $id)) {
+            return null;
+        }
+
+        $found = WriteConnection::during($model, static fn (): ?Model => WriteConnection::query($model->newQuery())->find($id));
+
+        // A collation can match another spelling of the key
+        if (!$found instanceof Identity || IdentifierCoercion::stringify($found->getKey()) !== $id) {
+            return null;
+        }
+
+        return $found;
+    }
+
+    /**
+     * A new instance of the Eloquent identity model whose morph class is the
+     * type, or `null` when none is.
+     *
+     * @param  string  $type
+     * @return (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity)|null
+     */
+    public static function model(string $type): (Identity&Model)|null
+    {
         $class = Relation::getMorphedModel($type) ?? $type;
 
         if (!is_subclass_of($class, Model::class) || !is_subclass_of($class, Identity::class)) {
@@ -49,17 +74,6 @@ final class IdentityReferences
         /** @var \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity $model */
         $model = new $class;
 
-        if (!KeyShape::matches($model, $id)) {
-            return null;
-        }
-
-        $found = WriteConnection::during($model, static fn (): ?Model => WriteConnection::query($model->newQuery())->find($id));
-
-        // A collation can match another spelling of the key
-        if (!$found instanceof Identity || MorphClass::of($found) !== $type || IdentifierCoercion::stringify($found->getKey()) !== $id) {
-            return null;
-        }
-
-        return $found;
+        return MorphClass::of($model) === $type ? $model : null;
     }
 }

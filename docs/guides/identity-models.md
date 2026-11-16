@@ -551,6 +551,8 @@ is read on the write connection with the model's own query, so its global scopes
 not found. It is returned only when its morph class is the type and its key, as a string, is the id byte for byte: a
 mapped model named by its class name, or a key the column's collation matched in another case, resolves to `null`. An
 id that cannot be the model's key (text for an integer key, anything but a UUID for a `HasUuids` key) is not queried.
+`IdentityReferences::model($type)` answers a new, unsaved instance of the model the type names on the same rules, or
+`null`, without a query.
 
 ## Deleting identities and principals
 

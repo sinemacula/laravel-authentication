@@ -9,7 +9,6 @@ use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\Relation;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
@@ -19,11 +18,11 @@ use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Models\SessionProvenance;
+use SineMacula\Laravel\Authentication\Resolvers\IdentityReferences;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Support\KeyShape;
-use SineMacula\Laravel\Authentication\Support\MorphClass;
 
 /**
  * Ends the sessions an external provider's connection established, or an
@@ -125,13 +124,13 @@ final readonly class ConnectionRevocations
     {
         self::assertLinkNamed($connectionId, $linkId);
 
-        $key = $identity instanceof Model ? IdentifierCoercion::stringify($identity->getKey()) : null;
-
-        if ($key === null || !$this->isEnabled($reason)) {
+        if (!$this->isEnabled($reason)) {
             return 0;
         }
 
-        return $this->ownersLink($identity->getMorphClass(), $key, $identity, $connectionId, $linkId, $reason, $now);
+        $key = $identity instanceof Model ? IdentifierCoercion::stringify($identity->getKey()) : null;
+
+        return $key === null ? 0 : $this->ownersLink($identity->getMorphClass(), $key, $identity, $connectionId, $linkId, $reason, $now);
     }
 
     /**
@@ -156,13 +155,13 @@ final readonly class ConnectionRevocations
     {
         self::assertLinkNamed($connectionId, $linkId);
 
-        $class = Relation::getMorphedModel($identityType) ?? $identityType;
+        $model = IdentityReferences::model($identityType);
 
-        if (!is_subclass_of($class, Model::class) || !is_subclass_of($class, Identity::class) || MorphClass::of(new $class) !== $identityType) {
+        if ($model === null) {
             throw new \InvalidArgumentException('An identity reference is named by the morph class of an Eloquent identity model.');
         }
 
-        if (!KeyShape::matches(new $class, $identityId)) {
+        if (!KeyShape::matches($model, $identityId)) {
             throw new \InvalidArgumentException('An identity reference\'s id must have the shape of its model\'s key.');
         }
 

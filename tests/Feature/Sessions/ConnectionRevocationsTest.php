@@ -761,6 +761,23 @@ final class ConnectionRevocationsTest extends TestCase
     }
 
     /**
+     * A malformed setting fails closed before the identity is asked anything.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAMalformedLinkSettingFailsClosedForAnIdentityThatIsNotAModel(): void
+    {
+        config()->set('authentication.revocation.link_removed', 'false');
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('authentication.revocation.link_removed must be true or false.');
+
+        $this->sessions()->linkRemoved(\Mockery::mock(Identity::class), 'conn-a', 'link-1');
+    }
+
+    /**
      * A link's sessions end by reference once the identity is deleted, each
      * reported with the owner the session records.
      *

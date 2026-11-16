@@ -545,10 +545,11 @@ are created by the shipped migration of the provenance table, and are never prun
 ```
 
 `Auth::sessions()->connectionDisabled()` and `connectionDeleted()` end the sessions an external provider's connection
-established, and `linkRemoved()` an identity's sessions established through one link (see
-[Connections and links](sessions.md#connections-and-links)). Each is on unless its setting is `false`, when it returns
-`0` and writes nothing. A value that is not `true` or `false` fails closed with an `InvalidArgumentException` when the
-method is first called, and `authentication:check` reports it. `linkScopeWidened()` has no setting: it is mandatory.
+established, and `linkRemoved()` (or `linkRemovedByReference()`) an identity's sessions established through one link
+(see [Connections and links](sessions.md#connections-and-links)). Each is on unless its setting is `false`, when it
+returns `0` and writes nothing. A value that is not `true` or `false` fails closed with an `InvalidArgumentException`
+when the method is first called, and `authentication:check` reports it. `linkScopeWidened()` and
+`linkScopeWidenedByReference()` have no setting: they are mandatory.
 
 ## Freshness
 

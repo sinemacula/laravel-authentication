@@ -114,6 +114,8 @@ final class IdentityReferencesTest extends TestCase
         try {
             self::assertInstanceOf(IntegrationIdentity::class, IdentityReferences::resolve('member', $id));
             self::assertNull(IdentityReferences::resolve(IntegrationIdentity::class, $id));
+            self::assertInstanceOf(IntegrationIdentity::class, IdentityReferences::model('member'));
+            self::assertNull(IdentityReferences::model(IntegrationIdentity::class));
         } finally {
             Relation::morphMap([], false);
         }
@@ -147,6 +149,7 @@ final class IdentityReferencesTest extends TestCase
         $queries = self::countQueries();
 
         self::assertNull(IdentityReferences::resolve($type, '1'));
+        self::assertNull(IdentityReferences::model($type));
         self::assertSame(0, $queries->count);
     }
 
