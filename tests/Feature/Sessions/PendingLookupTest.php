@@ -309,6 +309,29 @@ final class PendingLookupTest extends TestCase
     }
 
     /**
+     * A session that records no principal is found with none.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASessionThatRecordsNoPrincipalIsFoundWithNone(): void
+    {
+        $identity = $this->seedIdentity();
+        $pending  = $this->sessions()->signIn('password', self::credentials(), self::requestContext());
+
+        self::assertNotNull($pending->credential);
+
+        DB::table('authentication_sessions')->update(['principal_id' => null]);
+
+        $found = (new PendingLookup($this->freshGuard()->context()))->find($pending->credential, $this->now, false);
+
+        self::assertNotNull($found);
+        self::assertIsModel($identity, $found[1]);
+        self::assertNull($found[2]);
+    }
+
+    /**
      * Rows of `[recorded principal, principal the resolver answers]` for the
      * owner's principal and each way it stops being the session's.
      *

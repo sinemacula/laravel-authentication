@@ -104,4 +104,25 @@ final class PendingCredentialTest extends TestCase
 
         PendingCredential::extract($request);
     }
+
+    /**
+     * The class is a utility container only.
+     *
+     * @return void
+     *
+     * @SuppressWarnings("php:S3011")
+     */
+    public function testConstructorIsPrivate(): void
+    {
+        $reflection  = new \ReflectionClass(PendingCredential::class);
+        $constructor = $reflection->getConstructor();
+
+        self::assertNotNull($constructor);
+        self::assertTrue($constructor->isPrivate());
+
+        $instance = $reflection->newInstanceWithoutConstructor();
+        $constructor->invoke($instance);
+
+        self::assertInstanceOf(PendingCredential::class, $instance);
+    }
 }

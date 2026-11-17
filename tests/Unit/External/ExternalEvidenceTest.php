@@ -153,6 +153,7 @@ final class ExternalEvidenceTest extends TestCase
             'methods that are text'     => [['methods' => 'otp', 'authenticated_at' => $time]],
             'methods out of bounds'     => [['methods' => [''], 'authenticated_at' => $time]],
             'methods that are keyed'    => [['methods' => ['a' => 'otp'], 'authenticated_at' => $time]],
+            'a method that is no text'  => [['methods' => ['otp', 7], 'authenticated_at' => $time]],
             'no time'                   => [['methods' => ['otp']]],
             'a time that is a number'   => [['methods' => ['otp'], 'authenticated_at' => 1775476680]],
             'a time that is no time'    => [['methods' => ['otp'], 'authenticated_at' => 'yesterday-ish']],
