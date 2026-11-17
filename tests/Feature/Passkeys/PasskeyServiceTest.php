@@ -36,6 +36,7 @@ use SineMacula\Laravel\Authentication\Models\Passkey;
 use SineMacula\Laravel\Authentication\Models\PasskeyChallenge;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
+use SineMacula\Laravel\Authentication\Passkeys\Enums\ChallengeRefusal;
 use SineMacula\Laravel\Authentication\Passkeys\Enums\PasskeyRegistrationStatus;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeyAssertions;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeyChallenges;
@@ -44,6 +45,7 @@ use SineMacula\Laravel\Authentication\Passkeys\PasskeyFactorAssociation;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeyOwner;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeyService;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeySummary;
+use SineMacula\Laravel\Authentication\Passkeys\PendingRegistration;
 use SineMacula\Laravel\Authentication\Passkeys\RegisteredPasskey;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
@@ -83,6 +85,8 @@ use Tests\TestCase;
 #[CoversClass(PasskeyCredentials::class)]
 #[CoversClass(PasskeyOwner::class)]
 #[CoversClass(PasskeySummary::class)]
+#[CoversClass(PendingRegistration::class)]
+#[CoversClass(ChallengeRefusal::class)]
 #[CoversClass(AuthManager::class)]
 final class PasskeyServiceTest extends TestCase
 {

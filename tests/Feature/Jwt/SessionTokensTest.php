@@ -200,6 +200,27 @@ final class SessionTokensTest extends TestCase
     }
 
     /**
+     * The class is a utility container only.
+     *
+     * @return void
+     *
+     * @SuppressWarnings("php:S3011")
+     */
+    public function testConstructorIsPrivate(): void
+    {
+        $reflection  = new \ReflectionClass(SessionTokens::class);
+        $constructor = $reflection->getConstructor();
+
+        self::assertNotNull($constructor);
+        self::assertTrue($constructor->isPrivate());
+
+        $instance = $reflection->newInstanceWithoutConstructor();
+        $constructor->invoke($instance);
+
+        self::assertInstanceOf(SessionTokens::class, $instance);
+    }
+
+    /**
      * A stored live session with a first-factor proof, ending at the deadlines
      * given (90 and 180 days by default).
      *
