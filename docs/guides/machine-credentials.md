@@ -4,8 +4,8 @@
 
 An API client or a service account is an identity of its own type: implement `Contracts\MachineIdentity` on its model
 (a marker that extends `Identity`). A non-human identity has no password, no interactive sign-in, no session and no
-refresh; it authenticates only with a credential issued to it, each bound to one principal in one tenant. The package
-enforces this at every entry point that verifies something:
+refresh; it authenticates only with a credential issued to it, each bound to one principal and that principal's tenant,
+if it has one. The package enforces this at every entry point that verifies something:
 
 | Entry point                                                        | A non-human identity is                                      |
 |--------------------------------------------------------------------|--------------------------------------------------------------|

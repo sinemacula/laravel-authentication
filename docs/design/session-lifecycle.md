@@ -288,7 +288,8 @@ session that ended is deleted. Starting a session is in `session-service.md`; re
   or job, for one that threw), and only the observer's `unlessRehash()` checks a hash.
 - Pruning (`PrunesSessions`, with Laravel's `model:prune`) deletes a session revoked, or past either deadline, at or
   before now less `authentication.session.prune_after_days`: counted from the end of the session, never from creation.
-  Each chunk is one conditional `DELETE`; nothing is read first.
+  Each chunk, in one transaction, reads the keys of its prunable sessions, then deletes their proofs, their provenance
+  and the sessions.
 - A pruned session is indistinguishable from an unknown one: its tokens already failed once it was revoked or ended, so
   retention never changes who authenticates.
 - `tenantPolicyChanged($tenant)` (`Sessions\TenantPolicyChanges`) is the synchronous revocation for a tenant
@@ -307,7 +308,7 @@ session that ended is deleted. Starting a session is in `session-service.md`; re
 
 - `Auth::sessions('api')->sessions($identity, 20)` costs a count and a select and returns a `LengthAwarePaginator` of
   `SessionSummary`, whose JSON uses snake_case keys and ISO-8601 times.
-- `model:prune --model=...Session` deletes ceil(N / chunk) chunks and ends with one `DELETE` that finds nothing.
+- `model:prune --model=...Session` deletes ceil(N / chunk) chunks and ends with one read of keys that finds nothing.
 
 ## Failure / Edge Cases
 
