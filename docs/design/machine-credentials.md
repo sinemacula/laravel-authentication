@@ -58,10 +58,10 @@ credentials carry. This package carries scopes; an authorisation package decides
   its guards, that holds for every later ask in the request, a guard asked directly included. Routes listing one kind,
   and guards asked on a request the middleware did not record (no `auth` middleware, or before it runs), read every
   credential. Revocation is checked on every request either way (a key by its lookup, a client token by its key's).
-- Keys live on the storage connection (`Database\StorageConnection`), like every other package table, not on a
-  connection the session model decides: an `api_key` guard never reads the session model, so an application whose only
-  guards are `api_key` guards needs none configured. The guard fails when it is built on a storage connection setting
-  that is not a connection name.
+- Keys live on the storage connection (`Database\StorageConnection`), like every other package table but the attempt
+  counters when `rate_limits.connection` names another, not on a connection the session model decides: an `api_key`
+  guard never reads the session model, so an application whose only guards are `api_key` guards needs none configured.
+  The guard fails when it is built on a storage connection setting that is not a connection name.
 - Every write to a key is one conditional statement on its own connection (rotation: a conditional update of the
   replaced key, then the insert of its replacement, in one transaction), and its event is dispatched once committed
   there.
