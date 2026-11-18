@@ -90,20 +90,15 @@ final class RateLimitsTableSchemaTest extends TestCase
     }
 
     /**
-     * The window end is stored to the whole second, the precision the limiter
-     * computes window boundaries at and compares them by.
+     * The window end is stored as a Unix time, beyond 2038.
      *
      * @return void
      */
-    public function testStoresTheWindowEndToTheWholeSecond(): void
+    public function testStoresTheWindowEndAsAUnixTime(): void
     {
-        $types = array_column(Schema::getColumns(self::TABLE), 'type', 'name');
+        DB::table(self::TABLE)->insert(['key' => str_repeat('a', 64), 'hits' => 1, 'window_ends_at' => 4102444800]);
 
-        self::assertDoesNotMatchRegularExpression('/\([1-9]\)/', $types['window_ends_at']);
-
-        DB::table(self::TABLE)->insert(['key' => str_repeat('a', 64), 'hits' => 1, 'window_ends_at' => '2039-02-28 23:59:59']);
-
-        self::assertSame('2039-02-28 23:59:59', DB::table(self::TABLE)->value('window_ends_at'));
+        self::assertEquals(4102444800, DB::table(self::TABLE)->value('window_ends_at'));
     }
 
     /**

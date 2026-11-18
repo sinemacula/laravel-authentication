@@ -4,7 +4,6 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\RateLimiting;
 
-use Carbon\CarbonImmutable;
 use Illuminate\Database\Connection;
 use Illuminate\Database\Query\Builder;
 use SineMacula\Laravel\Authentication\Models\RateLimit;
@@ -21,8 +20,8 @@ use SineMacula\Laravel\Authentication\Models\RateLimit;
 final readonly class RateLimitStore
 {
     /**
-     * Take one slot of the counter's window, returning the window as stored, or
-     * the Unix time a full window ends.
+     * Take one slot of the counter's window, returning the window (the Unix
+     * time it ends, as a string), or the Unix time a full window ends.
      *
      * @param  string  $key
      * @param  int  $max
@@ -33,7 +32,7 @@ final readonly class RateLimitStore
     public function take(string $key, int $max, int $now, int $end): int|string
     {
         if ($this->writeCount($key, $now, $end, $max) || $this->storeNewCounter($key, $end) || $this->writeCount($key, $now, $end, $max)) {
-            return $this->format($end);
+            return (string) $end;
         }
 
         return $this->takeFromStoredWindow($key, $max, $now);
@@ -85,7 +84,7 @@ final readonly class RateLimitStore
         $counters = [];
 
         foreach (RateLimit::query()->useWritePdo()->whereIn('key', $keys)->get() as $counter) {
-            $counters[$counter->key] = ['hits' => $counter->hits, 'ends' => $counter->window_ends_at->getTimestamp()];
+            $counters[$counter->key] = ['hits' => $counter->hits, 'ends' => $counter->window_ends_at];
         }
 
         return $counters;
@@ -108,7 +107,7 @@ final readonly class RateLimitStore
             return $now + 1;
         }
 
-        $window = $this->format($counter['ends']);
+        $window = (string) $counter['ends'];
 
         if ($counter['hits'] < $max && $this->countIn($key, $window, $max)) {
             return $window;
@@ -161,17 +160,16 @@ final readonly class RateLimitStore
         $table      = $grammar->wrapTable($this->model()->getTable());
         $hits       = $grammar->wrap('hits');
         $window     = $grammar->wrap('window_ends_at');
-        $nowAt      = $this->format($now);
 
         $sql = "update {$table} set {$hits} = case when {$window} <= ? then 1 else {$hits} + 1 end,"
             . " {$window} = case when {$window} <= ? then ? else {$window} end where {$grammar->wrap('key')} = ?";
 
-        $bindings = [$nowAt, $nowAt, $this->format($end), $key];
+        $bindings = [$now, $now, $end, $key];
 
         if ($max !== null) {
             $sql .= " and ({$window} <= ? or ({$window} = ? and {$hits} < ?))";
 
-            array_push($bindings, $nowAt, $this->format($end), $max);
+            array_push($bindings, $now, $end, $max);
         }
 
         return $connection->update($sql, $bindings) === 1;
@@ -192,7 +190,7 @@ final readonly class RateLimitStore
         return $this->table()->insertOrIgnore([
             'key'            => $key,
             'hits'           => 1,
-            'window_ends_at' => $this->format($end),
+            'window_ends_at' => $end,
         ]) === 1;
     }
 
@@ -225,18 +223,5 @@ final readonly class RateLimitStore
     private function model(): RateLimit
     {
         return new RateLimit;
-    }
-
-    /**
-     * Format a Unix time as the counters' connection stores times.
-     *
-     * @param  int  $timestamp
-     * @return string
-     */
-    private function format(int $timestamp): string
-    {
-        $formatted = $this->model()->fromDateTime(CarbonImmutable::createFromTimestamp($timestamp, date_default_timezone_get()));
-
-        return (string) $formatted;
     }
 }

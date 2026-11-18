@@ -218,13 +218,13 @@ final class DatabaseAttemptLimiterTest extends TestCase
         $reservation = $this->limiter()->acquire($this->signIn('ben@example.com'));
         $key         = $this->keyOf($this->signIn('ben@example.com'), 'per_identifier');
 
-        self::assertSame($this->windowAt(1800000300), $reservation->windows[$key]);
+        self::assertSame('1800000300', $reservation->windows[$key]);
         self::assertSame(2, $this->hitsOf($this->signIn('ben@example.com'), 'per_identifier'));
 
         $this->limiter()->release($reservation);
 
         self::assertSame(1, $this->hitsOf($this->signIn('ben@example.com'), 'per_identifier'));
-        self::assertSame($this->windowAt(1800000300), $this->storedWindowOf($key));
+        self::assertSame(1800000300, $this->storedWindowOf($key));
     }
 
     /**
@@ -245,7 +245,7 @@ final class DatabaseAttemptLimiterTest extends TestCase
         $reservation = $this->limiter()->acquire($this->signIn('ben@example.com'));
         $key         = $this->keyOf($this->signIn('ben@example.com'), 'per_identifier');
 
-        self::assertSame($this->windowAt(1800000600), $reservation->windows[$key]);
+        self::assertSame('1800000600', $reservation->windows[$key]);
 
         $this->statements = [];
 
@@ -322,7 +322,7 @@ final class DatabaseAttemptLimiterTest extends TestCase
         $this->setIdentifierDecay(300);
 
         $key  = $this->keyOf($this->signIn('ben@example.com'), 'per_identifier');
-        $next = $this->windowAt(1800000900);
+        $next = 1800000900;
 
         $this->beforeTheStoredWindowIncrement(static function () use ($key, $next): void {
             DB::table('rate_limits')->where('key', $key)->update(['hits' => 1, 'window_ends_at' => $next]);
@@ -363,7 +363,7 @@ final class DatabaseAttemptLimiterTest extends TestCase
         }
 
         $key    = $this->keyOf($this->signIn('ben@example.com'), 'per_identifier');
-        $window = $this->windowAt(1800000150);
+        $window = 1800000150;
 
         $this->beforeFirst('select', static function () use ($change, $key, $window): void {
 
@@ -598,6 +598,33 @@ final class DatabaseAttemptLimiterTest extends TestCase
 
         self::assertSame([], $this->recordedStatements());
         self::assertSame([1, 1], $this->hits());
+    }
+
+    /**
+     * A full window ending in the second pass through the hour a zone repeats
+     * when its clocks go back still blocks for its whole wait.
+     *
+     * @return void
+     */
+    public function testAWindowEndingInARepeatedHourStillBlocks(): void
+    {
+        $timezone = date_default_timezone_get();
+
+        date_default_timezone_set('America/New_York');
+
+        // 01:59:30 in New York, 30 seconds before its clocks go back.
+        Carbon::setTestNow(Carbon::createFromTimestamp(1793512770, 'America/New_York'));
+
+        try {
+            $session = $this->refresh('session-1');
+
+            $this->limiter()->recordFailure($session);
+            $this->limiter()->recordFailure($session);
+
+            self::assertSame(30, $this->limiter()->blocked($session));
+        } finally {
+            date_default_timezone_set($timezone);
+        }
     }
 
     /**
@@ -897,27 +924,16 @@ final class DatabaseAttemptLimiterTest extends TestCase
     }
 
     /**
-     * A Unix time as the counters store a window's end.
-     *
-     * @param  int  $timestamp
-     * @return string
-     */
-    private function windowAt(int $timestamp): string
-    {
-        return Carbon::createFromTimestamp($timestamp, date_default_timezone_get())->format('Y-m-d H:i:s');
-    }
-
-    /**
      * The end of the counter's window, as stored.
      *
      * @param  string  $key
-     * @return ?string
+     * @return ?int
      */
-    private function storedWindowOf(string $key): ?string
+    private function storedWindowOf(string $key): ?int
     {
         $window = DB::table('rate_limits')->where('key', $key)->value('window_ends_at');
 
-        return is_string($window) ? $window : null;
+        return is_numeric($window) ? (int) $window : null;
     }
 
     /**

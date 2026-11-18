@@ -13,7 +13,7 @@ use SineMacula\Laravel\Authentication\Database\StorageConnection;
 
 /**
  * One attempt counter: how many attempts a key has made in the window that ends
- * at `window_ends_at`.
+ * at `window_ends_at`, a Unix time.
  *
  * @api
  *
@@ -22,7 +22,7 @@ use SineMacula\Laravel\Authentication\Database\StorageConnection;
  *
  * @property string $key
  * @property int $hits
- * @property \Carbon\CarbonInterface $window_ends_at
+ * @property int $window_ends_at
  */
 final class RateLimit extends Model
 {
@@ -67,7 +67,7 @@ final class RateLimit extends Model
      */
     public function prunable(): Builder
     {
-        return self::query()->where('window_ends_at', '<=', Carbon::now());
+        return self::query()->where('window_ends_at', '<=', Carbon::now()->getTimestamp());
     }
 
     /**
@@ -80,7 +80,7 @@ final class RateLimit extends Model
     {
         return [
             'hits'           => 'integer',
-            'window_ends_at' => 'datetime',
+            'window_ends_at' => 'integer',
         ];
     }
 }

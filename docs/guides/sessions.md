@@ -1524,15 +1524,17 @@ pending action by its stable name (`mfa.verify`, `choose_principal`, ...), read 
 it, from the `session.pending_credential_field` body field (`pending_credential`; a JSON or form body, never the query
 string or a header): there is a caller only while it names a live pending session of the guard that allows that action
 now, and the operation the route then takes (`satisfy()`, `choose()`, an adapter's action after `pending()`) makes its
-own checks; a controller that read `Auth::caller()` as `null` answers it without calling the action, so a refused
-credential is reported once. An action that is not a pending action is an `InvalidArgumentException`. Each makes a guard
-it names the default for the request, as `auth:<guard>` does, and records the declaration, nothing else: the credential
-is never inferred from what a request carries, so a refresh cookie that rides on every request does not turn a read
-route into one a refresh token authenticates. The package orders both before `SubstituteBindings` in the HTTP kernel's
-middleware priority once the kernel is resolved, so the declaration is in place before any route parameter is bound
-however a route lists them, also when the application sets the whole list with `withMiddleware()`'s `priority()`, as
-long as that list holds `SubstituteBindings`; one that replaces the list later must put
-`SineMacula\Laravel\Authentication\Http\Middleware\UseRefreshCredential` and `UsePendingCredential` before
+own checks. The declaration governs `Auth::caller()` only: an adapter that reads the credential itself names the action
+it takes (`Auth::sessions()->pending($credential, PendingAction::VERIFY)`) or checks the session's `actions()`, and is
+not held to the route's declaration. A controller that read `Auth::caller()` as `null` answers it without calling the
+action, so a refused credential is reported once. An action that is not a pending action is an
+`InvalidArgumentException`. Each makes a guard it names the default for the request, as `auth:<guard>` does, and records
+the declaration, nothing else: the credential is never inferred from what a request carries, so a refresh cookie that
+rides on every request does not turn a read route into one a refresh token authenticates. The package orders both before
+`SubstituteBindings` in the HTTP kernel's middleware priority once the kernel is resolved, so the declaration is in
+place before any route parameter is bound however a route lists them, also when the application sets the whole list with
+`withMiddleware()`'s `priority()`, as long as that list holds `SubstituteBindings`; one that replaces the list later
+must put `SineMacula\Laravel\Authentication\Http\Middleware\UseRefreshCredential` and `UsePendingCredential` before
 `SubstituteBindings` itself.
 
 The caller is read only when it is asked for, and once per request for a guard and a credential, so asking twice proves
