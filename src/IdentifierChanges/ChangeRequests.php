@@ -132,7 +132,7 @@ final readonly class ChangeRequests
             return $this->write($identity, $change, $link, $context);
         });
 
-        if ($requested instanceof IdentifierChangeRequest && !$requested->isSent()) {
+        if (is_int($requested) || !$requested->isSent()) {
             $this->container->make(AttemptLimiter::class)->release($checked);
         }
 
