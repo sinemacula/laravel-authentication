@@ -806,6 +806,30 @@ final class CallerCredentialsTest extends TestCase
     }
 
     /**
+     * A human's access-only token admits another principal its identity may
+     * use, unlike a machine's client credentials token.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAHumansAccessOnlyTokenAdmitsAnotherPrincipalOfItsIdentity(): void
+    {
+        [$member, [$membership, $other]] = $this->seedMember('ada@example.test', 2);
+
+        $tokens = Auth::jwt(self::MEMBERS);
+
+        self::assertNotNull($tokens);
+
+        $accessOnly = $tokens->issueAccessToken($member, $membership, null, null)->reveal();
+
+        $caller = self::callers()->caller($this->request('GET', ['HTTP_AUTHORIZATION' => 'Bearer ' . $accessOnly]));
+
+        self::assertNotNull($caller);
+        self::assertTrue($caller->owns($other));
+    }
+
+    /**
      * Register the members' guards, a cookie application over the same members,
      * and the machines' API key guard.
      *

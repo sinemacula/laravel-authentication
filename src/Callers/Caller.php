@@ -64,7 +64,7 @@ final readonly class Caller
         /** The scopes the credential grants (a ceiling, never a grant), or `null` when none limits it or scopes do not apply. */
         public ?array $scopes = null,
 
-        /** The session service of the guard, which admits a principal by its id, or `null` for a guard that keeps no sessions. */
+        /** The session service of the guard, which admits a principal by its id, or `null` for a guard that keeps no sessions or a client credentials token. */
         private ?SessionService $sessions = null,
     ) {}
 

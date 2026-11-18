@@ -10,6 +10,7 @@ use Illuminate\Http\Request;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Callers\Enums\CallerCredential;
 use SineMacula\Laravel\Authentication\Config\JwtGuards;
+use SineMacula\Laravel\Authentication\Context\Enums\CredentialKind;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\GuardBinding;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
@@ -152,18 +153,25 @@ final readonly class CallerCredentials
             throw new \LogicException(sprintf('The caller of a request is read from a package guard; [%s] is not one.', $guard));
         }
 
-        $identity = $resolved->identity();
+        // Reading the identity resolves the request, which binds the guard.
+        $resolved->identity();
 
-        if ($identity === null) {
+        $bound = $resolved->boundCaller();
+
+        if ($bound === null) {
             return null;
         }
 
-        $sessions = in_array($guard, JwtGuards::names($this->config), true) ? $this->auth->sessions($guard) : null;
+        // A client credentials token is bound to its key's one principal.
+        $admits = in_array($guard, JwtGuards::names($this->config), true)
+            && $bound->credentialKind !== CredentialKind::CLIENT_CREDENTIALS;
+
+        $sessions = $admits ? $this->auth->sessions($guard) : null;
 
         return new Caller(
             $guard,
             CallerCredential::ACCESS,
-            $identity,
+            $bound->identity,
             $resolved->principal(),
             $resolved->tenant(),
             $resolved->session(),

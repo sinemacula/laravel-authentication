@@ -1550,7 +1550,8 @@ guard that its identity owns and, for a refresh or a pending credential, the ver
 the access credential any session of the identity on that guard, so a screen can revoke another one); the caller's
 identity; or the principal it acts as, one its pending session offers for the choice, or, for a guard that keeps
 sessions, one its identity may use the application as (`Auth::sessions()->principal()`, with the type of identifier its
-session's sign-in used, read on the write connection). Each is judged by its class and key, and any other model is not
+session's sign-in used, read on the write connection). A client credentials token, like an API key, is bound to its
+key's principal and owns no other. Each is judged by its class and key, and any other model is not
 the caller's. It judges the model as it is given, so look the model up on the write connection
 (`Database\WriteConnection`), where a revocation or a deletion the replica has not seen yet is already visible.
 
