@@ -57,8 +57,9 @@ uses for the caller's own instance, are the application's: the package binds no 
   - an identity: the caller's (same class and identifier);
   - a principal: the one the caller acts as; or, with a pending credential, one the pending session offers for the
     choice; or, with any other credential on a guard that keeps sessions, one its identity may use the application as
-    (`principal()` below, with the identifier type the session's sign-in used), read on the writer; on a guard without
-    sessions, an API key guard, only the current principal;
+    (`principal()` below, with the identifier type the session's sign-in used), read on the writer; with a client
+    credentials token the guard authenticated, or on a guard without sessions (an API key guard), only the current
+    principal (an application's own `login()` or `setPrincipal()` after it is a trusted bind);
   - any other model is not the caller's.
 - The application looks the model up itself, on the write connection (`WriteConnection::query()` or `during()`), so a
   row the primary has revoked or deleted is never judged from a lagging replica.
@@ -113,6 +114,7 @@ uses for the caller's own instance, are the application's: the package binds no 
   API key's admission;
   `tests/Integration/Process/QueueWorkerGuardStateTest.php` `testEachJobReadsItsOwnCaller`
 - `tests/Feature/Callers/CallerTest.php`: what `owns()` holds for each credential and kind;
+  `tests/Feature/Callers/MachineCallerTest.php`: a machine's caller owns only its key's principal;
   `tests/Feature/Callers/CallerRouteBindingTest.php`: the guide's application binding over HTTP;
   `tests/Feature/AuthManagerTest.php` `testCallerReadsTheRequestBeingServed`;
   `tests/Unit/Callers/DeclaredCredentialTest.php`

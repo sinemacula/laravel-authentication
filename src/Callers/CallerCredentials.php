@@ -10,6 +10,7 @@ use Illuminate\Http\Request;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Callers\Enums\CallerCredential;
 use SineMacula\Laravel\Authentication\Config\JwtGuards;
+use SineMacula\Laravel\Authentication\Context\Enums\CredentialKind;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\GuardBinding;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
@@ -158,7 +159,11 @@ final readonly class CallerCredentials
             return null;
         }
 
-        $sessions = in_array($guard, JwtGuards::names($this->config), true) ? $this->auth->sessions($guard) : null;
+        // A client credentials token is bound to its key's one principal.
+        $admits = in_array($guard, JwtGuards::names($this->config), true)
+            && $resolved->boundCaller()?->credentialKind !== CredentialKind::CLIENT_CREDENTIALS;
+
+        $sessions = $admits ? $this->auth->sessions($guard) : null;
 
         return new Caller(
             $guard,
