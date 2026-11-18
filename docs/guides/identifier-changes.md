@@ -159,13 +159,13 @@ Route::middleware('auth:api')->post('/email/change/link', function (Request $req
 });
 ```
 
-| Status                      | When                                                                                                  |
-|-----------------------------|-------------------------------------------------------------------------------------------------------|
-| `sent`                      | The change waits for its proof until `expiresAt`                                                      |
-| `rate_limited`              | The `identifier_change` limits, or a password proof's `sign_in` limits, are used up                   |
-| `reauthentication_required` | The proof shows no recent authentication, the password is wrong, or the guard does not take passwords |
-| `identifier_invalid`        | The type's normaliser rejects the new identifier                                                      |
-| `identifier_unchanged`      | The new identifier, in its normal form, is the identity's current one                                 |
+| Status                      | When                                                                                                              |
+|-----------------------------|-------------------------------------------------------------------------------------------------------------------|
+| `sent`                      | The change waits for its proof until `expiresAt`                                                                  |
+| `rate_limited`              | The `identifier_change` or a password proof's `sign_in` limits are used up, or the code engine will not issue yet |
+| `reauthentication_required` | The proof shows no recent authentication, the password is wrong, or the guard does not take passwords             |
+| `identifier_invalid`        | The type's normaliser rejects the new identifier                                                                  |
+| `identifier_unchanged`      | The new identifier, in its normal form, is the identity's current one                                             |
 
 One change waits per identity and type, in `identifier_changes.table`: a newer request, through any guard, replaces it,
 so the code and the link of an earlier one stop working at once. It waits `identifier_changes.ttl_seconds` (3600 by
