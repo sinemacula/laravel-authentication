@@ -424,7 +424,7 @@ final class CodeSignInTest extends TestCase
         DB::table('rate_limits')->insert([
             'key'            => self::counterKey('sign_in', 'per_account', AccountAttempts::account($identity)),
             'hits'           => 1,
-            'window_ends_at' => '2026-04-06 12:05:00',
+            'window_ends_at' => 1775477100,
         ]);
 
         $this->recordEvents([AuthenticationFailed::class]);

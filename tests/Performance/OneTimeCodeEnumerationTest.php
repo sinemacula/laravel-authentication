@@ -364,7 +364,7 @@ final class OneTimeCodeEnumerationTest extends PerformanceContractTestCase
             'account'   => DB::table('rate_limits')->insert([
                 'key'            => self::counterKey('sign_in', 'per_account', AccountAttempts::account($identity)),
                 'hits'           => 5,
-                'window_ends_at' => '2026-04-10 12:05:00',
+                'window_ends_at' => 1775822700,
             ]),
             default => null,
         };

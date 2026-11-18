@@ -105,8 +105,8 @@ final class RateLimitTest extends TestCase
     }
 
     /**
-     * A counter is keyed by its digest, has no timestamps, reads its hits as an
-     * integer and its window end as a date, and accepts no mass assignment.
+     * A counter is keyed by its digest, has no timestamps, reads its hits and
+     * its window end (a Unix time) as integers, and accepts no mass assignment.
      *
      * @return void
      */
@@ -114,14 +114,14 @@ final class RateLimitTest extends TestCase
     {
         $key = hash('sha256', 'counter');
 
-        DB::table('rate_limits')->insert(['key' => $key, 'hits' => 4, 'window_ends_at' => '2027-01-15 10:05:00']);
+        DB::table('rate_limits')->insert(['key' => $key, 'hits' => 4, 'window_ends_at' => 1800007500]);
 
         $counter = RateLimit::query()->find($key);
 
         self::assertInstanceOf(RateLimit::class, $counter);
         self::assertSame(4, $counter->hits);
         self::assertSame(4, (new RateLimit)->newFromBuilder(['key' => $key, 'hits' => '4'])->hits);
-        self::assertSame('2027-01-15 10:05:00', $counter->window_ends_at->format('Y-m-d H:i:s'));
+        self::assertSame(1800007500, $counter->window_ends_at);
         self::assertFalse($counter->usesTimestamps());
         self::assertFalse($counter->getIncrementing());
         self::assertSame('string', $counter->getKeyType());
@@ -136,12 +136,12 @@ final class RateLimitTest extends TestCase
      */
     public function testPruningDeletesCountersWhoseWindowHasEnded(): void
     {
-        Carbon::setTestNow(Carbon::parse('2027-01-15 10:05:00'));
+        Carbon::setTestNow(Carbon::createFromTimestamp(1800007500));
 
         DB::table('rate_limits')->insert([
-            ['key' => hash('sha256', 'ended'), 'hits' => 3, 'window_ends_at' => '2027-01-15 10:00:00'],
-            ['key' => hash('sha256', 'ending'), 'hits' => 3, 'window_ends_at' => '2027-01-15 10:05:00'],
-            ['key' => hash('sha256', 'open'), 'hits' => 3, 'window_ends_at' => '2027-01-15 10:05:01'],
+            ['key' => hash('sha256', 'ended'), 'hits' => 3, 'window_ends_at' => 1800007200],
+            ['key' => hash('sha256', 'ending'), 'hits' => 3, 'window_ends_at' => 1800007500],
+            ['key' => hash('sha256', 'open'), 'hits' => 3, 'window_ends_at' => 1800007501],
         ]);
 
         self::assertEqualsCanonicalizing([hash('sha256', 'ended'), hash('sha256', 'ending')], (new RateLimit)->prunable()->pluck('key')->all());

@@ -36,7 +36,8 @@ return new class extends Migration {
             $blueprint->char('key', 64)->primary();
             $blueprint->unsignedInteger('hits');
 
-            $blueprint->dateTime('window_ends_at', 0)->index();
+            // A Unix time, so no timezone's repeated hour can move a window.
+            $blueprint->unsignedBigInteger('window_ends_at')->index();
         });
     }
 
