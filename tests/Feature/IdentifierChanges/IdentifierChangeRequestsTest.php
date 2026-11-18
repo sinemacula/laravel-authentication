@@ -337,8 +337,8 @@ final class IdentifierChangeRequestsTest extends TestCase
     }
 
     /**
-     * A code request whose binding already has a live code is rate limited and
-     * writes nothing.
+     * A code request whose binding already has a live code is rate limited,
+     * writes nothing and gives its slots back.
      *
      * @return void
      *
@@ -363,6 +363,7 @@ final class IdentifierChangeRequestsTest extends TestCase
 
         self::assertSame([IdentifierChangeRequestStatus::RATE_LIMITED, 60], [$request->status, $request->retryAfter]);
         self::assertSame(0, self::rows('identifier_changes'));
+        self::assertNoSlotKept();
         Queue::assertNothingPushed();
         Event::assertDispatched(
             AuthenticationFailed::class,
