@@ -153,22 +153,25 @@ final readonly class CallerCredentials
             throw new \LogicException(sprintf('The caller of a request is read from a package guard; [%s] is not one.', $guard));
         }
 
-        $identity = $resolved->identity();
+        // Reading the identity resolves the request, which binds the guard.
+        $resolved->identity();
 
-        if ($identity === null) {
+        $bound = $resolved->boundCaller();
+
+        if ($bound === null) {
             return null;
         }
 
         // A client credentials token is bound to its key's one principal.
         $admits = in_array($guard, JwtGuards::names($this->config), true)
-            && $resolved->boundCaller()?->credentialKind !== CredentialKind::CLIENT_CREDENTIALS;
+            && $bound->credentialKind !== CredentialKind::CLIENT_CREDENTIALS;
 
         $sessions = $admits ? $this->auth->sessions($guard) : null;
 
         return new Caller(
             $guard,
             CallerCredential::ACCESS,
-            $identity,
+            $bound->identity,
             $resolved->principal(),
             $resolved->tenant(),
             $resolved->session(),
