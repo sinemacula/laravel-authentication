@@ -172,6 +172,20 @@ final readonly class CodeSignIn implements SignInMethod
     }
 
     /**
+     * Fail closed on a malformed code setting or key.
+     *
+     * @return void
+     *
+     * @throws \InvalidArgumentException
+     *
+     * @internal
+     */
+    public function validate(): void
+    {
+        $this->codes->validate();
+    }
+
+    /**
      * Whether the code and the challenge id have the shapes the engine issues
      * them in.
      *

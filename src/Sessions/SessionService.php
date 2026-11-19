@@ -343,6 +343,8 @@ final readonly class SessionService
             return $policy;
         }
 
+        CredentialAttempt::assertConfigured($driver);
+
         $attempt = CredentialAttempt::begin($this->container->make(AttemptLimiter::class), $policy, $subject);
 
         if ($attempt instanceof Refused) {

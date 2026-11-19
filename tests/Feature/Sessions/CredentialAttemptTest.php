@@ -15,6 +15,8 @@ use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Sessions\CredentialAttempt;
+use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
+use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Sessions\RecordingAttemptLimiter;
 use Tests\TestCase;
@@ -100,6 +102,27 @@ final class CredentialAttemptTest extends TestCase
     public function testAMethodTheApplicationAllowsAnswersWithThePolicy(): void
     {
         self::assertSame(app(ApplicationPolicy::class), CredentialAttempt::checkMethod(app(), 'api', 'password'));
+    }
+
+    /**
+     * Only a code method has its code settings checked.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testOnlyACodeMethodHasItsSettingsChecked(): void
+    {
+        config()->set('authentication.codes.length', 5);
+
+        $methods = app(SignInMethodManager::class);
+
+        CredentialAttempt::assertConfigured($methods->method(PasswordSignIn::NAME));
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('authentication.codes.length must be an integer from 6 to 10.');
+
+        CredentialAttempt::assertConfigured($methods->method('phone_code'));
     }
 
     /**

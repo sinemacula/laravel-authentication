@@ -254,6 +254,19 @@ final readonly class OneTimeCodes
     }
 
     /**
+     * Fail closed on a malformed code setting or key.
+     *
+     * @return void
+     *
+     * @throws \InvalidArgumentException
+     */
+    public function validate(): void
+    {
+        $this->settings->validate();
+        $this->keys->validate();
+    }
+
+    /**
      * Whether the code is exactly `length` ASCII digits.
      *
      * @param  string  $code
