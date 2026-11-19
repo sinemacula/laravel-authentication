@@ -10,11 +10,16 @@ use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
+use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
@@ -28,6 +33,7 @@ use Tests\Integration\Fixtures\AccessOnlyIdentity;
  *
  * @internal
  */
+#[CoversClass(AbstractGuard::class)]
 #[CoversClass(JwtGuard::class)]
 #[CoversClass(AuthenticationServiceProvider::class)]
 final class AccessOnlyIntegrationTest extends TestCase
@@ -46,6 +52,9 @@ final class AccessOnlyIntegrationTest extends TestCase
 
     /** @var string Audience the guard's tokens carry. */
     private const string AUDIENCE = 'https://api.example.test';
+
+    /** @var string The seeded identity's password. */
+    private const string PASSWORD = 'correct horse battery staple';
 
     /**
      * Create the identity table without any package-owned schema.
@@ -148,6 +157,43 @@ final class AccessOnlyIntegrationTest extends TestCase
     }
 
     /**
+     * With password listed and sign-in limits off, `attempt()` signs in and
+     * refuses without any package table.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAttemptWorksWithoutAnyPackageTable(): void
+    {
+        $user = $this->seedUser();
+
+        config()->set('auth.guards.' . self::GUARD . '.application.methods', ['password']);
+        config()->set('auth.guards.' . self::GUARD . '.rate_limits.sign_in', null);
+
+        $events = [];
+
+        Event::listen([SignedIn::class, AuthenticationFailed::class], static function (object $event) use (&$events): void {
+            $events[] = $event;
+        });
+
+        $guard = app('auth')->guard(self::GUARD);
+
+        assert($guard instanceof JwtGuard);
+
+        self::assertFalse($guard->attempt(['email' => $user->email, 'password' => 'wrong']));
+        self::assertTrue($guard->attempt(['email' => $user->email, 'password' => self::PASSWORD]));
+        self::assertSame($user->getAuthIdentifier(), $guard->id());
+        self::assertNull($guard->session());
+        self::assertCount(2, $events);
+        self::assertInstanceOf(AuthenticationFailed::class, $events[0]);
+        self::assertSame(FailureReason::INVALID_CREDENTIALS, $events[0]->reason);
+        self::assertInstanceOf(SignedIn::class, $events[1]);
+        self::assertFalse(Schema::hasTable('rate_limits'));
+        self::assertFalse(Schema::hasTable('authentication_sessions'));
+    }
+
+    /**
      * Register the package service provider.
      *
      * @param  mixed  $app
@@ -183,6 +229,7 @@ final class AccessOnlyIntegrationTest extends TestCase
         /** @var \Illuminate\Config\Repository $config */
         $config = $app->make(ConfigRepository::class);
 
+        $config->set('app.key', 'base64:' . base64_encode('access-only integration key, 32b'));
         $config->set('database.default', 'testing');
         $config->set('database.connections.testing', [
             'driver'   => 'sqlite',
@@ -221,7 +268,7 @@ final class AccessOnlyIntegrationTest extends TestCase
 
         $user           = new AccessOnlyIdentity;
         $user->email    = 'access-only@example.test';
-        $user->password = $hasher->make('correct horse battery staple');
+        $user->password = $hasher->make(self::PASSWORD);
         $user->save();
 
         return $user;

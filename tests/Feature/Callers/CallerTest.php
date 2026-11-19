@@ -12,6 +12,8 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Callers\Caller;
 use SineMacula\Laravel\Authentication\Callers\DeclaredCredential;
 use SineMacula\Laravel\Authentication\Callers\Enums\CallerCredential;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingAction;
@@ -243,6 +245,35 @@ final class CallerTest extends TestCase
         self::assertFalse($serviceless->owns($second));
         self::assertTrue($serviceless->owns($first));
         self::assertFalse($unproven->owns(self::stored($session)));
+    }
+
+    /**
+     * A principal is admitted with the identifier type the caller's session
+     * signed in with.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPrincipalIsAdmittedWithTheSessionsIdentifierType(): void
+    {
+        [$member, [$first, $second]] = $this->seedMember('ada@example.test', 2);
+
+        $session = $this->signedIn('ada@example.test', $first);
+        $policy  = \Mockery::mock(ApplicationPolicy::class);
+
+        $policy->shouldReceive('admitIdentifier')->with(self::MEMBERS, \Mockery::any(), 'email')->andReturn(FailureReason::IDENTIFIER_UNVERIFIED);
+        $policy->shouldReceive('admitIdentifier')->with(self::MEMBERS, \Mockery::any(), null)->andReturnNull();
+
+        app()->instance(ApplicationPolicy::class, $policy);
+
+        $caller      = $this->bearerCaller($session);
+        $sessionless = new Caller(self::MEMBERS, CallerCredential::ACCESS, $member, $first, null, null, sessions: Auth::sessions(self::MEMBERS));
+
+        self::assertSame('email', $caller->session?->getSignInIdentifierType());
+        self::assertFalse($caller->owns($second));
+        self::assertTrue($caller->owns($first));
+        self::assertTrue($sessionless->owns($second));
     }
 
     /**

@@ -1398,6 +1398,54 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
+     * A superseded refresh token past its expiry and leeway fails as
+     * `token_invalid` and leaves the live session alone.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
+     */
+    public function testAnExpiredSupersededTokenIsInvalidAndRevokesNothing(): void
+    {
+        $session = $this->seedSession(37, ['refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID)]);
+
+        $this->expectRefreshContext(37, 2);
+        $this->policy->shouldReceive('lifetimes')->andReturn(new TokenLifetimes(self::ACCESS_TTL, 10, 60 * 24 * 180, self::GRACE));
+        $this->recordEvents();
+
+        $first = $this->makeExchange()->exchange($this->tokenFor($session, self::ROTATION_ID), self::client());
+
+        self::assertInstanceOf(ExchangedRefresh::class, $first);
+
+        Carbon::setTestNow($this->now->copy()->addMinutes(9));
+
+        JWT::$timestamp = $this->now->getTimestamp() + (9 * 60);
+
+        self::assertInstanceOf(ExchangedRefresh::class, $this->makeExchange()->exchange(self::bodyRefreshToken($first->tokens), self::client()));
+
+        Carbon::setTestNow($this->now->copy()->addMinutes(12));
+
+        JWT::$timestamp = $this->now->getTimestamp() + (12 * 60);
+
+        $before           = $this->row($session);
+        $this->dispatched = [];
+
+        $this->limiter->shouldReceive('recordFailure')
+            ->once()
+            ->withArgs(static fn (AttemptSubject $subject): bool => $subject->identifier === null && $subject->ip === self::CLIENT_IP);
+
+        $failure = $this->refused($this->makeExchange()->exchange(self::bodyRefreshToken($first->tokens), self::client()));
+
+        self::assertSame([FailureReason::TOKEN_INVALID], $this->failureReasons());
+        self::assertNull($failure->context->sessionId);
+        self::assertSame($before, $this->row($session));
+        self::assertNull($before['revoked_at']);
+        self::assertSame($this->now->getTimestamp() + (19 * 60), StubSession::query()->findOrFail($session->id)->idle_expires_at?->getTimestamp());
+        self::assertSame([], $this->dispatched);
+    }
+
+    /**
      * A session holding no refresh credential fails as `refresh_key_missing`
      * without being revoked.
      *
