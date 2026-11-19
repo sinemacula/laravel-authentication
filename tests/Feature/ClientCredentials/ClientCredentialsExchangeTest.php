@@ -718,6 +718,32 @@ final class ClientCredentialsExchangeTest extends TestCase
     }
 
     /**
+     * A limit per client id holds back an id no key has, and only that id, as
+     * it would one that exists, so the answer does not tell which ids exist.
+     *
+     * @return void
+     */
+    public function testALimitPerClientIdHoldsBackAnIdNoKeyHas(): void
+    {
+        config()->set('auth.guards.m2m.rate_limits', ['client_credentials' => ['per_identifier' => ['max' => 3, 'decay_seconds' => 60]]]);
+
+        $unknown = 'grant_type=client_credentials&client_id=ak_zzzzzzzzzzzzzzzz&client_secret=' . str_repeat('a', 40);
+
+        for ($attempt = 0; $attempt < 3; $attempt++) {
+            $this->token($unknown)->assertStatus(401)->assertExactJson(['error' => 'invalid_client']);
+        }
+
+        $this->token($unknown, ['REMOTE_ADDR' => '203.0.113.9'])
+            ->assertStatus(429)
+            ->assertExactJson(['error' => 'slow_down'])
+            ->assertHeader('Retry-After', '60');
+
+        $this->token('grant_type=client_credentials&client_id=ak_yyyyyyyyyyyyyyyy&client_secret=' . str_repeat('a', 40), ['REMOTE_ADDR' => '203.0.113.9'])
+            ->assertStatus(401)
+            ->assertExactJson(['error' => 'invalid_client']);
+    }
+
+    /**
      * The exchange may be called directly with a client id and secret, for the
      * client given.
      *
