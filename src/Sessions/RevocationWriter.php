@@ -6,7 +6,9 @@ namespace SineMacula\Laravel\Authentication\Sessions;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Container\Container;
+use Illuminate\Contracts\Database\Eloquent\Builder;
 use Illuminate\Database\ConnectionResolverInterface;
+use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter;
@@ -20,6 +22,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\IdentifierChanges\PendingChanges;
 use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
+use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
  * Revokes sessions for the session service: one session, or every session of
@@ -120,21 +123,25 @@ final readonly class RevocationWriter
                 $this->afterCommit->run($anchor, $committed);
             }
 
-            $total = 0;
+            $revoked = $this->revokeInKeyOrder($scopes, $reason, $except, $now);
+            $total   = 0;
 
             foreach ($scopes as $index => $scope) {
 
-                $revoked = $this->revokeSessionsOf($scope, $reason, $except, $now, $sessionRevoked);
-
                 self::forgetChanges($scope);
 
+                foreach ($revoked[$index] as $session) {
+                    $this->afterCommit->run($session, static fn () => $sessionRevoked($session, $scope));
+                }
+
+                $count  = count($revoked[$index]);
                 $cutoff = $moved[$index] === null ? null : $now;
 
-                $this->afterCommit->run($anchor, static function () use ($scopeEnded, $scope, $revoked, $cutoff): void {
-                    $scopeEnded($scope, $revoked, $cutoff);
+                $this->afterCommit->run($anchor, static function () use ($scopeEnded, $scope, $count, $cutoff): void {
+                    $scopeEnded($scope, $count, $cutoff);
                 });
 
-                $total += $revoked;
+                $total += $count;
             }
 
             return $total;
@@ -178,54 +185,108 @@ final readonly class RevocationWriter
     }
 
     /**
-     * Revoke every unrevoked session of the scope but the excepted one, a chunk
-     * at a time, and queue each revoked session's report.
+     * Revoke the scopes' unrevoked sessions but the excepted one in one key
+     * order across the scopes, a chunk at a time, and return the sessions each
+     * scope revoked.
      *
      * @formatter:off
      *
      * @phpcs:disable Generic.Files.LineLength.TooLong
      *
-     * @param  \SineMacula\Laravel\Authentication\Sessions\RevocationScope  $scope
+     * @param  non-empty-list<\SineMacula\Laravel\Authentication\Sessions\RevocationScope>  $scopes
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $except
      * @param  \Carbon\CarbonImmutable  $now
-     * @param  \Closure(\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession, \SineMacula\Laravel\Authentication\Sessions\RevocationScope): void  $sessionRevoked
-     * @return int
+     * @return non-empty-list<list<\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession>>
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
      *
      * @formatter:on
      */
-    private function revokeSessionsOf(RevocationScope $scope, RevocationReason $reason, ?Session $except, CarbonImmutable $now, \Closure $sessionRevoked): int
+    private function revokeInKeyOrder(array $scopes, RevocationReason $reason, ?Session $except, CarbonImmutable $now): array
     {
-        if ($scope->sessions === null) {
-            return 0;
+        $revoked = array_fill(0, count($scopes), []);
+        $found   = array_filter(array_map(static fn (RevocationScope $scope): ?array => $scope->sessions, $scopes));
+        $last    = array_key_last($found);
+
+        if ($last === null) {
+            return $revoked;
         }
 
-        [$sessions, $model] = $scope->sessions;
+        [$sessions, $model] = $found[$last];
 
+        $owners = array_intersect_key($scopes, $found);
+        $query  = self::unrevoked(count($found) === 1 ? $sessions : self::union($model, array_column($found, 0)), $model, $except);
+
+        WriteConnection::during($model, function () use ($query, $owners, $last, $reason, $now, &$revoked): void {
+
+            /** @var \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession $session */
+            foreach ($query->lazyById(self::CHUNK) as $session) {
+
+                if (!$this->store->revoke($session, $reason, $now)) {
+                    continue;
+                }
+
+                $revoked[self::scopeOf($owners, $session, $last)][] = $session;
+            }
+        });
+
+        return $revoked;
+    }
+
+    /**
+     * The index of the first principal's scope the session records, otherwise
+     * the last scope's.
+     *
+     * @param  array<int, \SineMacula\Laravel\Authentication\Sessions\RevocationScope>  $scopes
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
+     * @param  int  $last
+     * @return int
+     */
+    private static function scopeOf(array $scopes, EloquentSession&Model $session, int $last): int
+    {
+        foreach ($scopes as $index => $scope) {
+            if ($scope->principal !== null && PrincipalReference::isRecordedOn($session, $scope->principal)) {
+                return $index;
+            }
+        }
+
+        return $last;
+    }
+
+    /**
+     * A query of the sessions any of the queries finds.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $model
+     * @param  list<\Illuminate\Contracts\Database\Eloquent\Builder>  $queries
+     * @return \Illuminate\Contracts\Database\Eloquent\Builder
+     */
+    private static function union(EloquentSession&Model $model, array $queries): Builder
+    {
+        return WriteConnection::query($model->newQuery())->where(static function (EloquentBuilder $union) use ($queries): void {
+            foreach ($queries as $query) {
+                $union->orWhere(static fn (EloquentBuilder $nested): EloquentBuilder => $nested->addNestedWhereQuery($query->toBase()));
+            }
+        });
+    }
+
+    /**
+     * The query's unrevoked sessions but the excepted one.
+     *
+     * @param  \Illuminate\Contracts\Database\Eloquent\Builder  $sessions
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $model
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $except
+     * @return \Illuminate\Contracts\Database\Eloquent\Builder
+     */
+    private static function unrevoked(Builder $sessions, EloquentSession&Model $model, ?Session $except): Builder
+    {
         $query = (clone $sessions)->whereNull($model->qualifyColumn($model->getRevokedAtName()));
 
         if ($except instanceof $model) {
             $query->whereKeyNot($except->getSessionIdentifier());
         }
 
-        return WriteConnection::during($model, function () use ($query, $reason, $now, $sessionRevoked, $scope): int {
-
-            $revoked = 0;
-
-            /** @var \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession $session */
-            foreach ($query->lazyById(self::CHUNK) as $session) {
-
-                if (!$this->revoke($session, $reason, $now, static fn () => $sessionRevoked($session, $scope))) {
-                    continue;
-                }
-
-                $revoked++;
-            }
-
-            return $revoked;
-        });
+        return $query;
     }
 
     /**

@@ -394,6 +394,74 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
     }
 
     /**
+     * A refresh waiting on a refresh of its token gets the grace pair once that
+     * commits, and rotates the session itself once it rolls back.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARefreshWaitingOnARefreshOfItsTokenFollowsItsOutcome(): void
+    {
+        foreach ([true, false] as $commit) {
+
+            [, $first] = $this->seedMemberships();
+
+            $session   = $this->signIn($first);
+            $rotatedAt = CarbonImmutable::now();
+            $successor = RefreshTokenHasher::successor($this->rotationOf($session));
+
+            [$refreshed, $second] = $this->race(
+                fn (): array => $this->refreshOutcome($session),
+                function () use ($session, $rotatedAt): array {
+                    $this->freezeAt($rotatedAt->addSeconds(2));
+
+                    return $this->refreshOutcome($session);
+                },
+                $commit,
+            );
+
+            $answered = ['refreshed' => true, 'reason' => null, 'jti' => $successor];
+            $row      = DB::table('authentication_sessions')->sole();
+
+            self::assertSame($answered, $refreshed);
+            self::assertSame($answered, $second['result']);
+            self::assertSame([Refreshed::class], $second['events']);
+            self::assertSame($commit ? [Refreshed::class] : [], $this->recordedClasses());
+            self::assertNull($row->revoked_at);
+            self::assertSame(RefreshTokenHasher::hash($successor), $row->refresh_key);
+            self::assertTrue(self::storedInstant($row->refresh_rotated_at)->equalTo($commit ? $rotatedAt : $rotatedAt->addSeconds(2)));
+
+            $this->reset();
+        }
+    }
+
+    /**
+     * With grace disabled, a refresh waiting on a committed refresh of its
+     * token revokes the session as a replay.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testWithGraceDisabledARefreshWaitingOnARefreshOfItsTokenRevokesTheSession(): void
+    {
+        config()->set('auth.guards.' . self::GUARD . '.jwt.refresh_grace_seconds', 0);
+
+        [, $first] = $this->seedMemberships();
+
+        $session = $this->signIn($first);
+
+        [$refreshed, $second] = $this->race(fn (): array => $this->refreshOutcome($session), fn (): array => $this->refreshOutcome($session), true);
+
+        self::assertTrue($refreshed['refreshed']);
+        self::assertSame(['refreshed' => false, 'reason' => FailureReason::ROTATION_REUSE->value, 'jti' => null], $second['result']);
+        self::assertSame([SessionRevoked::class], $second['events']);
+        self::assertSame([Refreshed::class], $this->recordedClasses());
+        self::assertSame(RevocationReason::ROTATION_REUSE->value, DB::table('authentication_sessions')->sole()->revoked_reason);
+    }
+
+    /**
      * Rows of `[grace retry]`.
      *
      * @return iterable<string, array{0: string}>
@@ -632,6 +700,24 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
         self::assertIsString($claims[Claims::JWT_ID->value]);
 
         return $claims[Claims::JWT_ID->value];
+    }
+
+    /**
+     * Refresh with the session's first refresh token: whether it was answered,
+     * why not, and the rotation id of the refresh token it was answered with.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
+     * @return array{refreshed: bool, reason: ?string, jti: mixed}
+     *
+     * @throws \Throwable
+     */
+    private function refreshOutcome(SignedInSession $session): array
+    {
+        $result = self::sessionsOf($this->freshGuard(self::GUARD))->refresh(self::bodyToken($session->tokens), self::requestClient());
+        $token  = $result->session?->tokens->refreshToken?->reveal();
+        $claims = $token === null ? null : $this->freshGuard(self::GUARD)->tokens()->parse($token, TokenType::REFRESH);
+
+        return ['refreshed' => $result->isRefreshed(), 'reason' => $result->reason?->value, 'jti' => $claims[Claims::JWT_ID->value] ?? null];
     }
 
     /**

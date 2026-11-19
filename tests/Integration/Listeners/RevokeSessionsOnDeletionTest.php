@@ -34,7 +34,10 @@ use SineMacula\Laravel\Authentication\Sessions\AdmissionRecheck;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Fixtures\Sessions\InterruptingFactorPolicy;
+use Tests\Integration\Fixtures\SeparateConnectionCutoffIdentity;
+use Tests\Integration\Fixtures\SeparateConnectionSession;
 use Tests\Integration\Fixtures\SoftDeletingMember;
 use Tests\Integration\Fixtures\SoftDeletingMembership;
 use Tests\TestCase;
@@ -53,6 +56,8 @@ use Tests\TestCase;
 #[CoversTrait(RevokesOnceCommitted::class)]
 final class RevokeSessionsOnDeletionTest extends TestCase
 {
+    use InteractsWithSessionRecords;
+
     /** @var string The members' password. */
     private const string PASSWORD = 'correct horse battery staple';
 
@@ -123,6 +128,7 @@ final class RevokeSessionsOnDeletionTest extends TestCase
     #[\Override]
     protected function tearDown(): void
     {
+        Schema::dropIfExists('cutoff_identities');
         Schema::dropIfExists('soft_deleting_memberships');
         Schema::dropIfExists('soft_deleting_members');
 
@@ -372,6 +378,66 @@ final class RevokeSessionsOnDeletionTest extends TestCase
     }
 
     /**
+     * With sessions on their own connection, the revocation waits for the
+     * deleted identity's connection, not the storage connection.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheRevocationWaitsForTheDeletedModelsConnection(): void
+    {
+        config()->set('database.connections.' . SeparateConnectionSession::CONNECTION, ['driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '']);
+        config()->set('authentication.session.model', SeparateConnectionSession::class);
+        config()->set('authentication.storage.connection', SeparateConnectionSession::CONNECTION);
+
+        Schema::create('cutoff_identities', static function (Blueprint $blueprint): void {
+            $blueprint->increments('id');
+            $blueprint->string('email');
+            $blueprint->string('password');
+            $blueprint->dateTime('tokens_valid_after', 0)->nullable();
+            $blueprint->timestamps();
+        });
+
+        self::createSessionRecordTable('authentication_sessions', 'id', SeparateConnectionSession::CONNECTION);
+
+        SeparateConnectionCutoffIdentity::observe(RevokeSessionsOnDeletion::class);
+
+        $storage = DB::connection(SeparateConnectionSession::CONNECTION);
+        $first   = $this->seedSeparateSession('first');
+
+        $storage->beginTransaction();
+
+        $first->delete();
+
+        self::assertSame('identity_deleted', $storage->table('authentication_sessions')->where('authenticatable_id', (string) $first->id)->value('revoked_reason'));
+
+        $storage->commit();
+
+        $second  = $this->seedSeparateSession('second');
+        $revoked = static fn (): int => $storage->table('authentication_sessions')->where('authenticatable_id', (string) $second->id)->whereNotNull('revoked_at')->count();
+
+        DB::beginTransaction();
+
+        $second->delete();
+
+        self::assertSame(0, $revoked());
+
+        DB::rollBack();
+
+        self::assertSame(0, $revoked());
+
+        DB::transaction(static function () use ($second, $revoked): void {
+
+            SeparateConnectionCutoffIdentity::query()->findOrFail($second->id)->delete();
+
+            self::assertSame(0, $revoked());
+        });
+
+        self::assertSame(1, $revoked());
+    }
+
+    /**
      * Register the `members` guard over the soft-deleting members, as the
      * default guard.
      *
@@ -408,6 +474,25 @@ final class RevokeSessionsOnDeletionTest extends TestCase
         $membership = SoftDeletingMembership::query()->create(['identity_id' => $member->id]);
 
         return [$member, $membership];
+    }
+
+    /**
+     * Persist an identity with a live session on the session connection.
+     *
+     * @param  string  $name
+     * @return \Tests\Integration\Fixtures\SeparateConnectionCutoffIdentity
+     */
+    private function seedSeparateSession(string $name): SeparateConnectionCutoffIdentity
+    {
+        $identity = SeparateConnectionCutoffIdentity::query()->create(['email' => $name . '@example.test', 'password' => 'unused']);
+
+        (new SeparateConnectionSession)->forceFill([
+            ...self::liveSession('members', $identity),
+            'authenticatable_type' => $identity->getMorphClass(),
+            'authenticatable_id'   => (string) $identity->id,
+        ])->save();
+
+        return $identity;
     }
 
     /**

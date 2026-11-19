@@ -19,6 +19,7 @@ use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Sessions\RevocationWriter;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
+use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\CutoffIdentity;
 use Tests\Integration\Fixtures\IntegrationIdentity;
@@ -36,10 +37,22 @@ use Tests\TestCase;
 #[CoversClass(RevocationWriter::class)]
 final class RevocationWriterTest extends TestCase
 {
-    use InteractsWithSessions;
+    use InteractsWithSessionRecords, InteractsWithSessions;
 
     /** @var string The frozen time every revocation happens at. */
     private const string NOW = '2027-01-15 10:00:00';
+
+    /** @var string The key of the second principal's session, the lower. */
+    private const string LOWER = '0190e1a4-0000-7000-8000-000000000001';
+
+    /** @var string The key of the first principal's session, the higher. */
+    private const string HIGHER = '0190e1a4-0000-7000-8000-000000000002';
+
+    /** @var int How long the racing transaction holds the lower session before asking for the higher, in microseconds. */
+    private const int HOLD_MICROSECONDS = 2000000;
+
+    /** @var int How long the parent waits on the racing process's signal before giving up, in seconds. */
+    private const int SIGNAL_TIMEOUT_SECONDS = 10;
 
     /**
      * Freeze the clock and create the tables.
@@ -282,6 +295,103 @@ final class RevocationWriterTest extends TestCase
     }
 
     /**
+     * A revocation of several scopes revokes their sessions in key order, not
+     * scope by scope, and reports each with its scope.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testSeveralScopesRevokeTheirSessionsInKeyOrder(): void
+    {
+        [$tenant, $first, $second] = $this->seedTenantSessions();
+
+        $updated = [];
+
+        DB::listen(static function (QueryExecuted $query) use (&$updated): void {
+            if (!str_starts_with(strtolower($query->sql), 'update') || !str_contains($query->sql, 'authentication_sessions')) {
+                return;
+            }
+
+            array_push($updated, ...array_values(array_intersect($query->bindings, [self::LOWER, self::HIGHER])));
+        });
+
+        $this->recordEvents([SessionRevoked::class]);
+
+        self::assertSame(2, $this->sessions('members')->tenantDeactivated($tenant, [$first, $second]));
+        self::assertSame([self::LOWER, self::HIGHER], $updated);
+        self::assertSame([[self::HIGHER, (string) $first->id], [self::LOWER, (string) $second->id]], $this->revokedSessions());
+    }
+
+    /**
+     * A session no listed principal acts as counts for the tenant, not for a
+     * listed principal.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASessionOfAnUnlistedPrincipalCountsForTheTenant(): void
+    {
+        [$tenant, $first, $second] = $this->seedTenantSessions();
+
+        $this->recordEvents([SessionRevoked::class, SignedOutEverywhere::class]);
+
+        self::assertSame(2, $this->sessions('members')->tenantDeactivated($tenant, [$first]));
+        self::assertSame(1, $this->recordedEvent(SignedOutEverywhere::class)->revoked);
+        self::assertSame([[self::HIGHER, (string) $first->id], [self::LOWER, (string) $second->id]], $this->revokedSessions());
+    }
+
+    /**
+     * A revocation of several scopes never deadlocks with a transaction that
+     * locks their sessions in key order.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testSeveralScopesNeverDeadlockWithAnotherLockingInKeyOrder(): void
+    {
+        if (DB::connection()->getDriverName() === 'sqlite' || !function_exists('pcntl_fork')) {
+            self::markTestSkipped('Racing processes need a shared database server and pcntl.');
+        }
+
+        [$tenant, $first, $second] = $this->seedTenantSessions();
+
+        $signals = sys_get_temp_dir() . '/scope-revocation-race-' . bin2hex(random_bytes(8));
+
+        mkdir($signals);
+
+        DB::disconnect();
+
+        $pid = pcntl_fork();
+
+        if ($pid === 0) {
+            self::lockInKeyOrderInChild($signals);
+        }
+
+        $this->recordEvents([SessionRevoked::class]);
+
+        try {
+            self::waitFor("{$signals}/held");
+
+            $revoked = $this->sessions('members')->tenantDeactivated($tenant, [$first, $second]);
+        } finally {
+            pcntl_waitpid($pid, $status);
+        }
+
+        $reported = json_decode((string) file_get_contents("{$signals}/outcome"), true, flags: JSON_THROW_ON_ERROR);
+
+        array_map(unlink(...), glob("{$signals}/*") ?: []);
+        rmdir($signals);
+
+        self::assertSame(['locked' => [self::LOWER, self::HIGHER]], $reported);
+        self::assertSame(2, $revoked);
+        self::assertEqualsCanonicalizing([[self::HIGHER, (string) $first->id], [self::LOWER, (string) $second->id]], $this->revokedSessions());
+        self::assertSame(2, DB::table('authentication_sessions')->where('revoked_reason', 'tenant_deactivated')->count());
+    }
+
+    /**
      * Register the session guards.
      *
      * @param  mixed  $app
@@ -321,5 +431,101 @@ final class RevocationWriterTest extends TestCase
             'idle_expires_at'      => '2027-02-15 09:00:00',
             'absolute_expires_at'  => '2027-07-15 09:00:00',
         ];
+    }
+
+    /**
+     * Persist two members of one tenant, each with a live session, the second
+     * member's under the lower key.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @return array{0: \Tests\Integration\Fixtures\ActivatableTenant, 1: \Tests\Integration\Fixtures\ActivatableTenantMembership, 2: \Tests\Integration\Fixtures\ActivatableTenantMembership}
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
+     */
+    private function seedTenantSessions(): array
+    {
+        [$firstMember, $first, $tenant] = $this->seedMember();
+        [$secondMember, $second]        = $this->seedMember('other@example.test', $tenant);
+
+        foreach ([[self::HIGHER, $firstMember, $first], [self::LOWER, $secondMember, $second]] as [$key, $member, $membership]) {
+            DB::table('authentication_sessions')->insert([
+                ...self::liveSession('members', $membership),
+                'id'                   => $key,
+                'generation'           => (string) Str::uuid7(),
+                'authenticatable_type' => $member->getMorphClass(),
+                'authenticatable_id'   => (string) $member->id,
+            ]);
+        }
+
+        return [$tenant, $first, $second];
+    }
+
+    /**
+     * The session and principal each recorded revocation names, in order.
+     *
+     * @return list<array{0: ?string, 1: ?string}>
+     */
+    private function revokedSessions(): array
+    {
+        $revoked = array_filter($this->recorded, static fn (object $event): bool => $event instanceof SessionRevoked);
+
+        return array_values(array_map(static fn (SessionRevoked $event): array => [$event->context->sessionId, $event->context->principalId], $revoked));
+    }
+
+    /**
+     * In the forked process, lock the lower session, hold it, then lock the
+     * higher one, report the outcome and exit without the parent's shutdown.
+     *
+     * @param  string  $signals
+     * @return never
+     */
+    private static function lockInKeyOrderInChild(string $signals): never
+    {
+        try {
+            DB::transaction(static function () use ($signals): void {
+
+                DB::table('authentication_sessions')->where('id', self::LOWER)->lockForUpdate()->first();
+
+                touch("{$signals}/held");
+                usleep(self::HOLD_MICROSECONDS);
+
+                DB::table('authentication_sessions')->where('id', self::HIGHER)->lockForUpdate()->first();
+            });
+
+            $outcome = ['locked' => [self::LOWER, self::HIGHER]];
+        } catch (\Throwable $e) {
+            $outcome = ['error' => $e->getMessage()];
+        }
+
+        file_put_contents("{$signals}/outcome", json_encode($outcome));
+
+        posix_kill(posix_getpid(), SIGKILL);
+
+        exit(1);
+    }
+
+    /**
+     * Wait for the racing process to create the file, failing after the signal
+     * timeout.
+     *
+     * @param  string  $file
+     * @return void
+     */
+    private static function waitFor(string $file): void
+    {
+        $deadline = microtime(true) + self::SIGNAL_TIMEOUT_SECONDS;
+
+        while (!is_file($file)) {
+            if (microtime(true) >= $deadline) {
+                self::fail("The racing process never signalled {$file}.");
+            }
+
+            usleep(5000);
+        }
     }
 }
