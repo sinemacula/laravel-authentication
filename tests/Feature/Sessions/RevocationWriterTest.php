@@ -445,6 +445,80 @@ final class RevocationWriterTest extends TestCase
     }
 
     /**
+     * A tenant's scopes revoke only the sessions they find, each counted for
+     * the first listed principal that records it, otherwise for the tenant.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testATenantsScopesRevokeOnlyTheSessionsTheyFind(): void
+    {
+        [, $first, $tenant] = $this->seedMember();
+        [, $second]         = $this->seedMember('second@example.test', $tenant);
+
+        $this->seedMember('third@example.test', $tenant);
+        $this->seedMember('outsider@example.test');
+        $this->seedIdentity();
+
+        $firsts    = [self::idOf($this->signIn('members', 'member@example.test')), self::idOf($this->signIn('members', 'member@example.test'))];
+        $secondId  = self::idOf($this->signIn('members', 'second@example.test'));
+        $thirdId   = self::idOf($this->signIn('members', 'third@example.test'));
+        $outsider  = $this->signIn('members', 'outsider@example.test');
+        $unrelated = $this->signIn();
+
+        $scopes  = [RevocationScope::principal($first, $tenant), RevocationScope::principal($second, $tenant), RevocationScope::activeTenant($tenant)];
+        $counted = [];
+        $ended   = [];
+
+        $total = (new RevocationWriter(app('db'), static fn (): mixed => null))->revokeScopes(
+            $scopes,
+            RevocationReason::TENANT_DEACTIVATED,
+            null,
+            CarbonImmutable::now(),
+            static function (EloquentSession&Model $session, RevocationScope $scope) use ($scopes, &$counted): void {
+                $counted[(int) array_search($scope, $scopes, true)][] = IdentifierCoercion::stringify($session->getSessionIdentifier());
+            },
+            static function (RevocationScope $scope, int $revoked) use (&$ended): void {
+                $ended[] = $revoked;
+            },
+        );
+
+        sort($firsts);
+        sort($counted[0]);
+
+        self::assertSame(4, $total);
+        self::assertSame([$firsts, [$secondId], [$thirdId]], $counted);
+        self::assertSame([2, 1, 1], $ended);
+        self::assertNull(self::revokedAt($outsider));
+        self::assertNull(self::revokedAt($unrelated));
+    }
+
+    /**
+     * A revocation leaves its scope's query as it was, so a later pass over the
+     * same scope can still end the session the first one kept.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARevocationLeavesItsScopesQueryAsItWas(): void
+    {
+        $this->seedIdentity();
+
+        $kept   = $this->signIn();
+        $scopes = [RevocationScope::identity($kept->identity)];
+        $writer = new RevocationWriter(app('db'), static fn (): mixed => null);
+        $none   = static function (): void {};
+
+        $this->signIn();
+
+        self::assertSame(1, $writer->revokeScopes($scopes, RevocationReason::REVOKED, $kept->record, CarbonImmutable::now(), $none, $none));
+        self::assertSame(1, $writer->revokeScopes($scopes, RevocationReason::REVOKED, null, CarbonImmutable::now(), $none, $none));
+        self::assertSame(self::NOW, self::revokedAt($kept));
+    }
+
+    /**
      * A bulk revocation deletes the pending identifier changes its identity
      * scopes name, in the same transaction.
      *
