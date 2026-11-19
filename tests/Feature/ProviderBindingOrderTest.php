@@ -12,21 +12,35 @@ use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
+use SineMacula\Laravel\Authentication\Console\ConfigurationChecks;
+use SineMacula\Laravel\Authentication\Context\ContextContributors;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationAccess;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
+use SineMacula\Laravel\Authentication\Contracts\AuthenticationContexts;
 use SineMacula\Laravel\Authentication\Contracts\BreachedPasswordChecker;
+use SineMacula\Laravel\Authentication\Contracts\ExternalEvidencePolicy;
+use SineMacula\Laravel\Authentication\Contracts\ExternalIdentityLinks;
+use SineMacula\Laravel\Authentication\Contracts\FactorCodeCounters;
 use SineMacula\Laravel\Authentication\Contracts\FreshnessPolicy;
 use SineMacula\Laravel\Authentication\Contracts\PasskeyFactorGate;
 use SineMacula\Laravel\Authentication\Contracts\PasswordResetLinkSender;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
+use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Contracts\ScopeRegistry;
+use SineMacula\Laravel\Authentication\Contracts\TenantAccess;
+use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
+use SineMacula\Laravel\Authentication\Contracts\TenantResolver;
+use SineMacula\Laravel\Authentication\Database\RequiredWork;
 use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalizers;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Passkeys\WebAuthn;
+use SineMacula\Laravel\Authentication\Sessions\KeptSessions;
 use SineMacula\Laravel\Authentication\Sessions\Methods\Rehashing;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
+use SineMacula\Laravel\Authentication\Sessions\WatchedSessions;
 use Tests\Fixtures\Factors\AlwaysRequireAdditionalFactor;
 use Tests\Fixtures\Providers\DeferredFactorPolicyProvider;
 use Tests\Fixtures\Sessions\ProvenIdentitySignIn;
@@ -53,17 +67,31 @@ final class ProviderBindingOrderTest extends TestCase
         $abstracts = [
             PrincipalResolver::class,
             ApplicationPolicy::class,
+            ApplicationAccess::class,
+            TenantAccess::class,
+            TenantResolver::class,
             AttemptLimiter::class,
             AdditionalFactorPolicy::class,
             PasskeyFactorGate::class,
+            TenantAuthenticationPolicy::class,
+            ExternalIdentityLinks::class,
+            RequirementCheck::class,
+            ExternalEvidencePolicy::class,
+            FactorCodeCounters::class,
             FreshnessPolicy::class,
             ScopeRegistry::class,
             BreachedPasswordChecker::class,
             PasswordResetLinkSender::class,
+            AuthenticationContexts::class,
             IdentifierNormalizers::class,
             SignInMethodManager::class,
             Rehashing::class,
+            KeptSessions::class,
+            RequiredWork::class,
+            WatchedSessions::class,
             WebAuthn::class,
+            ContextContributors::class,
+            ConfigurationChecks::class,
             JwtTokenServiceFactory::class,
             IlluminateAuthenticate::class,
         ];
