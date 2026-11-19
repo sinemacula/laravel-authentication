@@ -487,6 +487,46 @@ final class ResetSubmissionsTest extends TestCase
     }
 
     /**
+     * A code submitted after its lifetime is `invalid`, reported as
+     * `code_expired` with its challenge.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testACodeExpiresWithItsLifetime(): void
+    {
+        config()->set('authentication.codes.ttl_seconds', 300);
+
+        self::seedResettable();
+
+        $answer = $this->passwords()->sendResetCode('phone', ['phone' => self::PHONE], self::requestClient());
+
+        self::assertSame('2026-10-29 09:35:00', $answer->expiresAt?->format('Y-m-d H:i:s'));
+
+        app()->terminate();
+
+        $code      = (string) $this->codes->lastCodeFor(self::PHONE);
+        $challenge = self::challenge();
+
+        self::freezeClock(CarbonImmutable::parse(self::NOW)->addSeconds(300));
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        $result = $this->passwords()->resetWithCode(
+            'phone',
+            ['phone' => self::PHONE, 'challenge' => $challenge, 'code' => $code, 'password' => self::NEW_PASSWORD],
+            self::requestClient(),
+        );
+
+        $failed = $this->recordedEvent(AuthenticationFailed::class);
+
+        self::assertSame(ResetStatus::INVALID, $result->status);
+        self::assertSame([AuthenticationFlow::PASSWORD_RESET, 'code_expired', $challenge], [$failed->flow, $failed->reason->value, $failed->challengeId]);
+        self::assertTrue(app(Hasher::class)->check(self::PASSWORD, (string) PasswordIdentity::query()->sole()->password));
+    }
+
+    /**
      * Wrong codes use up the attempts, after which even the right one is
      * refused.
      *
@@ -647,6 +687,43 @@ final class ResetSubmissionsTest extends TestCase
         $failed = $this->recordedEvent(AuthenticationFailed::class);
 
         self::assertSame([FailureReason::RATE_LIMITED, self::NO_CHALLENGE], [$failed->reason, $failed->challengeId]);
+    }
+
+    /**
+     * Submissions from one IP are held by its limit across identifiers before
+     * any check, while another IP still resets.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testSubmissionsFromOneIpAreLimitedAcrossIdentifiers(): void
+    {
+        config()->set('authentication.rate_limits.password_reset.per_ip', ['max' => 2, 'decay_seconds' => 900]);
+
+        self::seedResettable();
+
+        $checker = FakeBreachedPasswordChecker::fake(container: $this->app);
+        $token   = $this->requestLink();
+        $client  = new ClientContext('198.51.100.9', 'Kiosk/2.0');
+        $wrong   = str_repeat('a', 43);
+
+        foreach (['grace@example.test', 'alan@example.test'] as $email) {
+            self::assertSame(ResetStatus::INVALID, $this->passwords()->reset(['email' => $email, 'token' => $wrong, 'password' => self::NEW_PASSWORD], $client)->status);
+        }
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        $limited = $this->passwords()->reset(['email' => self::EMAIL, 'token' => $wrong, 'password' => self::NEW_PASSWORD], $client);
+        $event   = $this->recordedEvent(AuthenticationFailed::class);
+
+        self::assertSame([ResetStatus::RATE_LIMITED, 900], [$limited->status, $limited->retryAfter]);
+        self::assertSame(['rate_limited', 900, self::EMAIL], [$event->reason->value, $event->retryAfter, $event->identifier]);
+        self::assertSame(2, $checker->count());
+        self::assertSame(
+            ResetStatus::RESET,
+            $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD], new ClientContext('198.51.100.10', 'Kiosk/2.0'))->status,
+        );
     }
 
     /**

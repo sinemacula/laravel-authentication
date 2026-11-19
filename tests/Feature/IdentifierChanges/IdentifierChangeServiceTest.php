@@ -12,6 +12,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\URL;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -23,6 +24,7 @@ use SineMacula\Laravel\Authentication\Contracts\OneTimeCodeSender;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Events\IdentifierChanged;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Http\SignedLink;
 use SineMacula\Laravel\Authentication\IdentifierChanges\ChangeLinks;
@@ -381,6 +383,69 @@ final class IdentifierChangeServiceTest extends TestCase
                 self::assertSame($message, $e->getMessage());
             }
         }
+
+        self::assertSame(0, self::rows('rate_limits'));
+    }
+
+    /**
+     * Rows of `[a misconfiguration, the exception, its message]` a link
+     * confirmation refuses.
+     *
+     * @return iterable<string, array{0: \Closure(): void, 1: class-string<\Throwable>, 2: string}>
+     */
+    public static function provideMisconfiguredLinkConfirmations(): iterable
+    {
+        yield from [
+            'a malformed freshness' => [
+                static fn () => config()->set('authentication.freshness', 'soon'),
+                \InvalidArgumentException::class,
+                'authentication.freshness must map operation names to their freshness.',
+            ],
+            'no notifier' => [
+                static function (): void {
+                    app()->forgetInstance(IdentifierChangeNotifier::class);
+                    app()->offsetUnset(IdentifierChangeNotifier::class);
+                },
+                \LogicException::class,
+                'No ' . IdentifierChangeNotifier::class . ' is bound to tell an old identifier of its change',
+            ],
+        ];
+    }
+
+    /**
+     * A valid link confirmed under a misconfiguration throws and changes
+     * nothing.
+     *
+     * @param  \Closure(): void  $misconfigure
+     * @param  class-string<\Throwable>  $exception
+     * @param  string  $message
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideMisconfiguredLinkConfirmations')]
+    public function testALinkConfirmationUnderAMisconfigurationChangesNothing(\Closure $misconfigure, string $exception, string $message): void
+    {
+        $identity = self::seedChangeable();
+        $request  = $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, self::freshSession($identity), 'email.confirm', self::requestClient());
+        $link     = (string) $request->link()?->reveal();
+
+        $misconfigure();
+
+        $this->recordEvents([IdentifierChanged::class]);
+
+        try {
+            $this->changes()->confirmByLink(SignedLink::fromRequest(Request::create($link)), self::requestClient(Request::create($link)));
+            self::fail('Expected the misconfiguration to be refused.');
+        } catch (\Throwable $e) {
+            self::assertInstanceOf($exception, $e);
+            self::assertStringContainsString($message, $e->getMessage());
+        }
+
+        self::assertSame(1, self::rows('identifier_changes'));
+        self::assertSame(self::EMAIL, $identity->fresh()?->email);
+        self::assertSame([], $this->recordedClasses());
+        Queue::assertNothingPushed();
     }
 
     /**

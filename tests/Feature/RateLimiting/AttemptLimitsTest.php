@@ -40,6 +40,8 @@ final class AttemptLimitsTest extends TestCase
         self::assertSame(['per_identifier' => [5, 3600], 'per_ip' => [50, 3600]], $this->resolved(AttemptFlow::CODE_REQUEST));
         self::assertSame(['per_identifier' => null, 'per_ip' => [100, 300]], $this->resolved(AttemptFlow::PASSKEY_OPTIONS));
         self::assertSame(['per_identifier' => null, 'per_ip' => [100, 60]], $this->resolved(AttemptFlow::CLIENT_CREDENTIALS));
+        self::assertSame(['per_identifier' => [5, 3600], 'per_ip' => [50, 3600]], $this->resolved(AttemptFlow::PASSWORD_RESET_REQUEST));
+        self::assertSame(['per_identifier' => [10, 900], 'per_ip' => [50, 900]], $this->resolved(AttemptFlow::PASSWORD_RESET));
         self::assertSame(['per_identifier' => [5, 3600], 'per_ip' => [50, 3600]], $this->resolved(AttemptFlow::IDENTIFIER_CHANGE));
         self::assertSame(['per_identifier' => [10, 900], 'per_ip' => [50, 900]], $this->resolved(AttemptFlow::IDENTIFIER_VERIFICATION));
         self::assertSame(['per_identifier' => null, 'per_ip' => [50, 300]], $this->resolved(AttemptFlow::FACTOR_CODE));
