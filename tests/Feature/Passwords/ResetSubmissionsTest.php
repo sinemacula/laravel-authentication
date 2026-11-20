@@ -458,6 +458,29 @@ final class ResetSubmissionsTest extends TestCase
     }
 
     /**
+     * A link still resets the password in the last second of its lifetime.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testALinkStillResetsInItsLastSecond(): void
+    {
+        config()->set('authentication.passwords.reset.link_ttl_seconds', 300);
+
+        self::seedResettable();
+
+        $token = $this->requestLink();
+
+        self::freezeClock(CarbonImmutable::parse(self::NOW)->addSeconds(299));
+
+        self::assertSame(
+            ResetStatus::RESET,
+            $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD], self::requestClient())->status,
+        );
+    }
+
+    /**
      * A new link, requested once the cooldown has passed, replaces the one
      * before: its token stops working at once.
      *
@@ -524,6 +547,36 @@ final class ResetSubmissionsTest extends TestCase
         self::assertSame(ResetStatus::INVALID, $result->status);
         self::assertSame([AuthenticationFlow::PASSWORD_RESET, 'code_expired', $challenge], [$failed->flow, $failed->reason->value, $failed->challengeId]);
         self::assertTrue(app(Hasher::class)->check(self::PASSWORD, (string) PasswordIdentity::query()->sole()->password));
+    }
+
+    /**
+     * A code still resets the password in the last second of its lifetime.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testACodeStillResetsInItsLastSecond(): void
+    {
+        config()->set('authentication.codes.ttl_seconds', 300);
+
+        self::seedResettable();
+
+        $this->passwords()->sendResetCode('phone', ['phone' => self::PHONE], self::requestClient());
+
+        app()->terminate();
+
+        $code = (string) $this->codes->lastCodeFor(self::PHONE);
+
+        self::freezeClock(CarbonImmutable::parse(self::NOW)->addSeconds(299));
+
+        $result = $this->passwords()->resetWithCode(
+            'phone',
+            ['phone' => self::PHONE, 'challenge' => self::challenge(), 'code' => $code, 'password' => self::NEW_PASSWORD],
+            self::requestClient(),
+        );
+
+        self::assertSame(ResetStatus::RESET, $result->status);
     }
 
     /**
