@@ -745,10 +745,12 @@ final class ApiKeyServiceTest extends TestCase
     }
 
     /**
-     * The principal's keys are listed newest first, revoked ones included,
-     * without any secret.
+     * The principal's keys are listed newest first, revoked, expired and
+     * rotated ones included, without any secret.
      *
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     public function testListsThePrincipalsKeysNewestFirst(): void
     {
@@ -757,14 +759,37 @@ final class ApiKeyServiceTest extends TestCase
 
         self::travelMachineClock(10);
 
+        $expired = $this->apiKeys()->issue($machine, $machine, name: 'expired', expiresAt: CarbonImmutable::now()->addSeconds(5));
+
+        self::travelMachineClock(10);
+
+        $previous = $this->apiKeys()->issue($machine, $machine, name: 'previous');
+
+        self::travelMachineClock(10);
+
         $second = $this->apiKeys()->issue($machine, $machine, name: 'second');
+
+        self::travelMachineClock(10);
+
+        $rotated = $this->apiKeys()->rotate($machine, $previous->id, 60);
+
+        self::assertNotNull($rotated);
 
         $this->apiKeys()->revoke($machine, $first->id);
 
         $listed = $this->apiKeys()->keys($machine);
 
-        self::assertSame([$second->id, $first->id], array_map(static fn (ApiKeySummary $summary): string => $summary->id, $listed));
-        self::assertNotNull($listed[1]->revokedAt);
+        self::assertSame(
+            [$rotated->id, $second->id, $previous->id, $expired->id, $first->id],
+            array_map(static fn (ApiKeySummary $summary): string => $summary->id, $listed),
+        );
+        self::assertSame('2026-04-06T12:00:40+00:00', $listed[2]->rotatedAt?->toIso8601String());
+        self::assertSame($rotated->id, $listed[2]->replacedBy);
+        self::assertSame('2026-04-06T12:01:40+00:00', $listed[2]->expiresAt?->toIso8601String());
+        self::assertSame('2026-04-06T12:00:15+00:00', $listed[3]->expiresAt?->toIso8601String());
+        self::assertNull($listed[0]->rotatedAt);
+        self::assertNull($listed[0]->replacedBy);
+        self::assertNotNull($listed[4]->revokedAt);
         $shown = json_encode(array_map(static fn (ApiKeySummary $summary): array => $summary->toArray(), $listed), JSON_THROW_ON_ERROR);
 
         self::assertStringNotContainsString(substr($second->key()->reveal(), 20), $shown);

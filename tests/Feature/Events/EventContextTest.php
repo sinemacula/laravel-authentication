@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace Tests\Feature\Events;
 
+use Illuminate\Database\Eloquent\Relations\MorphTo;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Events\EventContext;
@@ -76,6 +77,75 @@ final class EventContextTest extends TestCase
 
         self::assertSame(PlainTenantFixture::class, $tenanted->tenantType);
         self::assertSame('9', $tenanted->tenantId);
+    }
+
+    /**
+     * The row is read through the columns the session model names for its
+     * owner, principal and tenant.
+     *
+     * @return void
+     */
+    public function testTheRowIsReadThroughTheModelsRemappedColumns(): void
+    {
+        $session = new class extends StubSession {
+            /**
+             * Polymorphic relation to the owner, over remapped columns.
+             *
+             * @formatter:off
+             *
+             * @return \Illuminate\Database\Eloquent\Relations\MorphTo<\Illuminate\Database\Eloquent\Model, \Illuminate\Database\Eloquent\Model>
+             *
+             * @formatter:on
+             */
+            #[\Override]
+            public function authenticatable(): MorphTo
+            {
+                return $this->morphTo('owner'); // @phpstan-ignore return.type
+            }
+
+            /**
+             * Polymorphic relation to the principal, over remapped columns.
+             *
+             * @formatter:off
+             *
+             * @return \Illuminate\Database\Eloquent\Relations\MorphTo<\Illuminate\Database\Eloquent\Model, \Illuminate\Database\Eloquent\Model>
+             *
+             * @formatter:on
+             */
+            #[\Override]
+            public function principal(): MorphTo
+            {
+                return $this->morphTo('actor'); // @phpstan-ignore return.type
+            }
+
+            /**
+             * Column name holding the opaque id of the session's active tenant.
+             *
+             * @return string
+             */
+            #[\Override]
+            public function getTenantIdName(): string
+            {
+                return 'org_id';
+            }
+        };
+
+        $session->setRawAttributes([
+            'id'         => 'session-1',
+            'owner_type' => 'user',
+            'owner_id'   => 7,
+            'actor_type' => 'member',
+            'actor_id'   => 9,
+            'org_id'     => 'tenant-5',
+        ]);
+
+        $context = new EventContext('api', new ClientContext(null, null), session: $session, fromSession: true);
+
+        self::assertSame('user', $context->identityType);
+        self::assertSame('7', $context->identityId);
+        self::assertSame('member', $context->principalType);
+        self::assertSame('9', $context->principalId);
+        self::assertSame('tenant-5', $context->tenantId);
     }
 
     /**

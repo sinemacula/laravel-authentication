@@ -214,6 +214,33 @@ final class ClientTokenBearerAuthenticationTest extends TestCase
     }
 
     /**
+     * Revoking a rotated key inside its overlap rejects its token at the next
+     * request, while the replacement's token keeps working.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testRevokingARotatedKeyInsideItsOverlapEndsItsTokensAtOnce(): void
+    {
+        [$machine, $issued] = $this->machineKey();
+
+        $token   = $this->exchange($issued);
+        $rotated = $this->apiKeys('m2m')->rotate($machine, $issued->id, 60);
+
+        self::assertNotNull($rotated);
+
+        $replacement = $this->exchange($rotated);
+
+        $this->bearer('/m2m/me', $token)->assertOk();
+
+        self::assertTrue($this->apiKeys('m2m')->revoke($machine, $issued->id));
+
+        $this->assertRefused('/m2m/me', $token, FailureReason::CREDENTIAL_REVOKED, $issued->id, []);
+        $this->bearer('/m2m/me', $replacement)->assertOk();
+    }
+
+    /**
      * A token whose key is gone, or is now another guard's, is
      * `credential_invalid`.
      *

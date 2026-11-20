@@ -493,6 +493,27 @@ final class PasskeySignInTest extends TestCase
     }
 
     /**
+     * A passkey registered through one guard signs its owner in on another
+     * guard of the same relying party.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPasskeySignsInOnAnotherGuardOfTheRelyingParty(): void
+    {
+        $identity = $this->seedIdentity();
+
+        $this->registerPasskey($identity);
+
+        $result = $this->signInWithPasskey('admin');
+
+        self::assertTrue($result->isSignedIn());
+        self::assertIsModel($identity, $result->session?->identity);
+        self::assertSame('admin', Session::query()->sole()->guard);
+    }
+
+    /**
      * A passkey registered for another relying party is not one of this
      * guard's, even with an origin both accept.
      *
