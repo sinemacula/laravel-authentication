@@ -392,23 +392,6 @@ final class AbstractGuardRequestResolutionTest extends AbstractGuardTestCase
     }
 
     /**
-     * A first-read bind that does not bind leaves the request to its own
-     * credential.
-     *
-     * @return void
-     */
-    public function testAFirstReadBindThatDoesNotBindResolvesTheRequest(): void
-    {
-        $identity = $this->mockIdentity();
-        $guard    = $this->makeResolvingGuard($identity);
-
-        $guard->bindOnFirstRead(static fn (): bool => false);
-
-        self::assertSame($identity, $guard->user());
-        self::assertSame(1, $guard->resolutions);
-    }
-
-    /**
      * A first-read bind that reports a bind returns what is bound, even
      * nothing, without resolving the request.
      *

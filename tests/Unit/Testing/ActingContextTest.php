@@ -19,12 +19,12 @@ use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
-use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Testing\ActingContext;
 use Tests\Unit\Stubs\PlainIdentityFixture;
 use Tests\Unit\Stubs\PlainPrincipalFixture;
 use Tests\Unit\Stubs\PlainSessionFixture;
 use Tests\Unit\Stubs\PlainTenantFixture;
+use Tests\Unit\Stubs\StubRequestResolvingGuard;
 
 /**
  * Unit tests for the acting context the testing helpers keep in the container.
@@ -300,7 +300,8 @@ final class ActingContextTest extends TestCase
     }
 
     /**
-     * A `Logout` for a guard ends acting on that guard only.
+     * A `Logout` for a guard ends acting on that guard only, which resolves its
+     * request's own credential.
      *
      * @return void
      */
@@ -309,7 +310,10 @@ final class ActingContextTest extends TestCase
         $api     = $this->guard('api');
         $admin   = $this->guard('admin');
         $ada     = new PlainIdentityFixture(1);
+        $grace   = new PlainIdentityFixture(2);
         $context = ActingContext::current();
+
+        $api->resolvable = $grace;
 
         $context->act($api, $ada, new PlainPrincipalFixture(10, $ada), null);
         $context->act($admin, $ada, new PlainPrincipalFixture(10, $ada), null);
@@ -318,13 +322,14 @@ final class ActingContextTest extends TestCase
 
         $this->container->instance('request', Request::create('/me'));
 
-        self::assertNull($api->identity());
+        self::assertSame($grace, $api->identity());
         self::assertSame($ada, $admin->identity());
     }
 
     /**
      * Acting is tied to the guard instance acted on; a fresh guard under the
-     * same name is not bound by it.
+     * same name is not bound by it, and the replaced one resolves its request's
+     * own credential.
      *
      * @return void
      */
@@ -333,7 +338,10 @@ final class ActingContextTest extends TestCase
         $old     = $this->guard('api');
         $ada     = new PlainIdentityFixture(1);
         $grace   = new PlainIdentityFixture(2);
+        $carol   = new PlainIdentityFixture(3);
         $context = ActingContext::current();
+
+        $old->resolvable = $carol;
 
         $context->act($old, $ada, new PlainPrincipalFixture(10, $ada), null);
 
@@ -347,7 +355,7 @@ final class ActingContextTest extends TestCase
 
         $this->container->instance('request', Request::create('/me'));
 
-        self::assertNull($old->identity());
+        self::assertSame($carol, $old->identity());
         self::assertSame($grace, $new->identity());
     }
 
@@ -494,13 +502,13 @@ final class ActingContextTest extends TestCase
      * request rebinding, as the service provider does when it creates one.
      *
      * @param  string  $name
-     * @return \SineMacula\Laravel\Authentication\Guards\AbstractGuard
+     * @return \Tests\Unit\Stubs\StubRequestResolvingGuard
      */
-    private function guard(string $name): AbstractGuard
+    private function guard(string $name): StubRequestResolvingGuard
     {
         $provider = self::createStub(IdentityProvider::class);
         $resolver = self::createStub(PrincipalResolver::class);
-        $guard    = new class ($name, $provider, $resolver, $this->events, Request::create('/'), new Timebox) extends AbstractGuard {};
+        $guard    = new StubRequestResolvingGuard($name, $provider, $resolver, $this->events, Request::create('/'), new Timebox);
 
         $this->container->refresh('request', $guard, 'setRequest');
 
