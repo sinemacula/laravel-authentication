@@ -10,6 +10,7 @@ use SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
+use SineMacula\Laravel\Authentication\Database\ExactMatch;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\IdentifierChanges\PendingChanges;
 use SineMacula\Laravel\Authentication\SessionRecords\IdentitySessions;
@@ -86,8 +87,9 @@ final readonly class RevocationScope
     }
 
     /**
-     * Every session acting as the principal, read on the write connection, with
-     * the tenant whose deactivation ends them when that is why.
+     * Every session recording the principal byte for byte, read on the write
+     * connection, with the tenant whose deactivation ends them when that is
+     * why.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
@@ -107,7 +109,7 @@ final readonly class RevocationScope
 
             [$type, $key] = PrincipalReference::columns($model);
 
-            $sessions = [WriteConnection::query($model->newQuery())->where([$type => PrincipalReference::type($principal), $key => $id]), $model];
+            $sessions = [ExactMatch::where(WriteConnection::query($model->newQuery()), $model, [$type => PrincipalReference::type($principal), $key => $id]), $model];
         }
 
         return new self(
@@ -120,8 +122,8 @@ final readonly class RevocationScope
     }
 
     /**
-     * Every session acting in the tenant, of every guard and principal, read on
-     * the write connection.
+     * Every session acting in the tenant, by its exact key, of every guard and
+     * principal, read on the write connection.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @return self
@@ -138,7 +140,7 @@ final readonly class RevocationScope
 
         $model = SessionLookup::model();
 
-        return new self([WriteConnection::query($model->newQuery())->where($model->qualifyColumn($model->getTenantIdName()), $id), $model], null, null, null, $tenant);
+        return new self([ExactMatch::where(WriteConnection::query($model->newQuery()), $model, [$model->getTenantIdName() => $id]), $model], null, null, null, $tenant);
     }
 
     /**

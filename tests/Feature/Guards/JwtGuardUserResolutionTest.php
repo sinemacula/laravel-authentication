@@ -615,6 +615,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         $builder->shouldReceive('getModel')
             ->once()
             ->andReturn(new StubSession);
+        $builder->shouldReceive('where', 'whereRaw')->andReturnSelf();
         $builder->shouldReceive('find')
             ->once()
             ->with(self::MISSING_SESSION_ID)
@@ -720,6 +721,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         $builder = \Mockery::mock(Builder::class);
         $builder->shouldReceive('useWritePdo')->andReturnSelf();
         $builder->shouldReceive('getModel')->andReturn(new StubSession);
+        $builder->shouldReceive('where', 'whereRaw')->andReturnSelf();
         $builder->shouldReceive('find')
             ->once()
             ->with(self::SESSION_ID)
@@ -766,6 +768,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         $builder = \Mockery::mock(Builder::class);
         $builder->shouldReceive('useWritePdo')->andReturnSelf();
         $builder->shouldReceive('getModel')->andReturn(new StubModel);
+        $builder->shouldReceive('where', 'whereRaw')->andReturnSelf();
         $builder->shouldNotReceive('find');
 
         /** @var \Mockery\MockInterface&\Tests\Unit\Stubs\StubIdentity $identity */
@@ -814,6 +817,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         $builder = \Mockery::mock(Builder::class);
         $builder->shouldReceive('useWritePdo')->andReturnSelf();
         $builder->shouldReceive('getModel')->andReturn(new StubSession);
+        $builder->shouldReceive('where', 'whereRaw')->andReturnSelf();
         $builder->shouldReceive('find')
             ->with(self::SESSION_ID)
             ->andReturn(new StubSession([...self::liveSession(self::GUARD_NAME, $principal), 'id' => self::SESSION_ID, 'revoked_at' => null]));
@@ -862,6 +866,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         $builder->shouldReceive('getModel')
             ->once()
             ->andReturn(new StubSession);
+        $builder->shouldReceive('where', 'whereRaw')->andReturnSelf();
         $builder->shouldNotReceive('find');
 
         /** @var \Mockery\MockInterface&\Tests\Unit\Stubs\StubIdentity $identity */
@@ -918,6 +923,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         $builder->shouldReceive('getModel')
             ->once()
             ->andReturn(new StubSession);
+        $builder->shouldReceive('where', 'whereRaw')->andReturnSelf();
         $builder->shouldReceive('find')
             ->once()
             ->with(self::SESSION_ID)
@@ -975,6 +981,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         $builder->shouldReceive('getModel')
             ->once()
             ->andReturn(new StubSession);
+        $builder->shouldReceive('where', 'whereRaw')->andReturnSelf();
         $builder->shouldReceive('find')
             ->once()
             ->with(self::MISSING_SESSION_ID)
@@ -1043,6 +1050,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         $builder->shouldReceive('getModel')
             ->once()
             ->andReturn(new StubSession);
+        $builder->shouldReceive('where', 'whereRaw')->andReturnSelf();
         $builder->shouldReceive('find')
             ->once()
             ->with(self::SESSION_ID)
@@ -1150,6 +1158,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         $builder->shouldReceive('getModel')
             ->once()
             ->andReturn(new StubSession);
+        $builder->shouldReceive('where', 'whereRaw')->andReturnSelf();
         $builder->shouldReceive('find')
             ->once()
             ->with(self::SESSION_ID)
