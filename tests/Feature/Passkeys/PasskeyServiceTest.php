@@ -393,6 +393,36 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
+     * An identity's first passkey on another relying party gets its own user
+     * handle.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAFirstPasskeyOnAnotherRelyingPartyGetsItsOwnHandle(): void
+    {
+        $identity = $this->seedIdentity();
+
+        $this->registerPasskey($identity);
+
+        $api = Passkey::query()->sole();
+
+        config()->set('auth.guards.admin.passkeys', ['id' => 'app.example.test']);
+
+        $options = Auth::passkeys('admin')->registrationOptions($identity, self::USER_NAME);
+        $handle  = ((array) $options->options['user'])['id'];
+
+        self::assertNotSame($api->user_handle, $handle);
+        self::assertSame([], $options->options['excludeCredentials']);
+
+        Auth::passkeys('admin')->register($identity, $options->challengeId, (new VirtualAuthenticator(self::ORIGIN))->create($options->options), self::requestClient());
+
+        self::assertSame([$api->user_handle], Passkey::query()->where('rp_id', self::RP_ID)->pluck('user_handle')->all());
+        self::assertSame([$handle], Passkey::query()->where('rp_id', 'app.example.test')->pluck('user_handle')->all());
+    }
+
+    /**
      * Registrations started before the first completes keep their own user
      * handles.
      *
@@ -1297,6 +1327,31 @@ final class PasskeyServiceTest extends TestCase
         self::assertSame(0, $queries);
         self::assertSame(4, Passkey::query()->count());
         self::assertSame([], $this->recorded);
+    }
+
+    /**
+     * Guards that share a relying party id list and remove each other's
+     * passkeys.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testGuardsThatShareARelyingPartyShareTheirPasskeys(): void
+    {
+        $identity = $this->seedIdentity();
+        $passkey  = $this->registerPasskey($identity);
+
+        self::assertSame([$passkey->id], array_map(static fn (PasskeySummary $summary): string => $summary->id, Auth::passkeys('admin')->passkeys($identity)));
+
+        $this->recordEvents([PasskeyRemoved::class]);
+
+        self::assertTrue(Auth::passkeys('admin')->remove($identity, $passkey->id, self::requestClient())->isRemoved());
+        self::assertSame(0, Passkey::query()->count());
+
+        $event = $this->recordedEvent(PasskeyRemoved::class);
+
+        self::assertSame(['admin', $passkey->id], [$event->context->guard, $event->context->credentialId]);
     }
 
     /**
