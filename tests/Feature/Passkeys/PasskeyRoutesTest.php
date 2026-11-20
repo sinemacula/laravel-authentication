@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace Tests\Feature\Passkeys;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\JsonResponse;
@@ -171,11 +172,10 @@ final class PasskeyRoutesTest extends TestCase
     {
         config()->set('authentication.rate_limits.passkey_options.per_ip', ['max' => 1, 'decay_seconds' => 60]);
 
+        $this->travelTo(CarbonImmutable::createStrict(2026, 4, 6, 12, 0, 0));
         $this->send('/sign-in/passkey/options', [])->assertOk();
 
-        $throttled = $this->send('/sign-in/passkey/options', [])->assertTooManyRequests();
-
-        self::assertGreaterThanOrEqual(1, (int) $throttled->headers->get('Retry-After'));
+        $this->send('/sign-in/passkey/options', [])->assertTooManyRequests()->assertHeader('Retry-After', '60');
     }
 
     /**

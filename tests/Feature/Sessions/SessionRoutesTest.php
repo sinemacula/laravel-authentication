@@ -169,18 +169,14 @@ final class SessionRoutesTest extends TestCase
      */
     public function testAThrottledSignInIsAnswered429WithTheWait(): void
     {
+        $this->travelTo(CarbonImmutable::createStrict(2026, 4, 6, 12, 0, 0));
         $this->seedIdentity();
 
         for ($attempt = 0; $attempt < 5; $attempt++) {
             $this->send('/sign-in', ['email' => 'ada@example.test', 'password' => 'wrong'])->assertUnauthorized();
         }
 
-        $throttled = $this->send('/sign-in', self::credentials())->assertTooManyRequests();
-        $wait      = $throttled->headers->get('Retry-After');
-
-        self::assertIsString($wait);
-        self::assertGreaterThanOrEqual(1, (int) $wait);
-        self::assertLessThanOrEqual(300, (int) $wait);
+        $this->send('/sign-in', self::credentials())->assertTooManyRequests()->assertHeader('Retry-After', '300');
     }
 
     /**
