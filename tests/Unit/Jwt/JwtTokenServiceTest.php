@@ -15,6 +15,7 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
+use SineMacula\Laravel\Authentication\Jwt\JwtKeyring;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
@@ -729,6 +730,65 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
+     * Rows of `[alg]` the HS256 keyring does not bind its key to.
+     *
+     * @return iterable<string, array{0: string}>
+     */
+    public static function provideForeignAlgorithms(): iterable
+    {
+        yield 'none' => ['none'];
+        yield 'HS384' => ['HS384'];
+        yield 'HS512' => ['HS512'];
+    }
+
+    /**
+     * A token naming the active kid under another algorithm, signed with its
+     * secret, is refused and logged as a decode failure, as an access token, a
+     * refresh token and a refresh proof.
+     *
+     * @param  string  $algorithm
+     * @return void
+     */
+    #[DataProvider('provideForeignAlgorithms')]
+    public function testParseRejectsATokenSignedWithAnotherAlgorithm(string $algorithm): void
+    {
+        $logger = \Mockery::mock(LoggerInterface::class);
+        $logger->shouldReceive('debug')->times(3)->with('JWT decode failed', \Mockery::type('array'));
+
+        $secret  = str_repeat('s', 64);
+        $service = $this->makeServiceWithLogger($logger, $secret);
+        $access  = $this->sign(['alg' => $algorithm, 'kid' => self::KID, 'typ' => TokenType::ACCESS->value], $this->completeClaims(TokenType::ACCESS), $secret);
+        $refresh = $this->sign(['alg' => $algorithm, 'kid' => self::KID, 'typ' => TokenType::REFRESH->value], $this->completeClaims(TokenType::REFRESH), $secret);
+
+        self::assertNull($service->parse($access, TokenType::ACCESS));
+        self::assertNull($service->parse($refresh, TokenType::REFRESH));
+        self::assertNull($service->parseRefreshProof($refresh));
+    }
+
+    /**
+     * A token issued before the configured algorithm changed, under the same
+     * kid and secret, is refused.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testParseRejectsATokenIssuedBeforeTheAlgorithmChanged(): void
+    {
+        $secret    = str_repeat('s', 64);
+        $lifetimes = new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES, 30);
+        $before    = new JwtTokenService(JwtKeyring::fromKeyMap([self::KID => $secret], self::KID, 'HS512'), self::GUARD, $lifetimes, 30, self::ISSUER, self::AUDIENCE);
+        $after     = new JwtTokenService($this->makeKeyring($secret), self::GUARD, $lifetimes, 30, self::ISSUER, self::AUDIENCE);
+        $access    = $before->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), null, null)->reveal();
+        $refresh   = $before->issueRefreshToken($this->mockSession('session-42'), 'rotation-id')->reveal();
+
+        self::assertIsArray($before->parse($access, TokenType::ACCESS));
+        self::assertNull($after->parse($access, TokenType::ACCESS));
+        self::assertNull($after->parse($refresh, TokenType::REFRESH));
+        self::assertNull($after->parseRefreshProof($refresh));
+    }
+
+    /**
      * The service exposes the lifetimes it issues with.
      *
      * @return void
@@ -1142,30 +1202,32 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * Sign the claims under exactly the given header, which php-jwt would
-     * otherwise give a `typ` of its own.
+     * HMAC-sign the claims under exactly the given header, by the algorithm it
+     * names; php-jwt would add a `typ` of its own and cannot sign `none`.
      *
-     * @param  array<string, mixed>  $header
+     * @param  array<string, mixed>&array{alg: string}  $header
      * @param  array<string, mixed>  $claims
+     * @param  string  $secret
      * @return string
      */
-    private function sign(array $header, array $claims): string
+    private function sign(array $header, array $claims, #[\SensitiveParameter] string $secret = self::SECRET): string
     {
         $signed = JWT::urlsafeB64Encode((string) json_encode($header)) . '.' . JWT::urlsafeB64Encode((string) json_encode($claims));
 
-        return $signed . '.' . JWT::urlsafeB64Encode(JWT::sign($signed, self::SECRET, self::ALGORITHM));
+        return $signed . '.' . ($header['alg'] === 'none' ? '' : JWT::urlsafeB64Encode(hash_hmac('sha' . substr($header['alg'], 2), $signed, $secret, true)));
     }
 
     /**
      * Build a service with the test defaults and the supplied logger.
      *
      * @param  \Psr\Log\LoggerInterface  $logger
+     * @param  string  $secret
      * @return \SineMacula\Laravel\Authentication\Jwt\JwtTokenService
      */
-    private function makeServiceWithLogger(LoggerInterface $logger): JwtTokenService
+    private function makeServiceWithLogger(LoggerInterface $logger, #[\SensitiveParameter] string $secret = self::SECRET): JwtTokenService
     {
         return new JwtTokenService(
-            $this->makeKeyring(),
+            $this->makeKeyring($secret),
             self::GUARD,
             new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES, 30),
             30,

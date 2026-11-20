@@ -1304,6 +1304,32 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
+     * A sign-in that starts active reports a limiter that cannot give its slots
+     * back and still signs in.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASignInReportsALimiterThatCannotGiveTheSlotsBack(): void
+    {
+        $identity = $this->seedIdentity();
+
+        $failure    = new \RuntimeException('The counters are unreachable.');
+        $exceptions = Exceptions::fake([\RuntimeException::class]);
+        $limiter    = $this->bindMock(AttemptLimiter::class);
+        $limiter->shouldReceive('acquire')->andReturnUsing(static fn (AttemptSubject $subject): AttemptReservation => new AttemptReservation($subject, null, ['slot' => 'window']));
+        $limiter->shouldReceive('release')->once()->andThrow($failure);
+
+        $result = Auth::sessions('api')->signIn('password', self::credentials(), self::requestContext());
+
+        self::assertTrue($result->isSignedIn());
+        self::assertSame($identity->getKey(), Auth::guard('api')->id());
+        self::assertSame(SessionStatus::ACTIVE, Session::query()->sole()->getStatus());
+        self::assertSame([$failure], $exceptions->reported());
+    }
+
+    /**
      * Rows of `[bind event]`: each event a sign-in's bind dispatches.
      *
      * @return iterable<string, array{0: class-string}>

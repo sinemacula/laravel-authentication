@@ -527,6 +527,56 @@ final class CallerCredentialsTest extends TestCase
     }
 
     /**
+     * A valid refresh token or cookie is a caller only on a route that declares
+     * the refresh credential.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARefreshCredentialIsNotACallerUnlessTheRouteDeclaresIt(): void
+    {
+        [, [$membership]] = $this->seedMember('ada@example.test');
+
+        $session = $this->signedIn('ada@example.test', $membership);
+        $request = $this->request('POST', body: ['refresh_token' => $session->tokens->refreshToken?->reveal()]);
+
+        self::assertNull(self::callers()->caller($request));
+
+        DeclaredCredential::refresh(null)->declareOn($request);
+
+        self::assertSame(CallerCredential::REFRESH, self::callers()->caller($request)?->credential);
+
+        $sameSite = ['REMOTE_ADDR' => '198.51.100.20', 'HTTP_ORIGIN' => 'http://localhost', 'HTTP_X_REQUESTED_WITH' => 'XMLHttpRequest'];
+        $signIn   = Request::create('/auth/sign-in', 'POST', server: $sameSite);
+
+        app()->instance('request', $signIn);
+
+        Auth::forgetGuards();
+
+        $input  = ['email' => 'ada@example.test', 'password' => self::MEMBER_PASSWORD];
+        $cookie = Auth::sessions(self::BROWSER)->signIn('password', $input, SignInContext::fromRequest($signIn))->session?->tokens->refreshCookie?->cookie();
+
+        self::assertNotNull($cookie);
+
+        $read = Request::create('/auth/sessions', 'GET', [], [$cookie->getName() => (string) $cookie->getValue()], [], $sameSite);
+
+        app()->instance('request', $read);
+
+        Auth::forgetGuards();
+        Auth::shouldUse(self::BROWSER);
+
+        self::assertNull(self::callers()->caller($read));
+
+        DeclaredCredential::refresh(self::BROWSER)->declareOn($read);
+
+        $caller = self::callers()->caller($read);
+
+        self::assertSame([CallerCredential::REFRESH, self::BROWSER], [$caller?->credential, $caller?->guard]);
+        self::assertCount(0, $this->failures);
+    }
+
+    /**
      * A request that carries no refresh or pending credential reads no IP
      * address.
      *
