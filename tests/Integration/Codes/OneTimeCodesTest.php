@@ -402,6 +402,38 @@ final class OneTimeCodesTest extends TestCase
     }
 
     /**
+     * Rows of `[settings, message start]` for a malformed code setting or key.
+     *
+     * @return iterable<string, array{0: array<string, mixed>, 1: string}>
+     */
+    public static function provideMalformedSettings(): iterable
+    {
+        yield from [
+            'code length out of range'     => [['authentication.codes.length' => 5], 'authentication.codes.length must be an integer from 6 to 10.'],
+            'attempts out of range'        => [['authentication.codes.max_attempts' => 0], 'authentication.codes.max_attempts must be an integer from 1 to 20.'],
+            'a code key that is too short' => [['authentication.codes.key' => 'too-short'], 'authentication.codes.key must be a string of at least 32 bytes'],
+        ];
+    }
+
+    /**
+     * Validating fails closed on a malformed code setting or key.
+     *
+     * @param  array<string, mixed>  $settings
+     * @param  non-empty-string  $message
+     * @return void
+     */
+    #[DataProvider('provideMalformedSettings')]
+    public function testValidateFailsClosedOnAMalformedSettingOrKey(array $settings, string $message): void
+    {
+        config()->set($settings);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage($message);
+
+        self::codes()->validate();
+    }
+
+    /**
      * A resend that draws the same digits is a new issuance.
      *
      * @return void
@@ -988,6 +1020,45 @@ final class OneTimeCodesTest extends TestCase
         self::assertSame(CodeCheck::ACCEPTED, self::codes()->check($binding, $issued->challengeId, '424242', $this->now));
         self::assertTrue(self::codes()->isUsedBy($binding, $issued->challengeId, '424242'));
         self::assertFalse(self::codes()->isUsedBy($other, $issued->challengeId, '424242'));
+    }
+
+    /**
+     * Rows of `[code key, the answer once the application key changed]`.
+     *
+     * @return iterable<string, array{0: ?string, 1: \SineMacula\Laravel\Authentication\Codes\Enums\CodeCheck}>
+     */
+    public static function provideCodeKeys(): iterable
+    {
+        yield from [
+            'derived from the application key' => [null, CodeCheck::NOT_FOUND],
+            'a key of its own'                 => [str_repeat('k', 32), CodeCheck::ACCEPTED],
+        ];
+    }
+
+    /**
+     * An outstanding code survives a change of application key only under a
+     * code key of its own.
+     *
+     * @param  ?string  $key
+     * @param  \SineMacula\Laravel\Authentication\Codes\Enums\CodeCheck  $answer
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    #[DataProvider('provideCodeKeys')]
+    public function testAnOutstandingCodeSurvivesAnApplicationKeyChangeOnlyUnderACodeKey(?string $key, CodeCheck $answer): void
+    {
+        config()->set('authentication.codes.key', $key);
+
+        $proof    = new ProofBinding(new PlainIdentityFixture(1), 'mobile', 'session-1', Purpose::SIGN_IN);
+        $bindings = [self::binding(), CodeBinding::factor('mobile', new FactorCodeBinding($proof, 'factor-1', new Channel(ChannelKind::SMS, '+447700900124')))];
+        $issued   = array_map(fn (CodeBinding $binding): IssuedCode => $this->issued($binding, '424242'), $bindings);
+
+        config()->set('app.key', 'base64:' . base64_encode('a rotated application key, 32 b.'));
+
+        foreach ($bindings as $index => $binding) {
+            self::assertSame($answer, self::codes()->check($binding, $issued[$index]->challengeId, '424242', $this->now));
+        }
     }
 
     /**

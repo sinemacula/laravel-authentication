@@ -5,7 +5,6 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Codes;
 
 use Carbon\CarbonImmutable;
-use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Container\Container;
 use SineMacula\Laravel\Authentication\Codes\Enums\VerificationOutcome;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
@@ -137,6 +136,8 @@ final readonly class CodeService
         $codes     = $this->collaborator(OneTimeCodes::class);
         $challenge = $codes->isWellFormedChallenge($challengeId) ? $challengeId : null;
 
+        $codes->validate();
+
         $limiter     = $this->collaborator(AttemptLimiter::class);
         $reservation = $limiter->acquire(
             new AttemptSubject($this->context->name(), AttemptFlow::IDENTIFIER_VERIFICATION, null, null, $context->client->ip, AccountAttempts::account($identity)),
@@ -199,7 +200,7 @@ final readonly class CodeService
      */
     public function verifyFactorCode(FactorCodeBinding $binding, string $challengeId, #[\SensitiveParameter] string $code, ClientContext $client): FactorCodeCheck
     {
-        (new CodeKeys($this->collaborator(Repository::class)))->validate();
+        $this->collaborator(OneTimeCodes::class)->validate();
 
         return (new FactorCodes($this->context, $this->container))->verify($binding, $challengeId, $code, $client);
     }
@@ -250,11 +251,9 @@ final readonly class CodeService
      */
     private function validated(): QueuedDelivery
     {
-        $config   = $this->collaborator(Repository::class);
         $delivery = new QueuedDelivery($this->container);
 
-        (new CodeSettings($config))->validate();
-        (new CodeKeys($config))->validate();
+        $this->collaborator(OneTimeCodes::class)->validate();
         $delivery->settings();
 
         return $delivery;

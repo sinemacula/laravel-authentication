@@ -26,6 +26,7 @@ use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyLookup;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyOutcome;
 use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\Context\Enums\CredentialKind;
+use SineMacula\Laravel\Authentication\Events\ApiKeyRevoked;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -384,6 +385,72 @@ final class ApiKeyGuardTest extends TestCase
         $this->assertRefused(FailureReason::CREDENTIAL_EXPIRED, $previous->id);
 
         $this->getWithKey('/machine/me', $rotated->key()->reveal())->assertOk();
+    }
+
+    /**
+     * Revoking a rotated key inside its overlap ends it at once, while the
+     * replacement keeps working.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testRevokingARotatedKeyInsideItsOverlapEndsItAtOnce(): void
+    {
+        $machine  = $this->seedMachine();
+        $previous = $this->apiKeys()->issue($machine, $machine);
+        $rotated  = $this->apiKeys()->rotate($machine, $previous->id, 60);
+
+        self::assertNotNull($rotated);
+
+        $this->getWithKey('/machine/me', $previous->key()->reveal())->assertOk();
+
+        self::travelMachineClock(10);
+
+        $this->recordMachineEvents([ApiKeyRevoked::class]);
+
+        self::assertTrue($this->apiKeys()->revoke($machine, $previous->id));
+        self::assertSame([ApiKeyRevoked::class], $this->machineEventClasses());
+        self::assertSame($previous->id, $this->machineEventsOf(ApiKeyRevoked::class)[0]->context->credentialId);
+
+        $this->dispatched = [];
+
+        $this->getWithKey('/machine/me', $previous->key()->reveal())->assertUnauthorized();
+        $this->assertRefused(FailureReason::CREDENTIAL_REVOKED, $previous->id);
+
+        $this->getWithKey('/machine/me', $rotated->key()->reveal())->assertOk();
+    }
+
+    /**
+     * Keys issued under the previous prefix still authenticate and exchange
+     * once the prefix changes, while new keys take and authenticate under the
+     * new one.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testChangingThePrefixLeavesExistingKeysWorking(): void
+    {
+        $machine = $this->seedMachine();
+        $issued  = $this->apiKeys()->issue($machine, $machine);
+        $client  = $this->apiKeys('m2m')->issue($machine, $machine);
+
+        config()->set('authentication.api_keys.prefix', 'acme');
+
+        $fresh = $this->apiKeys()->issue($machine, $machine);
+
+        self::assertStringStartsWith('ak_', $issued->key()->reveal());
+        self::assertStringStartsWith('acme_', $fresh->key()->reveal());
+
+        $this->getWithKey('/machine/me', $issued->key()->reveal())->assertOk();
+        $this->getWithKey('/machine/me', $fresh->key()->reveal())->assertOk();
+
+        $this->startMachineRequest();
+
+        $exchanged = Auth::clientCredentials('m2m')->exchange(self::basicClient($client->summary->publicId, substr($client->key()->reveal(), 20)), self::requestClient());
+
+        self::assertNotNull($exchanged->accessToken);
     }
 
     /**

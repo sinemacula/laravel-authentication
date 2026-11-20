@@ -160,7 +160,10 @@ final readonly class SessionReauthentication
             return new Refused($live ?? FailureReason::MACHINE_IDENTITY, session: $stored);
         }
 
-        $driver  = $this->container->make(SignInMethodManager::class)->method($method);
+        $driver = $this->container->make(SignInMethodManager::class)->method($method);
+
+        CredentialAttempt::assertConfigured($driver);
+
         $subject = new AttemptSubject($guard, AttemptFlow::SIGN_IN, $driver->identifier($guard, $input), $driver->identifierType($guard), $client->ip);
         $attempt = CredentialAttempt::begin($this->container->make(AttemptLimiter::class), $policy, $subject);
 

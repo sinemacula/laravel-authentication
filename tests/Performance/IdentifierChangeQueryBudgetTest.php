@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace Tests\Performance;
 
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Router;
@@ -12,6 +13,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Http\SignedLink;
 use SineMacula\Laravel\Authentication\IdentifierChanges\ChangeConfirmation;
 use SineMacula\Laravel\Authentication\IdentifierChanges\ChangeRequests;
@@ -132,6 +134,58 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
         );
 
         self::assertTrue($request->isSent());
+    }
+
+    /**
+     * A request for an identifier another identity holds runs the statements
+     * and gets the answer one for a free identifier does; only its confirmation
+     * finds it taken.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARequestForAHeldIdentifierRunsAsOneForAFreeIdentifier(): void
+    {
+        $held    = self::seedChangeable();
+        $free    = self::seedChangeable('grace@example.test');
+        $changes = Auth::identifierChanges('web');
+        $proofs  = [self::freshSession($held), self::freshSession($free)];
+        $clients = [new ClientContext('198.51.100.1', 'Browser/1.0'), new ClientContext('198.51.100.2', 'Browser/1.0')];
+        $unused  = 'grace@new.example.test';
+
+        self::seedChangeable(self::NEW_EMAIL);
+        self::issueCodes(['135790', '246802']);
+
+        $statements = [];
+
+        DB::listen(static function (QueryExecuted $query) use (&$statements): void {
+            $statements[] = $query->sql;
+        });
+
+        $record = static function (callable $request) use (&$statements): array {
+            $statements = [];
+
+            return [$request(), $statements];
+        };
+
+        [$heldCode, $heldCodeSql] = $record(static fn (): IdentifierChangeRequest => $changes->requestByCode($held, 'email', self::NEW_EMAIL, $proofs[0], $clients[0]));
+        [$freeCode, $freeCodeSql] = $record(static fn (): IdentifierChangeRequest => $changes->requestByCode($free, 'email', $unused, $proofs[1], $clients[1]));
+        [$heldLink, $heldLinkSql] = $record(static fn (): IdentifierChangeRequest => $changes->requestByLink($held, 'email', self::NEW_EMAIL, $proofs[0], 'confirm', $clients[0]));
+        [$freeLink, $freeLinkSql] = $record(static fn (): IdentifierChangeRequest => $changes->requestByLink($free, 'email', $unused, $proofs[1], 'confirm', $clients[1]));
+
+        foreach ([[$heldCode, $freeCode], [$heldLink, $freeLink]] as [$heldAnswer, $freeAnswer]) {
+            self::assertSame([IdentifierChangeRequestStatus::SENT, IdentifierChangeRequestStatus::SENT], [$heldAnswer->status, $freeAnswer->status]);
+            self::assertEquals($freeAnswer->expiresAt, $heldAnswer->expiresAt);
+        }
+
+        self::assertSame($freeCodeSql, $heldCodeSql);
+        self::assertSame($freeLinkSql, $heldLinkSql);
+
+        $link    = Request::create((string) $heldLink->link()?->reveal());
+        $outcome = $changes->confirmByLink(SignedLink::fromRequest($link), self::requestClient($link))->outcome;
+
+        self::assertSame(IdentifierChangeOutcome::TAKEN, $outcome);
     }
 
     /**

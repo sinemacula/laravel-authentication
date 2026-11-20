@@ -30,7 +30,9 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
+use SineMacula\Laravel\Authentication\Sessions\CredentialAttempt;
 use SineMacula\Laravel\Authentication\Sessions\SessionReauthentication;
+use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
@@ -52,7 +54,9 @@ use Tests\Unit\Stubs\StubVerbatimNormalizer;
  */
 #[CoversClass(CodeSignIn::class)]
 #[CoversClass(CodeCheck::class)]
+#[CoversClass(CredentialAttempt::class)]
 #[CoversClass(SessionReauthentication::class)]
+#[CoversClass(SessionService::class)]
 final class CodeSignInTest extends TestCase
 {
     use InteractsWithCodeIdentities, InteractsWithRateLimits;
@@ -791,6 +795,68 @@ final class CodeSignInTest extends TestCase
 
         self::assertFalse($result->isIssued());
         self::assertSame([AuthenticationFlow::REAUTHENTICATION, self::challenge()], [$failed->flow, $failed->challengeId]);
+    }
+
+    /**
+     * Rows of `[settings, message start]`: malformed code settings, and a key
+     * too short.
+     *
+     * @return iterable<string, array{0: array<string, mixed>, 1: string}>
+     */
+    public static function provideMalformedSettings(): iterable
+    {
+        yield from [
+            'code length out of range'     => [['authentication.codes.length' => 5], 'authentication.codes.length must be an integer from 6 to 10.'],
+            'attempts out of range'        => [['authentication.codes.max_attempts' => 0], 'authentication.codes.max_attempts must be an integer from 1 to 20.'],
+            'a code key that is too short' => [['authentication.codes.key' => 'too-short'], 'authentication.codes.key must be a string of at least 32 bytes'],
+        ];
+    }
+
+    /**
+     * A malformed code setting fails a sign-in and a reauthentication by code
+     * closed before anything is counted.
+     *
+     * @param  array<string, mixed>  $settings
+     * @param  non-empty-string  $message
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideMalformedSettings')]
+    public function testMalformedSettingsFailClosedBeforeAnythingIsCounted(array $settings, string $message): void
+    {
+        self::seedCodeIdentity();
+
+        $this->codeService()->send('phone_code', ['phone' => self::PHONE], self::requestClient());
+
+        $session = $this->signIn(self::CODE)->session;
+
+        self::assertNotNull($session);
+
+        CarbonImmutable::setTestNow($this->now->addSeconds(60));
+
+        $this->codeService()->send('phone_code', ['phone' => self::PHONE], self::requestClient());
+
+        DB::table('rate_limits')->delete();
+        config()->set($settings);
+
+        $input = ['phone' => self::PHONE, 'challenge' => self::challenge(), 'code' => '246802'];
+        $calls = [
+            fn (): mixed => $this->sessions('mobile')->signIn('phone_code', $input, self::requestContext()),
+            fn (): mixed => $this->sessions('mobile')->reauthenticate($session->record, 'phone_code', $input, self::requestClient()),
+        ];
+
+        foreach ($calls as $call) {
+            try {
+                $call();
+
+                self::fail('A code was checked with malformed settings.');
+            } catch (\InvalidArgumentException $exception) {
+                self::assertStringStartsWith($message, $exception->getMessage());
+            }
+        }
+
+        self::assertSame([0, 1], [DB::table('rate_limits')->count(), DB::table('one_time_codes')->whereNull('consumed_at')->where('attempts', 0)->count()]);
     }
 
     /**

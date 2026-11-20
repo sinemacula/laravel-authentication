@@ -787,9 +787,12 @@ final class FactorCodesTest extends TestCase
 
         CarbonImmutable::setTestNow($this->now->addSeconds(60));
 
+        $this->recordEvents([AuthenticationFailed::class]);
+
         $request = $this->send($this->binding());
 
-        self::assertSame(CodeRequestStatus::RATE_LIMITED, $request->status);
+        self::assertSame([CodeRequestStatus::RATE_LIMITED, 3540], [$request->status, $request->retryAfter]);
+        self::assertRefusedSend(FailureReason::RATE_LIMITED, 3540, 'session-1');
         self::assertSame([], $this->counters->admitted);
     }
 
@@ -929,7 +932,12 @@ final class FactorCodesTest extends TestCase
 
         CarbonImmutable::setTestNow($this->now->addSeconds(30));
 
-        self::assertSame(CodeRequestStatus::RATE_LIMITED, $this->send($this->binding(Purpose::ENROLLMENT, factor: 'factor-2', grant: 'grant-2'))->status);
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        $cooling = $this->send($this->binding(Purpose::ENROLLMENT, factor: 'factor-2', grant: 'grant-2'));
+
+        self::assertSame([CodeRequestStatus::RATE_LIMITED, 30], [$cooling->status, $cooling->retryAfter]);
+        self::assertRefusedSend(FailureReason::RATE_LIMITED, 30, 'session-1');
 
         CarbonImmutable::setTestNow($this->now->addSeconds(60));
 
@@ -945,9 +953,12 @@ final class FactorCodesTest extends TestCase
 
         CarbonImmutable::setTestNow($this->now->addSeconds(180));
 
+        $this->recordEvents([AuthenticationFailed::class]);
+
         $capped = $this->send($this->binding(Purpose::ENROLLMENT, factor: 'factor-3', grant: 'grant-3', session: 'session-3'));
 
         self::assertSame([CodeRequestStatus::DELIVERIES_EXHAUSTED, 1620], [$capped->status, $capped->retryAfter]);
+        self::assertRefusedSend(FailureReason::DELIVERIES_EXHAUSTED, 1620, 'session-3');
     }
 
     /**
@@ -1013,6 +1024,23 @@ final class FactorCodesTest extends TestCase
         assert($app instanceof Application);
 
         self::configureCodeGuards($app->make(ConfigRepository::class));
+    }
+
+    /**
+     * Assert the one recorded `AuthenticationFailed` reports a refused send on
+     * the `factor_code` flow with the reason and wait, for the session.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
+     * @param  int  $retryAfter
+     * @param  string  $sessionId
+     * @return void
+     */
+    private function assertRefusedSend(FailureReason $reason, int $retryAfter, string $sessionId): void
+    {
+        $failed = $this->recordedEvent(AuthenticationFailed::class);
+
+        self::assertSame([AuthenticationFlow::FACTOR_CODE, $reason, $retryAfter], [$failed->flow, $failed->reason, $failed->retryAfter]);
+        self::assertSame([null, null, $sessionId], [$failed->identifier, $failed->challengeId, $failed->context->sessionId]);
     }
 
     /**

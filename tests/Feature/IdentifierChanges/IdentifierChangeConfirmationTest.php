@@ -5,13 +5,16 @@ declare(strict_types = 1);
 namespace Tests\Feature\IdentifierChanges;
 
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Events\Dispatcher;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\URL;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -30,6 +33,7 @@ use SineMacula\Laravel\Authentication\Http\SignedLink;
 use SineMacula\Laravel\Authentication\IdentifierChanges\ChangeConfirmation;
 use SineMacula\Laravel\Authentication\IdentifierChanges\ChangeLinks;
 use SineMacula\Laravel\Authentication\IdentifierChanges\ChangeRefused;
+use SineMacula\Laravel\Authentication\IdentifierChanges\ChangeRequests;
 use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeOutcome;
 use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeNotice;
 use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeService;
@@ -38,12 +42,14 @@ use SineMacula\Laravel\Authentication\IdentifierChanges\PresentedChangeLink;
 use SineMacula\Laravel\Authentication\IdentifierChanges\SendIdentifierChangeNotice;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
 use SineMacula\Laravel\Authentication\Passwords\OutdatedProofs;
+use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
 use SineMacula\Laravel\Authentication\Verification\Enums\VerificationLinkOutcome;
 use SineMacula\Laravel\Authentication\Verification\VerificationLinks;
 use Tests\Concerns\ChangesIdentifiers;
 use Tests\Concerns\InspectsTraces;
 use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Integration\Fixtures\ChangeableIdentity;
+use Tests\Integration\Fixtures\HandleChangeableIdentity;
 use Tests\Integration\Fixtures\SuspendableChangeableIdentity;
 use Tests\TestCase;
 
@@ -60,6 +66,7 @@ use Tests\TestCase;
 #[CoversClass(ChangeConfirmation::class)]
 #[CoversClass(ChangeLinks::class)]
 #[CoversClass(ChangeRefused::class)]
+#[CoversClass(ChangeRequests::class)]
 #[CoversClass(PendingChanges::class)]
 #[CoversClass(PresentedChangeLink::class)]
 #[CoversClass(SendIdentifierChangeNotice::class)]
@@ -363,6 +370,31 @@ final class IdentifierChangeConfirmationTest extends TestCase
             IdentifierChangeOutcome::INVALID,
             $this->changes()->confirmByCode($identity, 'phone', self::changeChallenge($identity, 'phone'), self::CODE, self::requestClient())->outcome,
         );
+    }
+
+    /**
+     * Another identity's challenge and code confirm nothing and spend neither
+     * code.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnotherIdentitysChallengeIsNotConfirmed(): void
+    {
+        $identity = $this->requestedByCode();
+        $other    = self::seedChangeable('grace@example.test');
+
+        self::assertTrue($this->changes()->requestByCode($other, 'email', 'grace@new.example.test', self::freshSession($other), self::requestClient())->isSent());
+
+        $challenge = self::changeChallenge($other, 'email');
+
+        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByCode($identity, 'email', $challenge, '246802', self::requestClient())->outcome);
+        self::assertSame(2, self::rows('identifier_changes'));
+        self::assertEquals([0, 0], DB::table('one_time_codes')->whereNull('consumed_at')->pluck('attempts')->all());
+        self::assertSame([self::EMAIL, 'grace@example.test'], DB::table('changeable_identities')->orderBy('id')->pluck('email')->all());
+        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($other, 'email', $challenge, '246802', self::requestClient())->outcome);
+        self::assertSame('grace@new.example.test', $other->email);
     }
 
     /**
@@ -1207,6 +1239,45 @@ final class IdentifierChangeConfirmationTest extends TestCase
             $this->changes()->confirmByLink(SignedLink::fromRequest(Request::create($link)), self::requestClient(Request::create($link)))->outcome,
         );
         self::assertSame(self::EMAIL, $identity->fresh()?->email);
+    }
+
+    /**
+     * A link names an identity by its auth identifier, not its key, when the
+     * two differ.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testALinkNamesTheAuthIdentifierNotTheKey(): void
+    {
+        config()->set('auth.providers.handles', ['driver' => 'model', 'model' => HandleChangeableIdentity::class]);
+        config()->set('auth.guards.handles', ['driver' => 'jwt', 'provider' => 'handles', 'application' => ['methods' => ['password']]]);
+
+        Schema::table('changeable_identities', static function (Blueprint $blueprint): void {
+            $blueprint->string('handle')->nullable();
+        });
+
+        $identity = HandleChangeableIdentity::query()->create([
+            'handle'            => 'ada',
+            'email'             => self::EMAIL,
+            'email_verified_at' => '2026-01-01 00:00:00',
+            'password'          => app(Hasher::class)->make(self::PASSWORD),
+        ]);
+
+        $proof   = Reauthentication::password(self::PASSWORD);
+        $link    = (string) $this->changes('handles')->requestByLink($identity, 'email', self::NEW_EMAIL, $proof, 'email.confirm', self::requestClient())->link()?->reveal();
+        $byKey   = URL::temporarySignedRoute('email.confirm', $this->now->addHour(), [...self::linkFields($link), 'identity' => (string) $identity->id]);
+        $confirm = function (string $url): IdentifierChangeOutcome {
+            $request = Request::create($url);
+
+            return $this->changes('handles')->confirmByLink(SignedLink::fromRequest($request), self::requestClient($request))->outcome;
+        };
+
+        self::assertSame('ada', self::linkFields($link)['identity']);
+        self::assertSame(IdentifierChangeOutcome::INVALID, $confirm($byKey));
+        self::assertSame(IdentifierChangeOutcome::CHANGED, $confirm($link));
+        self::assertSame(self::NEW_EMAIL, DB::table('changeable_identities')->value('email'));
     }
 
     /**
