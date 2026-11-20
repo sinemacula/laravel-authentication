@@ -14,6 +14,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyRules;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyService;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeySummary;
+use SineMacula\Laravel\Authentication\ApiKeys\CredentialBinding;
 use SineMacula\Laravel\Authentication\ApiKeys\IssuedApiKey;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -30,6 +31,7 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithFoldingCollations;
 use Tests\Concerns\InteractsWithMachineCredentials;
 use Tests\Fixtures\Events\EventContextAssertions;
+use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\MachineAccount;
 use Tests\Integration\Fixtures\MachineClient;
 use Tests\Integration\Fixtures\MachineMembership;
@@ -49,6 +51,7 @@ use Tests\TestCase;
 #[CoversClass(ApiKeyRules::class)]
 #[CoversClass(IssuedApiKey::class)]
 #[CoversClass(ApiKeySummary::class)]
+#[CoversClass(CredentialBinding::class)]
 #[CoversClass(AuthManager::class)]
 final class ApiKeyServiceTest extends TestCase
 {
@@ -796,6 +799,29 @@ final class ApiKeyServiceTest extends TestCase
     }
 
     /**
+     * Keys issued and rotated within one second list newest first.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testListsKeysOfOneSecondNewestFirst(): void
+    {
+        $machine = $this->seedMachine();
+        $issued  = array_map(fn (): string => $this->apiKeys()->issue($machine, $machine)->id, range(1, 4));
+        $rotated = $this->apiKeys()->rotate($machine, $issued[0]);
+
+        self::assertNotNull($rotated);
+
+        $last = $this->apiKeys()->issue($machine, $machine)->id;
+
+        self::assertSame(
+            [$last, $rotated->id, ...array_reverse($issued)],
+            array_map(static fn (ApiKeySummary $summary): string => $summary->id, $this->apiKeys()->keys($machine)),
+        );
+    }
+
+    /**
      * Rotating a key that never expires issues a replacement and ends the
      * replaced key at the overlap's end.
      *
@@ -1089,7 +1115,71 @@ final class ApiKeyServiceTest extends TestCase
     }
 
     /**
-     * A key is not issued for a membership whose tenant cannot be loaded.
+     * Rows of `[move]` that take a membership out of its key's tenant.
+     *
+     * @return iterable<string, array{0: string}>
+     */
+    public static function provideTenantMoves(): iterable
+    {
+        yield from [
+            'another tenant'           => ['moved'],
+            'a tenant of another type' => ['workspace'],
+        ];
+    }
+
+    /**
+     * Once its principal leaves the key's tenant, a key is not rotated and its
+     * revocation names no tenant.
+     *
+     * @param  string  $move
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    #[DataProvider('provideTenantMoves')]
+    public function testAKeyWhosePrincipalLeftItsTenantIsNotRotated(string $move): void
+    {
+        [$account, $membership, $tenant] = $this->seedAccount();
+
+        $issued = $this->apiKeys('accounts')->issue($account, $membership);
+
+        match ($move) {
+            'moved' => $membership->forceFill(['tenant_id' => ActivatableTenant::query()->create(['name' => 'Moved', 'is_active' => true])->getKey()])->save(),
+            default => $this->moveToAWorkspaceOfTheSameId($membership, $tenant),
+        };
+
+        $current = $membership->fresh() ?? $membership;
+
+        $this->recordMachineEvents([ApiKeyRotated::class, ApiKeyRevoked::class]);
+
+        self::assertNull($this->apiKeys('accounts')->rotate($current, $issued->id));
+        self::assertNull(DB::table('api_keys')->where('id', $issued->id)->value('rotated_at'));
+        self::assertSame(1, DB::table('api_keys')->count());
+        self::assertSame([], $this->machineEvents);
+        self::assertTrue($this->apiKeys('accounts')->revoke($current, $issued->id));
+        EventContextAssertions::assertTenant(null, $this->machineEventsOf(ApiKeyRevoked::class)[0]->context);
+    }
+
+    /**
+     * A revocation in the key's tenant names it.
+     *
+     * @return void
+     */
+    public function testARevocationNamesTheKeysTenant(): void
+    {
+        [$account, $membership, $tenant] = $this->seedAccount();
+
+        $issued = $this->apiKeys('accounts')->issue($account, $membership);
+
+        $this->recordMachineEvents([ApiKeyRevoked::class]);
+
+        self::assertTrue($this->apiKeys('accounts')->revoke($membership->fresh() ?? $membership, $issued->id));
+        EventContextAssertions::assertTenant($tenant, $this->machineEventsOf(ApiKeyRevoked::class)[0]->context);
+    }
+
+    /**
+     * A key is neither issued nor rotated for a membership whose tenant cannot
+     * be loaded.
      *
      * @return void
      */
@@ -1103,12 +1193,33 @@ final class ApiKeyServiceTest extends TestCase
 
         $this->recordMachineEvents([ApiKeyRevoked::class]);
 
+        self::assertNull($this->apiKeys('accounts')->rotate($membership, $issued->id));
         self::assertTrue($this->apiKeys('accounts')->revoke($membership, $issued->id));
         EventContextAssertions::assertTenant(null, $this->machineEventsOf(ApiKeyRevoked::class)[0]->context);
 
         $this->expectException(TenantUnavailableException::class);
 
         $this->apiKeys('accounts')->issue($account, $membership->fresh() ?? $membership);
+    }
+
+    /**
+     * A key recorded without a tenant is not rotated once its principal's
+     * tenant cannot be loaded.
+     *
+     * @return void
+     */
+    public function testATenantlessKeyIsNotRotatedIntoATenantThatCannotBeLoaded(): void
+    {
+        [$account, $membership, $tenant] = $this->seedAccount();
+
+        $issued = $this->apiKeys('accounts')->issue($account, $membership);
+
+        DB::table('api_keys')->where('id', $issued->id)->update(['tenant_type' => null, 'tenant_id' => null]);
+        $tenant->delete();
+
+        self::assertNull($this->apiKeys('accounts')->rotate($membership, $issued->id));
+        self::assertNull(DB::table('api_keys')->where('id', $issued->id)->value('rotated_at'));
+        self::assertSame(1, DB::table('api_keys')->count());
     }
 
     /**

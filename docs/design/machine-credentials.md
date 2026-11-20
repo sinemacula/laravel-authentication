@@ -35,6 +35,9 @@ credentials carry. This package carries scopes; an authorisation package decides
   recorded by type (morph class, else class name) and identifier, so a tenant of another type under the same identifier
   is not the key's. Every keyed operation of the service matches the principal's morph type and identifier, and the
   guard, in its statement; a key of another principal or guard is absent.
+- A key's id is a UUIDv7 drawn when it is inserted, a rotation's replacement included, and `keys()` lists newest first
+  by creation second and then by id. The order is time-based: keys of one second list latest drawn id first, which one
+  process keeps, while ids drawn by other processes, or on hosts whose clocks differ, keep no strict order.
 - A presented key costs one indexed lookup of its public part on the write connection and a constant-time digest
   comparison, against a fixed digest when no key matched; never a password hash.
 - A client credentials exchange (RFC 6749 section 4.4) takes a key of a `jwt` guard, its public part as the client id
@@ -87,7 +90,7 @@ credentials carry. This package carries scopes; an authorisation package decides
 - `rotate()` ends the replaced key at `now + overlap` or its own expiry, whichever comes first, with an explicit `CASE`
   (never `LEAST()` over a nullable column), and inserts the replacement with the same binding and scopes but only the
   expiry the call names: none by default, so rotating a key that expires without `expiresAt` issues one that never does,
-  as the machine credentials guide states.
+  as the machine credentials guide states. It rotates only a key whose principal is still in the key's tenant.
 - An application issues a credential with scopes; the scopes are normalised and the registry is asked which of them
   the principal may not be granted on the guard (`AcceptAnyScope`, the default, rejects none).
 - A request authenticated by the credential binds its identity and principal with the credential's scopes;
@@ -139,8 +142,13 @@ credentials carry. This package carries scopes; an authorisation package decides
 - Of two concurrent rotations of a key, the second waits on the first's row lock and replaces nothing once it commits
   (or rotates the key itself once it rolls back); a key revoked between a rotation's read and its update is not
   rotated. Two concurrent revocations report the key once.
-- A key is not issued for a principal whose tenant cannot be loaded; a revocation or rotation reported after the tenant
-  went reports no tenant.
+- A key is not issued for a principal whose tenant cannot be loaded.
+- `ApiKeyRevoked` and `ApiKeyRotated` name the principal's current tenant only when it is exactly the one the key
+  records, by type and identifier, and otherwise no tenant, as for a tenant that cannot be loaded: an event never names
+  a tenant the key was not issued in, and no query loads the recorded one.
+- `rotate()` answers `null` for a key whose principal is no longer in the key's tenant (moved to another, to a tenant
+  of another type under the same identifier, or its tenant cannot be loaded), before either key changes: the
+  replacement would record the key's tenant and could not authenticate. Revoking such a key still works.
 - A scope that is not a scope token (empty, spaced, quoted, non-ASCII, too long, not a string) is refused with every
   offending value named; a value that is not a string is named by its type.
 - A registry that names a scope it was not asked about cannot widen the refusal: only scopes being granted are refused.

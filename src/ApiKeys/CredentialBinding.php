@@ -45,12 +45,23 @@ final class CredentialBinding
             return FailureReason::CREDENTIAL_INVALID;
         }
 
-        $recorded = [$key->principal_type, $key->tenant_type, $key->tenant_id];
-        $loaded   = [PrincipalReference::type($principal), self::tenantType($tenant), IdentifierCoercion::stringify($tenant?->getTenantIdentifier())];
-
-        return $recorded === $loaded && IdentifierCoercion::matches($key->principal_id, PrincipalReference::id($principal))
+        return $key->principal_type === PrincipalReference::type($principal)
+            && IdentifierCoercion::matches($key->principal_id, PrincipalReference::id($principal))
+            && self::recordsTenant($key, $tenant)
             ? null
             : FailureReason::PRINCIPAL_MISMATCH;
+    }
+
+    /**
+     * Whether the key records exactly the tenant, or none when it is `null`.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Models\ApiKey  $key
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
+     * @return bool
+     */
+    public static function recordsTenant(ApiKey $key, ?Tenant $tenant): bool
+    {
+        return [$key->tenant_type, $key->tenant_id] === [self::tenantType($tenant), IdentifierCoercion::stringify($tenant?->getTenantIdentifier())];
     }
 
     /**

@@ -16,9 +16,9 @@ its own type, and the convention is the shape. Laravel's guard methods keep Lara
   passkey ceremony or an unknown sign-in method) or a server error, which propagates.
 - `null` never means success and never means a refusal. A nullable return means there is nothing to act on: a lookup
   that found nothing (`sessions()->pending()`, `apiKeys()->find()`, `identifierChanges()->pending()`),
-  `apiKeys()->rotate()` when the principal has no rotatable key by that id (unknown, revoked, expired or already
-  rotated, so nothing changed), or a call handed `null` for a credential the request did not carry (`refresh()` and
-  `switchTo()`), in which case nothing was dispatched.
+  `apiKeys()->rotate()` when the principal has no rotatable key by that id (unknown, revoked, expired, already rotated,
+  or its principal no longer in the key's tenant, so nothing changed), or a call handed `null` for a credential the
+  request did not carry (`refresh()` and `switchTo()`), in which case nothing was dispatched.
 - A result object when success carries a payload or the flow can be throttled. It is `final readonly`, made only through
   named constructors (one per outcome), and says which outcome it is through `is<Outcome>()` predicates. The payload is
   in nullable public properties, set only for the outcome that has it. A refusal is named by `status` or by `reason`
