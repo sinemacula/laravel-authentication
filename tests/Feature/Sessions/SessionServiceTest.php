@@ -1349,6 +1349,36 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
+     * A pending sign-in that is discarded or expires keeps its slots counted.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnAbandonedOrExpiredPendingSignInGivesNoSlotBack(): void
+    {
+        $identity = $this->seedIdentity();
+        $limiter  = new RecordingAttemptLimiter;
+
+        app()->instance(AttemptLimiter::class, $limiter);
+
+        [$discarded] = $this->pendingWithProof($identity);
+
+        self::assertTrue($this->sessions()->discard($discarded, self::requestClient()));
+
+        [$expired, $proof] = $this->pendingWithProof($identity);
+
+        $later = $this->now->addHour();
+
+        Carbon::setTestNow($later);
+        CarbonImmutable::setTestNow($later);
+
+        self::assertSame(FailureReason::PENDING_INVALID, $this->sessions()->satisfy($expired, $proof, self::requestClient())->reason);
+        self::assertNotSame([], $limiter->reservations);
+        self::assertSame([], $limiter->released);
+    }
+
+    /**
      * Rows of `[bind event]`: each event a sign-in's bind dispatches.
      *
      * @return iterable<string, array{0: class-string}>

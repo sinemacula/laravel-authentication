@@ -454,6 +454,43 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
+     * A superseded refresh token presented after it expires is invalid and
+     * leaves the session as it was.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnExpiredSupersededTokenIsInvalidAndRevokesNothing(): void
+    {
+        $this->seedMember();
+
+        $session = $this->signIn();
+        $first   = self::bodyRefreshToken($session->tokens);
+
+        $this->advance(60 * 60 * 24 * 29);
+
+        $second = $this->refresh($first)->session;
+
+        self::assertNotNull($second);
+        self::assertTrue($this->refresh(self::bodyRefreshToken($second->tokens))->isRefreshed());
+
+        $this->advance(60 * 60 * 24 * 2);
+
+        $before = DB::table('authentication_sessions')->sole();
+
+        $this->recordEvents([SessionRevoked::class]);
+
+        self::assertSame(FailureReason::TOKEN_INVALID, $this->refresh($first)->reason);
+        self::assertSame([], $this->recordedClasses());
+
+        $after = DB::table('authentication_sessions')->sole();
+
+        self::assertEquals($before, $after);
+        self::assertNull($after->revoked_at);
+    }
+
+    /**
      * An exchange reads the session's proofs under a shared lock where the
      * engine takes one.
      *

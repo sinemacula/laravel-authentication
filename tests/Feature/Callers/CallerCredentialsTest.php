@@ -23,9 +23,14 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\ApiKeyGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingAction;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use Symfony\Component\HttpFoundation\Cookie;
 use Tests\Concerns\InteractsWithCallers;
 use Tests\Concerns\InteractsWithMachineClients;
 use Tests\Fixtures\Events\EventContextAssertions;
@@ -574,6 +579,62 @@ final class CallerCredentialsTest extends TestCase
 
         self::assertSame([CallerCredential::REFRESH, self::BROWSER], [$caller?->credential, $caller?->guard]);
         self::assertCount(0, $this->failures);
+    }
+
+    /**
+     * A stale or forged refresh cookie on a cross-site request is neither read
+     * nor reported unless the route declares the refresh credential.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testACrossSiteRefreshCookieIsIgnoredUnlessTheRouteDeclaresIt(): void
+    {
+        $this->seedMember('ada@example.test');
+
+        $sameSite = ['REMOTE_ADDR' => '198.51.100.20', 'HTTP_ORIGIN' => 'http://localhost', 'HTTP_X_REQUESTED_WITH' => 'XMLHttpRequest'];
+        $signIn   = Request::create('/auth/sign-in', 'POST', server: $sameSite);
+
+        app()->instance('request', $signIn);
+
+        Auth::forgetGuards();
+
+        $input  = ['email' => 'ada@example.test', 'password' => self::MEMBER_PASSWORD];
+        $cookie = Auth::sessions(self::BROWSER)->signIn('password', $input, SignInContext::fromRequest($signIn))->session?->tokens->refreshCookie?->cookie();
+
+        self::assertNotNull($cookie);
+
+        $rotate = static fn (string $value): ?Cookie => Auth::sessions(self::BROWSER)->refresh(
+            new PresentedRefreshToken(new Secret($value), RefreshTokenSource::COOKIE, [RefreshTokenSource::COOKIE]),
+            ClientContext::fromRequest($signIn),
+        )->session?->tokens->refreshCookie?->cookie();
+
+        $stale = (string) $cookie->getValue();
+        $next  = $rotate($stale);
+
+        self::assertNotNull($next);
+        self::assertNotNull($rotate((string) $next->getValue()));
+
+        $crossSite = ['REMOTE_ADDR' => '198.51.100.30', 'HTTP_ORIGIN' => 'https://attacker.example', 'HTTP_USER_AGENT' => 'CrossSite/1.0'];
+
+        foreach ([$stale, 'forged-refresh-cookie'] as $index => $value) {
+            $read = Request::create('/auth/sessions', 'GET', [], [$cookie->getName() => $value], [], $crossSite);
+
+            app()->instance('request', $read);
+
+            Auth::forgetGuards();
+            Auth::shouldUse(self::BROWSER);
+
+            self::assertNull(self::callers()->caller($read));
+            self::assertCount($index, $this->failures);
+
+            DeclaredCredential::refresh(self::BROWSER)->declareOn($read);
+
+            self::assertNull(self::callers()->caller($read));
+            self::assertCount($index + 1, $this->failures);
+            self::assertSame([AuthenticationFlow::REFRESH, FailureReason::CROSS_SITE_REQUEST], [$this->failure($index)->flow, $this->failure($index)->reason]);
+        }
     }
 
     /**

@@ -745,20 +745,35 @@ final class PasskeySignInTest extends TestCase
     }
 
     /**
+     * Rows of `[methods]`: a methods list without `passkey`.
+     *
+     * @return iterable<string, array{0: list<string>}>
+     */
+    public static function provideListsWithoutPasskey(): iterable
+    {
+        yield from [
+            'another method' => [['password']],
+            'no method'      => [[]],
+        ];
+    }
+
+    /**
      * A guard whose application does not allow `passkey` refuses the sign-in as
      * `method_not_allowed` before anything is counted or used up.
      *
+     * @param  list<string>  $methods
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAGuardThatDoesNotAllowPasskeysRefusesFirst(): void
+    #[DataProvider('provideListsWithoutPasskey')]
+    public function testAGuardThatDoesNotAllowPasskeysRefusesFirst(array $methods): void
     {
         $this->registerPasskey($this->seedIdentity());
 
         $options = $this->signInOptions();
 
-        config()->set('auth.guards.api.application.methods', ['password']);
+        config()->set('auth.guards.api.application.methods', $methods);
 
         $result = $this->sessions()->signIn(
             'passkey',
@@ -768,6 +783,7 @@ final class PasskeySignInTest extends TestCase
 
         self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $result->reason);
         self::assertSame(1, PasskeyChallenge::query()->whereNull('consumed_at')->count());
+        self::assertSame(0, Session::query()->count());
     }
 
     /**
