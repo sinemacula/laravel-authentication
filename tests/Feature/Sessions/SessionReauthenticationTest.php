@@ -206,6 +206,23 @@ final class SessionReauthenticationTest extends TestCase
     }
 
     /**
+     * A password reauthentication does not read the code settings, so a
+     * malformed one leaves it working.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testMalformedCodeSettingsLeaveAPasswordReauthenticationWorking(): void
+    {
+        $signedIn = $this->signedIn();
+
+        config()->set(['authentication.codes.length' => 5, 'authentication.codes.key' => 'too-short']);
+
+        self::assertTrue($this->sessions()->reauthenticate($signedIn->record, 'password', self::credentials(), self::requestClient())->isIssued());
+    }
+
+    /**
      * A wrong password and another identity's right one are refused the same
      * way.
      *
