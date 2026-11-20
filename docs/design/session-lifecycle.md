@@ -72,11 +72,12 @@ session that ended is deleted. Starting a session is in `session-service.md`; re
   and never revealed.
 - A bulk revocation (`revokeSessions()`, `revokePrincipalSessions()`, `signOutEverywhere()`, and the security-change
   methods) is a list of `RevocationScope`s: (1) each scope's `HasTokensValidAfter` cutoff moved to `$now` on its own
-  connection; (2) one transaction on the storage connection, which the session model must live on, that reads each
-  scope's unrevoked sessions on the writer in key order (`lazyById`, chunks of 500), revokes each conditionally (pending
-  sessions among them) and, for an identity's scope whose identity implements `HasChangeableIdentifiers`, its pending
-  identifier changes (by key, every type with a registered normaliser: a change link needs no session, so one requested
-  from a session that ends must end with it); (3) once committed, `SessionRevoked` per revoked session, then
+  connection; (2) one transaction on the storage connection, which the session model must live on, that reads the
+  scopes' unrevoked sessions on the writer in one key order across the scopes (`lazyById`, chunks of 500; a session
+  counts for the first principal's scope that records it, otherwise for the last scope), revokes each conditionally
+  (pending sessions among them) and, for an identity's scope whose identity implements `HasChangeableIdentifiers`, its
+  pending identifier changes (by key, every type with a registered normaliser: a change link needs no session, so one
+  requested from a session that ends must end with it); (3) once committed, `SessionRevoked` per revoked session, then
   `SignedOutEverywhere` per scope, also when it revoked none. A failure in (2) leaves (1) in place: fail-safe, and a
   retry is idempotent.
 - An identity's scope is every session its `sessions()` relation returns, of every guard; a principal's is every session

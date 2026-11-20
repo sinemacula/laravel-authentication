@@ -7,6 +7,7 @@ namespace Tests\Integration\Octane;
 use Carbon\CarbonImmutable;
 use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -26,6 +27,8 @@ use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
 use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
+use SineMacula\Laravel\Authentication\Listeners\Concerns\RevokesOnceCommitted;
+use SineMacula\Laravel\Authentication\Listeners\RevokeSessionsOnPasswordChange;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\SwitchesSessions;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
@@ -37,6 +40,7 @@ use SineMacula\Laravel\Authentication\Testing\FakeOneTimeCodeSender;
 use Tests\Concerns\InteractsWithCodeIdentities;
 use Tests\Concerns\ServesRequestsThroughOctane;
 use Tests\Fixtures\Sessions\ProvenIdentitySignIn;
+use Tests\Integration\Fixtures\ActivatableTenantMember;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\TestCase;
 
@@ -55,6 +59,7 @@ use Tests\TestCase;
 #[CoversClass(JwtTokenServiceFactory::class)]
 #[CoversClass(SignInMethodManager::class)]
 #[CoversTrait(SwitchesSessions::class)]
+#[CoversTrait(RevokesOnceCommitted::class)]
 final class ManagerServicesRequestsTest extends TestCase
 {
     use InteractsWithCodeIdentities, ServesRequestsThroughOctane;
@@ -168,6 +173,42 @@ final class ManagerServicesRequestsTest extends TestCase
             [['PrincipalSwitched', '203.0.113.3']],
             [['SessionRevoked', '203.0.113.4']],
         ], $this->eventsRecordedByEachRequest());
+    }
+
+    /**
+     * A revoking listener reports through the dispatcher and client of each
+     * request that changes the password.
+     *
+     * @return void
+     */
+    public function testARevokingListenerReportsThroughEachServingRequest(): void
+    {
+        [, $first] = $this->seedMember();
+
+        ActivatableTenantMember::observe(RevokeSessionsOnPasswordChange::class);
+
+        $booted = new \ArrayObject;
+
+        $this->app?->make('events')->listen(SessionRevoked::class, static function (SessionRevoked $event) use ($booted): void {
+            $booted->append($event);
+        });
+
+        foreach (['203.0.113.1' => '203.0.113.2', '203.0.113.3' => '203.0.113.4'] as $signedInFrom => $changedFrom) {
+
+            $this->serve(self::octaneRequest('POST', '/members/sign-in', [...self::credentials('member@example.test'), 'membership' => $first->getKey()], ip: $signedInFrom))
+                ->assertJson(['principal' => $first->getKey()]);
+
+            $this->serve(self::octaneRequest('POST', '/members/password', ip: $changedFrom))->assertExactJson(['saved' => true]);
+        }
+
+        self::assertSame(2, DB::table('authentication_sessions')->where('revoked_reason', 'password_changed')->count());
+        self::assertSame([
+            [['SignedIn', '203.0.113.1']],
+            [['SessionRevoked', '203.0.113.2']],
+            [['SignedIn', '203.0.113.3']],
+            [['SessionRevoked', '203.0.113.4']],
+        ], $this->eventsRecordedByEachRequest());
+        self::assertCount(0, $booted);
     }
 
     /**
@@ -369,6 +410,16 @@ final class ManagerServicesRequestsTest extends TestCase
             $this->recordInThisRequest(self::LIFECYCLE);
 
             return ['signed_out' => $sessions->signOut()];
+        });
+
+        Route::post('/members/password', function (): array {
+            $this->recordInThisRequest(self::LIFECYCLE);
+
+            $member           = ActivatableTenantMember::query()->where('email', 'member@example.test')->firstOrFail();
+            $member->password = app(Hasher::class)->make(self::PASSWORD);
+            $member->save();
+
+            return ['saved' => true];
         });
 
         Route::get('/members/me', static fn (): array => ['principal' => self::contextOf('members')['principal']]);

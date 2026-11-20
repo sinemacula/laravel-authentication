@@ -336,13 +336,13 @@ final class SessionRevocationQueryBudgetTest extends PerformanceContractTestCase
      */
     public static function provideTenantPrincipals(): iterable
     {
-        yield 'one principal' => [1, 4, 1];
-        yield 'three principals' => [3, 10, 3];
+        yield 'one principal' => [1, 3, 1];
+        yield 'three principals' => [3, 7, 3];
     }
 
     /**
-     * A tenant's deactivation costs three reads and one write per principal,
-     * and one read more.
+     * A tenant's deactivation costs two reads and one write per principal, and
+     * one read more.
      *
      * @param  int  $count
      * @param  int  $reads
@@ -451,7 +451,7 @@ final class SessionRevocationQueryBudgetTest extends PerformanceContractTestCase
 
         $sessions = $this->sessions('members');
 
-        self::assertSame(1, $this->assertQueryBudget(6, 1, static fn (): int => DB::transaction(static fn (): int => $sessions->tenantDeactivated($tenant, [$membership]))));
+        self::assertSame(1, $this->assertQueryBudget(4, 1, static fn (): int => DB::transaction(static fn (): int => $sessions->tenantDeactivated($tenant, [$membership]))));
     }
 
     /**
