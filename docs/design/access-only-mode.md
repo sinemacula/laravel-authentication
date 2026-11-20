@@ -11,7 +11,8 @@ principal auth without session tracking or refresh rotation.
   package's tables.
 - `attempt()` counts its attempts in the `rate_limits` table, unless the guard turns its sign-in limits off
   (`rate_limits.sign_in = null`): a deployment that signs in with `attempt()` keeps that table, and the
-  `authentication_sessions` table stays empty.
+  `authentication_sessions` table stays empty. Without the table, `attempt()` with limits on throws the database error
+  before checking the password and signs no one in.
 - Access tokens for this mode must be issued with `session = null`, which means the JWT carries no `sid`, and so no
   `auth_time` or `amr` either: a token that names no session and carries one of those fails to parse. `sid` may be
   absent (or `null`), as may `tenant_id` when the principal acts in no tenant; `iss`, `aud`, `client_id`, `sub`,
@@ -93,6 +94,10 @@ principal auth without session tracking or refresh rotation.
   `testAccessTokenFlowSucceedsWithoutSession`
 - `tests/Integration/Guards/AccessOnlyIntegrationTest.php`
   `testForgedSessionHintFailsClosedWithoutSessionsTable`
+- `tests/Integration/Guards/AccessOnlyIntegrationTest.php`
+  `testAttemptWorksWithoutAnyPackageTable`
+- `tests/Integration/Guards/AccessOnlyIntegrationTest.php`
+  `testAttemptWithLimitsOnAndNoRateLimitTableThrows`
 - `tests/Unit/Jwt/JwtTokenServiceIssueTest.php`
   `testIssueAccessTokenWithoutSessionCarriesNoSessionClaims`
 - `tests/Feature/Guards/JwtGuardUserResolutionTest.php`

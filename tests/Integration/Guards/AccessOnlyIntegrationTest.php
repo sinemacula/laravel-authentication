@@ -7,9 +7,12 @@ namespace Tests\Integration\Guards;
 use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Hashing\Hasher;
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Database\QueryException;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
 use Orchestra\Testbench\TestCase;
@@ -191,6 +194,48 @@ final class AccessOnlyIntegrationTest extends TestCase
         self::assertInstanceOf(SignedIn::class, $events[1]);
         self::assertFalse(Schema::hasTable('rate_limits'));
         self::assertFalse(Schema::hasTable('authentication_sessions'));
+    }
+
+    /**
+     * With sign-in limits on and no rate-limit table, `attempt()` throws the
+     * database error before the identity is read and signs no one in.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAttemptWithLimitsOnAndNoRateLimitTableThrows(): void
+    {
+        $user = $this->seedUser();
+
+        config()->set('auth.guards.' . self::GUARD . '.application.methods', ['password']);
+
+        $events  = [];
+        $lookups = 0;
+
+        Event::listen([SignedIn::class, AuthenticationFailed::class], static function (object $event) use (&$events): void {
+            $events[] = $event;
+        });
+
+        DB::listen(static function (QueryExecuted $query) use (&$lookups): void {
+            $lookups += (int) str_contains($query->sql, 'access_only_identities');
+        });
+
+        $guard = app('auth')->guard(self::GUARD);
+
+        assert($guard instanceof JwtGuard);
+
+        try {
+            $guard->attempt(['email' => $user->email, 'password' => self::PASSWORD]);
+
+            self::fail('Expected attempt() to throw without the rate-limit table.');
+        } catch (QueryException $exception) {
+            self::assertStringContainsString('rate_limits', $exception->getMessage());
+        }
+
+        self::assertSame(0, $lookups);
+        self::assertFalse($guard->check());
+        self::assertSame([], $events);
     }
 
     /**

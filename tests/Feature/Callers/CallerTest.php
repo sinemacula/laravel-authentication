@@ -277,6 +277,34 @@ final class CallerTest extends TestCase
     }
 
     /**
+     * A session whose sign-in recorded no identifier type admits a principal
+     * with none.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASessionWithNoIdentifierTypeAdmitsAPrincipalWithNone(): void
+    {
+        [, [$first, $second]] = $this->seedMember('ada@example.test', 2);
+
+        $session = $this->signedIn('ada@example.test', $first);
+        $policy  = \Mockery::mock(ApplicationPolicy::class);
+
+        Session::query()->whereKey($session->record->getKey())->update(['sign_in_identifier_type' => null]);
+
+        $policy->shouldReceive('admitIdentifier')->with(self::MEMBERS, \Mockery::any(), 'email')->andReturn(FailureReason::IDENTIFIER_UNVERIFIED);
+        $policy->shouldReceive('admitIdentifier')->with(self::MEMBERS, \Mockery::any(), null)->andReturnNull();
+
+        app()->instance(ApplicationPolicy::class, $policy);
+
+        $caller = $this->bearerCaller($session);
+
+        self::assertNull($caller->session?->getSignInIdentifierType());
+        self::assertTrue($caller->owns($second));
+    }
+
+    /**
      * A model that is not a session, an identity or a principal is never the
      * caller's.
      *

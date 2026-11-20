@@ -15,14 +15,21 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Applications\GuardApplicationPolicy;
+use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
+use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
+use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Factors\AlwaysRequireAdditionalFactor;
 use Tests\Fixtures\Proofs\UndescribedFirstFactor;
+use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\TestCase;
 
 /**
@@ -37,7 +44,7 @@ use Tests\TestCase;
 #[CoversClass(GuardApplicationPolicy::class)]
 final class EmptyApplicationIntegrationTest extends TestCase
 {
-    use InteractsWithSessions;
+    use InteractsWithProofs, InteractsWithSessions;
 
     /**
      * Freeze the clocks, create the tables, and add a protected route and a
@@ -142,6 +149,46 @@ final class EmptyApplicationIntegrationTest extends TestCase
         config()->set('auth.guards.api.application', ['methods' => ['password']]);
 
         $this->refresh($session)->assertOk()->assertExactJson(['refreshed' => true, 'reason' => null]);
+    }
+
+    /**
+     * Emptying the list leaves a waiting sign-in pending and unbound.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnEmptiedListRefusesToCompleteAPendingSignIn(): void
+    {
+        $identity = $this->seedIdentity();
+
+        config()->set('auth.guards.api.application', ['methods' => ['password']]);
+
+        app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
+        app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
+
+        $result = $this->sessions()->signIn('password', self::credentials(), self::requestContext());
+
+        self::assertNotNull($result->pending);
+        self::assertNotNull($result->credential);
+
+        config()->set('auth.guards.api.application', null);
+
+        $credential = $result->credential->reveal();
+        $proof      = self::adapterProof($identity, 'api', $result->pending->id, Purpose::SIGN_IN);
+        $refused    = $this->sessions()->satisfy($credential, $proof, self::requestClient());
+
+        self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $refused->reason);
+        self::assertNull($refused->session);
+        self::assertFalse(Auth::guard('api')->hasUser());
+        self::assertNull($this->sessions()->pending($credential));
+        self::assertSame('pending', Session::query()->sole()->getAttribute('status'));
+        self::assertSame(0, DB::table('authentication_proofs')->where('kind', ProofKind::ADDITIONAL_FACTOR->value)->count());
+
+        config()->set('auth.guards.api.application', ['methods' => ['password']]);
+
+        self::assertTrue($this->sessions()->satisfy($credential, $proof, self::requestClient())->isSignedIn());
+        self::assertTrue(Auth::guard('api')->hasUser());
     }
 
     /**

@@ -561,7 +561,12 @@ final class CodeSignInTest extends TestCase
         self::seedCodeIdentity();
 
         self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->signIn(self::CODE, guard: 'web')->reason);
+
+        config()->set('auth.guards.mobile.application.methods', []);
+
+        self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->signIn(self::CODE)->reason);
         self::assertSame(0, DB::table('rate_limits')->count());
+        self::assertSame(0, Session::query()->count());
     }
 
     /**

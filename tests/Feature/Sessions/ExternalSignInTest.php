@@ -17,6 +17,7 @@ use Illuminate\Support\Facades\DB;
 use Mockery\MockInterface;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
+use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\ExternalEvidencePolicy;
@@ -165,19 +166,34 @@ final class ExternalSignInTest extends TestCase
     }
 
     /**
+     * Rows of `[methods]`: a methods list without `external_provider`.
+     *
+     * @return iterable<string, array{0: list<string>}>
+     */
+    public static function provideListsWithoutExternalSignIn(): iterable
+    {
+        yield from [
+            'another method' => [['password']],
+            'no method'      => [[]],
+        ];
+    }
+
+    /**
      * An application that does not allow `external_provider` refuses every
      * external result.
      *
+     * @param  list<string>  $methods
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAnApplicationThatDoesNotAllowExternalSignInRefusesIt(): void
+    #[DataProvider('provideListsWithoutExternalSignIn')]
+    public function testAnApplicationThatDoesNotAllowExternalSignInRefusesIt(array $methods): void
     {
         $identity = $this->seedIdentity();
         $result   = $this->linkedResult($identity);
 
-        config()->set('auth.guards.api.application', ['methods' => ['password']]);
+        config()->set('auth.guards.api.application', ['methods' => $methods]);
 
         $this->recordEvents([ExternalResultUnlinked::class, Failed::class, AuthenticationFailed::class]);
 
