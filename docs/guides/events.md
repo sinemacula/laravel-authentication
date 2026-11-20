@@ -135,6 +135,8 @@ the row records in `identityType`, `identityId`, `principalType` and `principalI
 the active tenant the row records (its `tenant_id`) in `tenantId`, with no `tenantType`, when the flow did not load the
 tenant. Other events name only what they hold, even when they carry a session: an identity's `SignedOutEverywhere`, a
 `SessionPending` waiting on a choice of principal and a switch refused for its target have no principal.
+`ApiKeyRotated` and `ApiKeyRevoked` name the principal's tenant only while it is exactly the one the key records, and
+no tenant once the principal has moved or the tenant is gone.
 
 `toArray()` gives the context as scalars, with `occurred_at` as an ISO 8601 UTC string to the microsecond and the client
 as `ip` and `user_agent` only, ready to store or to queue on its own. Since every package event holds plain values only,

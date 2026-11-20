@@ -149,9 +149,10 @@ to these events, so the shape and the timing are a contract.
   taken as context, and no identity is read only to report a refusal.
 - Credentials: `PasskeyAdded`, `PasskeyUsed` and `PasskeyRemoved` carry the owner, the method `passkey` and the
   passkey's id, after the passkey row's connection commits (see `passkeys.md`); `ApiKeyIssued`, `ApiKeyRotated` (with
-  the replaced key's id) and `ApiKeyRevoked` carry the key's owner, principal, tenant, id and scopes, after the key's
-  connection commits; `ClientCredentialsGranted`, which reports no write, is dispatched at once with the key's id and
-  the scopes granted (see `machine-credentials.md`).
+  the replaced key's id) and `ApiKeyRevoked` carry the key's owner, principal, id and scopes, and the principal's
+  tenant only while it is exactly the one the key records (else none), after the key's connection commits;
+  `ClientCredentialsGranted`, which reports no write, is dispatched at once with the key's id and the scopes granted
+  (see `machine-credentials.md`).
 - Redemption: `ExternalResultRedeemed` (flow `sign_in` or `reauthentication`) reports a redeemed external result once
   the redemption commits on the session's connection, after the session's own events (`SessionCreated` and `SignedIn`,
   `SessionPending`, or `Reauthenticated`), with the connection and request reference in its context; a rolled-back

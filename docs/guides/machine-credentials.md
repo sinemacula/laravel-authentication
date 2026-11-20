@@ -192,17 +192,22 @@ $keys->rotate($principal, $keyId, overlapSeconds: 3600, expiresAt: now()->addYea
 ```
 
 A summary is safe to return from a route as it is: `toArray()` and its JSON use snake_case keys and ISO-8601 times, and
-neither holds the secret or its digest.
+neither holds the secret or its digest. Keys list newest first by the second they were created, then by id, a
+time-ordered UUIDv7, so keys one process issues within a second list the last issued first; keys issued by other
+processes or hosts in the same second keep no strict order.
 
 Rotating issues a replacement with the same guard, owner, principal, tenant, name and scopes (held to the scope registry
 again), but not the same expiry: the replacement expires at the `expiresAt` you pass, and never without one, so pass it
 when you rotate a key that expires, or the replacement will not. The rotation ends the replaced key once the overlap
 passes (`rotation_overlap_seconds` by default, at most `max_rotation_overlap_seconds`), or at its own expiry when that
 comes sooner; both keys work during the overlap, and the replaced one then fails as `credential_expired`. Only a live
-key that has not been rotated rotates: `null` otherwise, and of two concurrent rotations only one replaces the key. A
+key that has not been rotated, whose principal is still in the key's tenant, rotates: `null` otherwise, and of two
+concurrent rotations only one replaces the key. A key whose principal has left its tenant is refused for as long as the
+principal stays out, and a replacement would be too; revoke it and issue a new key in the principal's current tenant. A
 key's scopes are fixed for its life; to change them, issue a new key and revoke the old one. `ApiKeyIssued`,
 `ApiKeyRotated` (with `previousKeyId`) and `ApiKeyRevoked` report each change once it is committed on the key's own
-connection, never the key or its digest.
+connection, never the key or its digest. They name the principal's tenant only while it is exactly the one the key
+records, so revoking a key after its principal moved tenant, or after the tenant was deleted, reports no tenant.
 
 Schedule pruning of keys revoked or expired more than `prune_after_days` ago:
 

@@ -110,7 +110,7 @@ final readonly class ApiKeyService
 
     /**
      * Rotate the principal's live key, ending it once the overlap passes, or
-     * `null` when it has no such key.
+     * `null` when it has no such key or is no longer in the key's tenant.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  string  $keyId
@@ -125,14 +125,16 @@ final readonly class ApiKeyService
      */
     public function rotate(Principal $principal, string $keyId, ?int $overlapSeconds = null, ?CarbonInterface $expiresAt = null): ?IssuedApiKey
     {
-        $now      = CarbonImmutable::now()->startOfSecond();
-        $deadline = $now->addSeconds(ApiKeyRules::overlap($overlapSeconds));
-        $expiry   = ApiKeyRules::expiry($expiresAt, $now);
-        $previous = $this->owned($principal, $keyId);
+        $now       = CarbonImmutable::now()->startOfSecond();
+        $deadline  = $now->addSeconds(ApiKeyRules::overlap($overlapSeconds));
+        $expiry    = ApiKeyRules::expiry($expiresAt, $now);
+        $rotatable = $this->rotatable($principal, $keyId, $now);
 
-        if ($previous === null || ApiKeyLookup::refusal($previous, $this->context->name(), $now) !== null || $previous->rotated_at !== null) {
+        if ($rotatable === null) {
             return null;
         }
+
+        [$previous, $tenant] = $rotatable;
 
         $granted = Scopes::grantable($this->scopeRegistry(), $this->context->name(), $principal, $previous->scopes);
         $rotated = $previous->getConnection()->transaction(fn (): ?array => $this->replace($previous, $deadline, $now, [
@@ -154,7 +156,7 @@ final readonly class ApiKeyService
 
         [$key, $issued] = $rotated;
 
-        $this->report($key, new ApiKeyRotated($this->eventContext($key, $this->owner($key), $principal, self::tenantOf($principal)), $previous->id));
+        $this->report($key, new ApiKeyRotated($this->eventContext($key, $this->owner($key), $principal, $tenant), $previous->id));
 
         return $issued;
     }
@@ -190,7 +192,9 @@ final readonly class ApiKeyService
             return false;
         }
 
-        $this->report($key, new ApiKeyRevoked($this->eventContext($key, $this->owner($key), $principal, self::tenantOf($principal))));
+        $tenant = self::tenantOf($principal);
+
+        $this->report($key, new ApiKeyRevoked($this->eventContext($key, $this->owner($key), $principal, CredentialBinding::recordsTenant($key, $tenant) ? $tenant : null)));
 
         return true;
     }
@@ -240,6 +244,33 @@ final readonly class ApiKeyService
     }
 
     /**
+     * The principal's key that can be rotated, with the tenant it rotates in,
+     * or `null` when there is none.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  string  $keyId
+     * @param  \Carbon\CarbonImmutable  $now
+     * @return ?array{0: \SineMacula\Laravel\Authentication\Models\ApiKey, 1: ?\SineMacula\Laravel\Authentication\Contracts\Tenant}
+     */
+    private function rotatable(Principal $principal, string $keyId, CarbonImmutable $now): ?array
+    {
+        $previous = $this->owned($principal, $keyId);
+
+        if ($previous === null || ApiKeyLookup::refusal($previous, $this->context->name(), $now) !== null || $previous->rotated_at !== null) {
+            return null;
+        }
+
+        try {
+            $tenant = WriteConnection::during($principal, static fn (): ?Tenant => $principal->getTenant());
+        } catch (TenantUnavailableException) {
+            return null;
+        }
+
+        // A replacement in a tenant the principal left could not authenticate.
+        return CredentialBinding::recordsTenant($previous, $tenant) ? [$previous, $tenant] : null;
+    }
+
+    /**
      * End the previous key at the deadline and insert its replacement, or
      * `null` when another write got there first.
      *
@@ -254,7 +285,7 @@ final readonly class ApiKeyService
      */
     private function replace(ApiKey $previous, CarbonImmutable $deadline, CarbonImmutable $now, array $row): ?array
     {
-        $id   = (string) Str::uuid();
+        $id   = Str::uuid7()->toString();
         $ends = (string) $previous->fromDateTime($deadline);
         $at   = $previous->fromDateTime($now);
 
@@ -296,7 +327,7 @@ final readonly class ApiKeyService
         $key    = new ApiKey;
 
         $key->forceFill($row + [
-            'id'          => $id ?? (string) Str::uuid(),
+            'id'          => $id ?? Str::uuid7()->toString(),
             'secret_hash' => ApiKeyToken::digest($secret),
             'created_at'  => $now,
             'updated_at'  => $now,
