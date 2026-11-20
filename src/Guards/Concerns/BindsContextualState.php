@@ -59,6 +59,9 @@ trait BindsContextualState
     /** @var ?\SineMacula\Laravel\Authentication\Context\Enums\CredentialKind The kind of credential the request presented, when the guard authenticated one. */
     protected ?CredentialKind $credentialKind = null;
 
+    /** @var ?\Closure(): bool Binds the request on its first read instead of its credential, until the guard resets. */
+    protected ?\Closure $firstReadBind = null;
+
     /** @var int The last version handed out to any guard's bound state. */
     private static int $boundStateVersions = 0;
 
@@ -309,8 +312,8 @@ trait BindsContextualState
     }
 
     /**
-     * Clear identity, principal, session and credential state, and what was
-     * read from them, without firing events.
+     * Clear identity, principal, session and credential state, what was read
+     * from them and a pending first-read bind, without firing events.
      *
      * @return void
      */
@@ -324,6 +327,7 @@ trait BindsContextualState
         $this->scopes            = null;
         $this->activeTenant      = null;
         $this->unavailableTenant = null;
+        $this->firstReadBind     = null;
 
         $this->forgetDerivedState();
     }

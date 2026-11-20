@@ -37,6 +37,20 @@ trait RebindsCollaborators
     }
 
     /**
+     * Bind through the callback on the request's first read instead of its
+     * credential, when the callback returns `true`; any reset discards it.
+     *
+     * @param  \Closure(): bool  $bind
+     * @return void
+     *
+     * @internal
+     */
+    public function bindOnFirstRead(\Closure $bind): void
+    {
+        $this->firstReadBind = $bind;
+    }
+
+    /**
      * Rebind the event dispatcher onto the guard.
      *
      * @param  \Illuminate\Contracts\Events\Dispatcher  $events

@@ -1344,6 +1344,25 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     }
 
     /**
+     * A first-read bind that does not bind leaves the request to its own
+     * credential.
+     *
+     * @return void
+     */
+    public function testAFirstReadBindThatDoesNotBindResolvesTheRequest(): void
+    {
+        $identity = $this->mockIdentity();
+        $guard    = new StubRequestResolvingGuard(self::GUARD_NAME, $this->provider, $this->resolver, $this->events, $this->request, $this->timebox);
+
+        $guard->resolvable = $identity;
+
+        $guard->bindOnFirstRead(static fn (): bool => false);
+
+        self::assertSame($identity, $guard->user());
+        self::assertSame(1, $guard->resolutions);
+    }
+
+    /**
      * `setUser()` binds the identity's default principal with no session and
      * reports the bind once it is whole.
      *

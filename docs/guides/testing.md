@@ -51,9 +51,10 @@ Every method takes the guard last and uses the default guard when it is left out
 can act as a revoked session, an inactive principal or a machine, which is limited to the scopes given (`[]`, none, when
 the test names none), as if its credential granted them, so a test of a scope-gated route needs no real API key
 (`$this->actingAsIdentity($client, scopes: ['orders:read'], guard: 'api_keys')`); scopes for a human identity throw an
-`InvalidArgumentException`. Each request the test sends fires `Authenticated`, `PrincipalAssigned` and, with a session,
-`SessionAuthenticated` (which records the session's use), as a bearer request does, and a context acted as wins over a
-credential the request carries.
+`InvalidArgumentException`. Each request the test sends is bound when it first reads the guard, as a bearer request is
+resolved: it then fires `Authenticated`, `PrincipalAssigned` and, with a session, `SessionAuthenticated` (which records
+the session's use) once, even when a global middleware reads the guard before routing, and a request that never reads
+the guard fires none of them. A context acted as wins over a credential the request carries.
 
 Acting on a guard ends with `stopActing()`, when the request signs out (Laravel's `Logout` for the guard, which
 `Auth::logout()`, `Auth::sessions()->signOut()` and a sign-out endpoint dispatch), or when the test acts on that guard
