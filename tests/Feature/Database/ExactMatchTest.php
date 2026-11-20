@@ -25,6 +25,27 @@ final class ExactMatchTest extends TestCase
     use PretendsStorageEngines;
 
     /**
+     * The class is a utility container only.
+     *
+     * @return void
+     *
+     * @SuppressWarnings("php:S3011")
+     */
+    public function testConstructorIsPrivate(): void
+    {
+        $reflection  = new \ReflectionClass(ExactMatch::class);
+        $constructor = $reflection->getConstructor();
+
+        self::assertNotNull($constructor);
+        self::assertTrue($constructor->isPrivate());
+
+        $instance = $reflection->newInstanceWithoutConstructor();
+        $constructor->invoke($instance);
+
+        self::assertInstanceOf(ExactMatch::class, $instance);
+    }
+
+    /**
      * A column is compared under its collation and then byte for byte, in the
      * engine's own syntax.
      *
