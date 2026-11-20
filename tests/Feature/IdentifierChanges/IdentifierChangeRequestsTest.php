@@ -144,6 +144,33 @@ final class IdentifierChangeRequestsTest extends TestCase
     }
 
     /**
+     * A request for an identifier another identity holds is sent as one for a
+     * free identifier is.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARequestForAHeldIdentifierIsSentLikeAnyOther(): void
+    {
+        $identity = self::seedChangeable();
+
+        self::seedChangeable(self::NEW_EMAIL);
+
+        Event::fake([IdentifierChangeRequested::class, AuthenticationFailed::class]);
+
+        $request = $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity), self::requestClient());
+
+        self::assertSame([IdentifierChangeRequestStatus::SENT, null], [$request->status, $request->retryAfter]);
+        self::assertMatchesRegularExpression(self::CHALLENGE_PATTERN, (string) $request->challengeId);
+        self::assertEquals($this->now->addSeconds(600), $request->expiresAt);
+        self::assertSame([PendingChanges::key($identity, 'email'), self::NEW_EMAIL], [self::stored('identifier_changes', 'id'), self::stored('identifier_changes', 'identifier')]);
+        Queue::assertPushed(SendIdentifierChangeCode::class, 1);
+        Event::assertDispatched(IdentifierChangeRequested::class, 1);
+        Event::assertNotDispatched(AuthenticationFailed::class);
+    }
+
+    /**
      * A change waits no longer than the configured lifetime when its code works
      * longer.
      *

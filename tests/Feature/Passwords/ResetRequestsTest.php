@@ -190,6 +190,43 @@ final class ResetRequestsTest extends TestCase
     }
 
     /**
+     * Requests from one IP are held by its limit across identifiers, while
+     * another IP is still served.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testRequestsFromOneIpAreLimitedAcrossIdentifiers(): void
+    {
+        self::seedResettable();
+
+        config()->set('authentication.rate_limits.password_reset_request.per_ip', ['max' => 2, 'decay_seconds' => 3600]);
+        config()->set('queue.connections.deliveries', ['driver' => 'database']);
+        config()->set('authentication.delivery.queue', ['connection' => 'deliveries', 'name' => 'resets']);
+
+        Queue::fake();
+
+        $client = new ClientContext('198.51.100.9', 'Kiosk/2.0');
+
+        self::assertTrue($this->passwords()->sendResetLink(['email' => 'grace@example.test'], $client)->isSent());
+        self::assertTrue($this->passwords()->sendResetLink(['email' => 'alan@example.test'], $client)->isSent());
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        $limited = $this->passwords()->sendResetLink(['email' => self::EMAIL], $client);
+        $event   = $this->recordedEvent(AuthenticationFailed::class);
+
+        self::assertSame([CodeRequestStatus::RATE_LIMITED, 1800], [$limited->status, $limited->retryAfter]);
+        self::assertSame(['rate_limited', 1800, self::EMAIL], [$event->reason->value, $event->retryAfter, $event->identifier]);
+        self::assertSame(2, DB::table('one_time_codes')->count());
+        Queue::assertPushed(SendPasswordReset::class, 2);
+
+        self::assertTrue($this->passwords()->sendResetLink(['email' => self::EMAIL], new ClientContext('198.51.100.10', 'Kiosk/2.0'))->isSent());
+        Queue::assertPushed(SendPasswordReset::class, 3);
+    }
+
+    /**
      * A code's answer carries its challenge id, and a link's carries none.
      *
      * @return void

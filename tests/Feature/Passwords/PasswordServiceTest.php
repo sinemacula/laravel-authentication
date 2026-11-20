@@ -686,6 +686,36 @@ final class PasswordServiceTest extends TestCase
     }
 
     /**
+     * A global scope that hides the identity's row does not stop a reset.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testGlobalScopesDoNotHideTheRow(): void
+    {
+        $identity = self::seedPasswordIdentity();
+
+        $this->signInWithPassword();
+        $this->recordEvents([PasswordSet::class]);
+
+        PasswordIdentity::addGlobalScope('nobody', static function ($query): void {
+            $query->whereRaw('1 = 0'); // @phpstan-ignore method.nonObject
+        });
+
+        try {
+            $result = $this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::RESET, self::requestClient());
+        } finally {
+            PasswordIdentity::clearBootedModels();
+        }
+
+        self::assertSame([true, 1], [$result->set, $result->revoked]);
+        self::assertSame([PasswordSet::class], $this->recordedClasses());
+        self::assertSame('password_reset', DB::table('authentication_sessions')->value('revoked_reason'));
+        self::assertTrue(app(Hasher::class)->check(self::NEW_PASSWORD, (string) $identity->refresh()->password));
+    }
+
+    /**
      * The policy never applies to the automatic rehash on sign-in.
      *
      * @return void
