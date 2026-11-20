@@ -40,7 +40,11 @@ class AppUser extends User implements Identity, Principal, HasSessions
 
 The relation must query the configured session model, or another model that implements `EloquentSession`: the bearer
 path, sign-in pins, the session list and revocations all read it, and a relation over any other model throws a
-`LogicException`.
+`LogicException`. The package holds what it reads through the relation to sessions that record the identity's morph
+class and key byte for byte, so under a collation that counts `alice` and `Alice` as equal, as MySQL's default `_ci`
+collations do, neither identity reads, lists or revokes the other's sessions. A session recorded under another type,
+such as the class name stored before a morph map alias was added, is not the identity's: it neither refreshes nor serves
+an access token.
 
 `Models\Session` shares its short name with Laravel's `Session` facade and `Illuminate\Contracts\Session\Session`. The
 explicit `use` above takes precedence over the facade alias in that file; a file that needs Laravel's session as well

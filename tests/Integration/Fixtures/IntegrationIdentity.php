@@ -48,7 +48,7 @@ final class IntegrationIdentity extends Model implements CanBeActive, HasSession
     public function sessions(): Builder
     {
         return Session::query()
-            ->where('authenticatable_type', self::class)
+            ->where('authenticatable_type', $this->getMorphClass())
             ->where('authenticatable_id', (string) $this->getKey()); // @phpstan-ignore cast.string
     }
 

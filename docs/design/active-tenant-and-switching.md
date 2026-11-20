@@ -80,17 +80,18 @@ session held back by the policy waits as `pending-sessions.md` describes; the pe
   and is part of the refresh's and the switch's compare-and-swap, so a version written by the helper in between makes
   them judge the session again.
 - `tenantPolicyChanged($tenant)` applies a change at once and outside any request: every live session (unrevoked, before
-  both deadlines) acting in the tenant, on every guard, pending ones included, is locked first, its key read in key
-  order a chunk at a time with a locking read, and only then read again by key, a chunk at a time, and judged, its
-  proofs and provenance read current, so every session row is locked before any proof row; all in one transaction on the
-  session model's connection (a savepoint inside a caller's transaction there). A session recorded at the very version
-  answered, neither `null`, is skipped; an active one that falls short is revoked (`tenant_policy_changed`) and one that
-  meets it records the version; a pending one is revoked only when it would need another connection, since its
-  activation judges a further factor itself. Each revocation is one conditional update on the session still acting in
-  the tenant and unrevoked, reported by `SessionRevoked` once committed. Inside a transaction on the session model's
-  connection or the tenant's own, the same pass runs again once they commit; its revocations are reported, not counted.
-  A sign-in, choice or switch into the tenant that commits after the last pass is judged the same way by its own check
-  after commit (`AdmissionRecheck`), so either the pass reads the session or the check reads the change.
+  both deadlines) acting in the tenant, its key compared byte for byte (`Database\ExactMatch`), on every guard, pending
+  ones included, is locked first, its key read in key order a chunk at a time with a locking read, and only then read
+  again by key, a chunk at a time, and judged, its proofs and provenance read current, so every session row is locked
+  before any proof row; all in one transaction on the session model's connection (a savepoint inside a caller's
+  transaction there). A session recorded at the very version answered, neither `null`, is skipped; an active one that
+  falls short is revoked (`tenant_policy_changed`) and one that meets it records the version; a pending one is revoked
+  only when it would need another connection, since its activation judges a further factor itself. Each revocation is
+  one conditional update on the session still acting in the tenant and unrevoked, reported by `SessionRevoked` once
+  committed. Inside a transaction on the session model's connection or the tenant's own, the same pass runs again once
+  they commit; its revocations are reported, not counted. A sign-in, choice or switch into the tenant that commits after
+  the last pass is judged the same way by its own check after commit (`AdmissionRecheck`), so either the pass reads the
+  session or the check reads the change.
 - `tenantDeactivated()` ends every session acting in the tenant, whatever its principal, as well as the sessions of the
   principals listed for it, each session counted once.
 

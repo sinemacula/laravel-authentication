@@ -340,6 +340,7 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
         $sessions = \Mockery::mock(Builder::class);
         $sessions->shouldReceive('useWritePdo')->once()->andReturnSelf();
         $sessions->shouldReceive('getModel')->andReturn(new StubSession);
+        $sessions->shouldReceive('where', 'whereRaw')->andReturnSelf();
         $sessions->shouldReceive('find')->once()->with($sessionId)->andReturn($session);
 
         $identity = $this->mockIdentity(HasSessions::class);

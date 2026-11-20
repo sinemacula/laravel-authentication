@@ -9,12 +9,14 @@ use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\HasSessions;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Database\ExactMatch;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Support\KeyShape;
 
 /**
  * An identity's sessions as the package reads them, through its `sessions()`
- * relation on the write connection.
+ * relation on the write connection, held to rows that record it byte for byte.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -30,7 +32,7 @@ final class IdentitySessions
 
     /**
      * A write-connection query of the identity's sessions, with the session
-     * model it queries.
+     * model it queries; a non-Eloquent identity owns none.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\HasSessions&\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @return array{0: \Illuminate\Contracts\Database\Eloquent\Builder, 1: \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession}
@@ -45,6 +47,13 @@ final class IdentitySessions
         if (!$model instanceof EloquentSession) {
             throw new \LogicException(sprintf('The sessions() relation of %s must query a model that implements %s.', $identity::class, EloquentSession::class));
         }
+
+        $owner = $model->authenticatable();
+
+        ExactMatch::where($query, $model, $identity instanceof Model ? [
+            $owner->getMorphType()      => $identity->getMorphClass(),
+            $owner->getForeignKeyName() => IdentifierCoercion::stringify($identity->getKey()),
+        ] : [$owner->getForeignKeyName() => null]);
 
         return [$query, $model];
     }

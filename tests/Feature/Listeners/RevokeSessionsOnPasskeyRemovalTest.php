@@ -178,15 +178,15 @@ final class RevokeSessionsOnPasskeyRemovalTest extends TestCase
      */
     public function testAnIdentityNamedByItsMorphAliasHasItsSessionsRevoked(): void
     {
-        $identity = $this->seedIdentity();
-
-        $this->registerPasskey($identity);
-
-        self::assertTrue($this->signInWithPasskey()->isSignedIn());
-
         Relation::morphMap(['person' => IntegrationIdentity::class]);
 
         try {
+            $identity = $this->seedIdentity();
+
+            $this->registerPasskey($identity);
+
+            self::assertTrue($this->signInWithPasskey()->isSignedIn());
+
             $context = new EventContext('api', new ClientContext(null, null), $identity, method: 'passkey', credentialId: 'removed');
 
             event(new PasskeyRemoved($context));

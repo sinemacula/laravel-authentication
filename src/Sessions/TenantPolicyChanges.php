@@ -12,6 +12,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
+use SineMacula\Laravel\Authentication\Database\ExactMatch;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
@@ -135,8 +136,7 @@ final readonly class TenantPolicyChanges
         $after    = null;
 
         do {
-            $query = WriteConnection::query($model->newQuery())
-                ->where($model->getTenantIdName(), $tenantId)
+            $query = ExactMatch::where(WriteConnection::query($model->newQuery()), $model, [$model->getTenantIdName() => $tenantId])
                 ->whereNull($model->getRevokedAtName())
                 ->where($model->getIdleExpiresAtName(), '>', $at)
                 ->where(static function ($query) use ($absolute, $at): void {
@@ -313,10 +313,11 @@ final readonly class TenantPolicyChanges
      */
     private function update(EloquentSession&Model $session, string $tenantId, array $values): bool
     {
-        $affected = $session->getConnection()
+        $query = $session->getConnection()
             ->table($session->getTable())
-            ->where($session->getKeyName(), $session->getKey())
-            ->where($session->getTenantIdName(), $tenantId)
+            ->where($session->getKeyName(), $session->getKey());
+
+        $affected = ExactMatch::where($query, $session, [$session->getTenantIdName() => $tenantId])
             ->whereNull($session->getRevokedAtName())
             ->update($values);
 

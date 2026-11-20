@@ -806,20 +806,23 @@ $sessions->revokePrincipalSessions($membership, RevocationReason::REVOKED);
 Each session is revoked by one conditional update that only applies while it is not revoked yet, so every call is
 idempotent: the first revocation's time and reason are kept, and of two calls racing for a session only the one that
 revoked it reports `SessionRevoked`. `revokeSession()` finds the session through the owner's `sessions()` relation on
-the write connection, so another identity's session is not found and the call returns `false`, as it does for an
-unknown or already revoked one. `revokeSessions()` covers every session the identity's relation returns, of every guard;
-`revokePrincipalSessions()` every session of the configured model that records the principal. Both keep the `except`
-session when one is given, and return how many sessions they revoked; pending sessions (waiting on a further factor or
-a choice of principal) are sessions too, so their credentials stop working with them and none activates after the
-revocation. `revokeSessions()` also cancels the identity's pending identifier changes, of every type and through
-every guard: a change link needs no session, so one requested from a session that ends could otherwise still move the
-account to an identifier of the requester's (see [Changing identifiers](identifier-changes.md)). `revokeSession()` and
-`revokePrincipalSessions()` leave them, since the identity keeps its other sessions. `signOutEverywhere()` is
-`revokeSessions()` for the request's identity with reason `signed_out_everywhere`; it returns `0` on a guest request,
-and it leaves the guard bound for the rest of the request (call `signOut()` as well to end the current session too).
-With `keepCurrentSession: true` on a request with an access-only token, which names no session, the token is kept by
-leaving the identity's "tokens valid after" cutoff where it is, since a session-less token can only be ended through it:
-every session is still revoked, but the identity's other session-less tokens keep working too, until they expire.
+the write connection, so another identity's session is not found and the call returns `false`, as it does for an unknown
+or already revoked one. That includes the session of an owner the column's collation counts as equal (`alice` and
+`Alice` under MySQL's default `_ci` collations): the owner's type and key are compared byte for byte. `revokeSessions()`
+covers every session the identity's relation returns that records it that way, of every guard;
+`revokePrincipalSessions()` every session of the configured model that records the principal's type and key byte for
+byte. Both keep the `except` session when one is given, and return how many sessions they revoked; pending sessions
+(waiting on a further factor or a choice of principal) are sessions too, so their credentials stop working with them and
+none activates after the revocation. `revokeSessions()` also cancels the identity's pending identifier changes, of every
+type and through every guard: a change link needs no session, so one requested from a session that ends could otherwise
+still move the account to an identifier of the requester's (see [Changing identifiers](identifier-changes.md)).
+`revokeSession()` and `revokePrincipalSessions()` leave them, since the identity keeps its other sessions.
+`signOutEverywhere()` is `revokeSessions()` for the request's identity with reason `signed_out_everywhere`; it returns
+`0` on a guest request, and it leaves the guard bound for the rest of the request (call `signOut()` as well to end the
+current session too). With `keepCurrentSession: true` on a request with an access-only token, which names no session,
+the token is kept by leaving the identity's "tokens valid after" cutoff where it is, since a session-less token can only
+be ended through it: every session is still revoked, but the identity's other session-less tokens keep working too,
+until they expire.
 
 A bulk revocation first moves the scope's "tokens valid after" cutoff to now, when the identity or principal records one
 (`HasTokensValidAfter`) and is stored (a hard-deleted model has no row to move it on), then, in one transaction on the
@@ -879,8 +882,10 @@ rotation time, the revocation columns, the owner or the principal, and `toArray(
 ISO-8601 times. A page holds 1 to 100 sessions (15 by default; anything else is an `InvalidArgumentException`), and the
 page is the request's `page` parameter unless you pass one. The list is read on the write connection through the
 identity's `sessions()` relation, in two queries (a count and a select), so a session revoked a moment ago is never
-shown. An identity that does not implement `HasSessions`, or whose `sessions()` relation queries a model that is not an
-`EloquentSession`, is a `LogicException`.
+shown. Both hold the relation to sessions that record the identity's type and key byte for byte, so a session of an
+owner the column's collation counts as equal is neither shown nor counted in the total. An identity that does not
+implement `HasSessions`, or whose `sessions()` relation queries a model that is not an `EloquentSession`, is a
+`LogicException`.
 
 `session()` gets one of them by its id, for a detail screen or before a "sign out" button revokes it:
 
@@ -938,17 +943,17 @@ calls none of them and ends only the reset links and codes. A password your own 
 proofs as they are. `credentialRemoved()` is for a first-factor credential the identity removed (a passkey, or a phone
 number or email address it signs in with); a factor of the factor package's has its own triggers (see [Sign-in
 factors](#sign-in-factors)). The tenant's principals are yours to list, so `tenantDeactivated()` takes them from you (it
-also ends every session acting in the tenant, whatever its principal): each must act within the tenant (read on the
-write connection from the principal as stored, so a `tenant` relation you loaded does not decide and Eloquent's strict
-mode does not stop the read), or an `InvalidArgumentException` is thrown before anything is written. A `CanBeActive`
-tenant already deleted or soft-deleted still works, since a principal whose `TenantUnavailableException` names that very
-tenant (its class and key, as `ActsAsPrincipal` reports it) acts within it, so restoring the tenant later revives no
-session; a tenant that does not implement `CanBeActive` reads as no tenant once it cannot be loaded, so call
-`tenantDeactivated()` inside the transaction that deletes it, before the delete (it then ends the tenant's sessions
-again once the delete commits, so a sign-in racing the delete keeps no session; called before the delete outside a
-transaction, such a sign-in can keep its session past a restore); a principal listed twice counts once, and every
-principal's sessions end in one transaction on the storage connection, with one `SignedOutEverywhere` per principal.
-Deactivation already stops every token at once through the live activity checks (see [Active-state
+also ends every session acting in the tenant, whatever its principal, comparing the tenant's key byte for byte): each
+must act within the tenant (read on the write connection from the principal as stored, so a `tenant` relation you loaded
+does not decide and Eloquent's strict mode does not stop the read), or an `InvalidArgumentException` is thrown before
+anything is written. A `CanBeActive` tenant already deleted or soft-deleted still works, since a principal whose
+`TenantUnavailableException` names that very tenant (its class and key, as `ActsAsPrincipal` reports it) acts within it,
+so restoring the tenant later revives no session; a tenant that does not implement `CanBeActive` reads as no tenant once
+it cannot be loaded, so call `tenantDeactivated()` inside the transaction that deletes it, before the delete (it then
+ends the tenant's sessions again once the delete commits, so a sign-in racing the delete keeps no session; called before
+the delete outside a transaction, such a sign-in can keep its session past a restore); a principal listed twice counts
+once, and every principal's sessions end in one transaction on the storage connection, with one `SignedOutEverywhere`
+per principal. Deactivation already stops every token at once through the live activity checks (see [Active-state
 enforcement](identity-models.md#active-state-enforcement)); revoking makes the end outlast a reactivation and records
 why. `identityDeleted()` and `principalDeleted()` take the model as it was deleted, or soft-deleted (it keeps its key),
 or one about to be; calling one again is safe: it revokes only a session written since, keeps the first revocation's
@@ -1443,17 +1448,17 @@ DB::transaction(function () use ($tenant, $policy) {
 ```
 
 The helper is mandatory: no setting turns it off, and nothing calls it for you. It locks the tenant's live sessions
-(`tenant_id`, every guard, pending ones included; one already past a deadline is left for pruning) on the storage
-connection first, reading their keys in key order a chunk at a time, each chunk under a lock, and only then judges them,
-reading them again a chunk at a time and each one's proofs and provenance current (see [Issuance
-order](#issuance-order)); skips a session recorded at the very version the policy now answers (neither `null`); revokes
-an active one that no longer meets it as `tenant_policy_changed`, and a pending one only when it would need another
-connection (a pending one that lacks a factor is judged when it activates); and records the version on an active one
-that meets it. It returns how many it revoked, and `SessionRevoked` reports each once committed. Call it inside the
-transaction that publishes the change, on the storage connection, so the two commit or roll back together (it runs as a
-savepoint and never commits on its own). Called inside a transaction on the storage connection or the tenant's own, it
-judges the tenant's sessions once more after that commits, at that time, skipping those the first pass recorded and
-reporting each it revokes without counting it; a rollback runs no second pass. A sign-in, choice or switch into the
+(`tenant_id`, compared byte for byte, every guard, pending ones included; one already past a deadline is left for
+pruning) on the storage connection first, reading their keys in key order a chunk at a time, each chunk under a lock,
+and only then judges them, reading them again a chunk at a time and each one's proofs and provenance current (see
+[Issuance order](#issuance-order)); skips a session recorded at the very version the policy now answers (neither
+`null`); revokes an active one that no longer meets it as `tenant_policy_changed`, and a pending one only when it would
+need another connection (a pending one that lacks a factor is judged when it activates); and records the version on an
+active one that meets it. It returns how many it revoked, and `SessionRevoked` reports each once committed. Call it
+inside the transaction that publishes the change, on the storage connection, so the two commit or roll back together (it
+runs as a savepoint and never commits on its own). Called inside a transaction on the storage connection or the tenant's
+own, it judges the tenant's sessions once more after that commits, at that time, skipping those the first pass recorded
+and reporting each it revokes without counting it; a rollback runs no second pass. A sign-in, choice or switch into the
 tenant that read the old policy and commits after that pass is judged by its own check once committed (see [Sign-ins
 racing a deactivation or deletion](#sign-ins-racing-a-deactivation-or-deletion)): unless the session records the very
 version the policy now answers, it is judged as the helper judges it, an active session that falls short and a pending

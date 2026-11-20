@@ -597,6 +597,7 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
         $sessions = \Mockery::mock(Builder::class);
         $sessions->shouldReceive('useWritePdo')->twice()->andReturnSelf();
         $sessions->shouldReceive('getModel')->andReturn(new StubSession);
+        $sessions->shouldReceive('where', 'whereRaw')->andReturnSelf();
         $sessions->shouldReceive('find')->twice()->with(self::SESSION_ID)->andReturn($session);
 
         $identity->shouldReceive('sessions')->andReturn($sessions);
@@ -699,6 +700,7 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
         $sessions = \Mockery::mock(Builder::class);
         $sessions->shouldReceive('useWritePdo')->once()->andReturnSelf();
         $sessions->shouldReceive('getModel')->andReturn(new StubSession);
+        $sessions->shouldReceive('where', 'whereRaw')->andReturnSelf();
 
         return $sessions;
     }

@@ -18,6 +18,19 @@ session that ended is deleted. Starting a session is in `session-service.md`; re
   write connection (the query itself through `WriteConnection::query()`, and anything the relation reads while it is
   built inside `WriteConnection::during()` for the identity), so a revocation the primary holds is never listed as live.
   It covers every guard: a session list shows every session the identity has.
+- Every read of an identity's sessions (`IdentitySessions::query()` and `find()`: the listing, `session()`,
+  `sessionRecord()`, `revokeSession()`, an identity's revocation scope, the bearer path and sign-in pins) holds the
+  relation to rows that record the identity's morph class and key byte for byte; a principal's scope compares the
+  principal's type and key, and a tenant's scope and `tenantPolicyChanged()` the tenant's key, the same way
+  (`Database\ExactMatch`). The comparison is in SQL, so a page and its total count only the identity's own sessions: the
+  collation's `=` keeps the index in use, and a comparison chosen by the connection's query grammar decides: the
+  column's text as `utf8mb4` bytes on MySQL and MariaDB (whatever the column's charset, trailing spaces counted), the
+  column cast to `text` under `collate "C"` on PostgreSQL (so a `citext` or non-text column compares exactly too),
+  `collate binary` on SQLite, and `Latin1_General_BIN2` on SQL Server with a character appended to both sides, since its
+  `=` ignores trailing spaces. A key a collation counts as equal to another (`alice` and `Alice` under MySQL's default
+  `_ci` collations, or a folded column) therefore never reaches another owner's sessions. A null key matches no row on
+  any engine, a non-Eloquent identity owns none, and a session recorded under another type (a class name stored
+  before a morph map alias was added) is not the identity's, just as `SessionOwnership::isOwner()` refuses its refresh.
 - The order is total on every database: last use, most recent first, with never-used sessions last (an explicit
   `CASE ... IS NULL` term, because PostgreSQL sorts nulls first in a descending order and MySQL and SQLite last), then
   the key, newest first. Pages are therefore stable.
@@ -80,13 +93,13 @@ session that ended is deleted. Starting a session is in `session-service.md`; re
   requested from a session that ends must end with it); (3) once committed, `SessionRevoked` per revoked session, then
   `SignedOutEverywhere` per scope, also when it revoked none. A failure in (2) leaves (1) in place: fail-safe, and a
   retry is idempotent.
-- An identity's scope is every session its `sessions()` relation returns, of every guard; a principal's is every session
-  of the configured model whose principal columns record it. An identity without `HasSessions` can hold no session,
-  pending or active (no session starts for it), so its scope, and that of a principal whose owner (read afresh on the
-  writer through `WriteConnection::stored()`, whatever relation is loaded and in strict mode too) is such an identity,
-  reads and deletes nothing and only moves the cutoff: access-only mode needs none of the package's tables to revoke. A
-  principal whose owner cannot be read has its sessions looked for anyway; an unsaved principal has no sessions. A
-  principal scope's events carry that owner as their identity.
+- An identity's scope is every session its `sessions()` relation returns that records it exactly, of every guard; a
+  principal's is every session of the configured model whose principal columns record it exactly. An identity without
+  `HasSessions` can hold no session, pending or active (no session starts for it), so its scope, and that of a principal
+  whose owner (read afresh on the writer through `WriteConnection::stored()`, whatever relation is loaded and in strict
+  mode too) is such an identity, reads and deletes nothing and only moves the cutoff: access-only mode needs none of the
+  package's tables to revoke. A principal whose owner cannot be read has its sessions looked for anyway; an unsaved
+  principal has no sessions. A principal scope's events carry that owner as their identity.
 - `signOutEverywhere(keepCurrentSession: true)` keeps the request's session; a request without one (a session-less
   token) is kept by leaving the identity's cutoff unmoved, so the identity's other session-less tokens survive too,
   until they expire.
@@ -296,15 +309,15 @@ session that ended is deleted. Starting a session is in `session-service.md`; re
   retention never changes who authenticates.
 - `tenantPolicyChanged($tenant)` (`Sessions\TenantPolicyChanges`) is the synchronous revocation for a tenant
   authentication policy that changed: in one transaction on the session model's connection (a savepoint inside the
-  caller's), it reads the live sessions (unrevoked, before both deadlines) whose `tenant_id` is the tenant's, every
-  guard, pending ones included, locking their keys in key order 500 at a time with a locking read, then reading them
-  again by key 500 at a time and judging each on its proofs and provenance read current; skips one recorded at the very
-  version answered (neither `null`); revokes an active one that falls short, and a pending one only when it needs
-  another connection, as `tenant_policy_changed` with a conditional update on `tenant_id` and `revoked_at IS NULL`; and
-  records the version on an active one that meets it. `SessionRevoked` follows each revocation's commit. Inside a
-  caller's transaction (on that connection or the tenant's) it runs again once that commits; a session a sign-in, choice
-  or switch writes into the tenant after that second scan is judged by the call's check after commit
-  (`AdmissionRecheck`), which asks the policy again.
+  caller's), it reads the live sessions (unrevoked, before both deadlines) whose `tenant_id` is the tenant's byte for
+  byte, every guard, pending ones included, locking their keys in key order 500 at a time with a locking read, then
+  reading them again by key 500 at a time and judging each on its proofs and provenance read current; skips one recorded
+  at the very version answered (neither `null`); revokes an active one that falls short, and a pending one only when it
+  needs another connection, as `tenant_policy_changed` with a conditional update on the exact `tenant_id` and
+  `revoked_at IS NULL`; and records the version on an active one that meets it. `SessionRevoked` follows each
+  revocation's commit. Inside a caller's transaction (on that connection or the tenant's) it runs again once that
+  commits; a session a sign-in, choice or switch writes into the tenant after that second scan is judged by the call's
+  check after commit (`AdmissionRecheck`), which asks the policy again.
 
 ## Success Path
 
@@ -353,8 +366,9 @@ session that ended is deleted. Starting a session is in `session-service.md`; re
 - `src/Sessions/SessionSignOut.php`, `src/Sessions/RefreshProof.php`, `src/Sessions/SignOutResult.php`,
   `src/Sessions/Concerns/LooksUpSessions.php`
 - `src/Sessions/SessionRevocations.php`, `src/Sessions/RevocationWriter.php`, `src/Sessions/RevocationScope.php`,
-  `src/SessionRecords/IdentitySessions.php`, `src/Jwt/RefreshRotationStore.php` (`revoke()`), `src/Guards/JwtGuard.php`
-  (`logout()`), `src/Contracts/GuardBinding.php`, `src/Guards/AbstractGuard.php` (`forgetUser()`)
+  `src/SessionRecords/IdentitySessions.php`, `src/Database/ExactMatch.php`, `src/Jwt/RefreshRotationStore.php`
+  (`revoke()`), `src/Guards/JwtGuard.php` (`logout()`), `src/Contracts/GuardBinding.php`, `src/Guards/AbstractGuard.php`
+  (`forgetUser()`)
 - `src/Sessions/AdmissionRecheck.php` (the check after commit of a sign-in, choice or switch),
   `src/Sessions/KeptSessions.php` (the sessions a bulk revocation kept, recorded by `RevocationWriter::revokeScopes()`),
   `src/Sessions/RevocationWriter.php` (`revokeAgain()`, the second pass), `src/Database/AfterCommit.php`
@@ -380,6 +394,10 @@ session that ended is deleted. Starting a session is in `session-service.md`; re
   `tests/Performance/SessionSignOutQueryBudgetTest.php`: sign-out by refresh credential
 - `tests/Feature/Sessions/LooksUpSessionsTest.php`: one session, as the list shows it, and an active session's proofs
   (see `proofs-and-freshness.md`)
+- `tests/Integration/Sessions/CollationEqualSessionOwnerTest.php`: the listing, `session()`, `sessionRecord()` and each
+  revocation, and `tenantPolicyChanged()`, under folded owner, principal and tenant columns, on SQLite, PostgreSQL and
+  MySQL; `tests/Feature/Database/ExactMatchTest.php`: the comparison each engine compiles;
+  `tests/Feature/SessionRecords/IdentitySessionsTest.php`: a non-Eloquent identity owns no session
 - `tests/Integration/Sessions/ConcurrentSwitchAndRevocationTest.php`: two revocations in two processes on PostgreSQL
   and MySQL report each session once, after a commit and after a rollback
 - `tests/Integration/Sessions/SecurityChangeEndToEndTest.php`: each security-change listener's revocation refused at
