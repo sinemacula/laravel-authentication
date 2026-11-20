@@ -170,6 +170,39 @@ final class RefreshApplicationIntegrationTest extends TestCase
     }
 
     /**
+     * Emptying the guard's methods stops its refreshes but leaves its issued
+     * access tokens working.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testEmptyingTheMethodsLeavesIssuedAccessTokensWorking(): void
+    {
+        $this->seedIdentity();
+
+        $session = $this->signIn();
+        $methods = config('auth.guards.api.application.methods');
+
+        config()->set('auth.guards.api.application.methods', []);
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        $this->bearer($session->tokens->accessToken->reveal())->assertOk()->assertJson(['session' => $session->record->getKey()]);
+
+        self::assertNull(
+            self::sessionsOf($this->freshGuard())->refresh(self::bodyToken($session->tokens), self::requestClient())->session,
+        );
+        self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->recordedEvent(AuthenticationFailed::class)->reason);
+
+        config()->set('auth.guards.api.application.methods', $methods);
+
+        self::assertNotNull(
+            self::sessionsOf($this->freshGuard())->refresh(self::bodyToken($session->tokens), self::requestClient())->session,
+        );
+    }
+
+    /**
      * A session that records no sign-in method fails closed.
      *
      * @return void

@@ -24,6 +24,7 @@ use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionDeadlines;
 use SineMacula\Laravel\Authentication\Sessions\ActiveSessions;
+use SineMacula\Laravel\Authentication\Sessions\SessionActivation;
 use SineMacula\Laravel\Authentication\Sessions\SessionEstablishment;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SessionSummary;
@@ -49,6 +50,7 @@ use Tests\TestCase;
 #[CoversClass(SessionWriter::class)]
 #[CoversClass(SessionEstablishment::class)]
 #[CoversClass(SessionService::class)]
+#[CoversClass(SessionActivation::class)]
 #[CoversClass(ActiveSessions::class)]
 #[CoversClass(SessionSummary::class)]
 final class OptionalAbsoluteLimitTest extends TestCase
@@ -225,7 +227,8 @@ final class OptionalAbsoluteLimitTest extends TestCase
     }
 
     /**
-     * A pending session keeps its sign-in's deadline.
+     * A pending session keeps its sign-in's deadline, which caps its idle
+     * deadline once it activates.
      *
      * @return void
      *
@@ -256,6 +259,12 @@ final class OptionalAbsoluteLimitTest extends TestCase
 
         self::assertNotNull($session);
         self::assertSame($deadline->getTimestamp(), $this->stored($session)->getAbsoluteExpiresAt()?->getTimestamp());
+        self::assertSame($deadline->getTimestamp(), $this->stored($session)->getIdleExpiresAt()?->getTimestamp());
+
+        $listed = $this->sessions(self::UNLIMITED)->sessions($identity)->items();
+
+        self::assertCount(1, $listed);
+        self::assertSame($deadline->getTimestamp(), $listed[0]->idleExpiresAt->getTimestamp());
 
         $this->moveClocksTo($deadline);
 

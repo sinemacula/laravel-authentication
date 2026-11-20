@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace Tests\Feature\Testing;
 
+use Carbon\Carbon;
 use Illuminate\Auth\Events\Logout;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\Eloquent\Model;
@@ -15,6 +16,8 @@ use PHPUnit\Framework\AssertionFailedError;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\TenantResolver;
+use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
+use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Testing\Concerns\InteractsWithAuthenticationContext;
@@ -307,6 +310,73 @@ final class InteractsWithAuthenticationContextTest extends TestCase
             ->assertBoundTenant($tenant)
             ->assertBoundSession($session)
             ->assertBoundScopes(null);
+    }
+
+    /**
+     * Each request sent while acting fires `PrincipalAssigned` and, with a
+     * session, `SessionAuthenticated`, which records the session's use.
+     *
+     * @return void
+     */
+    public function testEachRequestFiresTheBindEventsAndRecordsTheSessionsUse(): void
+    {
+        $ada = $this->seedIdentity();
+
+        $session = $this->signedInSession('api', 'ada@example.test');
+
+        $this->actingOnSession($session);
+
+        foreach (['First/1.0', 'Second/1.0'] as $agent) {
+
+            Carbon::setTestNow(Carbon::now()->addHour()->startOfSecond());
+
+            $this->recordEvents([PrincipalAssigned::class, SessionAuthenticated::class]);
+
+            $this->withHeader('User-Agent', $agent)->getJson('/api/me')->assertOk();
+
+            self::assertSame([PrincipalAssigned::class, SessionAuthenticated::class], array_values(array_unique($this->recordedClasses())));
+
+            $session->refresh();
+
+            self::assertEquals(Carbon::now(), $session->getLastUsedAt());
+            self::assertSame('127.0.0.1', $session->getAttribute('last_used_ip'));
+            self::assertSame($agent, $session->getAttribute('last_used_user_agent'));
+        }
+
+        $this->actingAsIdentity($ada, guard: 'api');
+
+        $this->recordEvents([PrincipalAssigned::class, SessionAuthenticated::class]);
+
+        $this->getJson('/api/me')->assertOk();
+
+        self::assertSame([PrincipalAssigned::class], array_values(array_unique($this->recordedClasses())));
+    }
+
+    /**
+     * Nothing is checked: a revoked session and an inactive principal are each
+     * acted as given.
+     *
+     * @return void
+     */
+    public function testARevokedSessionAndAnInactivePrincipalAreActedAsGiven(): void
+    {
+        $this->seedIdentity();
+
+        $bob = $this->seedIdentity('bob@example.test', active: false);
+
+        $session = $this->signedInSession('api', 'ada@example.test');
+
+        $session->forceFill(['revoked_at' => Carbon::now()])->save();
+
+        $this->actingOnSession($session);
+
+        $this->getJson('/api/me')->assertOk()->assertJsonPath('session', $session->getKey());
+        $this->assertBoundSession($session);
+
+        $this->actingAsPrincipal($bob, guard: 'api');
+
+        $this->getJson('/api/me')->assertOk()->assertJsonPath('principal', $bob->getKey());
+        $this->assertBoundPrincipal($bob);
     }
 
     /**

@@ -8,6 +8,7 @@ use Illuminate\Contracts\Auth\Authenticatable as LaravelAuthenticatable;
 use Illuminate\Contracts\Auth\Guard as LaravelGuard;
 use Illuminate\Contracts\Auth\UserProvider as LaravelUserProvider;
 use Illuminate\Contracts\Database\Eloquent\Builder;
+use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -583,23 +584,22 @@ final class ContractDeclarationTest extends TestCase
      */
     public function testEveryPackageEventImplementsAuthenticationEvent(): void
     {
-        $events = [];
-
-        foreach (glob(__DIR__ . '/../../../src/Events/*.php') ?: [] as $file) {
-
-            $class = 'SineMacula\Laravel\Authentication\Events\\' . basename($file, '.php');
-
-            if ($class === EventContext::class) {
-                continue;
-            }
-
-            self::assertTrue(class_exists($class), $class);
-
-            $events[$class] = (new \ReflectionClass($class))->implementsInterface(AuthenticationEvent::class);
+        foreach (self::eventClasses() as $class) {
+            self::assertTrue((new \ReflectionClass($class))->implementsInterface(AuthenticationEvent::class), $class);
         }
+    }
 
-        self::assertNotEmpty($events);
-        self::assertSame(array_fill_keys(array_keys($events), true), $events);
+    /**
+     * No package event defers to the last transaction of any connection, so one
+     * that reports a write follows only its own row's connection.
+     *
+     * @return void
+     */
+    public function testNoPackageEventDispatchesAfterCommit(): void
+    {
+        foreach (self::eventClasses() as $class) {
+            self::assertFalse((new \ReflectionClass($class))->implementsInterface(ShouldDispatchAfterCommit::class), $class);
+        }
     }
 
     /**
@@ -660,6 +660,33 @@ final class ContractDeclarationTest extends TestCase
                 self::assertStringNotContainsStringIgnoringCase('device', $method, $interface . '::' . $method);
             }
         }
+    }
+
+    /**
+     * Every class under `src/Events` but the context they carry.
+     *
+     * @return non-empty-list<class-string>
+     */
+    private static function eventClasses(): array
+    {
+        $events = [];
+
+        foreach (glob(dirname(__DIR__, 3) . '/src/Events/*.php') ?: [] as $file) {
+
+            $class = 'SineMacula\Laravel\Authentication\Events\\' . basename($file, '.php');
+
+            if ($class === EventContext::class) {
+                continue;
+            }
+
+            self::assertTrue(class_exists($class), $class);
+
+            $events[] = $class;
+        }
+
+        self::assertNotEmpty($events);
+
+        return $events;
     }
 
     /**
