@@ -67,6 +67,7 @@ use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
+use SineMacula\Laravel\Authentication\Sessions\CredentialAttempt;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SignInStatus;
@@ -110,6 +111,7 @@ use Tests\TestCase;
 #[CoversClass(PendingSessions::class)]
 #[CoversClass(SessionActivation::class)]
 #[CoversClass(SignInResult::class)]
+#[CoversClass(CredentialAttempt::class)]
 final class SessionServiceTest extends TestCase
 {
     use InteractsWithProofs, InteractsWithRecheckedMembers, InteractsWithSessions;
@@ -414,6 +416,23 @@ final class SessionServiceTest extends TestCase
         $limiter->shouldNotReceive('acquire');
 
         $this->assertSignInFails(FailureReason::METHOD_NOT_ALLOWED, $this->sessions()->signIn('password', self::credentials(), self::requestContext()));
+    }
+
+    /**
+     * A password sign-in does not read the code settings, so a malformed one
+     * leaves it working.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testMalformedCodeSettingsLeaveAPasswordSignInWorking(): void
+    {
+        $this->seedIdentity();
+
+        config()->set(['authentication.codes.length' => 5, 'authentication.codes.key' => 'too-short']);
+
+        self::assertTrue($this->sessions()->signIn('password', self::credentials(), self::requestContext())->isSignedIn());
     }
 
     /**

@@ -402,16 +402,21 @@ final class OneTimeCodesTest extends TestCase
     }
 
     /**
-     * Rows of `[settings, message start]` for a malformed code setting or key.
+     * Rows of `[settings, message part]` for a malformed code setting or key.
      *
      * @return iterable<string, array{0: array<string, mixed>, 1: string}>
      */
     public static function provideMalformedSettings(): iterable
     {
         yield from [
-            'code length out of range'     => [['authentication.codes.length' => 5], 'authentication.codes.length must be an integer from 6 to 10.'],
-            'attempts out of range'        => [['authentication.codes.max_attempts' => 0], 'authentication.codes.max_attempts must be an integer from 1 to 20.'],
-            'a code key that is too short' => [['authentication.codes.key' => 'too-short'], 'authentication.codes.key must be a string of at least 32 bytes'],
+            'code length out of range'           => [['authentication.codes.length' => 5], 'authentication.codes.length must be an integer from 6 to 10.'],
+            'lifetime out of range'              => [['authentication.codes.ttl_seconds' => 59], 'authentication.codes.ttl_seconds must be an integer from 60 to 3600.'],
+            'attempts out of range'              => [['authentication.codes.max_attempts' => 0], 'authentication.codes.max_attempts must be an integer from 1 to 20.'],
+            'cooldown past the lifetime'         => [['authentication.codes.resend_cooldown_seconds' => 601], 'resend_cooldown_seconds must be an integer from 0 to 600.'],
+            'deliveries out of range'            => [['authentication.codes.max_deliveries' => 0], 'authentication.codes.max_deliveries must be an integer from 1 to 10.'],
+            'window under the lifetime'          => [['authentication.codes.delivery_window_seconds' => 599], 'delivery_window_seconds must be an integer from 600 to 86400.'],
+            'a code key that is too short'       => [['authentication.codes.key' => 'too-short'], 'authentication.codes.key must be a string of at least 32 bytes'],
+            'no code key and no application key' => [['authentication.codes.key' => null, 'app.key' => null], 'One-time codes are keyed with `authentication.codes.key`'],
         ];
     }
 
