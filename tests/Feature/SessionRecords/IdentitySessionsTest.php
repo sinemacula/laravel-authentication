@@ -5,12 +5,15 @@ declare(strict_types = 1);
 namespace Tests\Feature\SessionRecords;
 
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Contracts\HasSessions;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\SessionRecords\IdentitySessions;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\TestCase;
@@ -75,6 +78,29 @@ final class IdentitySessionsTest extends TestCase
 
         self::assertSame($id, IdentitySessions::find($identity, $id)?->getSessionIdentifier());
         self::assertNull(IdentitySessions::find($other, $id));
+    }
+
+    /**
+     * An identity that is not an Eloquent model owns no session, whatever its
+     * relation returns.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnIdentityThatIsNotAModelOwnsNoSession(): void
+    {
+        $this->seedIdentity();
+
+        $session = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
+
+        self::assertNotNull($session);
+
+        $identity = \Mockery::mock(Identity::class, HasSessions::class);
+        $identity->shouldReceive('sessions')->andReturnUsing(static fn (): Builder => Session::query());
+
+        self::assertNull(IdentitySessions::find($identity, $session->record->getSessionIdentifier()));
+        self::assertSame(0, IdentitySessions::query($identity)[0]->count());
     }
 
     /**

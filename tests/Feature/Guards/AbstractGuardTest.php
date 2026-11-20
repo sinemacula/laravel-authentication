@@ -778,6 +778,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
         $sessions = \Mockery::mock(Builder::class);
         $sessions->shouldReceive('useWritePdo')->andReturnSelf();
         $sessions->shouldReceive('getModel')->andReturn(new StubSession);
+        $sessions->shouldReceive('where', 'whereRaw')->andReturnSelf();
         $sessions->shouldReceive('find')->with($sessionId)->andReturn($own, $elsewhere);
 
         $identity = $this->mockIdentity(HasSessions::class);
@@ -825,6 +826,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
         $sessions = \Mockery::mock(Builder::class);
         $sessions->shouldReceive('useWritePdo')->andReturnSelf();
         $sessions->shouldReceive('getModel')->andReturn(new StubSession);
+        $sessions->shouldReceive('where', 'whereRaw')->andReturnSelf();
         $sessions->shouldReceive('find')->with($sessionId)->andReturn($session);
 
         $identity = $this->mockIdentity(HasSessions::class);
@@ -875,6 +877,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
         $sessions = \Mockery::mock(Builder::class);
         $sessions->shouldReceive('useWritePdo')->andReturnSelf();
         $sessions->shouldReceive('getModel')->andReturn(new StubSession);
+        $sessions->shouldReceive('where', 'whereRaw')->andReturnSelf();
         $sessions->shouldReceive('find')->with($sessionId)->andReturn($session);
 
         $identity = $this->mockIdentity(HasSessions::class);
