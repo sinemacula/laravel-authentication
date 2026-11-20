@@ -393,6 +393,31 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
+     * A registration through another guard of the relying party reuses the
+     * handle and excludes the passkeys registered through the first.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARegistrationThroughASharingGuardReusesTheHandle(): void
+    {
+        $identity = $this->seedIdentity();
+
+        $this->registerPasskey($identity);
+
+        $first   = Passkey::query()->sole();
+        $options = Auth::passkeys('admin')->registrationOptions($identity, self::USER_NAME);
+
+        self::assertSame($first->user_handle, ((array) $options->options['user'])['id']);
+        self::assertSame([['type' => 'public-key', 'id' => $first->credential_id, 'transports' => ['internal', 'hybrid']]], $options->options['excludeCredentials']);
+
+        Auth::passkeys('admin')->register($identity, $options->challengeId, (new VirtualAuthenticator(self::ORIGIN))->create($options->options), self::requestClient());
+
+        self::assertSame([$first->user_handle, $first->user_handle], Passkey::query()->where('rp_id', self::RP_ID)->pluck('user_handle')->all());
+    }
+
+    /**
      * An identity's first passkey on another relying party gets its own user
      * handle.
      *
@@ -966,6 +991,36 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
+     * A passkey registered through another guard of the relying party verifies
+     * as a factor on this one.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPasskeyOfASharingGuardVerifiesAsAFactor(): void
+    {
+        $identity = $this->seedIdentity();
+
+        $this->registerPasskey($identity);
+
+        $passkey = Passkey::query()->sole();
+        $options = self::factorCeremony(Auth::passkeys('admin'), $identity, 'admin');
+
+        self::assertSame([['type' => 'public-key', 'id' => $passkey->credential_id, 'transports' => ['internal', 'hybrid']]], $options->options['allowCredentials']);
+        self::assertSame('admin', PasskeyChallenge::query()->findOrFail($options->challengeId)->guard);
+
+        $this->recordEvents([PasskeyUsed::class]);
+
+        self::assertTrue(self::verifyPasskeyFactor($identity, $options->challengeId, $this->authenticator()->get($options->options), 'admin')->isVerified());
+
+        $used = $this->recordedEvent(PasskeyUsed::class);
+
+        self::assertSame(['admin', $passkey->id], [$used->context->guard, $used->context->credentialId]);
+        self::assertSame(1, Passkey::query()->sole()->sign_count);
+    }
+
+    /**
      * A response that carries no user handle verifies too: the identity is
      * known, so the passkey's own handle is the one checked.
      *
@@ -1330,6 +1385,29 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
+     * Removing a passkey leaves the identity's passkey on another relying party
+     * and its handle untouched.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testRemovingAPasskeyKeepsThoseOfAnotherRelyingParty(): void
+    {
+        $identity = $this->seedIdentity();
+        $removed  = $this->registerPasskey($identity);
+
+        config()->set('auth.guards.admin.passkeys', ['id' => 'app.example.test']);
+
+        $kept   = $this->registerPasskey($identity, 'admin', new VirtualAuthenticator(self::ORIGIN));
+        $handle = Passkey::query()->findOrFail($kept->id)->user_handle;
+
+        self::assertTrue(Auth::passkeys('api')->remove($identity, $removed->id, self::requestClient())->isRemoved());
+        self::assertSame([$kept->id], array_map(static fn (PasskeySummary $summary): string => $summary->id, Auth::passkeys('admin')->passkeys($identity)));
+        self::assertSame($handle, Passkey::query()->sole()->user_handle);
+    }
+
+    /**
      * Guards that share a relying party id list and remove each other's
      * passkeys.
      *
@@ -1343,6 +1421,7 @@ final class PasskeyServiceTest extends TestCase
         $passkey  = $this->registerPasskey($identity);
 
         self::assertSame([$passkey->id], array_map(static fn (PasskeySummary $summary): string => $summary->id, Auth::passkeys('admin')->passkeys($identity)));
+        self::assertSame([Passkey::query()->sole()->credential_id], Auth::passkeys('admin')->credentialIds($identity));
 
         $this->recordEvents([PasskeyRemoved::class]);
 
