@@ -6,8 +6,10 @@ namespace SineMacula\Laravel\Authentication\Sessions;
 
 use Illuminate\Contracts\Container\Container;
 use SineMacula\Laravel\Authentication\Admission\Refused;
+use SineMacula\Laravel\Authentication\Codes\CodeSignIn;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
+use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
@@ -63,6 +65,23 @@ final readonly class CredentialAttempt
         $policy = $container->make(ApplicationPolicy::class);
 
         return $policy->allowsMethod($guard, $method) ? $policy : new Refused(FailureReason::METHOD_NOT_ALLOWED);
+    }
+
+    /**
+     * Fail closed on a malformed setting the method reads.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\SignInMethod  $method
+     * @return void
+     *
+     * @throws \InvalidArgumentException
+     */
+    public static function assertConfigured(SignInMethod $method): void
+    {
+        if (!$method instanceof CodeSignIn) {
+            return;
+        }
+
+        $method->validate();
     }
 
     /**

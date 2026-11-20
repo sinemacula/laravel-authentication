@@ -80,7 +80,8 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   `attempt()` fires `Validated` once the password is accepted, rehashes and asks the factor policy inside the timebox,
   cuts it short only for an admitted attempt and gives its slots back before the bind; `signIn()` cuts it short for an
   admitted identity, rehashes after it, continues to an active or a pending session, and gives its slots back after the
-  bind of an active one.
+  bind of an active one. `signIn()` and `reauthenticate()` also call `assertConfigured()` before `begin()`: a code
+  method reads its settings and key there, so a malformed one throws before anything is counted.
 - `start()` takes the `FirstFactor` the application verified itself: its identity is the one signed in, reloaded
   through the guard's provider and required to come back as the same class and key (`identity_unknown`), and its
   channel, observations and `amr` values are recorded as the first proof. A factor over the `external_provider` channel
@@ -262,7 +263,7 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   `src/Sessions/SessionActivation.php`, `src/Sessions/PendingTransitions.php`, `src/Sessions/PendingState.php`,
   `src/Sessions/PendingSession.php` and `src/Sessions/Enums/{PendingRequirement,PendingAction,SessionStatus}.php`.
 - `src/Sessions/CredentialAttempt.php`: the method check, the slots and their give-back, shared with `attempt()`
-  (`src/Guards/Concerns/SignsInWithCredentials.php`).
+  (`src/Guards/Concerns/SignsInWithCredentials.php`), and the check of a code method's settings.
 - `src/Sessions/SignInRequest.php` (`reserveAccountAttempt()`) and `src/RateLimiting/AccountAttempts.php`: the slots a
   sign-in's method takes on the accounts it checks, held with the sign-in's own.
 - `src/Sessions/SessionWriter.php`: `create()`, `replace()`, `createPending()`, `record()` and the compare-and-swap.

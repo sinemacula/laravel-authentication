@@ -762,8 +762,8 @@ final class CodeServiceTest extends TestCase
     }
 
     /**
-     * Rows of `[settings, message start]`: malformed code settings, and a key
-     * that cannot be had.
+     * Rows of `[settings, message start]`: the malformed code settings, and a
+     * delivery connection that is not configured.
      *
      * @return iterable<string, array{0: array<string, mixed>, 1: string}>
      */
@@ -771,9 +771,7 @@ final class CodeServiceTest extends TestCase
     {
         yield from [
             'delivery connection not configured' => [['authentication.delivery.queue.connection' => 'missing'], 'authentication.delivery.queue.connection must name a connection'],
-            'code length out of range'           => [['authentication.codes.length' => 5], 'authentication.codes.length must be an integer from 6 to 10.'],
-            'a code key that is too short'       => [['authentication.codes.key' => 'too-short'], 'authentication.codes.key must be a string of at least 32 bytes'],
-            'no code key and no application key' => [['authentication.codes.key' => null, 'app.key' => null], 'One-time codes are keyed with `authentication.codes.key`'],
+            ...self::provideMalformedCodeSettings(),
         ];
     }
 
@@ -804,8 +802,54 @@ final class CodeServiceTest extends TestCase
     }
 
     /**
+     * Rows of `[settings, message start]`: malformed code settings, and a key
+     * that cannot be had.
+     *
+     * @return iterable<string, array{0: array<string, mixed>, 1: string}>
+     */
+    public static function provideMalformedCodeSettings(): iterable
+    {
+        yield from [
+            'code length out of range'           => [['authentication.codes.length' => 5], 'authentication.codes.length must be an integer from 6 to 10.'],
+            'attempts out of range'              => [['authentication.codes.max_attempts' => 0], 'authentication.codes.max_attempts must be an integer from 1 to 20.'],
+            'a code key that is too short'       => [['authentication.codes.key' => 'too-short'], 'authentication.codes.key must be a string of at least 32 bytes'],
+            'no code key and no application key' => [['authentication.codes.key' => null, 'app.key' => null], 'One-time codes are keyed with `authentication.codes.key`'],
+        ];
+    }
+
+    /**
+     * A malformed code setting fails a verification check closed before
+     * anything is counted.
+     *
+     * @param  array<string, mixed>  $settings
+     * @param  non-empty-string  $message
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideMalformedCodeSettings')]
+    public function testMalformedSettingsFailAVerificationClosedBeforeAnythingIsCounted(array $settings, string $message): void
+    {
+        $identity  = self::seedCodeIdentity(verified: false);
+        $challenge = (string) $this->codeService()->sendVerification($identity, 'phone', self::requestClient())->challengeId;
+
+        DB::table('rate_limits')->delete();
+        config()->set($settings);
+
+        try {
+            $this->codeService()->verify($identity, 'phone', $challenge, self::CODE, self::requestClient());
+
+            self::fail('A verification code was checked with malformed settings.');
+        } catch (\InvalidArgumentException $exception) {
+            self::assertStringStartsWith($message, $exception->getMessage());
+        }
+
+        self::assertSame([0, 1], [DB::table('rate_limits')->count(), DB::table('one_time_codes')->whereNull('consumed_at')->where('attempts', 0)->count()]);
+    }
+
+    /**
      * Rows of `[settings, message start, the factor code call]`: a send reads
-     * every setting a delivery needs, and a check the code key.
+     * every setting a delivery needs, and a check the code settings and key.
      *
      * @formatter:off
      *
@@ -831,8 +875,8 @@ final class CodeServiceTest extends TestCase
             yield 'a send, ' . $name => [$settings, $message, $send];
         }
 
-        foreach (['a code key that is too short', 'no code key and no application key'] as $name) {
-            yield 'a check, ' . $name => [...iterator_to_array(self::provideMalformedSettings())[$name], $check];
+        foreach (self::provideMalformedCodeSettings() as $name => [$settings, $message]) {
+            yield 'a check, ' . $name => [$settings, $message, $check];
         }
     }
 
