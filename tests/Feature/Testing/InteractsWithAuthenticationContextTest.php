@@ -5,14 +5,19 @@ declare(strict_types = 1);
 namespace Tests\Feature\Testing;
 
 use Carbon\Carbon;
+use Illuminate\Auth\Events\Authenticated;
 use Illuminate\Auth\Events\Logout;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Contracts\Http\Kernel as HttpKernel;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Application;
+use Illuminate\Foundation\Http\Kernel;
+use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Route;
 use PHPUnit\Framework\AssertionFailedError;
+use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\TenantResolver;
@@ -20,8 +25,10 @@ use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Testing\ActingContext;
 use SineMacula\Laravel\Authentication\Testing\Concerns\InteractsWithAuthenticationContext;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Http\ReadIdentityBeforeRouting;
 use Tests\Fixtures\Tenancy\DescendantTenants;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMember;
@@ -37,10 +44,14 @@ use Tests\TestCase;
  *
  * @internal
  */
+#[CoversClass(ActingContext::class)]
 #[CoversTrait(InteractsWithAuthenticationContext::class)]
 final class InteractsWithAuthenticationContextTest extends TestCase
 {
     use InteractsWithAuthenticationContext, InteractsWithSessions;
+
+    /** @var list<class-string> The events a bind fires, in order, with a session. */
+    private const array BIND_EVENTS = [Authenticated::class, PrincipalAssigned::class, SessionAuthenticated::class];
 
     /**
      * Create the tables and register `auth` routes that answer with the
@@ -313,12 +324,12 @@ final class InteractsWithAuthenticationContextTest extends TestCase
     }
 
     /**
-     * Each request sent while acting fires `PrincipalAssigned` and, with a
-     * session, `SessionAuthenticated`, which records the session's use.
+     * Each request sent while acting fires the bind events once, in order, and
+     * records the session's use.
      *
      * @return void
      */
-    public function testEachRequestFiresTheBindEventsAndRecordsTheSessionsUse(): void
+    public function testEachRequestFiresTheBindEventsOnceAndRecordsTheSessionsUse(): void
     {
         $ada = $this->seedIdentity();
 
@@ -330,11 +341,11 @@ final class InteractsWithAuthenticationContextTest extends TestCase
 
             Carbon::setTestNow(Carbon::now()->addHour()->startOfSecond());
 
-            $this->recordEvents([PrincipalAssigned::class, SessionAuthenticated::class]);
+            $this->recordEvents(self::BIND_EVENTS);
 
             $this->withHeader('User-Agent', $agent)->getJson('/api/me')->assertOk();
 
-            self::assertSame([PrincipalAssigned::class, SessionAuthenticated::class], array_values(array_unique($this->recordedClasses())));
+            self::assertSame(self::BIND_EVENTS, $this->recordedClasses());
 
             $session->refresh();
 
@@ -345,11 +356,80 @@ final class InteractsWithAuthenticationContextTest extends TestCase
 
         $this->actingAsIdentity($ada, guard: 'api');
 
-        $this->recordEvents([PrincipalAssigned::class, SessionAuthenticated::class]);
+        $this->recordEvents(self::BIND_EVENTS);
 
         $this->getJson('/api/me')->assertOk();
 
-        self::assertSame([PrincipalAssigned::class], array_values(array_unique($this->recordedClasses())));
+        self::assertSame([Authenticated::class, PrincipalAssigned::class], $this->recordedClasses());
+    }
+
+    /**
+     * A global middleware that reads the guard before routing finds the context
+     * bound, and each request still fires the bind events once.
+     *
+     * @return void
+     */
+    public function testAGlobalMiddlewareReadingTheGuardLeavesTheBindEventsOncePerRequest(): void
+    {
+        $ada = $this->seedIdentity();
+
+        $session = $this->signedInSession('api', 'ada@example.test');
+
+        $kernel = app(HttpKernel::class);
+
+        self::assertInstanceOf(Kernel::class, $kernel);
+
+        $kernel->pushMiddleware(ReadIdentityBeforeRouting::class);
+
+        Route::middleware('auth:api')->get('/api/me/routed', static fn (Request $request): array => [
+            'before' => $request->attributes->get('identity_before_routing'),
+            'routed' => Auth::id(),
+        ]);
+
+        $this->actingOnSession($session);
+
+        foreach (['First/1.0', 'Second/1.0'] as $agent) {
+
+            Carbon::setTestNow(Carbon::now()->addHour()->startOfSecond());
+
+            $this->recordEvents(self::BIND_EVENTS);
+
+            $this->withHeader('User-Agent', $agent)->getJson('/api/me/routed')->assertOk()->assertExactJson(['before' => $ada->getKey(), 'routed' => $ada->getKey()]);
+
+            self::assertSame(self::BIND_EVENTS, $this->recordedClasses());
+            self::assertSame($agent, $session->refresh()->getAttribute('last_used_user_agent'));
+        }
+    }
+
+    /**
+     * A request that never reads the guard fires no bind events and records no
+     * use of the session; a read in the test afterwards binds it then.
+     *
+     * @return void
+     */
+    public function testARequestThatNeverReadsTheGuardFiresNoBindEvents(): void
+    {
+        $ada = $this->seedIdentity();
+
+        $session = $this->signedInSession('api', 'ada@example.test');
+
+        Route::get('/open', static fn (): array => []);
+
+        $this->actingOnSession($session);
+
+        $used = $session->refresh()->getLastUsedAt();
+
+        Carbon::setTestNow(Carbon::now()->addHour()->startOfSecond());
+
+        $this->recordEvents(self::BIND_EVENTS);
+
+        $this->getJson('/open')->assertOk();
+
+        self::assertSame([], $this->recordedClasses());
+        self::assertEquals($used, $session->refresh()->getLastUsedAt());
+
+        self::assertSame($ada->getKey(), Auth::id());
+        self::assertSame(self::BIND_EVENTS, $this->recordedClasses());
     }
 
     /**
@@ -588,7 +668,8 @@ final class InteractsWithAuthenticationContextTest extends TestCase
     }
 
     /**
-     * A context acted as wins over the credential the request carries.
+     * A context acted as wins over the credential the request carries, which
+     * the next request uses once acting stops.
      *
      * @return void
      */
@@ -607,6 +688,10 @@ final class InteractsWithAuthenticationContextTest extends TestCase
         $this->actingAsIdentity($ada, guard: 'api');
 
         $this->withToken($token)->getJson('/api/me')->assertOk()->assertJsonPath('identity', $ada->getKey());
+
+        $this->stopActing('api');
+
+        $this->withToken($token)->getJson('/api/me')->assertOk()->assertJsonPath('identity', $grace->getKey());
     }
 
     /**

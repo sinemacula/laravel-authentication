@@ -8,13 +8,17 @@ use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Logout;
 use Illuminate\Http\Request;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
+use SineMacula\Laravel\Authentication\Guards\Concerns\BindsContextualState;
+use SineMacula\Laravel\Authentication\Guards\Concerns\RebindsCollaborators;
 use Tests\Unit\Stubs\StubRequestResolvingGuard;
 
 /**
  * Feature tests for how `AbstractGuard` resolves the request: at most once,
- * again after `setRequest()`, and never after `logout()`.
+ * again after `setRequest()`, never after `logout()`, and through a first-read
+ * bind when one is pending.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -22,6 +26,8 @@ use Tests\Unit\Stubs\StubRequestResolvingGuard;
  * @internal
  */
 #[CoversClass(AbstractGuard::class)]
+#[CoversTrait(BindsContextualState::class)]
+#[CoversTrait(RebindsCollaborators::class)]
 final class AbstractGuardRequestResolutionTest extends AbstractGuardTestCase
 {
     /**
@@ -355,6 +361,85 @@ final class AbstractGuardRequestResolutionTest extends AbstractGuardTestCase
         self::assertNull($guard->user());
         self::assertSame(1, $guard->resolutions);
         self::assertSame([null], $guard->reentered);
+    }
+
+    /**
+     * A first-read bind that binds runs once in place of resolving the
+     * request's credential.
+     *
+     * @return void
+     */
+    public function testAFirstReadBindReplacesResolvingTheRequest(): void
+    {
+        $guard     = $this->makeResolvingGuard($this->mockIdentity());
+        $identity  = $this->mockIdentity();
+        $principal = $this->mockPrincipal();
+        $runs      = 0;
+
+        $guard->bindOnFirstRead(static function () use ($guard, $identity, $principal, &$runs): bool {
+
+            $runs++;
+
+            $guard->login($identity, $principal);
+
+            return true;
+        });
+
+        self::assertSame($identity, $guard->user());
+        self::assertSame($identity, $guard->user());
+        self::assertSame(1, $runs);
+        self::assertSame(0, $guard->resolutions);
+    }
+
+    /**
+     * A first-read bind that does not bind leaves the request to its own
+     * credential.
+     *
+     * @return void
+     */
+    public function testAFirstReadBindThatDoesNotBindResolvesTheRequest(): void
+    {
+        $identity = $this->mockIdentity();
+        $guard    = $this->makeResolvingGuard($identity);
+
+        $guard->bindOnFirstRead(static fn (): bool => false);
+
+        self::assertSame($identity, $guard->user());
+        self::assertSame(1, $guard->resolutions);
+    }
+
+    /**
+     * A first-read bind that reports a bind returns what is bound, even
+     * nothing, without resolving the request.
+     *
+     * @return void
+     */
+    public function testAFirstReadBindThatBindsNothingLeavesTheGuardSignedOut(): void
+    {
+        $guard = $this->makeResolvingGuard($this->mockIdentity());
+
+        $guard->bindOnFirstRead(static fn (): bool => true);
+
+        self::assertNull($guard->user());
+        self::assertSame(0, $guard->resolutions);
+    }
+
+    /**
+     * A reset before the first read discards the first-read bind.
+     *
+     * @return void
+     */
+    public function testAResetDiscardsAPendingFirstReadBind(): void
+    {
+        $identity = $this->mockIdentity();
+        $guard    = $this->makeResolvingGuard($identity);
+
+        $guard->bindOnFirstRead(static fn (): bool => throw new \LogicException('The discarded bind ran.'));
+
+        $guard->setRequest(Request::create('/next', 'GET'));
+
+        self::assertSame($identity, $guard->user());
+        self::assertSame(1, $guard->resolutions);
     }
 
     /**

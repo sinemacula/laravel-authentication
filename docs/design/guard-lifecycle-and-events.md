@@ -63,6 +63,9 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   `setSession()` resolve the request first too, so a principal or session set before the first access replaces the one
   the request's token binds instead of being replaced by it. They are trusted binds, like `login()`: they check neither
   ownership nor activity, nor a session's revocation or deadlines, so a caller verifies what it passes them first.
+- The testing helpers hand the guard an `@internal` `bindOnFirstRead()` callback on each request. The first `user()`
+  runs it and resolves the request's credential only when it reports it did not bind; any reset of the guard's state
+  discards it, and without one `user()` resolves as above.
 
 ## Success Path
 
@@ -222,9 +225,9 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - `src/Guards/AbstractGuard.php`: `user()`, `resolveUserFromRequest()`, `attempt()`, `validate()`, `login()`,
   `authenticateAs()`, `logout()`, `forgetUser()`, `bindAuthenticationLifecycle()`, `bindVerifiedContext()`;
   `src/Guards/Concerns/BindsContextualState.php`: `loginStarted()`, `loginVerified()`;
-  `src/Guards/Concerns/RebindsCollaborators.php`: `setRequest()`; `src/Guards/Concerns/SignsInWithCredentials.php`:
-  `signInWithCredentials()`, `admitVerifiedIdentity()`; `src/Sessions/CredentialAttempt.php`: the steps it shares with
-  the session service's `signIn()`.
+  `src/Guards/Concerns/RebindsCollaborators.php`: `setRequest()`, `bindOnFirstRead()`;
+  `src/Guards/Concerns/SignsInWithCredentials.php`: `signInWithCredentials()`, `admitVerifiedIdentity()`;
+  `src/Sessions/CredentialAttempt.php`: the steps it shares with the session service's `signIn()`.
 - `src/Sessions/Methods/PasswordSignIn.php` and `src/Admission/SignInAdmission.php`: the credential check and the
   activity, principal, tenant and application checks every sign-in shares.
 - `src/Admission/ActivationPolicy.php`: the opt-in identity, principal, and tenant activation checks.

@@ -8,6 +8,7 @@ use Illuminate\Auth\Events\Logout;
 use Illuminate\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Events\NullDispatcher;
 use PHPUnit\Framework\Assert;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -33,8 +34,11 @@ final class ActingContext
     /** @var array<string, array{identity: \SineMacula\Laravel\Authentication\Contracts\Identity, principal: \SineMacula\Laravel\Authentication\Contracts\Principal, session: ?\SineMacula\Laravel\Authentication\Contracts\Session, scopes: ?list<string>, tenant: ?\SineMacula\Laravel\Authentication\Contracts\Tenant}> The context acted as, by guard name. */
     private array $acting = [];
 
-    /** @var array<string, \SineMacula\Laravel\Authentication\Guards\AbstractGuard> The guard instance, by name, whose request rebinding binds the context again. */
+    /** @var array<string, \SineMacula\Laravel\Authentication\Guards\AbstractGuard> The guard instance, by name, whose first read of each request binds the context again. */
     private array $wired = [];
+
+    /** @var array<string, ?\Illuminate\Http\Request> The request each guard was last bound for and kept signed in, by guard name. */
+    private array $boundFor = [];
 
     /**
      * Constructor.
@@ -206,7 +210,7 @@ final class ActingContext
         $this->wired[$name] = $guard;
 
         $this->container->rebinding('request', function () use ($guard): void {
-            $this->bind($guard);
+            $guard->bindOnFirstRead(fn (): bool => $this->bind($guard));
         });
     }
 
@@ -242,21 +246,42 @@ final class ActingContext
     }
 
     /**
-     * Bind the context again, when the guard is still the one acted on.
+     * Bind the context on the guard's first read of a request, firing its
+     * events once per request, and report whether the guard is still acted on.
      *
      * @param  \SineMacula\Laravel\Authentication\Guards\AbstractGuard  $guard
-     * @return void
+     * @return bool
+     *
+     * @imperative
      */
-    private function bind(AbstractGuard $guard): void
+    private function bind(AbstractGuard $guard): bool
     {
         $name   = $guard->getName();
         $acting = $this->acting[$name] ?? null;
 
         if ($acting === null || $this->wired[$name] !== $guard) {
-            return;
+            return false;
         }
 
-        $guard->authenticateAs($acting['identity'], $acting['principal'], $acting['session'], $acting['scopes'], $acting['tenant']);
+        $request = $guard->getRequest();
+        $events  = $guard->getDispatcher();
+
+        // The kernel binds a request again before routing it, so a global
+        // middleware's read has already fired its events.
+        if (($this->boundFor[$name] ?? null) === $request) {
+            $guard->setDispatcher(new NullDispatcher($events));
+        }
+
+        try {
+            $guard->authenticateAs($acting['identity'], $acting['principal'], $acting['session'], $acting['scopes'], $acting['tenant']);
+        } finally {
+            $guard->setDispatcher($events);
+        }
+
+        // A listener that signed the guard out runs again on the next bind.
+        $this->boundFor[$name] = $guard->hasUser() ? $request : null;
+
+        return true;
     }
 
     /**

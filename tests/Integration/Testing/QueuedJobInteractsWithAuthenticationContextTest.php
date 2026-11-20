@@ -54,6 +54,7 @@ final class QueuedJobInteractsWithAuthenticationContextTest extends TestCase
         });
 
         Route::middleware('auth:api')->get('/me', static fn (): array => ['identity' => Auth::id()]);
+        Route::get('/open', static fn (): array => []);
     }
 
     /**
@@ -96,6 +97,28 @@ final class QueuedJobInteractsWithAuthenticationContextTest extends TestCase
         self::assertSame(['identity' => null], $this->app?->make('observed.identity'));
 
         $this->getJson('/me')->assertOk()->assertExactJson(['identity' => $ada->getKey()]);
+    }
+
+    /**
+     * A job run after a request that never read the guard starts signed out.
+     *
+     * @return void
+     */
+    public function testAJobAfterARequestThatNeverReadTheGuardStartsSignedOut(): void
+    {
+        $this->actingAsIdentity($this->seedIdentity(), guard: 'api');
+
+        $this->getJson('/open')->assertOk();
+
+        dispatch(new ObserveGuardJob);
+
+        $worker = $this->app?->make('queue.worker');
+
+        self::assertInstanceOf(Worker::class, $worker);
+
+        $worker->runNextJob('database', 'default', new WorkerOptions(sleep: 0, maxTries: 1));
+
+        self::assertSame(['identity' => null], $this->app?->make('observed.identity'));
     }
 
     /**

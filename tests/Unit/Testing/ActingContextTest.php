@@ -9,6 +9,7 @@ use Illuminate\Auth\Events\Logout;
 use Illuminate\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher as DispatcherContract;
 use Illuminate\Events\Dispatcher;
+use Illuminate\Events\NullDispatcher;
 use Illuminate\Http\Request;
 use Illuminate\Support\Timebox;
 use PHPUnit\Framework\AssertionFailedError;
@@ -16,6 +17,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
+use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Testing\ActingContext;
@@ -101,12 +103,12 @@ final class ActingContextTest extends TestCase
     }
 
     /**
-     * Acting binds the context at once and again on every request the guard is
-     * rebound to, after the guard's own reset.
+     * Acting binds the context at once and again on the first read of every
+     * request the guard is rebound to, after the guard's own reset.
      *
      * @return void
      */
-    public function testActingBindsNowAndOnEveryRequestRebinding(): void
+    public function testActingBindsNowAndOnTheFirstReadOfEveryRequest(): void
     {
         $guard     = $this->guard('api');
         $identity  = new PlainIdentityFixture(1);
@@ -123,8 +125,129 @@ final class ActingContextTest extends TestCase
         $this->container->instance('request', $request);
 
         self::assertSame($request, $guard->getRequest());
+        self::assertFalse($guard->hasUser());
+        self::assertSame(1, $this->authenticated);
         self::assertSame([$identity, $principal, $session], [$guard->identity(), $guard->principal(), $guard->session()]);
         self::assertSame(2, $this->authenticated);
+    }
+
+    /**
+     * The same request read again after it is bound again is bound without its
+     * events, which the next request fires again.
+     *
+     * @return void
+     */
+    public function testTheSameRequestBoundAgainFiresNoEvents(): void
+    {
+        $guard     = $this->guard('api');
+        $identity  = new PlainIdentityFixture(1);
+        $principal = new PlainPrincipalFixture(10, $identity);
+        $request   = Request::create('/me');
+
+        ActingContext::current()->act($guard, $identity, $principal, null);
+
+        foreach ([$request, $request] as $bound) {
+
+            $this->container->instance('request', $bound);
+
+            self::assertSame([$identity, $principal], [$guard->identity(), $guard->principal()]);
+        }
+
+        self::assertSame($this->events, $guard->getDispatcher());
+        self::assertSame(2, $this->authenticated);
+
+        $this->container->instance('request', Request::create('/me'));
+
+        self::assertSame($identity, $guard->identity());
+        self::assertSame(3, $this->authenticated);
+    }
+
+    /**
+     * A listener that signs the guard out on the first bind of a request signs
+     * it out again when the same request is bound again.
+     *
+     * @return void
+     */
+    public function testASignOutByAListenerHoldsWhenTheSameRequestIsBoundAgain(): void
+    {
+        $guard    = $this->guard('api');
+        $identity = new PlainIdentityFixture(1);
+        $request  = Request::create('/me');
+
+        $this->events->listen(Authenticated::class, static function () use ($guard): void {
+            $guard->forgetUser();
+        });
+
+        ActingContext::current()->act($guard, $identity, new PlainPrincipalFixture(10, $identity), null);
+
+        foreach ([$request, $request] as $bound) {
+
+            $this->container->instance('request', $bound);
+
+            self::assertNull($guard->identity());
+        }
+
+        self::assertSame(3, $this->authenticated);
+    }
+
+    /**
+     * A request that is never read is not bound, and fires no events.
+     *
+     * @return void
+     */
+    public function testARequestNeverReadIsNotBound(): void
+    {
+        $guard    = $this->guard('api');
+        $identity = new PlainIdentityFixture(1);
+
+        ActingContext::current()->act($guard, $identity, new PlainPrincipalFixture(10, $identity), null);
+
+        $this->container->instance('request', Request::create('/me'));
+        $this->container->instance('request', Request::create('/me'));
+
+        self::assertFalse($guard->hasUser());
+        self::assertSame(1, $this->authenticated);
+    }
+
+    /**
+     * A bind that throws on the same request still gives the guard its
+     * dispatcher back, so the next request fires its events.
+     *
+     * @return void
+     */
+    public function testABindThatThrowsGivesTheDispatcherBack(): void
+    {
+        $guard     = $this->guard('api');
+        $identity  = new PlainIdentityFixture(1);
+        $principal = self::createStub(Principal::class);
+        $request   = Request::create('/me');
+
+        // Only the silent bind of a request bound again fails.
+        $principal->method('getTenant')->willReturnCallback(static fn (): null => $guard->getDispatcher() instanceof NullDispatcher
+            ? throw new \LogicException('Tenant lookup failed.') : null);
+
+        ActingContext::current()->act($guard, $identity, $principal, null);
+
+        $this->container->instance('request', $request);
+
+        self::assertSame($identity, $guard->identity());
+
+        $this->container->instance('request', $request);
+
+        try {
+            $guard->identity();
+
+            self::fail('Expected the bind to throw.');
+        } catch (\LogicException $exception) {
+            self::assertSame('Tenant lookup failed.', $exception->getMessage());
+        }
+
+        self::assertSame($this->events, $guard->getDispatcher());
+
+        $this->container->instance('request', Request::create('/me'));
+
+        self::assertSame($identity, $guard->identity());
+        self::assertSame(3, $this->authenticated);
     }
 
     /**

@@ -142,6 +142,10 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
         // that calls user() during resolution does not re-enter it.
         $this->requestResolved = true;
 
+        if ($this->firstReadBind !== null && ($this->firstReadBind)()) {
+            return $this->identity;
+        }
+
         return $this->resolveUserFromRequest();
     }
 
