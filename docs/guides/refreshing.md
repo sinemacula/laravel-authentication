@@ -257,6 +257,9 @@ cookie and its own scripts would then pass the refresh checks inside the attacke
 refused: its tokens travel only in a response body, which a cross-site page cannot read. Answer `cross_site_request`
 with `403`, as the sign-in route above does.
 
+A call that neither reads nor sets the cookie is not judged, such as sending a sign-in code or any of the password
+reset flows (see [Password reset](passwords.md#password-reset)).
+
 `signIn()` and `start()` judge the client of the `SignInContext` they are given, and `refresh()`, `switchTo()`,
 `signOutWith()`, `satisfy()` and `choose()` the `ClientContext` they are given; none reads the guard's request for it.
 `SignInContext::fromRequest()` and `ClientContext::fromRequest()` fill the client's `Origin`, the request's own scheme
