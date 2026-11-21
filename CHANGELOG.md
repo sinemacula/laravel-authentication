@@ -2,122 +2,23 @@
 
 ## 0.1.0 (2026-11-21)
 
-
-### ⚠ BREAKING CHANGES
-
-* tokens borrow RFC 9068's claims, and sessions record their proofs ([#119](https://github.com/sinemacula/laravel-authentication/issues/119))
-* the device record becomes a session, and every sign-in starts one ([#118](https://github.com/sinemacula/laravel-authentication/issues/118))
-* British prose, American identifiers ([#117](https://github.com/sinemacula/laravel-authentication/issues/117))
-* applications, not audiences or principal types ([#114](https://github.com/sinemacula/laravel-authentication/issues/114))
-* refresh through the session service and return its refusals ([#111](https://github.com/sinemacula/laravel-authentication/issues/111))
-* name the outcomes of verification links ([#104](https://github.com/sinemacula/laravel-authentication/issues/104))
-* name the outcomes of passkey and code verification ([#100](https://github.com/sinemacula/laravel-authentication/issues/100))
-* report lifecycle events before binding the guard and make event snapshots queue-safe ([#96](https://github.com/sinemacula/laravel-authentication/issues/96))
-* resolve every package table's connection from one storage setting ([#95](https://github.com/sinemacula/laravel-authentication/issues/95))
-* keep earlier bindings and own the auth manager binding ([#94](https://github.com/sinemacula/laravel-authentication/issues/94))
-* password policy and reset, identifier change, testing helpers and README ([#88](https://github.com/sinemacula/laravel-authentication/issues/88))
-* one-time codes, passkeys, API keys, client credentials and scopes ([#87](https://github.com/sinemacula/laravel-authentication/issues/87))
-* session lifecycle, event model, refresh transport and process safety ([#86](https://github.com/sinemacula/laravel-authentication/issues/86))
-* add the session service, sign-in methods and per-guard policy ([#85](https://github.com/sinemacula/laravel-authentication/issues/85))
-* device schema v2, refresh replay revocation and session lifetimes ([#84](https://github.com/sinemacula/laravel-authentication/issues/84))
-* harden the guard, token and refresh paths ([#83](https://github.com/sinemacula/laravel-authentication/issues/83))
-* remove legacy surfaces and require an HMAC signing key map ([#82](https://github.com/sinemacula/laravel-authentication/issues/82))
+First release. Stateless contextual authentication for Laravel that tells apart the identity that signed in, the
+principal it acts as and the session it signed in on.
 
 ### Features
 
-* a per-session issuance guard and an opaque provider context on provenance ([#129](https://github.com/sinemacula/laravel-authentication/issues/129)) ([86ec3ba](https://github.com/sinemacula/laravel-authentication/commit/86ec3ba68fa9545a51fc8b5345a4473944a4fb7a))
-* add the session service, sign-in methods and per-guard policy ([#85](https://github.com/sinemacula/laravel-authentication/issues/85)) ([9295421](https://github.com/sinemacula/laravel-authentication/commit/92954215d8d6cff9e00c3b3bc477509f419e80cb))
-* an authentication context, plain-value event context, Octane isolation, API keys after a failed JWT and conformant client credentials ([#128](https://github.com/sinemacula/laravel-authentication/issues/128)) ([a29d275](https://github.com/sinemacula/laravel-authentication/commit/a29d2751ceeb1ff9ef5a3ec65ac4bf52b0076c21))
-* answer whether a transaction is open on the storage connection, where freshness may be judged current ([#171](https://github.com/sinemacula/laravel-authentication/issues/171)) ([9619e49](https://github.com/sinemacula/laravel-authentication/commit/9619e490a19a5eb82a4301fbfa65dbc36e7e6ba0))
-* device schema v2, refresh replay revocation and session lifetimes ([#84](https://github.com/sinemacula/laravel-authentication/issues/84)) ([baeb834](https://github.com/sinemacula/laravel-authentication/commit/baeb834f85028ae4cd69e98dbc2a2ef766a87430))
-* end an identity's or principal's sessions when it is deleted ([#139](https://github.com/sinemacula/laravel-authentication/issues/139)) ([5cc1417](https://github.com/sinemacula/laravel-authentication/commit/5cc1417d815678137bda3672f0a70ba5b00b4109))
-* external sign-in and re-authentication through a link, assurance evidence and link-scoped revocation ([#127](https://github.com/sinemacula/laravel-authentication/issues/127)) ([c7b6b11](https://github.com/sinemacula/laravel-authentication/commit/c7b6b1198ca760d32ac44241d5c9e79fbb4d5127))
-* factor package seams, code challenges, password changes, mandatory revocation and passkeys as a factor ([#123](https://github.com/sinemacula/laravel-authentication/issues/123)) ([193458e](https://github.com/sinemacula/laravel-authentication/commit/193458ee52d9ced6747981ae7e4fa8494e0d79a3))
-* find the identities holding a verified identifier ([#177](https://github.com/sinemacula/laravel-authentication/issues/177)) ([837aaa0](https://github.com/sinemacula/laravel-authentication/commit/837aaa06775e15304ba352897e6985c2d91e9f3d))
-* give a tenant authentication policy the client of the call that asks ([#182](https://github.com/sinemacula/laravel-authentication/issues/182)) ([49026c5](https://github.com/sinemacula/laravel-authentication/commit/49026c51198ef9a2614bf234d0d38978f8749980))
-* give the factor code counters the client a send or check was handed ([#178](https://github.com/sinemacula/laravel-authentication/issues/178)) ([c0843e8](https://github.com/sinemacula/laravel-authentication/commit/c0843e805dbd8c37299eea7082dc90e02b850488))
-* hand a passkey factor gate the client and a pending sign-in's credential ([#148](https://github.com/sinemacula/laravel-authentication/issues/148)) ([b3226d8](https://github.com/sinemacula/laravel-authentication/commit/b3226d803a9d99ce29b82e09f79b7a1f2e969c74))
-* hand the link contract a SAML subject's NameID format ([#172](https://github.com/sinemacula/laravel-authentication/issues/172)) ([2ca8c77](https://github.com/sinemacula/laravel-authentication/commit/2ca8c77cf12612d2346762759495be28155643c9))
-* judge a factor change against a full requirement, a minimum level included ([#190](https://github.com/sinemacula/laravel-authentication/issues/190)) ([bf129d7](https://github.com/sinemacula/laravel-authentication/commit/bf129d732b12565211525ecb2f0ce8982b782398))
-* judge a tenant's sessions again after the commit when its policy changes inside a transaction ([#160](https://github.com/sinemacula/laravel-authentication/issues/160)) ([1a4a89c](https://github.com/sinemacula/laravel-authentication/commit/1a4a89c86d51a4f634c1fe5b1af65172f9ebabe2))
-* judge the current session again after a factor change ([#131](https://github.com/sinemacula/laravel-authentication/issues/131)) ([e38031e](https://github.com/sinemacula/laravel-authentication/commit/e38031e2cbb147049b8e56d92e2e564ab6971615))
-* judge until when a session meets a requirement in freshness, a minimum level included ([#188](https://github.com/sinemacula/laravel-authentication/issues/188)) ([6e00ca7](https://github.com/sinemacula/laravel-authentication/commit/6e00ca7bf49544d4927035bd47a96b6f78300dd7))
-* let other packages add their own checks to the configuration check ([#152](https://github.com/sinemacula/laravel-authentication/issues/152)) ([b71ddd1](https://github.com/sinemacula/laravel-authentication/commit/b71ddd14521d09c1da57aabe1ffb0bcf795498d7))
-* load listed principals' tenants, say when a token pair expires, and store active state as a deactivation time ([#132](https://github.com/sinemacula/laravel-authentication/issues/132)) ([3aa9577](https://github.com/sinemacula/laravel-authentication/commit/3aa9577405d650ab12d85c54bb142515992c2a91))
-* localise the messages the package shows consumers ([#105](https://github.com/sinemacula/laravel-authentication/issues/105)) ([50a40da](https://github.com/sinemacula/laravel-authentication/commit/50a40dac1107d2a5be19f044b70a9dd89e0afe74))
-* name the authentication context's own keys and their types in an enum ([#170](https://github.com/sinemacula/laravel-authentication/issues/170)) ([462b335](https://github.com/sinemacula/laravel-authentication/commit/462b33547c0a20eec9f05921c674ef9f34ecb263))
-* name the outcomes of passkey and code verification ([#100](https://github.com/sinemacula/laravel-authentication/issues/100)) ([b7318fc](https://github.com/sinemacula/laravel-authentication/commit/b7318fc43c6bbf38a0fe74576562b328db4285b9))
-* name the outcomes of verification links ([#104](https://github.com/sinemacula/laravel-authentication/issues/104)) ([6a6c1e7](https://github.com/sinemacula/laravel-authentication/commit/6a6c1e764df374e133db217177112aee657aff6a))
-* name the tenant whose requirement a requirement subject is judged for ([#197](https://github.com/sinemacula/laravel-authentication/issues/197)) ([56b3494](https://github.com/sinemacula/laravel-authentication/commit/56b3494759c1a4ee7b5aa85628a21cd2230436bf))
-* one plain-value method per action, with request helpers that feed it ([#143](https://github.com/sinemacula/laravel-authentication/issues/143)) ([d290a53](https://github.com/sinemacula/laravel-authentication/commit/d290a534e272349e5284cca3962f8242a7ef8f27))
-* one-time codes, passkeys, API keys, client credentials and scopes ([#87](https://github.com/sinemacula/laravel-authentication/issues/87)) ([3e57c06](https://github.com/sinemacula/laravel-authentication/commit/3e57c06c05f095779be125ae451dc15c08997414))
-* password policy and reset, identifier change, testing helpers and README ([#88](https://github.com/sinemacula/laravel-authentication/issues/88)) ([27abe5b](https://github.com/sinemacula/laravel-authentication/commit/27abe5bac451f7871d8327e02d92fef7449147cb))
-* pending sessions, tenant policies, an active tenant and one switch ([#120](https://github.com/sinemacula/laravel-authentication/issues/120)) ([6fdbf6e](https://github.com/sinemacula/laravel-authentication/commit/6fdbf6ef52f1461a362b107dda3fdfabe0423a1d))
-* pick a jwt guard when sessions() is given no name, and resolve one typed ([#168](https://github.com/sinemacula/laravel-authentication/issues/168)) ([25a6ebb](https://github.com/sinemacula/laravel-authentication/commit/25a6ebbb05f8070cd7223d7ae868f39565aad7c4))
-* read a session's provenance, a caller's credential scopes and the connection a tenant's session came through ([#150](https://github.com/sinemacula/laravel-authentication/issues/150)) ([4ed01d6](https://github.com/sinemacula/laravel-authentication/commit/4ed01d6f116491c9e7bda3c66bf37f1e8ec5c868))
-* read an active session's proofs and first factor, from the session service and a contribution subject ([#135](https://github.com/sinemacula/laravel-authentication/issues/135)) ([9fe6dc3](https://github.com/sinemacula/laravel-authentication/commit/9fe6dc3e7ba6297b8692bc9871104655de475d87))
-* read an identity's passkey credential ids, and tell a passkey challenge that expired from one already used ([#147](https://github.com/sinemacula/laravel-authentication/issues/147)) ([9368fb5](https://github.com/sinemacula/laravel-authentication/commit/9368fb5f7f3efc45c207281d3f054bf7a906fca7))
-* read one of an identity's sessions by id in any state ([#167](https://github.com/sinemacula/laravel-authentication/issues/167)) ([5bd37d7](https://github.com/sinemacula/laravel-authentication/commit/5bd37d7f18c40ac943715cfa43f58fcb775dda65))
-* read the principal a session acts as, and list the guards that keep sessions ([#162](https://github.com/sinemacula/laravel-authentication/issues/162)) ([f867cb6](https://github.com/sinemacula/laravel-authentication/commit/f867cb657af6f89936855bcec04574fa0ba962aa))
-* read what a guard is bound to, with its credential's kind and id, without resolving the request ([#176](https://github.com/sinemacula/laravel-authentication/issues/176)) ([1a76071](https://github.com/sinemacula/laravel-authentication/commit/1a760719c9ca210d8897848193d41412092de728))
-* refresh through the session service and return its refusals ([#111](https://github.com/sinemacula/laravel-authentication/issues/111)) ([624b571](https://github.com/sinemacula/laravel-authentication/commit/624b571c59d28703853c13e8126926687d8fbe5f))
-* refresh transport per application, sign-out by refresh token, held secrets and the request's caller ([#121](https://github.com/sinemacula/laravel-authentication/issues/121)) ([6361f00](https://github.com/sinemacula/laravel-authentication/commit/6361f004721114f92d3ba6941edfb24aeaf17a26))
-* refresh, sign out and act on a pending session from plain values ([#138](https://github.com/sinemacula/laravel-authentication/issues/138)) ([b67df37](https://github.com/sinemacula/laravel-authentication/commit/b67df373d9cef8810ea36865bda8ced0a311b9aa))
-* refuse a refresh credential proving another session than the one expected ([#145](https://github.com/sinemacula/laravel-authentication/issues/145)) ([6b72c4b](https://github.com/sinemacula/laravel-authentication/commit/6b72c4b30dee11af0851ce08a7ce1c1fa6b4de1b))
-* report a guard's attempt() and login() sign-ins with SignedIn ([#179](https://github.com/sinemacula/laravel-authentication/issues/179)) ([33a31f6](https://github.com/sinemacula/laravel-authentication/commit/33a31f666ffa78a3165a25e2beea6a6bed764405))
-* resolve an identity from its stored morph type and key ([#174](https://github.com/sinemacula/laravel-authentication/issues/174)) ([13eb288](https://github.com/sinemacula/laravel-authentication/commit/13eb2886dbeed075898bff2c65f13a103760d6ff))
-* resolve every package table's connection from one storage setting ([#95](https://github.com/sinemacula/laravel-authentication/issues/95)) ([969a954](https://github.com/sinemacula/laravel-authentication/commit/969a95403982278a504ff9980e6dcac4d53ba38d))
-* revoke a link's sessions by the identity's reference ([#201](https://github.com/sinemacula/laravel-authentication/issues/201)) ([cc35a36](https://github.com/sinemacula/laravel-authentication/commit/cc35a36e6133dfede1b2434dc2eedc61f99fc2d2))
-* say what a factor code proves and name its factor in the code message ([#180](https://github.com/sinemacula/laravel-authentication/issues/180)) ([5120ede](https://github.com/sinemacula/laravel-authentication/commit/5120ede7907e3d759c324d030c739295954a643f))
-* say when another code may be requested on a sent code request ([#130](https://github.com/sinemacula/laravel-authentication/issues/130)) ([8bc971c](https://github.com/sinemacula/laravel-authentication/commit/8bc971cd0f870f3bfe2707b5cda711092558a284))
-* session lifecycle, event model, refresh transport and process safety ([#86](https://github.com/sinemacula/laravel-authentication/issues/86)) ([9abc553](https://github.com/sinemacula/laravel-authentication/commit/9abc55372c36acd16572d84cfe89696a111bc1a5))
-* start a session from the first factor the application verified ([#151](https://github.com/sinemacula/laravel-authentication/issues/151)) ([0ec673c](https://github.com/sinemacula/laravel-authentication/commit/0ec673c3e43185ebbc358957b52e0798bb1f290f))
-* tell a factor code's absent and used challenges apart from a wrong code ([#146](https://github.com/sinemacula/laravel-authentication/issues/146)) ([109564a](https://github.com/sinemacula/laravel-authentication/commit/109564abfa0703fedac7e0280ba4607c07159353))
-* tell a replayed factor code from another code at a used challenge ([#175](https://github.com/sinemacula/laravel-authentication/issues/175)) ([1f2daba](https://github.com/sinemacula/laravel-authentication/commit/1f2dabac185e4366c55afdb7f844a1bb5dcbf526))
-* tell whether a contract is still bound to the package's default ([#161](https://github.com/sinemacula/laravel-authentication/issues/161)) ([26b2728](https://github.com/sinemacula/laravel-authentication/commit/26b2728b1b7945a3099ea611244d91996b10d0c0))
-* tokens borrow RFC 9068's claims, and sessions record their proofs ([#119](https://github.com/sinemacula/laravel-authentication/issues/119)) ([6448fba](https://github.com/sinemacula/laravel-authentication/commit/6448fba27cf5dec4f77c71607ed6d4120a2329db))
-
-
-### Bug Fixes
-
-* **benchmarks:** widen anonymous CacheFactory::store() phpdoc ([#34](https://github.com/sinemacula/laravel-authentication/issues/34)) ([9c5b6f0](https://github.com/sinemacula/laravel-authentication/commit/9c5b6f0c357d422fee40b47a6af3639411637027))
-* bind an acted context on the guard's first read of each request ([#242](https://github.com/sinemacula/laravel-authentication/issues/242)) ([0d382d1](https://github.com/sinemacula/laravel-authentication/commit/0d382d1c737e8742c81cd7318239a951caadfb5e))
-* clear the qlty findings and drop configuration the shared source provides ([#157](https://github.com/sinemacula/laravel-authentication/issues/157)) ([fe1d93f](https://github.com/sinemacula/laravel-authentication/commit/fe1d93f2704ef8ba8912c562a6ac65c60bf8e89e))
-* compare session owners, principals and tenants byte for byte ([#243](https://github.com/sinemacula/laravel-authentication/issues/243)) ([be2e6af](https://github.com/sinemacula/laravel-authentication/commit/be2e6af890630e05b1331d2fa3c88ce6058ae245))
-* end a session written while its subject was being deactivated or deleted, and bind plain-value calls with the client given ([#142](https://github.com/sinemacula/laravel-authentication/issues/142)) ([4603cca](https://github.com/sinemacula/laravel-authentication/commit/4603cca0cb912dc5382f08e2842df95042b2a7a2))
-* fail closed on malformed code settings before anything is counted ([#238](https://github.com/sinemacula/laravel-authentication/issues/238)) ([743c315](https://github.com/sinemacula/laravel-authentication/commit/743c315543c8c263851ee54a531a971643ae6fb1))
-* forget an identity's ended sessions on every resolved guard, not only the acting one ([#163](https://github.com/sinemacula/laravel-authentication/issues/163)) ([52b10ed](https://github.com/sinemacula/laravel-authentication/commit/52b10ed06c5cf7c6d8582a42b69939b675a5c1fb))
-* give back identifier change slots when the code engine refuses ([#223](https://github.com/sinemacula/laravel-authentication/issues/223)) ([b3c3c56](https://github.com/sinemacula/laravel-authentication/commit/b3c3c5625fa56b8eaacb147e3573f3b520699753))
-* harden the guard, token and refresh paths ([#83](https://github.com/sinemacula/laravel-authentication/issues/83)) ([107f1a3](https://github.com/sinemacula/laravel-authentication/commit/107f1a3517b264f90420a530e554d5ff236a3d31))
-* hold a client credentials caller to its key's principal ([#219](https://github.com/sinemacula/laravel-authentication/issues/219)) ([04ea7e9](https://github.com/sinemacula/laravel-authentication/commit/04ea7e9e70ed6d182c44001456a6a3504b881bfe))
-* judge a sign-in, choice or switch against its tenant's policy again once it commits ([#181](https://github.com/sinemacula/laravel-authentication/issues/181)) ([bc4aeb1](https://github.com/sinemacula/laravel-authentication/commit/bc4aeb1fa76da47a3aae552d292774e6658175e9))
-* keep API key events and rotations in the key's tenant and list keys in time order ([#241](https://github.com/sinemacula/laravel-authentication/issues/241)) ([cbe0dca](https://github.com/sinemacula/laravel-authentication/commit/cbe0dca3501a1f4165060d4cea01895d9826a335))
-* keep earlier bindings and own the auth manager binding ([#94](https://github.com/sinemacula/laravel-authentication/issues/94)) ([e1e4db3](https://github.com/sinemacula/laravel-authentication/commit/e1e4db392c8931724a01f7db68ad6d5b4d8324c1))
-* land the review fixes pushed after [#199](https://github.com/sinemacula/laravel-authentication/issues/199) and [#201](https://github.com/sinemacula/laravel-authentication/issues/201) merged ([#214](https://github.com/sinemacula/laravel-authentication/issues/214)) ([1c70aa2](https://github.com/sinemacula/laravel-authentication/commit/1c70aa299fe0ba387f64cdb313ef5ece3d3e9a76))
-* name the binding's session on factor-code failure events ([#193](https://github.com/sinemacula/laravel-authentication/issues/193)) ([83e987a](https://github.com/sinemacula/laravel-authentication/commit/83e987a481b60403a6bf92ad72cda2cb69d21b91))
-* never return a stale caller once a guard's bound state changes or a queued job starts ([#164](https://github.com/sinemacula/laravel-authentication/issues/164)) ([2c5bb11](https://github.com/sinemacula/laravel-authentication/commit/2c5bb117bdf7013e0e8aa0c2dced9b608599fabe))
-* order a session's proofs of one second by the order they were recorded ([#173](https://github.com/sinemacula/laravel-authentication/issues/173)) ([b22b4dd](https://github.com/sinemacula/laravel-authentication/commit/b22b4ddba66bdefeb17b55dd482c1a6bb81ece6f))
-* read a session's proofs current in every requirement judgement made under its lock ([#133](https://github.com/sinemacula/laravel-authentication/issues/133)) ([cbe7804](https://github.com/sinemacula/laravel-authentication/commit/cbe7804d6f7569e6af7daead94241c761a5da149))
-* read a session's proofs current in freshness judgements under its lock, and run a password reset in the connection's transaction() ([#140](https://github.com/sinemacula/laravel-authentication/issues/140)) ([c2e9bfb](https://github.com/sinemacula/laravel-authentication/commit/c2e9bfb0ccfab6a26365aef6f4b510dedf53771d))
-* refuse a cookie application's cross-site sign-in, start and pending-session actions ([#136](https://github.com/sinemacula/laravel-authentication/issues/136)) ([eafc95b](https://github.com/sinemacula/laravel-authentication/commit/eafc95b61a0654f9139f38a2499075e4136ceb49))
-* remove control and bidirectional formatting characters from text a client supplies ([#144](https://github.com/sinemacula/laravel-authentication/issues/144)) ([d9becf8](https://github.com/sinemacula/laravel-authentication/commit/d9becf87fd4580823a7fc5495b382dd327162167))
-* report lifecycle events before binding the guard and make event snapshots queue-safe ([#96](https://github.com/sinemacula/laravel-authentication/issues/96)) ([22b98eb](https://github.com/sinemacula/laravel-authentication/commit/22b98eb5ca051ccf680be146c005d420ecc68677))
-* revoke a tenant's sessions across scopes in one key order ([#240](https://github.com/sinemacula/laravel-authentication/issues/240)) ([855bf00](https://github.com/sinemacula/laravel-authentication/commit/855bf0054acf32e6c5b6ca2e584812e54ae896ef))
-* run held work once the request, job or command ends when a commit's callbacks stop early ([#165](https://github.com/sinemacula/laravel-authentication/issues/165)) ([4033f06](https://github.com/sinemacula/laravel-authentication/commit/4033f064a5e6e67e9b6456c93bdc8dece3424358))
-* send every deferred event through the dispatcher current at commit ([#109](https://github.com/sinemacula/laravel-authentication/issues/109)) ([ba51077](https://github.com/sinemacula/laravel-authentication/commit/ba5107709c4f3dbb0fc3f6a0aebe9559c38da738))
-* store rate-limit window ends as Unix times ([#225](https://github.com/sinemacula/laravel-authentication/issues/225)) ([b12aa16](https://github.com/sinemacula/laravel-authentication/commit/b12aa161f52fee5eba76b6eef0a669816a23ddd2))
-* take a code check's attempt limit before judging the input's shape ([#149](https://github.com/sinemacula/laravel-authentication/issues/149)) ([3035caf](https://github.com/sinemacula/laravel-authentication/commit/3035cafbe797a47f1f7a528fd1e605132ae0d2b9))
-* take an external reauthentication timed before the session began at its own time ([#184](https://github.com/sinemacula/laravel-authentication/issues/184)) ([6d1666d](https://github.com/sinemacula/laravel-authentication/commit/6d1666d7344bb610c4d6dedb41136dc642b16e15))
-
-
-### Miscellaneous Chores
-
-* release as 0.1.0 ([#251](https://github.com/sinemacula/laravel-authentication/issues/251)) ([538e470](https://github.com/sinemacula/laravel-authentication/commit/538e470ac25550d7230098ed61a937f2a95477d8))
-
-
-### Code Refactoring
-
-* applications, not audiences or principal types ([#114](https://github.com/sinemacula/laravel-authentication/issues/114)) ([3470b84](https://github.com/sinemacula/laravel-authentication/commit/3470b84e2e077a781bdbec5fe8cf938794f39dab))
-* British prose, American identifiers ([#117](https://github.com/sinemacula/laravel-authentication/issues/117)) ([31878ca](https://github.com/sinemacula/laravel-authentication/commit/31878ca02c7f19afa7cbd5c5784d2d848bf3a483))
-* remove legacy surfaces and require an HMAC signing key map ([#82](https://github.com/sinemacula/laravel-authentication/issues/82)) ([3acb60d](https://github.com/sinemacula/laravel-authentication/commit/3acb60d5c2c663252029528760c39831903b7b91))
-* the device record becomes a session, and every sign-in starts one ([#118](https://github.com/sinemacula/laravel-authentication/issues/118)) ([c91ab14](https://github.com/sinemacula/laravel-authentication/commit/c91ab1418507ec3760d12881c9aacb58593474fb))
+* `Auth::identity()`, `Auth::principal()`, `Auth::tenant()` and `Auth::session()` through Laravel's own `Auth` facade, middleware and events
+* a JWT guard whose access tokens carry RFC 9068 claims, signed with HMAC keys selected by key id
+* a session for every sign-in, with idle and absolute lifetimes, and pending sessions that become active once their requirements are met
+* refresh token rotation per application, with replay detection that revokes the session
+* sign-in by password, one-time code, passkey, API key and OAuth client credentials with scopes
+* a session service with one plain-value method per action, and request helpers that feed it
+* per-guard policy, tenant authentication policies and switching the active tenant within a session
+* password policy, password reset and identifier change flows
+* rate limiting of sign-in, refresh, client credentials, password reset, identifier change and code requests
+* session proofs and provenance: what a session proved, when, and the connection and client it came through
+* seams for multi-factor and single sign-on packages: factor changes, freshness, external sign-in and re-authentication through a link, and assurance evidence
+* revocation of sessions by identity, principal, tenant, link or factor
+* lifecycle events with queue-safe snapshots, and an authentication context of plain values
+* one storage setting for every table's connection, and per-request state isolated under Octane and queues
+* a configuration check that other packages can extend, testing helpers and translatable messages
