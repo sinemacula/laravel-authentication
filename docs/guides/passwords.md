@@ -404,6 +404,14 @@ assumed to), and `PasswordSet` reported once that commits. Only a reset returns 
 `identity_inactive` or `identifier_unverified`; the result never does. A reset signs no one in and verifies no
 identifier.
 
+On a cookie application the reset flows make no same-site check, unlike sign-in and refresh (see [Refresh token
+cookie](refreshing.md#refresh-token-cookie)). None reads or sets the refresh cookie or signs anyone in, so a cross-site
+page that makes a browser send one gains no authority the same request sent directly would lack, and cannot read the
+answer. Such a page can still have its visitors' browsers request links or codes, or guess codes, from their IP
+addresses: the `password_reset_request` and `password_reset` limits per identifier, and each code's attempts, bound that
+whatever address a request comes from. To refuse cross-site reset requests anyway, check
+`Auth::refreshTransport($guard)->isSameSiteRequest($request)` in your routes first.
+
 Spending the proof with the password and the revocation needs one transaction, so the identity must live on the session
 model's connection (which the codes' table shares): a guard whose provider's model is on another throws a
 `LogicException` naming both connections from a request for a link or code and from a reset, before anything is counted
